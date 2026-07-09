@@ -77,8 +77,7 @@ final class ModelStoreTests: XCTestCase {
 
         // Files present at the right relative paths (nested dir reconstructed).
         XCTAssertTrue(FileManager.default.fileExists(atPath: store.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
-        XCTAssertTrue(store.isDownloaded(m))
-        XCTAssertTrue(store.isDownloaded(m, verify: true))  // hashes match
+        XCTAssertTrue(store.isDownloaded(m))  // present + hashes match
 
         // Offline: already downloaded => isDownloaded true and download() a no-op,
         // with a transport that would throw if touched.
@@ -87,16 +86,21 @@ final class ModelStoreTests: XCTestCase {
         try await offline.download(m)  // must not throw / must not hit network
     }
 
-    func testVerifyDetectsCorruption() async throws {
-        let payload = [url("redact.onnx"): [UInt8](repeating: 0x9, count: 4096)]
-        let store = ModelStore(transport: MockTransport(payload), fileSystem: FoundationFileSystem(), endpoint: endpoint)
+    func testCorruptionIsDetectedAndReDownloaded() async throws {
+        let good = [UInt8](repeating: 0x9, count: 4096)
+        let t = MockTransport([url("redact.onnx"): good])
+        let store = ModelStore(transport: t, fileSystem: FoundationFileSystem(), endpoint: endpoint)
         let m = model(["redact.onnx"])
         try await store.download(m)
+        XCTAssertTrue(store.isDownloaded(m))
 
-        // Corrupt the cached file on disk.
+        // Corrupt the cached file on disk: isDownloaded always re-hashes, so it
+        // now reports false, and download() repairs it.
         try FoundationFileSystem().write(store.location(of: m) + "/redact.onnx", [UInt8](repeating: 0xFF, count: 4096))
-        XCTAssertTrue(store.isDownloaded(m))               // fast path trusts existence
-        XCTAssertFalse(store.isDownloaded(m, verify: true)) // re-hash catches it
+        XCTAssertFalse(store.isDownloaded(m))
+        try await store.download(m)
+        XCTAssertEqual(t.downloadCount, 2)     // the corrupt file was re-fetched
+        XCTAssertTrue(store.isDownloaded(m))
     }
 
     func testSizeMismatchIsRejected() async throws {

@@ -18,24 +18,43 @@ public struct SHA256 {
     private var h: (UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32, UInt32) = (
         0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19)
     private var pending = [UInt8]()   // buffered bytes not yet a full 64-byte block
+    private var w = [UInt32](repeating: 0, count: 64)  // reused message schedule (no per-block alloc)
     private var totalBytes: UInt64 = 0
 
     public init() { pending.reserveCapacity(64) }
 
     /// Feed more bytes. Call any number of times before `finalize()`.
+    /// Processes 64-byte blocks straight from contiguous storage; only a
+    /// sub-block remainder is copied, so hashing large files is fast.
     public mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
-        totalBytes &+= UInt64(bytes.count)
-        var it = bytes.makeIterator()
-        var next = it.next()
-        while next != nil {
-            while pending.count < 64, let b = next {
-                pending.append(b)
-                next = it.next()
-            }
+        if bytes.withContiguousStorageIfAvailable({ update(buffer: $0) }) != nil { return }
+        let contiguous = Array(bytes)  // rare: non-contiguous collection
+        contiguous.withUnsafeBufferPointer { update(buffer: $0) }
+    }
+
+    public mutating func update(_ bytes: [UInt8]) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
+    public mutating func update(_ bytes: ArraySlice<UInt8>) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
+
+    private mutating func update(buffer buf: UnsafeBufferPointer<UInt8>) {
+        guard let base = buf.baseAddress, buf.count > 0 else { return }
+        let count = buf.count
+        totalBytes &+= UInt64(count)
+        var offset = 0
+        if !pending.isEmpty {
+            let take = min(64 - pending.count, count)
+            pending.append(contentsOf: UnsafeBufferPointer(start: base, count: take))
+            offset = take
             if pending.count == 64 {
-                processBlock(pending)
+                pending.withUnsafeBufferPointer { processBlock($0.baseAddress!) }
                 pending.removeAll(keepingCapacity: true)
             }
+        }
+        while offset + 64 <= count {
+            processBlock(base + offset)
+            offset += 64
+        }
+        if offset < count {
+            pending.append(contentsOf: UnsafeBufferPointer(start: base + offset, count: count - offset))
         }
     }
 
@@ -45,14 +64,14 @@ public struct SHA256 {
         pending.append(0x80)
         if pending.count > 56 {
             while pending.count < 64 { pending.append(0) }
-            processBlock(pending)
+            pending.withUnsafeBufferPointer { processBlock($0.baseAddress!) }
             pending.removeAll(keepingCapacity: true)
         }
         while pending.count < 56 { pending.append(0) }
         for shift in stride(from: 56, through: 0, by: -8) {
             pending.append(UInt8(truncatingIfNeeded: bitLen >> UInt64(shift)))
         }
-        processBlock(pending)
+        pending.withUnsafeBufferPointer { processBlock($0.baseAddress!) }
 
         var out = [UInt8](); out.reserveCapacity(32)
         for v in [h.0, h.1, h.2, h.3, h.4, h.5, h.6, h.7] {
@@ -64,8 +83,7 @@ public struct SHA256 {
         return out
     }
 
-    private mutating func processBlock(_ b: [UInt8]) {
-        var w = [UInt32](repeating: 0, count: 64)
+    private mutating func processBlock(_ b: UnsafePointer<UInt8>) {
         for i in 0..<16 {
             let j = i * 4
             w[i] = UInt32(b[j]) << 24 | UInt32(b[j + 1]) << 16 | UInt32(b[j + 2]) << 8 | UInt32(b[j + 3])

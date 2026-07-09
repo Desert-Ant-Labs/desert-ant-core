@@ -48,20 +48,12 @@ public struct ModelStore: Sendable {
 
     // MARK: public API
 
-    /// Whether every file of `model` is present. Fast by default (existence +
-    /// recorded metadata); with `verify: true` it re-hashes each file and checks
-    /// it against the stored SHA-256, catching on-disk corruption offline.
-    public func isDownloaded(_ model: Model, verify: Bool = false) -> Bool {
-        for file in model.files {
-            let dest = filePath(model, file)
-            guard fs.exists(dest), let metaBytes = try? fs.read(metaPath(model, file)),
-                  let meta = FileMetadata.parse(metaBytes) else { return false }
-            if verify {
-                guard let bytes = try? fs.read(dest),
-                      SHA256.hexDigest(bytes) == meta.sha256 else { return false }
-            }
-        }
-        return true
+    /// Whether every file of `model` is present and intact. Always re-hashes
+    /// each file and checks it against the SHA-256 recorded at download time, so
+    /// a truncated or corrupted file reports `false` (and re-downloads) rather
+    /// than being used. Works fully offline (no network).
+    public func isDownloaded(_ model: Model) -> Bool {
+        model.files.allSatisfy { isFileValid(model, $0) }
     }
 
     /// Ensure every file of `model` is present and valid, downloading only what
@@ -77,7 +69,7 @@ public struct ModelStore: Sendable {
         var totalBytes: Int64 = 0
         var pending: [String] = []
         for file in model.files {
-            if isFilePresent(model, file), let s = fs.size(filePath(model, file)) {
+            if isFileValid(model, file), let s = fs.size(filePath(model, file)) {
                 completedBytes += s
                 totalBytes += s
             } else {
@@ -106,8 +98,14 @@ public struct ModelStore: Sendable {
 
     // MARK: internals
 
-    private func isFilePresent(_ model: Model, _ file: String) -> Bool {
-        fs.exists(filePath(model, file)) && fs.exists(metaPath(model, file))
+    /// A cached file is valid iff its bytes hash to the SHA-256 recorded in its
+    /// `.meta` sidecar (catches truncation/corruption; needs no network).
+    private func isFileValid(_ model: Model, _ file: String) -> Bool {
+        guard let metaBytes = try? fs.read(metaPath(model, file)),
+              let meta = FileMetadata.parse(metaBytes),
+              let bytes = try? fs.read(filePath(model, file)),
+              SHA256.hexDigest(bytes) == meta.sha256 else { return false }
+        return true
     }
 
     private func fetch(_ model: Model, _ file: String, info: RemoteFileInfo,

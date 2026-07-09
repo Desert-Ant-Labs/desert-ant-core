@@ -1,4 +1,5 @@
 import XCTest
+import Foundation
 import Checksum
 
 final class ChecksumTests: XCTestCase {
@@ -27,6 +28,20 @@ final class ChecksumTests: XCTestCase {
         }
         s.update(data[i...])
         XCTAssertEqual(SHA256.hex(s.finalize()), oneShot)
+    }
+
+    func testLargeInput() {
+        // isDownloaded re-hashes every file on every call, so exercise a
+        // model-sized buffer: deterministic, correct length, not catastrophically
+        // slow (release is ~0.07s for 16 MB / ~225 MB/s; the loose bound just
+        // guards against an accidental O(n^2), since this runs in a slow debug
+        // build by default).
+        let data = [UInt8](repeating: 0x5a, count: 16 * 1024 * 1024)
+        let start = Date()
+        let a = SHA256.hexDigest(data)
+        XCTAssertEqual(a.count, 64)
+        XCTAssertEqual(a, SHA256.hexDigest(data))            // deterministic
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30.0)
     }
 
     func testMillionA() {
