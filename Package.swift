@@ -45,6 +45,8 @@ let package = Package(
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
+        .library(name: "Checksum", targets: ["Checksum"]),
+        .library(name: "ModelStore", targets: ["ModelStore"]),
         // Android JNI harness for model SDKs (empty off-Android).
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
@@ -73,6 +75,8 @@ let package = Package(
             ] + jsWasi
         ),
         .target(name: "FFIBuffer"),
+        .target(name: "Checksum"),
+        .target(name: "ModelStore", dependencies: ["Checksum"]),
         .target(
             name: "HostBridge",
             dependencies: [
@@ -81,6 +85,8 @@ let package = Package(
             ]
         ),
 
+        .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
+        .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
