@@ -1,15 +1,14 @@
 import Checksum
 
-/// Progress across a model download.
+/// One total download progress across all of a model's files: bytes downloaded
+/// out of the combined size of every file (not per file).
 public struct DownloadProgress: Sendable {
     public let completedBytes: Int64
     public let totalBytes: Int64
-    public let completedFiles: Int
-    public let totalFiles: Int
-    /// 0...1, by bytes when a total is known, else by files.
+    /// 0...1 = completedBytes / totalBytes.
     public var fraction: Double {
         if totalBytes > 0 { return min(1, Double(completedBytes) / Double(totalBytes)) }
-        return totalFiles > 0 ? Double(completedFiles) / Double(totalFiles) : 0
+        return completedBytes > 0 ? 1 : 0
     }
 }
 
@@ -64,35 +63,37 @@ public struct ModelStore: Sendable {
         try fs.makeDirectory(location(of: model))
         try fs.makeDirectory(metaDir(model))
 
-        // Pre-size: known-present files count toward the total immediately.
+        // Split into already-valid files and the ones to fetch. Valid files
+        // count toward both the completed and total byte counts.
         var completedBytes: Int64 = 0
-        var totalBytes: Int64 = 0
         var pending: [String] = []
         for file in model.files {
             if isFileValid(model, file), let s = fs.size(filePath(model, file)) {
                 completedBytes += s
-                totalBytes += s
             } else {
                 pending.append(file)
             }
         }
-        let totalFiles = model.files.count
-        var completedFiles = totalFiles - pending.count
-        progress(DownloadProgress(completedBytes: completedBytes, totalBytes: totalBytes,
-                                  completedFiles: completedFiles, totalFiles: totalFiles))
 
+        // HEAD every pending file up front so `totalBytes` is the full size of
+        // all files before any download starts. This makes the reported fraction
+        // one stable total (bytes done / total bytes of all files), not per file.
+        var infos: [(file: String, info: RemoteFileInfo)] = []
+        var totalBytes = completedBytes
         for file in pending {
             let info = try await transport.head(resolveURL(model, file))
-            if let s = info.size { totalBytes += s }
-            let base = completedBytes
-            try await fetch(model, file, info: info) { fileBytes in
-                progress(DownloadProgress(completedBytes: base + fileBytes, totalBytes: totalBytes,
-                                          completedFiles: completedFiles, totalFiles: totalFiles))
-            }
+            infos.append((file, info))
+            totalBytes += info.size ?? 0
+        }
+
+        func report(_ done: Int64) { progress(DownloadProgress(completedBytes: done, totalBytes: totalBytes)) }
+        report(completedBytes)
+
+        for (file, info) in infos {
+            let base = completedBytes  // bytes already done before this file
+            try await fetch(model, file, info: info) { fileBytes in report(base + fileBytes) }
             completedBytes += fs.size(filePath(model, file)) ?? info.size ?? 0
-            completedFiles += 1
-            progress(DownloadProgress(completedBytes: completedBytes, totalBytes: totalBytes,
-                                      completedFiles: completedFiles, totalFiles: totalFiles))
+            report(completedBytes)
         }
     }
 

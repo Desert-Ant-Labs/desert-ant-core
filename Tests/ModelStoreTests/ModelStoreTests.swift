@@ -24,7 +24,7 @@ final class MockTransport: ModelTransport, @unchecked Sendable {
                               size: sizeOverride ?? Int64(b.count))
     }
 
-    func download(_ url: String, to destinationPath: String, onBytes: @Sendable (Int64) -> Void) async throws {
+    func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         lock.withLock { downloadCount += 1 }
         guard let b = files[url] else { throw ModelStoreError.io("404 \(url)") }
         try FoundationFileSystem().write(destinationPath, b)
@@ -35,7 +35,7 @@ final class MockTransport: ModelTransport, @unchecked Sendable {
 /// Transport that throws on any call: proves the offline path never touches the network.
 struct OfflineTransport: ModelTransport {
     func head(_ url: String) async throws -> RemoteFileInfo { throw ModelStoreError.io("offline") }
-    func download(_ url: String, to path: String, onBytes: @Sendable (Int64) -> Void) async throws { throw ModelStoreError.io("offline") }
+    func download(_ url: String, to path: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws { throw ModelStoreError.io("offline") }
 }
 
 final class LockedDouble: @unchecked Sendable {

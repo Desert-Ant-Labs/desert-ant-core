@@ -18,7 +18,7 @@ public struct CHostBridgeTransport: ModelTransport {
         return RemoteFileInfo(etag: field(0), commit: field(1), size: field(2).flatMap { Int64($0) })
     }
 
-    public func download(_ url: String, to destinationPath: String, onBytes: @Sendable (Int64) -> Void) async throws {
+    public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         let rc = url.withCString { u in destinationPath.withCString { d in host_http_download(u, d) } }
         guard rc == 0 else { throw ModelStoreError.io("GET \(url) failed on host") }
         // The store reads the file size for progress after this returns.

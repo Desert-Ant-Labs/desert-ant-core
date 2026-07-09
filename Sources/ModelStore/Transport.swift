@@ -32,7 +32,7 @@ public struct RemoteFileInfo: Sendable {
 /// a file, reporting cumulative bytes written.
 public protocol ModelTransport: Sendable {
     func head(_ url: String) async throws -> RemoteFileInfo
-    func download(_ url: String, to destinationPath: String, onBytes: @Sendable (Int64) -> Void) async throws
+    func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws
 }
 
 /// Filesystem seam: the small set of operations the store needs. `move` must be

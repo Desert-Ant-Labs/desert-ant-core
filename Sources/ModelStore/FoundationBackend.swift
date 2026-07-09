@@ -33,16 +33,18 @@ public struct FoundationTransport: ModelTransport {
                               size: sizeStr.flatMap { Int64($0) })
     }
 
-    public func download(_ url: String, to destinationPath: String, onBytes: @Sendable (Int64) -> Void) async throws {
+    public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
-        let (tmp, resp) = try await URLSession.shared.download(from: u)
-        if let http = resp as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        let delegate = DownloadDelegate(destination: URL(fileURLWithPath: destinationPath), onBytes: onBytes)
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+        let http = try await withCheckedThrowingContinuation { (c: CheckedContinuation<HTTPURLResponse?, Error>) in
+            delegate.continuation = c
+            session.downloadTask(with: u).resume()
+        }
+        if let http, !(200..<300).contains(http.statusCode) {
             throw ModelStoreError.io("GET \(url): HTTP \(http.statusCode)")
         }
-        let dest = URL(fileURLWithPath: destinationPath)
-        try? FileManager.default.removeItem(at: dest)
-        try FileManager.default.moveItem(at: tmp, to: dest)
-        onBytes(FoundationFileSystem().size(destinationPath) ?? 0)
     }
 
     private func header(_ r: HTTPURLResponse, _ name: String) -> String? {
@@ -52,6 +54,40 @@ public struct FoundationTransport: ModelTransport {
         var s = e
         if s.hasPrefix("W/") { s.removeFirst(2) }
         return s.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    }
+
+    /// Streams a download to `destination`, reporting cumulative bytes via
+    /// `onBytes`. Resumes the continuation once, in `didCompleteWithError`.
+    private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+        let destination: URL
+        let onBytes: @Sendable (Int64) -> Void
+        var continuation: CheckedContinuation<HTTPURLResponse?, Error>?
+        private var moveError: Error?
+
+        init(destination: URL, onBytes: @escaping @Sendable (Int64) -> Void) {
+            self.destination = destination; self.onBytes = onBytes
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                        didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
+                        totalBytesExpectedToWrite: Int64) {
+            onBytes(totalBytesWritten)
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                        didFinishDownloadingTo location: URL) {
+            do {
+                try? FileManager.default.removeItem(at: destination)
+                try FileManager.default.moveItem(at: location, to: destination)
+            } catch { moveError = error }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error { continuation?.resume(throwing: error) }
+            else if let moveError { continuation?.resume(throwing: moveError) }
+            else { continuation?.resume(returning: task.response as? HTTPURLResponse) }
+            continuation = nil
+        }
     }
 
     private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {

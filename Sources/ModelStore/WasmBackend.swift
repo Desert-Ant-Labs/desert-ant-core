@@ -66,7 +66,7 @@ public struct JSTransport: ModelTransport {
         return RemoteFileInfo(etag: etag, commit: h("x-repo-commit"), size: sizeStr.flatMap { Int64($0) })
     }
 
-    public func download(_ url: String, to destinationPath: String, onBytes: @Sendable (Int64) -> Void) async throws {
+    public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         let resp = try await fetch(url, .undefined)
         let bufPromise = JSPromise(from: resp.arrayBuffer!())
         guard let bufPromise else { throw ModelStoreError.io("arrayBuffer(\(url))") }
