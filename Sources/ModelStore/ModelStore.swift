@@ -20,7 +20,6 @@ public struct DownloadProgress: Sendable {
 public struct ModelStore: Sendable {
     private let transport: ModelTransport
     private let fs: FileSystem
-    /// The Hub endpoint; override for tests or a mirror.
     private let endpoint: String
 
     public init(transport: ModelTransport, fileSystem: FileSystem, endpoint: String = "https://huggingface.co") {
@@ -29,113 +28,132 @@ public struct ModelStore: Sendable {
         self.endpoint = endpoint
     }
 
-    // MARK: paths
+    // MARK: paths / urls
 
-    /// The directory that holds a model's files (present or not). Consumers open
+    /// The directory holding a model's files (present or not). Consumers open
     /// artifacts under here, e.g. `location(of:) + "/redact.mlmodelc"`.
     public func location(of model: Model) -> String {
-        let root = model.cacheDirectory ?? fs.defaultCacheRoot()
-        return join(root, "desert-ant-labs", model.repo, model.revision)
+        join(model.cacheDirectory ?? fs.defaultCacheRoot(), "desert-ant-labs", model.repo, model.revision)
     }
-
-    private func metaDir(_ model: Model) -> String { join(location(of: model), ".dal-meta") }
+    private func manifestPath(_ model: Model) -> String { join(location(of: model), ".dal-meta", "manifest") }
     private func filePath(_ model: Model, _ file: String) -> String { join(location(of: model), file) }
-    private func metaPath(_ model: Model, _ file: String) -> String { join(metaDir(model), file + ".meta") }
-    private func resolveURL(_ model: Model, _ file: String) -> String {
+    private func fileURL(_ model: Model, _ file: String) -> String {
         "\(endpoint)/\(model.repo)/resolve/\(model.revision)/\(file)"
+    }
+    private func treeURL(_ model: Model) -> String {
+        "\(endpoint)/api/models/\(model.repo)/tree/\(model.revision)?recursive=true"
     }
 
     // MARK: public API
 
-    /// Whether every file of `model` is present and intact. Always re-hashes
-    /// each file and checks it against the SHA-256 recorded at download time, so
-    /// a truncated or corrupted file reports `false` (and re-downloads) rather
-    /// than being used. Works fully offline (no network).
+    /// Whether the model is fully present and intact. Reads the resolved
+    /// manifest written at download time (so it knows the exact files, folders
+    /// already expanded) and re-hashes each against its recorded SHA-256. A
+    /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
     public func isDownloaded(_ model: Model) -> Bool {
-        model.files.allSatisfy { isFileValid(model, $0) }
+        guard let bytes = try? fs.read(manifestPath(model)), let manifest = Manifest.parse(bytes),
+              !manifest.entries.isEmpty else { return false }
+        for e in manifest.entries {
+            guard let data = try? fs.read(filePath(model, e.path)),
+                  SHA256.hexDigest(data) == e.sha256 else { return false }
+        }
+        return true
     }
 
-    /// Ensure every file of `model` is present and valid, downloading only what
-    /// is missing. A no-op (no network) when already downloaded. Downloads go to
-    /// a `.part` temp file, are verified, then atomically moved into place, so a
-    /// crash mid-download never corrupts the cache.
+    /// Ensure the model is present and valid, downloading only what is missing.
+    /// A no-op (no network) when already downloaded. `files` may name exact
+    /// files or folders (a trailing `/`), which the Hub tree call expands.
+    /// Downloads go to a `.part` temp file, are size- and SHA256-verified, then
+    /// atomically moved into place; the manifest is written last, so a crash
+    /// mid-download never yields a "downloaded" but broken model.
     public func download(_ model: Model, progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }) async throws {
         try fs.makeDirectory(location(of: model))
-        try fs.makeDirectory(metaDir(model))
-
-        // Split into already-valid files and the ones to fetch. Valid files
-        // count toward both the completed and total byte counts.
-        var completedBytes: Int64 = 0
-        var pending: [String] = []
-        for file in model.files {
-            if isFileValid(model, file), let s = fs.size(filePath(model, file)) {
-                completedBytes += s
-            } else {
-                pending.append(file)
+        if isDownloaded(model) {
+            if let bytes = try? fs.read(manifestPath(model)), let m = Manifest.parse(bytes) {
+                let total = m.entries.reduce(0) { $0 + $1.size }
+                progress(DownloadProgress(completedBytes: total, totalBytes: total))
             }
+            return
         }
 
-        // HEAD every pending file up front so `totalBytes` is the full size of
-        // all files before any download starts. This makes the reported fraction
-        // one stable total (bytes done / total bytes of all files), not per file.
-        var infos: [(file: String, info: RemoteFileInfo)] = []
-        var totalBytes = completedBytes
-        for file in pending {
-            let info = try await transport.head(resolveURL(model, file))
-            infos.append((file, info))
-            totalBytes += info.size ?? 0
-        }
+        // One tree call resolves folders and gives size + LFS sha256 per file.
+        let tree = try await transport.tree(treeURL(model))
+        let resolved = try resolve(model.files, in: tree, repo: model.repo)
 
+        let totalBytes = resolved.reduce(0) { $0 + $1.size }
+        var completedBytes: Int64 = 0
         func report(_ done: Int64) { progress(DownloadProgress(completedBytes: done, totalBytes: totalBytes)) }
-        report(completedBytes)
+        report(0)
 
-        for (file, info) in infos {
-            let base = completedBytes  // bytes already done before this file
-            try await fetch(model, file, info: info) { fileBytes in report(base + fileBytes) }
-            completedBytes += fs.size(filePath(model, file)) ?? info.size ?? 0
+        var manifest: [Manifest.Entry] = []
+        for e in resolved {
+            let dest = filePath(model, e.path)
+            // Skip a file already present and matching its LFS hash (resumes a
+            // partial prior run without re-downloading verified LFS files).
+            if let expected = e.sha256, fs.exists(dest), let data = try? fs.read(dest),
+               SHA256.hexDigest(data) == expected {
+                completedBytes += e.size
+                manifest.append(.init(path: e.path, size: e.size, sha256: expected))
+                report(completedBytes)
+                continue
+            }
+            let base = completedBytes
+            let sha = try await fetch(model, e) { fileBytes in report(base + fileBytes) }
+            completedBytes += fs.size(dest) ?? e.size
+            manifest.append(.init(path: e.path, size: e.size, sha256: sha))
             report(completedBytes)
         }
+
+        try fs.makeDirectory(parentDir(manifestPath(model)))
+        try fs.write(manifestPath(model), Manifest(entries: manifest).serialized())
     }
 
     // MARK: internals
 
-    /// A cached file is valid iff its bytes hash to the SHA-256 recorded in its
-    /// `.meta` sidecar (catches truncation/corruption; needs no network).
-    private func isFileValid(_ model: Model, _ file: String) -> Bool {
-        guard let metaBytes = try? fs.read(metaPath(model, file)),
-              let meta = FileMetadata.parse(metaBytes),
-              let bytes = try? fs.read(filePath(model, file)),
-              SHA256.hexDigest(bytes) == meta.sha256 else { return false }
-        return true
+    /// Expand the requested files/folders against the repo tree.
+    private func resolve(_ requested: [String], in tree: [RemoteEntry], repo: String) throws -> [RemoteEntry] {
+        var out: [RemoteEntry] = []
+        var seen = Set<String>()
+        func add(_ e: RemoteEntry) { if seen.insert(e.path).inserted { out.append(e) } }
+        for req in requested {
+            if req.hasSuffix("/") {
+                let matches = tree.filter { $0.path == String(req.dropLast()) || $0.path.hasPrefix(req) }
+                guard !matches.isEmpty else { throw ModelStoreError.notInRepo("\(repo)/\(req)") }
+                matches.forEach(add)
+            } else {
+                guard let e = tree.first(where: { $0.path == req }) else {
+                    throw ModelStoreError.notInRepo("\(repo)/\(req)")
+                }
+                add(e)
+            }
+        }
+        return out
     }
 
-    private func fetch(_ model: Model, _ file: String, info: RemoteFileInfo,
-                       onBytes: @Sendable @escaping (Int64) -> Void) async throws {
-        let dest = filePath(model, file)
-        let meta = metaPath(model, file)
-        let part = meta + ".\(info.etag ?? "dl").part"
+    /// Download one file to a temp path, verify size + (LFS) SHA-256, atomically
+    /// move into place, and return the content SHA-256.
+    private func fetch(_ model: Model, _ e: RemoteEntry,
+                       onBytes: @Sendable @escaping (Int64) -> Void) async throws -> String {
+        let dest = filePath(model, e.path)
+        let part = join(location(of: model), ".dal-meta", e.path + ".part")
         try fs.makeDirectory(parentDir(dest))
         try fs.makeDirectory(parentDir(part))
-        try fs.makeDirectory(parentDir(meta))
-        fs.remove(part)  // discard any stale partial
+        fs.remove(part)
 
-        try await transport.download(resolveURL(model, file), to: part, onBytes: onBytes)
+        try await transport.download(fileURL(model, e.path), to: part, onBytes: onBytes)
 
-        // Verify before it is allowed into the cache.
-        if let expected = info.size, let got = fs.size(part), got != expected {
+        if let got = fs.size(part), got != e.size {
             fs.remove(part)
-            throw ModelStoreError.integrityCheckFailed("\(file): size \(got) != \(expected)")
+            throw ModelStoreError.integrityCheckFailed("\(e.path): size \(got) != \(e.size)")
         }
         let bytes = try fs.read(part)
         let sha = SHA256.hexDigest(bytes)
-        if info.etagIsSHA256, let etag = info.etag, sha != etag {
+        if let expected = e.sha256, sha != expected {
             fs.remove(part)
-            throw ModelStoreError.integrityCheckFailed("\(file): sha256 mismatch")
+            throw ModelStoreError.integrityCheckFailed("\(e.path): sha256 mismatch")
         }
-
-        try fs.move(part, to: dest)  // atomic
-        let record = FileMetadata(sha256: sha, size: Int64(bytes.count), etag: info.etag, commit: info.commit)
-        try fs.write(meta, record.serialized())
+        try fs.move(part, to: dest)
+        return sha
     }
 
     // MARK: path helpers (POSIX-style, all target platforms use "/")
@@ -143,12 +161,10 @@ public struct ModelStore: Sendable {
     private func join(_ parts: String...) -> String {
         var out = ""
         for p in parts where !p.isEmpty {
-            if out.isEmpty { out = p }
-            else { out += out.hasSuffix("/") ? p : "/" + p }
+            if out.isEmpty { out = p } else { out += out.hasSuffix("/") ? p : "/" + p }
         }
         return out
     }
-
     private func parentDir(_ path: String) -> String {
         guard let slash = path.lastIndex(of: "/") else { return "." }
         return String(path[..<slash])

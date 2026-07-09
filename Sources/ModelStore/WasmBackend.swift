@@ -6,14 +6,6 @@
 import JavaScriptKit
 import JavaScriptEventLoop
 
-// Foundation-free etag cleanup (strip a weak-validator prefix and quotes).
-private func cleanEtag(_ e: String) -> String {
-    var s = Substring(e)
-    if s.hasPrefix("W/") { s = s.dropFirst(2) }
-    while s.first == "\"" { s = s.dropFirst() }
-    while s.last == "\"" { s = s.dropLast() }
-    return String(s)
-}
 
 /// node `fs` (sync) filesystem.
 public struct JSFileSystem: FileSystem {
@@ -55,15 +47,19 @@ public struct JSFileSystem: FileSystem {
 public struct JSTransport: ModelTransport {
     public init() {}
 
-    public func head(_ url: String) async throws -> RemoteFileInfo {
-        let opts = JSObject.global.Object.function!.new()
-        opts.method = "HEAD".jsValue
-        let resp = try await fetch(url, opts.jsValue)
-        let headers = resp.headers.object!
-        func h(_ name: String) -> String? { headers.get!(name).string }
-        let etag = (h("x-linked-etag") ?? h("etag")).map(cleanEtag)
-        let sizeStr = h("x-linked-size") ?? h("content-length")
-        return RemoteFileInfo(etag: etag, commit: h("x-repo-commit"), size: sizeStr.flatMap { Int64($0) })
+    public func tree(_ url: String) async throws -> [RemoteEntry] {
+        let resp = try await fetch(url, .undefined)
+        guard let jsonPromise = JSPromise(from: resp.json!()) else { throw ModelStoreError.io("json(\(url))") }
+        let arr = try await jsonPromise.value
+        let n = Int(arr.length.number ?? 0)
+        var out: [RemoteEntry] = []
+        for i in 0..<n {
+            let e = arr[i]
+            guard e.type.string == "file" else { continue }
+            let sha = e.lfs.object?.oid.string
+            out.append(RemoteEntry(path: e.path.string ?? "", size: Int64(e.size.number ?? 0), sha256: sha))
+        }
+        return out
     }
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {

@@ -29,12 +29,12 @@ void host_set_json_parse(HostJSONParseFn fn);
 char *host_json_parse(const char *json);
 
 // HTTP (Android): the host performs the request off the pure-Swift library.
-// head returns a malloc'd "etag\ncommit\nsize" (empty line for a missing
-// field), NULL on failure. download writes the response body to dest_path and
-// returns 0 on success, -1 on failure.
-typedef char *(*HostHttpHeadFn)(const char *url);
-void host_set_http_head(HostHttpHeadFn fn);
-char *host_http_head(const char *url);
+// tree GETs the Hub tree API and returns a malloc'd listing, one file per line
+// as "path\tsize\tsha256" (empty sha256 for non-LFS files), NULL on failure.
+// download writes the response body to dest_path and returns 0 / -1.
+typedef char *(*HostHttpTreeFn)(const char *url);
+void host_set_http_tree(HostHttpTreeFn fn);
+char *host_http_tree(const char *url);
 
 typedef int32_t (*HostHttpDownloadFn)(const char *url, const char *dest_path);
 void host_set_http_download(HostHttpDownloadFn fn);

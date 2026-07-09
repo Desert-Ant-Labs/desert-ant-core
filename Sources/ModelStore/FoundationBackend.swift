@@ -13,24 +13,14 @@ import FoundationNetworking
 public struct FoundationTransport: ModelTransport {
     public init() {}
 
-    public func head(_ url: String) async throws -> RemoteFileInfo {
+    public func tree(_ url: String) async throws -> [RemoteEntry] {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
-        var req = URLRequest(url: u)
-        req.httpMethod = "HEAD"
-        req.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
-        // Block redirects so we read the Hub's own response headers (LFS files
-        // 302 to a CDN, and the SHA-256 is on X-Linked-Etag of that 302).
-        let session = URLSession(configuration: .default, delegate: NoRedirect(), delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
-        let (_, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else { throw ModelStoreError.io("no http response") }
-        guard (200..<400).contains(http.statusCode) else {
-            throw ModelStoreError.io("HEAD \(url): HTTP \(http.statusCode)")
+        let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: u))
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ModelStoreError.io("tree \(url): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
         }
-        let etag = header(http, "X-Linked-Etag") ?? header(http, "ETag")
-        let sizeStr = header(http, "X-Linked-Size") ?? header(http, "Content-Length")
-        return RemoteFileInfo(etag: etag.map(cleanEtag), commit: header(http, "X-Repo-Commit"),
-                              size: sizeStr.flatMap { Int64($0) })
+        let items = try JSONDecoder().decode([TreeItem].self, from: data)
+        return items.compactMap { $0.type == "file" ? RemoteEntry(path: $0.path, size: $0.size, sha256: $0.lfs?.oid) : nil }
     }
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
@@ -47,13 +37,12 @@ public struct FoundationTransport: ModelTransport {
         }
     }
 
-    private func header(_ r: HTTPURLResponse, _ name: String) -> String? {
-        r.value(forHTTPHeaderField: name)
-    }
-    private func cleanEtag(_ e: String) -> String {
-        var s = e
-        if s.hasPrefix("W/") { s.removeFirst(2) }
-        return s.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+    private struct TreeItem: Decodable {
+        let type: String
+        let path: String
+        let size: Int64
+        let lfs: LFS?
+        struct LFS: Decodable { let oid: String }
     }
 
     /// Streams a download to `destination`, reporting cumulative bytes via
@@ -87,14 +76,6 @@ public struct FoundationTransport: ModelTransport {
             else if let moveError { continuation?.resume(throwing: moveError) }
             else { continuation?.resume(returning: task.response as? HTTPURLResponse) }
             continuation = nil
-        }
-    }
-
-    private final class NoRedirect: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
-        func urlSession(_ session: URLSession, task: URLSessionTask,
-                        willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest,
-                        completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(nil)
         }
     }
 }

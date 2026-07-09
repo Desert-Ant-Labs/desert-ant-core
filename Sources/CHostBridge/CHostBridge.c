@@ -17,11 +17,11 @@ char *host_json_parse(const char *json) {
     return g_json_parse ? g_json_parse(json) : 0;
 }
 
-static HostHttpHeadFn g_http_head = 0;
+static HostHttpTreeFn g_http_tree = 0;
 static HostHttpDownloadFn g_http_download = 0;
 
-void host_set_http_head(HostHttpHeadFn fn) { g_http_head = fn; }
-char *host_http_head(const char *url) { return g_http_head ? g_http_head(url) : 0; }
+void host_set_http_tree(HostHttpTreeFn fn) { g_http_tree = fn; }
+char *host_http_tree(const char *url) { return g_http_tree ? g_http_tree(url) : 0; }
 
 void host_set_http_download(HostHttpDownloadFn fn) { g_http_download = fn; }
 int32_t host_http_download(const char *url, const char *dest_path) {

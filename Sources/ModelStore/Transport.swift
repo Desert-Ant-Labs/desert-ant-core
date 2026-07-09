@@ -1,37 +1,29 @@
 // The two per-platform seams (Foundation-free protocols): HTTP transport and
 // filesystem. Apple/Linux back them with URLSession/FileManager
-// (FoundationBackend.swift); Android and wasm will back them with the host
-// (java.net / JS fetch, POSIX / host storage). URLs and paths are plain
-// strings so nothing Foundation crosses the seam.
+// (FoundationBackend.swift); Android and wasm back them with the host
+// (java.net / JS fetch, POSIX / node fs). URLs and paths are plain strings so
+// nothing Foundation crosses the seam.
 
-/// What a `HEAD` on a Hub `resolve` URL tells us about a file.
-public struct RemoteFileInfo: Sendable {
-    /// The server's content hash, if any. For Hugging Face LFS files (the large
-    /// weights) this is the lowercase SHA-256; for small non-LFS files it's the
-    /// git blob hash (not a content hash).
-    public let etag: String?
-    /// The commit the revision resolved to (`X-Repo-Commit`).
-    public let commit: String?
-    /// The file's real size in bytes (`X-Linked-Size` / `Content-Length`).
-    public let size: Int64?
+/// One file in a repo, from the Hub tree listing.
+public struct RemoteEntry: Sendable, Equatable {
+    /// Repo-relative path.
+    public let path: String
+    /// Size in bytes.
+    public let size: Int64
+    /// Content SHA-256 for LFS files (the large weights); `nil` for small
+    /// git-tracked files, whose hash is computed on download instead.
+    public let sha256: String?
 
-    public init(etag: String?, commit: String?, size: Int64?) {
-        self.etag = etag
-        self.commit = commit
-        self.size = size
-    }
-
-    /// Whether `etag` is a content SHA-256 (an LFS file we can verify against).
-    public var etagIsSHA256: Bool {
-        guard let etag, etag.count == 64 else { return false }
-        return etag.allSatisfy { $0.isHexDigit && !$0.isUppercase }
+    public init(path: String, size: Int64, sha256: String?) {
+        self.path = path; self.size = size; self.sha256 = sha256
     }
 }
 
-/// HTTP seam: fetch bytes. `head` is used to size/verify; `download` streams to
-/// a file, reporting cumulative bytes written.
+/// HTTP seam. `tree` lists a repo's files (Hub tree API: path + size + LFS
+/// sha256, folders included) so one call resolves folders and supplies
+/// verification hashes; `download` streams a file, reporting cumulative bytes.
 public protocol ModelTransport: Sendable {
-    func head(_ url: String) async throws -> RemoteFileInfo
+    func tree(_ url: String) async throws -> [RemoteEntry]
     func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws
 }
 
@@ -51,8 +43,8 @@ public protocol FileSystem: Sendable {
 }
 
 public enum ModelStoreError: Error, CustomStringConvertible {
-    /// A file is not cached and the network is unavailable.
-    case offlineAndMissing(String)
+    /// A requested file or folder is not in the repo at that revision.
+    case notInRepo(String)
     /// A download completed but failed its size/hash integrity check.
     case integrityCheckFailed(String)
     /// A transport/HTTP or filesystem failure.
@@ -60,7 +52,7 @@ public enum ModelStoreError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case let .offlineAndMissing(f): "\(f) is not downloaded and no network is available"
+        case let .notInRepo(f): "\(f) is not in the repo at that revision"
         case let .integrityCheckFailed(f): "integrity check failed for \(f)"
         case let .io(m): m
         }

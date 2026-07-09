@@ -7,15 +7,20 @@ import CHostBridge
 public struct CHostBridgeTransport: ModelTransport {
     public init() {}
 
-    public func head(_ url: String) async throws -> RemoteFileInfo {
-        guard let raw = url.withCString({ host_http_head($0) }) else {
-            throw ModelStoreError.io("HEAD \(url) (no host_http_head)")
+    public func tree(_ url: String) async throws -> [RemoteEntry] {
+        guard let raw = url.withCString({ host_http_tree($0) }) else {
+            throw ModelStoreError.io("tree \(url) (no host_http_tree)")
         }
         defer { host_free(raw) }
-        // "etag\ncommit\nsize"
-        let lines = String(cString: raw).split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
-        func field(_ i: Int) -> String? { i < lines.count && !lines[i].isEmpty ? lines[i] : nil }
-        return RemoteFileInfo(etag: field(0), commit: field(1), size: field(2).flatMap { Int64($0) })
+        // one file per line: "path\tsize\tsha256" (empty sha256 for non-LFS)
+        var out: [RemoteEntry] = []
+        for line in String(cString: raw).split(separator: "\n") {
+            let cols = line.split(separator: "\t", omittingEmptySubsequences: false)
+            guard cols.count == 3, let size = Int64(cols[1]) else { continue }
+            out.append(RemoteEntry(path: String(cols[0]), size: size,
+                                   sha256: cols[2].isEmpty ? nil : String(cols[2])))
+        }
+        return out
     }
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {

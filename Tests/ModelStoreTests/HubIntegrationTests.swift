@@ -16,20 +16,25 @@ final class HubIntegrationTests: XCTestCase {
         defer { try? FileManager.default.removeItem(atPath: tmp) }
 
         let store = ModelStore()  // Foundation (URLSession + FileManager)
+        // A folder (expanded via the tree API) + an exact file.
         let m = Model(repo: "desert-ant-labs/redact", revision: "v0.2.1",
-                      files: ["redact.onnx"], cacheDirectory: tmp)
+                      files: ["redact.mlmodelc/", "README.md"], cacheDirectory: tmp)
 
         XCTAssertFalse(store.isDownloaded(m))
         try await store.download(m) { p in print("progress: \(Int(p.fraction * 100))%") }
-
-        // isDownloaded re-hashed the file against the SHA-256 the store verified
-        // against HF's x-linked-etag on download.
         XCTAssertTrue(store.isDownloaded(m))
-        let bytes = try FoundationFileSystem().read(store.location(of: m) + "/redact.onnx")
-        XCTAssertEqual(SHA256.hexDigest(bytes),
-                       "04658a3d18bdc0944fceebc20fee7ed4b77489fe9331f599fab85875f8208cc8")
 
-        // Offline reuse: no network, still valid.
+        // The whole .mlmodelc directory materialized, nested paths and all.
+        let dir = store.location(of: m) + "/redact.mlmodelc"
+        for f in ["model.mil", "coremldata.bin", "analytics/coremldata.bin", "weights/weight.bin"] {
+            XCTAssertTrue(FileManager.default.fileExists(atPath: dir + "/" + f), f)
+        }
+        // The large LFS weight verifies to its known SHA-256.
+        let weight = try FoundationFileSystem().read(dir + "/weights/weight.bin")
+        XCTAssertEqual(SHA256.hexDigest(weight),
+                       "43fcbcd6be73b4d46bf797f4321f4d8289254901c36d28bafe558125cd3347fd")
+
+        // Offline reuse works for the folder model (manifest recorded the expansion).
         let offline = ModelStore(transport: OfflineTransport(), fileSystem: FoundationFileSystem())
         XCTAssertTrue(offline.isDownloaded(m))
     }
