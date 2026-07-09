@@ -10,6 +10,7 @@ it, so the code that uses it never sees a platform `#if`:
 |---|---|---|---|---|
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decoding | `Foundation.JSONDecoder` | host JSON parser (via `CHostBridge`) | JS `JSON.parse` |
+| `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
 | `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
@@ -51,6 +52,20 @@ Same shape as `Foundation.JSONDecoder`. On Apple/Linux it wraps Foundation's; on
 Android/wasm it drives standard-library `Codable` over a JSON tree the host
 parses (no Foundation, no hand-rolled grammar). Input is `String`/`[UInt8]`
 because `Data` is Foundation-only.
+
+## TextNormalization
+
+```swift
+import TextNormalization
+
+let normalized = text.nfkc   // Unicode NFKC, using the platform's own normalizer
+```
+
+Text models normalize before tokenizing (SentencePiece/XLM-R expect NFKC).
+Each platform already ships a normalizer, so this bundles no ICU where the OS or
+host provides one: Foundation on Apple/Linux, the platform ICU (`unorm2`, via
+`CAndroidICU` / `libicu`, API 31+) on Android, `String.prototype.normalize` on
+wasm.
 
 ## FFIBuffer
 

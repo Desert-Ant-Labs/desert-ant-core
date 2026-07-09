@@ -10,6 +10,8 @@ import Foundation
 //   Regex        stdlib-`Regex`-shaped matching, type `Pattern`
 //                (NSRegularExpression | java.util.regex | JS RegExp)
 //   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
+//   TextNormalization  String.nfkc via the platform normalizer
+//                (Foundation | Android ICU unorm2 | JS String.normalize)
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
 //   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
@@ -41,6 +43,7 @@ let package = Package(
     products: [
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
+        .library(name: "TextNormalization", targets: ["TextNormalization"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         // Android JNI harness for model SDKs (empty off-Android).
         .library(name: "HostBridge", targets: ["HostBridge"]),
@@ -62,6 +65,13 @@ let package = Package(
             ] + jsWasi
         ),
         .target(name: "CHostBridge"),
+        .systemLibrary(name: "CAndroidICU"),
+        .target(
+            name: "TextNormalization",
+            dependencies: [
+                .target(name: "CAndroidICU", condition: .when(platforms: [.android])),
+            ] + jsWasi
+        ),
         .target(name: "FFIBuffer"),
         .target(
             name: "HostBridge",
@@ -71,6 +81,7 @@ let package = Package(
             ]
         ),
 
+        .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
     ]
