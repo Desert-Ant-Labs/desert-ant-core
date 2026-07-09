@@ -1,14 +1,31 @@
 // swift-tools-version: 5.9
 import PackageDescription
+import Foundation
 
 // desert-ant-core: reusable, cross-platform Swift building blocks shared by
 // Desert Ant Labs' on-device model SDKs. Each module has one public API and a
 // per-platform backend behind it (Apple/Linux use the OS SDK; Android and wasm
 // call the host through CHostBridge), so consumers write no platform code.
 //
-//   Regex        stdlib-`Regex`-shaped matching (NSRegularExpression | java.util.regex | JS RegExp)
-//   JSON         Codable decoding      (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
+//   Regex        stdlib-`Regex`-shaped matching, type `Pattern`
+//                (NSRegularExpression | java.util.regex | JS RegExp)
+//   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
+//
+// The wasm backends need JavaScriptKit, which pulls swift-syntax macros that
+// conflict with Android's static-stdlib link (`-resource-dir`). Setting
+// SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest so an Android
+// build has no macros in its graph. The wasm backend files are `#if os(WASI)`,
+// so omitting the dependency is harmless off-wasm.
+
+let noJavaScriptKit = ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
+
+let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
+    .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
+]
+let jsWasi: [Target.Dependency] = noJavaScriptKit ? [] : [
+    .product(name: "JavaScriptKit", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
+]
 
 let package = Package(
     name: "desert-ant-core",
@@ -24,24 +41,19 @@ let package = Package(
         // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
     ],
-    dependencies: [
-        // JS interop for the WebAssembly backends (browser / node).
-        .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
-    ],
+    dependencies: jsDependencies,
     targets: [
         .target(
             name: "Regex",
             dependencies: [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
-                .product(name: "JavaScriptKit", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
-            ]
+            ] + jsWasi
         ),
         .target(
             name: "JSON",
             dependencies: [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
-                .product(name: "JavaScriptKit", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
-            ]
+            ] + jsWasi
         ),
         .target(name: "CHostBridge"),
 

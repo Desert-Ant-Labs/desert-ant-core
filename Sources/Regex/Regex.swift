@@ -1,9 +1,13 @@
-/// Regex: a regex API shaped like the standard library's `Regex`, backed
+/// `Pattern`: a regex API shaped like the standard library's `Regex`, backed
 /// by each platform's own engine (Foundation on Apple/Linux, `java.util.regex`
 /// on Android, the JS engine on wasm). Model-agnostic and reusable.
 ///
+/// The type is `Pattern` (not `Regex`) because a type named `Regex` would clash
+/// with the standard library's `Regex` and can't be module-qualified; the
+/// module is still `Regex`, so `import Regex` then use `Pattern` / `rx` / `regex`.
+///
 /// ```swift
-/// let re = try Regex(#"(\d{4})-(\d{2})"#)
+/// let re = try regex(#"(\d{4})-(\d{2})"#)     // or try Pattern(...)
 /// if let m = text.firstMatch(of: re) {     // stdlib-shaped (see StringMatching)
 ///     m.range          // Range<String.Index>  (whole match)
 ///     m[1].substring   // Substring?           (capture 1)
@@ -18,7 +22,7 @@
 /// regex literals and generic `RegexComponent` contexts still won't accept it.
 /// Patterns are the common ICU/JS/Java subset (no inline `(?i)` flags or
 /// possessive quantifiers; `\p{...}` is fine).
-public struct Regex {
+public struct Pattern {
     private let pattern: String
     private let caseInsensitive: Bool
     private let engine: RegexEngine
@@ -35,8 +39,8 @@ public struct Regex {
     }
 
     /// A copy that matches case-insensitively (mirrors `Regex.ignoresCase()`).
-    public func ignoresCase(_ ignore: Bool = true) -> Regex {
-        (try? Regex(pattern, caseInsensitive: ignore)) ?? self
+    public func ignoresCase(_ ignore: Bool = true) -> Pattern {
+        (try? Pattern(pattern, caseInsensitive: ignore)) ?? self
     }
 
     /// The first match anywhere in `text`, or `nil`.
@@ -102,19 +106,15 @@ public struct Match {
 }
 
 /// Compile a compile-time-constant pattern, trapping on an invalid literal.
-/// Prefer `regex(_:)` (or `try Regex(_:)`) for user-supplied patterns.
-public func rx(_ pattern: String, ci: Bool = false) -> Regex {
-    let regex = try! Regex(pattern)
-    return ci ? regex.ignoresCase() : regex
+/// Prefer `regex(_:)` (or `try Pattern(_:)`) for user-supplied patterns.
+public func rx(_ pattern: String, ci: Bool = false) -> Pattern {
+    let compiled = try! Pattern(pattern)
+    return ci ? compiled.ignoresCase() : compiled
 }
 
 /// Compile a (possibly user-supplied) pattern, throwing on an invalid one.
-///
-/// A free function because the type is named `Regex`, which collides with the
-/// standard library's `Regex` at a call site that does `import Regex`; `regex(_:)`,
-/// `rx(_:)`, and the `String` matching methods let callers avoid naming the type
-/// (or qualify it as `Regex.Regex`).
-public func regex(_ pattern: String, ignoresCase: Bool = false) throws -> Regex {
-    let compiled = try Regex(pattern)
+/// A convenience alongside `Pattern(_:)` for callers who prefer a free function.
+public func regex(_ pattern: String, ignoresCase: Bool = false) throws -> Pattern {
+    let compiled = try Pattern(pattern)
     return ignoresCase ? compiled.ignoresCase() : compiled
 }
