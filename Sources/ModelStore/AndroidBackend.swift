@@ -24,9 +24,19 @@ public struct CHostBridgeTransport: ModelTransport {
     }
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
-        let rc = url.withCString { u in destinationPath.withCString { d in host_http_download(u, d) } }
+        // Bridge the host's progress callbacks to `onBytes` via a context box.
+        // The host calls `progress(ctx, cumulativeBytes)` during the download for
+        // fine-grained progress (and once at the end regardless).
+        final class Box { let cb: @Sendable (Int64) -> Void; init(_ cb: @escaping @Sendable (Int64) -> Void) { self.cb = cb } }
+        let box = Box(onBytes)
+        let ctx = Unmanaged.passRetained(box).toOpaque()
+        defer { Unmanaged<Box>.fromOpaque(ctx).release() }
+        let progress: @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void = { ctx, bytes in
+            guard let ctx else { return }
+            Unmanaged<Box>.fromOpaque(ctx).takeUnretainedValue().cb(bytes)
+        }
+        let rc = url.withCString { u in destinationPath.withCString { d in host_http_download(u, d, ctx, progress) } }
         guard rc == 0 else { throw ModelStoreError.io("GET \(url) failed on host") }
-        // The store reads the file size for progress after this returns.
     }
 }
 

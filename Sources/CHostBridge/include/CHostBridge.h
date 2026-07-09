@@ -36,9 +36,15 @@ typedef char *(*HostHttpTreeFn)(const char *url);
 void host_set_http_tree(HostHttpTreeFn fn);
 char *host_http_tree(const char *url);
 
-typedef int32_t (*HostHttpDownloadFn)(const char *url, const char *dest_path);
+// download writes the body to dest_path and returns 0 / -1. For streaming
+// progress the host calls `progress(ctx, bytes_written)` with the cumulative
+// byte count as it goes (pass a NULL-tolerant progress; ctx is opaque).
+typedef void (*HostProgressFn)(void *ctx, int64_t bytes_written);
+typedef int32_t (*HostHttpDownloadFn)(const char *url, const char *dest_path,
+                                      void *ctx, HostProgressFn progress);
 void host_set_http_download(HostHttpDownloadFn fn);
-int32_t host_http_download(const char *url, const char *dest_path);
+int32_t host_http_download(const char *url, const char *dest_path,
+                           void *ctx, HostProgressFn progress);
 
 void host_free(char *ptr);
 

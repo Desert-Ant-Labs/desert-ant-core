@@ -64,10 +64,25 @@ public struct JSTransport: ModelTransport {
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         let resp = try await fetch(url, .undefined)
-        let bufPromise = JSPromise(from: resp.arrayBuffer!())
-        guard let bufPromise else { throw ModelStoreError.io("arrayBuffer(\(url))") }
-        let buffer = try await bufPromise.value
-        let u8 = JSObject.global.Uint8Array.function!.new(buffer)
+        // Stream the body for fine-grained progress: read the ReadableStream
+        // chunk by chunk, reporting cumulative bytes, then write the file.
+        if let body = resp.body.object, let reader = body.getReader?().object {
+            var all = [UInt8]()
+            while true {
+                guard let readPromise = JSPromise(from: reader.read!()) else { throw ModelStoreError.io("read(\(url))") }
+                let result = try await readPromise.value
+                if result.done.boolean == true { break }
+                if let chunk = JSTypedArray<UInt8>(from: result.value) {
+                    chunk.withUnsafeBytes { all.append(contentsOf: $0) }
+                    onBytes(Int64(all.count))
+                }
+            }
+            try JSFileSystem(cacheRoot: "").write(destinationPath, all)
+            return
+        }
+        // Fallback (no streaming body): whole-body arrayBuffer.
+        guard let bufPromise = JSPromise(from: resp.arrayBuffer!()) else { throw ModelStoreError.io("arrayBuffer(\(url))") }
+        let u8 = JSObject.global.Uint8Array.function!.new(try await bufPromise.value)
         guard let arr = JSTypedArray<UInt8>(from: u8) else { throw ModelStoreError.io("bytes(\(url))") }
         let bytes = arr.withUnsafeBytes { Array($0) }
         try JSFileSystem(cacheRoot: "").write(destinationPath, bytes)

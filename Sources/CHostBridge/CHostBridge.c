@@ -24,8 +24,9 @@ void host_set_http_tree(HostHttpTreeFn fn) { g_http_tree = fn; }
 char *host_http_tree(const char *url) { return g_http_tree ? g_http_tree(url) : 0; }
 
 void host_set_http_download(HostHttpDownloadFn fn) { g_http_download = fn; }
-int32_t host_http_download(const char *url, const char *dest_path) {
-    return g_http_download ? g_http_download(url, dest_path) : -1;
+int32_t host_http_download(const char *url, const char *dest_path,
+                           void *ctx, HostProgressFn progress) {
+    return g_http_download ? g_http_download(url, dest_path, ctx, progress) : -1;
 }
 
 void host_free(char *ptr) { free(ptr); }
