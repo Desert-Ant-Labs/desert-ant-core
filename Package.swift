@@ -10,7 +10,10 @@ import Foundation
 //   Regex        stdlib-`Regex`-shaped matching, type `Pattern`
 //                (NSRegularExpression | java.util.regex | JS RegExp)
 //   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
+//   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
+//   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
+//                callbacks against a host class (pairs with kotlin/HostBridge.kt)
 //
 // The wasm backends need JavaScriptKit, which pulls swift-syntax macros that
 // conflict with Android's static-stdlib link (`-resource-dir`). Setting
@@ -38,6 +41,9 @@ let package = Package(
     products: [
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
+        .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
+        // Android JNI harness for model SDKs (empty off-Android).
+        .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
     ],
@@ -56,6 +62,14 @@ let package = Package(
             ] + jsWasi
         ),
         .target(name: "CHostBridge"),
+        .target(name: "FFIBuffer"),
+        .target(
+            name: "HostBridge",
+            dependencies: [
+                "FFIBuffer",
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ]
+        ),
 
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),

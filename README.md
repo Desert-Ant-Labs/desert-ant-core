@@ -10,7 +10,9 @@ it, so the code that uses it never sees a platform `#if`:
 |---|---|---|---|---|
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decoding | `Foundation.JSONDecoder` | host JSON parser (via `CHostBridge`) | JS `JSON.parse` |
-| `CHostBridge` | generic host-callback C bridge | - | installed by a JNI shim | - |
+| `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
+| `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
+| `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 
 The design deliberately avoids linking Foundation on Android and wasm (it would
 add a ~40 MB ICU blob); instead it calls the host platform's own regex/JSON,
@@ -50,9 +52,28 @@ Android/wasm it drives standard-library `Codable` over a JSON tree the host
 parses (no Foundation, no hand-rolled grammar). Input is `String`/`[UInt8]`
 because `Data` is Foundation-only.
 
+## FFIBuffer
+
+A model core with a C ABI returns results as a self-describing binary payload
+instead of JSON, so neither side hand-rolls a parser. `FFIWriter` builds a
+big-endian, length-prefixed buffer (`u32`/`u64`/`f64`/length-prefixed UTF-8
+strings); the host reads it with its own standard library (see the matching
+`FfiReader` in `kotlin/HostBridge.kt`, a thin `java.nio.ByteBuffer` cursor) and
+frees it with `ffiFree`. The payload *schema* is the model's own concern.
+
+## HostBridge (Android JNI)
+
+The reusable Swift JNI harness every Android model SDK repeats: byte-array
+marshalling (`hostCopyBytes` / `hostMakeBytes` / `withHostCText` /
+`hostTakeBuffer`), the `GetEnv`-checked thread attach, and `installHostBridge`,
+which wires the `CHostBridge` regex/JSON callbacks to a host class's static
+`regexMatches` / `jsonParseTree` methods (see `kotlin/HostBridge.kt`, the Kotlin
+counterpart model SDKs vendor until a core Android artifact is published). A
+model keeps only its own `@_cdecl("Java_...")` entry points. Empty off-Android.
+
 ## Android wiring
 
 On Android, `Regex`/`JSON` call `host_regex_matches` / `host_json_parse` from
-`CHostBridge`; a runtime shim (typically a JNI layer) installs the
-implementations once via `host_set_regex_matches` / `host_set_json_parse`. See
+`CHostBridge`; `HostBridge`'s `installHostBridge` installs the implementations
+once via `host_set_regex_matches` / `host_set_json_parse`. See
 `Sources/CHostBridge/include/CHostBridge.h` for the contract.
