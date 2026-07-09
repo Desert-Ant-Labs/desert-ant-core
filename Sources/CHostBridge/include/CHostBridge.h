@@ -28,6 +28,18 @@ typedef char *(*HostJSONParseFn)(const char *json);
 void host_set_json_parse(HostJSONParseFn fn);
 char *host_json_parse(const char *json);
 
+// HTTP (Android): the host performs the request off the pure-Swift library.
+// head returns a malloc'd "etag\ncommit\nsize" (empty line for a missing
+// field), NULL on failure. download writes the response body to dest_path and
+// returns 0 on success, -1 on failure.
+typedef char *(*HostHttpHeadFn)(const char *url);
+void host_set_http_head(HostHttpHeadFn fn);
+char *host_http_head(const char *url);
+
+typedef int32_t (*HostHttpDownloadFn)(const char *url, const char *dest_path);
+void host_set_http_download(HostHttpDownloadFn fn);
+int32_t host_http_download(const char *url, const char *dest_path);
+
 void host_free(char *ptr);
 
 #ifdef __cplusplus

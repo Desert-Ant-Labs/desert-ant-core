@@ -136,6 +136,29 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertFalse(store.isDownloaded(m))
     }
 
+    func testPOSIXFileSystemBackend() async throws {
+        // The Android FS backend is raw POSIX and identical on Linux, so run the
+        // full download/verify/offline flow through it here.
+        let onnx = [UInt8](repeating: 0x2b, count: 6000)
+        let weight = [UInt8](repeating: 0x11, count: 1234)
+        let files = ["redact.onnx", "redact.mlmodelc/weights/weight.bin"]
+        let payload = [url("redact.onnx"): onnx, url("redact.mlmodelc/weights/weight.bin"): weight]
+        let posix = POSIXFileSystem(cacheRoot: tmp)
+        let store = ModelStore(transport: MockTransport(payload), fileSystem: posix, endpoint: endpoint)
+        let m = Model(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: files)
+
+        XCTAssertFalse(store.isDownloaded(m))
+        try await store.download(m)
+        XCTAssertTrue(store.isDownloaded(m))                     // present + hashes match, via POSIX
+        XCTAssertTrue(posix.exists(store.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
+
+        // Corruption caught, offline reuse is a no-op with a throwing transport.
+        try posix.write(store.location(of: m) + "/redact.onnx", [UInt8](repeating: 0, count: 6000))
+        XCTAssertFalse(store.isDownloaded(m))
+        let offline = ModelStore(transport: OfflineTransport(), fileSystem: posix, endpoint: endpoint)
+        XCTAssertFalse(offline.isDownloaded(m))                  // corrupt file, no net to fix it
+    }
+
     func testResumesMissingFilesOnly() async throws {
         let a = [UInt8](repeating: 1, count: 100), b = [UInt8](repeating: 2, count: 200)
         let t = MockTransport([url("a.bin"): a, url("b.bin"): b])

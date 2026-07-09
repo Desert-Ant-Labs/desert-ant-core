@@ -31,6 +31,10 @@ let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
 let jsWasi: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptKit", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
+// JavaScriptEventLoop provides `try await JSPromise.value` for the wasm ModelStore.
+let jsEventLoop: [Target.Dependency] = noJavaScriptKit ? [] : [
+    .product(name: "JavaScriptEventLoop", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
+]
 
 let package = Package(
     name: "desert-ant-core",
@@ -76,7 +80,13 @@ let package = Package(
         ),
         .target(name: "FFIBuffer"),
         .target(name: "Checksum"),
-        .target(name: "ModelStore", dependencies: ["Checksum"]),
+        .target(
+            name: "ModelStore",
+            dependencies: [
+                "Checksum",
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ] + jsWasi + jsEventLoop
+        ),
         .target(
             name: "HostBridge",
             dependencies: [
