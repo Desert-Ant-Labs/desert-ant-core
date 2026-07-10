@@ -1,16 +1,49 @@
-// wasm backend (node): HTTP via JS `fetch`, filesystem via node's `fs` (whose
-// *Sync methods match the synchronous FileSystem seam). Browser storage is
-// async and would need a different FileSystem (OPFS/Cache API); on the web the
-// JS host currently owns caching, so this targets node (redact-node).
+// wasm backend: HTTP via JS `fetch`; filesystem via node's `fs` (whose *Sync
+// methods match the synchronous FileSystem seam) on node, or an in-memory store
+// in the browser (browser persistence is async - OPFS/Cache API - and would need
+// its own backend; the browser HTTP cache covers refetch for now). The download
+// and SHA-256 verification are the shared Swift ModelStore on every platform.
 #if os(WASI)
 import JavaScriptKit
 import JavaScriptEventLoop
 
+/// Whether we are running under node (vs a browser).
+public func jsIsNode() -> Bool {
+    JSObject.global.process.object?.versions.object?.node.string != nil
+}
 
-/// node `fs` (sync) filesystem.
+/// In-memory filesystem for the browser, where there is no synchronous disk.
+/// A class so writes made by the transport are visible to the store and to the
+/// caller that reads the files back after downloading.
+public final class MemoryFileSystem: FileSystem {
+    private let cacheRoot: String
+    private var files: [String: [UInt8]] = [:]
+
+    public init(cacheRoot: String) { self.cacheRoot = cacheRoot }
+    public func defaultCacheRoot() -> String { cacheRoot }
+    public func exists(_ path: String) -> Bool { files[path] != nil }
+    public func size(_ path: String) -> Int64? { files[path].map { Int64($0.count) } }
+    public func read(_ path: String) throws -> [UInt8] {
+        guard let b = files[path] else { throw ModelStoreError.io("read(\(path))") }
+        return b
+    }
+    public func write(_ path: String, _ bytes: [UInt8]) throws { files[path] = bytes }
+    public func makeDirectory(_ path: String) throws {}
+    public func move(_ from: String, to: String) throws {
+        guard let b = files[from] else { throw ModelStoreError.io("move(\(from))") }
+        files[to] = b; files[from] = nil
+    }
+    public func remove(_ path: String) { files[path] = nil }
+}
+
+
+/// node `fs` (sync) filesystem. The host injects node's `fs` as
+/// `globalThis.__DalNodeFS` (a small object of the *Sync methods) - there is no
+/// `require` under the WASI shim - so this is just the platform's file seam; the
+/// download and verification logic stay in the shared Swift ModelStore.
 public struct JSFileSystem: FileSystem {
     private let cacheRoot: String
-    private var fs: JSObject { JSObject.global.require.function!("fs").object! }
+    private var fs: JSObject { JSObject.global.__DalNodeFS.object! }
 
     public init(cacheRoot: String) { self.cacheRoot = cacheRoot }
     public func defaultCacheRoot() -> String { cacheRoot }
@@ -18,11 +51,16 @@ public struct JSFileSystem: FileSystem {
     public func exists(_ path: String) -> Bool { fs.existsSync!(path).boolean ?? false }
 
     public func size(_ path: String) -> Int64? {
-        guard let st = fs.statSync?(path).object, let n = st.size.number else { return nil }
+        // statSync throws (a JS exception) on a missing path; guard with exists.
+        guard exists(path), let st = fs.statSync?(path).object, let n = st.size.number else { return nil }
         return Int64(n)
     }
 
     public func read(_ path: String) throws -> [UInt8] {
+        // readFileSync throws a JS exception on a missing path, which does not
+        // surface as a catchable Swift error; convert it to one so the store's
+        // `try? read(...)` (e.g. the manifest probe) works.
+        guard exists(path) else { throw ModelStoreError.io("read(\(path)) missing") }
         guard let arr = JSTypedArray<UInt8>(from: fs.readFileSync!(path)) else {
             throw ModelStoreError.io("readFileSync(\(path))")
         }
@@ -40,12 +78,15 @@ public struct JSFileSystem: FileSystem {
     }
 
     public func move(_ from: String, to: String) throws { _ = fs.renameSync!(from, to) }
-    public func remove(_ path: String) { _ = try? fs.unlinkSync?(path) }
+    // unlinkSync throws (a JS exception) on a missing path; only unlink if present.
+    public func remove(_ path: String) { if exists(path) { _ = fs.unlinkSync?(path) } }
 }
 
-/// JS `fetch` transport.
+/// JS `fetch` transport. Writes downloaded bytes through the store's filesystem
+/// so the same code path caches to node's `fs` or the browser's memory store.
 public struct JSTransport: ModelTransport {
-    public init() {}
+    private let fileSystem: FileSystem
+    public init(fileSystem: FileSystem) { self.fileSystem = fileSystem }
 
     public func tree(_ url: String) async throws -> [RemoteEntry] {
         let resp = try await fetch(url, .undefined)
@@ -77,7 +118,7 @@ public struct JSTransport: ModelTransport {
                     onBytes(Int64(all.count))
                 }
             }
-            try JSFileSystem(cacheRoot: "").write(destinationPath, all)
+            try fileSystem.write(destinationPath, all)
             return
         }
         // Fallback (no streaming body): whole-body arrayBuffer.
@@ -85,7 +126,7 @@ public struct JSTransport: ModelTransport {
         let u8 = JSObject.global.Uint8Array.function!.new(try await bufPromise.value)
         guard let arr = JSTypedArray<UInt8>(from: u8) else { throw ModelStoreError.io("bytes(\(url))") }
         let bytes = arr.withUnsafeBytes { Array($0) }
-        try JSFileSystem(cacheRoot: "").write(destinationPath, bytes)
+        try fileSystem.write(destinationPath, bytes)
         onBytes(Int64(bytes.count))
     }
 
@@ -102,9 +143,12 @@ public struct JSTransport: ModelTransport {
 }
 
 public extension ModelStore {
-    /// Default wasm/node store: JS `fetch` + node `fs`.
-    init(cacheRoot: String, endpoint: String = "https://huggingface.co") {
-        self.init(transport: JSTransport(), fileSystem: JSFileSystem(cacheRoot: cacheRoot), endpoint: endpoint)
+    /// Default wasm store: JS `fetch` + node `fs` (persistent) or, in the
+    /// browser, an in-memory filesystem. Returns the filesystem too so the
+    /// caller can read the downloaded files back from the same store.
+    static func js(cacheRoot: String, endpoint: String = "https://huggingface.co") -> (ModelStore, FileSystem) {
+        let fs: FileSystem = jsIsNode() ? JSFileSystem(cacheRoot: cacheRoot) : MemoryFileSystem(cacheRoot: cacheRoot)
+        return (ModelStore(transport: JSTransport(fileSystem: fs), fileSystem: fs, endpoint: endpoint), fs)
     }
 }
 #endif
