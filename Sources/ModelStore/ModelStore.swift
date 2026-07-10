@@ -175,7 +175,12 @@ public struct ModelStore: Sendable {
         try fs.makeDirectory(parentDir(part))
         fs.remove(part)
 
-        try await transport.download(fileURL(model, e.path), to: part, onBytes: onBytes)
+        do {
+            try await transport.download(fileURL(model, e.path), to: part, onBytes: onBytes)
+        } catch {
+            fs.remove(part)  // don't leave a half-written temp file behind
+            throw error
+        }
 
         guard let got = fs.size(part), got == e.size else {
             let actual = fs.size(part).map(String.init) ?? "missing"

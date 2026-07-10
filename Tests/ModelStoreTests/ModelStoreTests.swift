@@ -45,6 +45,20 @@ struct OfflineTransport: ModelTransport {
     func download(_ url: String, to path: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws { throw ModelStoreError.io("offline") }
 }
 
+/// Trees fine, but every download throws mid-transfer (a dropped connection).
+final class DroppingTransport: ModelTransport, @unchecked Sendable {
+    let files: [String: [UInt8]]
+    init(_ files: [String: [UInt8]]) { self.files = files }
+    func tree(_ url: String) async throws -> [RemoteEntry] {
+        files.map { RemoteEntry(path: $0.key, size: Int64($0.value.count), sha256: SHA256.hexDigest($0.value)) }
+    }
+    func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
+        // Write a half file, then fail (as a real interrupted transfer would).
+        try FoundationFileSystem().write(destinationPath, [0, 1, 2])
+        throw ModelStoreError.io("connection dropped")
+    }
+}
+
 final class LockedDouble: @unchecked Sendable {
     private let lock = NSLock(); private var value = 0.0
     func set(_ v: Double) { lock.withLock { value = v } }
@@ -144,6 +158,18 @@ final class ModelStoreTests: XCTestCase {
         catch let error as ModelStoreError {
             guard case .localFileMissing = error else { return XCTFail("\(error)") }
         }
+    }
+
+    func testFailedDownloadIsNotCached() async throws {
+        let s = store(DroppingTransport(["redact.onnx": [UInt8](repeating: 9, count: 4096)]))
+        let m = model(["redact.onnx"])
+        do { try await s.download(m); XCTFail("expected the dropped download to throw") }
+        catch let error as ModelStoreError { if case .io = error {} else { XCTFail("\(error)") } }
+
+        // Never treated as downloaded, and no half-written temp or file remains.
+        XCTAssertFalse(s.isDownloaded(m))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/.dal-meta/redact.onnx.part"))
     }
 
     func testManifestIsSpecificToRequestedFiles() async throws {
