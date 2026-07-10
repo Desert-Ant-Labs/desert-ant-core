@@ -18,8 +18,9 @@ public struct ModelSpec: Sendable, Equatable {
     public let revision: String
     /// Repo-relative file paths that make up the model.
     public let files: [String]
-    /// Optional override for the cache directory (a filesystem path). `nil`
-    /// uses the `FileSystem`'s default cache root.
+    /// The model's directory (a filesystem path), used directly: a folder you
+    /// already populated is reused, and downloads go here. `nil` uses a managed
+    /// per-model/revision path under the platform cache.
     public let cacheDirectory: String?
 
     public init(repo: String, revision: String, files: [String], cacheDirectory: String? = nil) {

@@ -32,8 +32,14 @@ public struct ModelStore: Sendable {
 
     /// The directory holding a model's files (present or not). Consumers open
     /// artifacts under here, e.g. `location(of:) + "/redact.mlmodelc"`.
+    ///
+    /// A `cacheDirectory` is used directly as the model's directory, so you can
+    /// point at a folder you already populated and it is reused as-is. With no
+    /// `cacheDirectory`, a managed per-model/revision path under the platform
+    /// cache is used (so multiple models never collide).
     public func location(of model: ModelSpec) -> String {
-        join(model.cacheDirectory ?? fs.defaultCacheRoot(), "desert-ant-models", model.repo, model.revision)
+        if let directory = model.cacheDirectory { return directory }
+        return join(fs.defaultCacheRoot(), "desert-ant-models", model.repo, model.revision)
     }
 
     /// Access files at this model's cache location using the store's platform
