@@ -90,6 +90,9 @@ public struct ModelDistribution: Sendable, Equatable {
             cacheDirectory: cacheDirectory
         )
         let files = try await store.download(spec, progress: progress)
+        guard files.exists(platform.artifactPath) else {
+            throw ModelStoreError.invalidSpec
+        }
         try await initializeJavaScriptSession(platform, files: files)
         return InstalledModel(files: files, artifactPath: files.path(platform.artifactPath))
     }
@@ -104,6 +107,9 @@ public struct ModelDistribution: Sendable, Equatable {
             guard files.exists(relativePath) else {
                 throw ModelStoreError.localFileMissing(files.path(relativePath))
             }
+        }
+        guard files.exists(platform.artifactPath) else {
+            throw ModelStoreError.localFileMissing(files.path(platform.artifactPath))
         }
         let installed = InstalledModel(files: files, artifactPath: files.path(platform.artifactPath))
         try await initializeJavaScriptSession(platform, files: files)
