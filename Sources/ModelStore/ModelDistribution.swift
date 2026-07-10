@@ -39,7 +39,7 @@ public struct JavaScriptModelSession: Sendable, Equatable {
     }
 }
 
-/// The complete file manifest and runtime artifact for one platform.
+/// The complete file manifest for one platform.
 public struct ModelPlatformFiles: Sendable, Equatable {
     /// Hub entries required on this platform. Directory entries end in `/`.
     public let files: [String]
@@ -79,11 +79,12 @@ public struct ModelDistribution: Sendable, Equatable {
         platforms[.current]
     }
 
-    /// Download and verify the current platform's complete file list.
+    /// Download and verify the current platform's complete file list, returning
+    /// the cached model directory.
     public func install(
         cacheDirectory: String? = nil,
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
-    ) async throws -> InstalledModel {
+    ) async throws -> StoredModel {
         let platform = try requiredPlatformFiles()
         let store = try ModelStore.platformDefault(cacheDirectory: cacheDirectory)
         let spec = ModelSpec(
@@ -93,24 +94,18 @@ public struct ModelDistribution: Sendable, Equatable {
             cacheDirectory: cacheDirectory
         )
         let files = try await store.download(spec, progress: progress)
-        try await initializeJavaScriptSession(platform, files: files)
-        return InstalledModel(files: files)
+        try await platform.startJavaScriptSession(with: files)
+        return files
     }
 
     /// Use model files supplied in one local directory instead of downloading.
     /// The directory must contain the current platform's declared paths.
-    public func load(from directory: String) async throws -> InstalledModel {
+    public func load(from directory: String) async throws -> StoredModel {
         let platform = try requiredPlatformFiles()
         let files = try StoredModel.platformLocal(rootPath: directory)
-        for entry in platform.files {
-            let relativePath = entry.hasSuffix("/") ? String(entry.dropLast()) : entry
-            guard files.exists(relativePath) else {
-                throw ModelStoreError.localFileMissing(files.path(relativePath))
-            }
-        }
-        let installed = InstalledModel(files: files)
-        try await initializeJavaScriptSession(platform, files: files)
-        return installed
+        try files.requireFiles(platform.files)
+        try await platform.startJavaScriptSession(with: files)
+        return files
     }
 
     /// Verify an existing cached installation without network access.
@@ -133,31 +128,20 @@ public struct ModelDistribution: Sendable, Equatable {
         }
         return files
     }
-
-    private func initializeJavaScriptSession(
-        _ platform: ModelPlatformFiles,
-        files: StoredModel
-    ) async throws {
-        #if os(WASI)
-        if let session = platform.javaScriptSession {
-            guard files.exists(session.modelPath) else {
-                throw ModelStoreError.localFileMissing(files.path(session.modelPath))
-            }
-            try await files.initializeJSSession(
-                artifact: session.modelPath,
-                hostGlobal: session.hostGlobal,
-                method: session.method
-            )
-        }
-        #endif
-    }
 }
 
-/// A verified downloaded model or validated local model directory.
-public struct InstalledModel: Sendable {
-    public let files: StoredModel
-
-    public init(files: StoredModel) {
-        self.files = files
+private extension ModelPlatformFiles {
+    /// Start the wasm host inference session, if one is configured. A no-op on
+    /// every non-web platform.
+    func startJavaScriptSession(with files: StoredModel) async throws {
+        #if os(WASI)
+        guard let session = javaScriptSession else { return }
+        try files.requireFiles([session.modelPath])
+        try await files.initializeJSSession(
+            artifact: session.modelPath,
+            hostGlobal: session.hostGlobal,
+            method: session.method
+        )
+        #endif
     }
 }

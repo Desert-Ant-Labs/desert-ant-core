@@ -102,11 +102,11 @@ let distribution = ModelDistribution(
         )
     ]
 )
-let installed = try await distribution.install()
+let files = try await distribution.install()
 // Or bypass download and caching:
 let local = try await distribution.load(from: "/path/to/model-directory")
-let tokenizer = try installed.files.read("tokenizer.bin")
-let modelPath = installed.files.path("model.onnx")
+let tokenizer = try files.read("tokenizer.bin")
+let modelPath = files.path("model.onnx")
 ```
 
 `ModelResources.BundledResources` provides the same bytes, text, and path

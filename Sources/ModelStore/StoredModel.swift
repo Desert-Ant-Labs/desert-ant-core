@@ -22,6 +22,17 @@ public struct StoredModel: Sendable {
         fileSystem.exists(path(relativePath))
     }
 
+    /// Ensure every declared path is present, throwing `localFileMissing`
+    /// otherwise. Trailing-slash directory entries are matched as directories.
+    public func requireFiles(_ relativePaths: [String]) throws {
+        for entry in relativePaths {
+            let relativePath = entry.hasSuffix("/") ? String(entry.dropLast()) : entry
+            guard exists(relativePath) else {
+                throw ModelStoreError.localFileMissing(path(relativePath))
+            }
+        }
+    }
+
     /// Read a repo-relative artifact.
     public func read(_ relativePath: String) throws -> [UInt8] {
         try fileSystem.read(path(relativePath))

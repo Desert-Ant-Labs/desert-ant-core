@@ -131,17 +131,15 @@ final class ModelStoreTests: XCTestCase {
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
-        let installed = InstalledModel(files: files)
-
-        XCTAssertTrue(installed.files.path("model.onnx").hasSuffix("/model.onnx"))
-        XCTAssertEqual(try installed.files.read("tokenizer.bin"), payload["tokenizer.bin"])
+        XCTAssertTrue(files.path("model.onnx").hasSuffix("/model.onnx"))
+        XCTAssertEqual(try files.read("tokenizer.bin"), payload["tokenizer.bin"])
 
         let local = tmp + "/local"
         try fs.makeDirectory(local)
         try fs.write(local + "/model.onnx", payload["model.onnx"]!)
         try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
-        let localInstall = try await distribution.load(from: local)
-        XCTAssertEqual(localInstall.files.path("model.onnx"), local + "/model.onnx")
+        let localFiles = try await distribution.load(from: local)
+        XCTAssertEqual(localFiles.path("model.onnx"), local + "/model.onnx")
 
         fs.remove(local + "/tokenizer.bin")
         do { _ = try await distribution.load(from: local); XCTFail("expected missing local file") }
