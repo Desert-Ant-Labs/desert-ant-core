@@ -16,7 +16,7 @@ it, so the code that uses it never sees a platform `#if`:
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
 | `ModelResources` | SwiftPM bundle file loading | Foundation Bundle | - | - |
-| `PlatformSupport` | environment access and blocking async FFI bridge | native C runtime | native C runtime | WASI libc |
+| `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader` | native C runtime | native C runtime | WASI libc |
 
 The design deliberately avoids linking Foundation on Android and wasm (it would
 add a ~40 MB ICU blob); instead it calls the host platform's own regex/JSON,
@@ -112,9 +112,21 @@ handoff to a configurable JavaScript session factory.
 
 ## PlatformSupport
 
-Small utilities needed at platform boundaries without leaking platform imports
-into model code: `environmentVariable(_:)` and `blockingValue(_:)`. The latter
-is only for synchronous FFI worker threads that must call an async Swift API.
+Small shared runtime utilities so model code writes no platform or concurrency
+plumbing:
+
+- `environmentVariable(_:)` reads an env var without importing Foundation.
+- `blockingValue(_:)` runs an async operation to completion on a synchronous FFI
+  worker thread (never an app's main thread).
+- `LazyLoader<Value>` loads a value once, on demand, sharing the single in-flight
+  load with every caller and broadcasting its progress (monotonic `0...1`). Model
+  SDKs use it to load/download the model lazily and single-flight:
+
+  ```swift
+  let loader = LazyLoader { progress in try await downloadAndBuildModel(progress) }
+  let model = try await loader.value()      // loads on first use
+  try await loader.run { fraction in … }    // or prefetch with progress
+  ```
 
 ## HostBridge (Android JNI)
 
