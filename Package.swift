@@ -103,6 +103,7 @@ let package = Package(
         ),
 
         .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
+        .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
             name: "ModelResourcesTests",
