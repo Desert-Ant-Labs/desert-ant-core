@@ -2,6 +2,9 @@ package ai.desertant.core
 
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
 import java.nio.ByteBuffer
 import java.util.regex.Pattern
 import kotlinx.serialization.json.Json
@@ -12,6 +15,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.long
 
 /**
  * The Android host side of desert-ant-core's Swift JNI harness (the counterpart
@@ -64,6 +70,48 @@ object HostBridge {
      * 4 string(u32+utf8), 5 array(u32 count+nodes),
      * 6 object(u32 count+[u32 keyLen+key, node]).
      */
+    /// GET the Hugging Face tree API and return its files as one
+    /// `path\tsize\tsha256` line each (empty sha256 for non-LFS files), so the
+    /// Swift ModelStore can expand folders and verify. Empty result on failure.
+    @JvmStatic
+    fun httpTree(urlUtf8: ByteArray): ByteArray {
+        return try {
+            val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            val json = conn.inputStream.bufferedReader().use { it.readText() }
+            conn.disconnect()
+            val sb = StringBuilder()
+            for (item in Json.parseToJsonElement(json).jsonArray) {
+                val o = item.jsonObject
+                if (o["type"]?.let { (it as? JsonPrimitive)?.content } != "file") continue
+                val path = (o["path"] as JsonPrimitive).content
+                val size = (o["size"] as JsonPrimitive).long
+                val sha = (o["lfs"] as? JsonObject)?.get("oid")?.let { (it as JsonPrimitive).content } ?: ""
+                sb.append(path).append('\t').append(size).append('\t').append(sha).append('\n')
+            }
+            sb.toString().toByteArray(Charsets.UTF_8)
+        } catch (e: Exception) {
+            ByteArray(0)
+        }
+    }
+
+    /// Download a URL to a file path (following redirects to the LFS CDN).
+    /// Returns 0 on success, -1 on failure.
+    @JvmStatic
+    fun httpDownload(urlUtf8: ByteArray, destUtf8: ByteArray): Int {
+        return try {
+            val dest = File(destUtf8.toString(Charsets.UTF_8))
+            dest.parentFile?.mkdirs()
+            val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
+            conn.instanceFollowRedirects = true
+            conn.inputStream.use { input -> dest.outputStream().use { out -> input.copyTo(out) } }
+            conn.disconnect()
+            0
+        } catch (e: Exception) {
+            -1
+        }
+    }
+
     @JvmStatic
     fun jsonParseTree(jsonUtf8: ByteArray): ByteArray {
         val root = Json.parseToJsonElement(jsonUtf8.toString(Charsets.UTF_8))

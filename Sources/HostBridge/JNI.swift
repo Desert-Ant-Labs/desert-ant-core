@@ -25,6 +25,8 @@ private nonisolated(unsafe) var gVM: UnsafeMutablePointer<JavaVM?>?
 private nonisolated(unsafe) var gHostClass: jclass?
 private nonisolated(unsafe) var gRegexMatches: jmethodID?
 private nonisolated(unsafe) var gJSONParse: jmethodID?
+private nonisolated(unsafe) var gHttpTree: jmethodID?
+private nonisolated(unsafe) var gHttpDownload: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -144,6 +146,47 @@ private func hostJSONParse(_ json: UnsafePointer<CChar>?) -> UnsafeMutablePointe
     }
 }
 
+private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)) else { return nil }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, u) }
+        let args = [jvalue(l: u)]
+        let result = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gHttpTree, $0.baseAddress)
+        }
+        return resultBytes(env, result)
+    }
+}
+
+// The host downloads the whole file and writes it to dest_path; progress is not
+// forwarded here (the store still reports one total across files).
+private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointer<CChar>?,
+                              _ ctx: UnsafeMutableRawPointer?,
+                              _ progress: (@convention(c) (UnsafeMutableRawPointer?, Int64) -> Void)?) -> Int32 {
+    guard let vm = gVM else { return -1 }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+
+    guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)),
+          let d = hostMakeBytes(env, Array(String(cString: dest!).utf8)) else { return -1 }
+    defer { env.pointee!.pointee.DeleteLocalRef(env, u); env.pointee!.pointee.DeleteLocalRef(env, d) }
+    let args = [jvalue(l: u), jvalue(l: d)]
+    let rc = args.withUnsafeBufferPointer {
+        env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gHttpDownload, $0.baseAddress)
+    }
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
+    return rc
+}
+
 // MARK: install
 
 /// Wire the CHostBridge regex/JSON callbacks to the host class's static
@@ -157,8 +200,13 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if let cls { gHostClass = env.pointee!.pointee.NewGlobalRef(env, cls) }
     gRegexMatches = env.pointee!.pointee.GetStaticMethodID(env, cls, "regexMatches", "([BZ[BZ)[B")
     gJSONParse = env.pointee!.pointee.GetStaticMethodID(env, cls, "jsonParseTree", "([B)[B")
+    // Optional: only wired if the host class provides them (ModelStore download).
+    gHttpTree = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpTree", "([B)[B")
+    gHttpDownload = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpDownload", "([B[B)I")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
+    if gHttpTree != nil { host_set_http_tree(hostHttpTree) }
+    if gHttpDownload != nil { host_set_http_download(hostHttpDownload) }
 }
 #endif
