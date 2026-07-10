@@ -29,6 +29,28 @@ public struct BundledResources {
         }
         return string
     }
+
+    // Convenience overloads that take a full file name (e.g. "model.onnx"), so
+    // callers can use the same names as on a `StoredModel`.
+    public func path(_ filename: String) throws -> String {
+        let (name, ext) = Self.split(filename)
+        return try path(named: name, extension: ext)
+    }
+
+    public func read(_ filename: String) throws -> [UInt8] {
+        let (name, ext) = Self.split(filename)
+        return try read(named: name, extension: ext)
+    }
+
+    public func readString(_ filename: String) throws -> String {
+        let (name, ext) = Self.split(filename)
+        return try readString(named: name, extension: ext)
+    }
+
+    private static func split(_ filename: String) -> (name: String, ext: String) {
+        guard let dot = filename.lastIndex(of: ".") else { return (filename, "") }
+        return (String(filename[..<dot]), String(filename[filename.index(after: dot)...]))
+    }
 }
 
 public enum BundledResourceError: Error, CustomStringConvertible {
