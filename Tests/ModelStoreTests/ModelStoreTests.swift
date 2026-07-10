@@ -112,6 +112,32 @@ final class ModelStoreTests: XCTestCase {
         XCTAssertTrue(store(OfflineTransport()).isDownloaded(m))
     }
 
+    func testModelDistributionSelectsAndInstallsArtifacts() async throws {
+        let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
+                       "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
+        let distribution = ModelDistribution(
+            repo: "desert-ant-labs/example",
+            revision: "v1",
+            sharedFiles: ["tokenizer.bin"],
+            appleArtifact: ModelArtifact(entry: "model.mlmodelc/"),
+            portableArtifact: ModelArtifact(entry: "model.onnx")
+        )
+        let fs = FoundationFileSystem()
+        let customStore = store(MockTransport(payload), fs)
+        let artifact = ModelArtifact(entry: "model.onnx")
+        let spec = ModelSpec(
+            repo: distribution.repo,
+            revision: distribution.revision,
+            files: [artifact.entry] + distribution.sharedFiles,
+            cacheDirectory: tmp
+        )
+        let files = try await customStore.download(spec)
+        let installed = InstalledModel(files: files, artifactPath: files.path(artifact.path))
+
+        XCTAssertTrue(installed.artifactPath.hasSuffix("/model.onnx"))
+        XCTAssertEqual(try installed.files.read("tokenizer.bin"), payload["tokenizer.bin"])
+    }
+
     func testManifestIsSpecificToRequestedFiles() async throws {
         let payload = ["a.bin": [UInt8](repeating: 1, count: 4),
                        "b.bin": [UInt8](repeating: 2, count: 4)]

@@ -166,6 +166,10 @@ public extension StoredModel {
 }
 
 public extension ModelStore {
+    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
+        ModelStore.js(cacheRoot: cacheDirectory ?? "").0
+    }
+
     /// Default wasm store: JS `fetch` + node `fs` (persistent) or, in the
     /// browser, an in-memory filesystem. Returns the filesystem too so the
     /// caller can read the downloaded files back from the same store.

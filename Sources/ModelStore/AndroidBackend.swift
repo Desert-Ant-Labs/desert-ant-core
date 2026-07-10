@@ -41,6 +41,13 @@ public struct CHostBridgeTransport: ModelTransport {
 }
 
 public extension ModelStore {
+    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
+        guard let cacheDirectory, !cacheDirectory.isEmpty else {
+            throw ModelStoreError.io("Android model installation requires a cache directory")
+        }
+        return ModelStore(cacheRoot: cacheDirectory)
+    }
+
     /// Default Android store: host HTTP (CHostBridge) + POSIX filesystem.
     /// - Parameter cacheRoot: the app's cache directory (from the host `Context`).
     init(cacheRoot: String, endpoint: String = "https://huggingface.co") {

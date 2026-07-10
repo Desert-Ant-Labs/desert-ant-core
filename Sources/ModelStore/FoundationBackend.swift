@@ -125,5 +125,9 @@ public extension ModelStore {
     init(endpoint: String = "https://huggingface.co") {
         self.init(transport: FoundationTransport(), fileSystem: FoundationFileSystem(), endpoint: endpoint)
     }
+
+    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
+        ModelStore()
+    }
 }
 #endif

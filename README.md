@@ -81,17 +81,25 @@ frees it with `ffiFree`. The payload *schema* is the model's own concern.
 
 ## ModelStore and model resources
 
-`ModelStore` resolves files or folders from a Hugging Face repo, downloads them
-atomically, verifies size and SHA-256, and writes a spec-specific manifest for
-safe offline reuse. `download` returns a `StoredModel`, so model packages read
+`ModelDistribution` lets model packages declare shared files, Apple and portable
+artifacts, and optional wasm session configuration without platform branches.
+Core selects the artifact, creates the platform store, downloads atomically,
+verifies size and SHA-256, and writes a spec-specific manifest for safe offline
+reuse. Lower-level `ModelStore.download` returns a `StoredModel`, so packages read
 sidecars and obtain runtime artifact paths without selecting a filesystem or
 joining platform paths:
 
 ```swift
-let files = try await ModelStore().download(spec)
-let tokenizer = try files.read("tokenizer.bin")
-let labels = try files.readString("labels.json")
-let modelPath = files.path("model.mlmodelc")
+let distribution = ModelDistribution(
+    repo: "org/model",
+    revision: "v1",
+    sharedFiles: ["tokenizer.bin", "labels.json"],
+    appleArtifact: ModelArtifact(entry: "model.mlmodelc/"),
+    portableArtifact: ModelArtifact(entry: "model.onnx")
+)
+let installed = try await distribution.install()
+let tokenizer = try installed.files.read("tokenizer.bin")
+let modelPath = installed.artifactPath
 ```
 
 `ModelResources.BundledResources` provides the same bytes, text, and path
