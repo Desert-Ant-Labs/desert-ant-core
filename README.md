@@ -95,12 +95,10 @@ let distribution = ModelDistribution(
     revision: "v1",
     platforms: [
         .apple: ModelPlatformFiles(
-            files: ["model.mlmodelc/", "apple_tokenizer.bin"],
-            artifactPath: "model.mlmodelc"
+            files: ["model.mlmodelc/", "apple_tokenizer.bin"]
         ),
         .linux: ModelPlatformFiles(
-            files: ["model.onnx", "tokenizer.bin", "labels.json"],
-            artifactPath: "model.onnx"
+            files: ["model.onnx", "tokenizer.bin", "labels.json"]
         )
     ]
 )
@@ -108,7 +106,7 @@ let installed = try await distribution.install()
 // Or bypass download and caching:
 let local = try await distribution.load(from: "/path/to/model-directory")
 let tokenizer = try installed.files.read("tokenizer.bin")
-let modelPath = installed.artifactPath
+let modelPath = installed.files.path("model.onnx")
 ```
 
 `ModelResources.BundledResources` provides the same bytes, text, and path

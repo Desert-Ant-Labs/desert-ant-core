@@ -119,10 +119,7 @@ final class ModelStoreTests: XCTestCase {
             repo: "desert-ant-labs/example",
             revision: "v1",
             platforms: [
-                .linux: ModelPlatformFiles(
-                    files: ["model.onnx", "tokenizer.bin"],
-                    artifactPath: "model.onnx"
-                )
+                .linux: ModelPlatformFiles(files: ["model.onnx", "tokenizer.bin"])
             ]
         )
         let fs = FoundationFileSystem()
@@ -134,9 +131,9 @@ final class ModelStoreTests: XCTestCase {
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
-        let installed = InstalledModel(files: files, artifactPath: files.path("model.onnx"))
+        let installed = InstalledModel(files: files)
 
-        XCTAssertTrue(installed.artifactPath.hasSuffix("/model.onnx"))
+        XCTAssertTrue(installed.files.path("model.onnx").hasSuffix("/model.onnx"))
         XCTAssertEqual(try installed.files.read("tokenizer.bin"), payload["tokenizer.bin"])
 
         let local = tmp + "/local"
@@ -144,7 +141,7 @@ final class ModelStoreTests: XCTestCase {
         try fs.write(local + "/model.onnx", payload["model.onnx"]!)
         try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
         let localInstall = try await distribution.load(from: local)
-        XCTAssertEqual(localInstall.artifactPath, local + "/model.onnx")
+        XCTAssertEqual(localInstall.files.path("model.onnx"), local + "/model.onnx")
 
         fs.remove(local + "/tokenizer.bin")
         do { _ = try await distribution.load(from: local); XCTFail("expected missing local file") }

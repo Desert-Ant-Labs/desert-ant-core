@@ -23,10 +23,17 @@ public enum ModelPlatform: String, Sendable, Hashable, CaseIterable {
 
 /// JavaScript session factory used by wasm inference runtimes.
 public struct JavaScriptModelSession: Sendable, Equatable {
+    /// Repo-relative model file passed to the JavaScript session factory.
+    public let modelPath: String
     public let hostGlobal: String
     public let method: String
 
-    public init(hostGlobal: String, method: String = "createSession") {
+    public init(
+        modelPath: String,
+        hostGlobal: String,
+        method: String = "createSession"
+    ) {
+        self.modelPath = modelPath
         self.hostGlobal = hostGlobal
         self.method = method
     }
@@ -36,18 +43,14 @@ public struct JavaScriptModelSession: Sendable, Equatable {
 public struct ModelPlatformFiles: Sendable, Equatable {
     /// Hub entries required on this platform. Directory entries end in `/`.
     public let files: [String]
-    /// Repo-relative artifact passed to the platform inference runtime.
-    public let artifactPath: String
     /// Optional wasm host-session setup. Ignored on non-web platforms.
     public let javaScriptSession: JavaScriptModelSession?
 
     public init(
         files: [String],
-        artifactPath: String,
         javaScriptSession: JavaScriptModelSession? = nil
     ) {
         self.files = files
-        self.artifactPath = artifactPath
         self.javaScriptSession = javaScriptSession
     }
 }
@@ -90,11 +93,8 @@ public struct ModelDistribution: Sendable, Equatable {
             cacheDirectory: cacheDirectory
         )
         let files = try await store.download(spec, progress: progress)
-        guard files.exists(platform.artifactPath) else {
-            throw ModelStoreError.invalidSpec
-        }
         try await initializeJavaScriptSession(platform, files: files)
-        return InstalledModel(files: files, artifactPath: files.path(platform.artifactPath))
+        return InstalledModel(files: files)
     }
 
     /// Use model files supplied in one local directory instead of downloading.
@@ -108,10 +108,7 @@ public struct ModelDistribution: Sendable, Equatable {
                 throw ModelStoreError.localFileMissing(files.path(relativePath))
             }
         }
-        guard files.exists(platform.artifactPath) else {
-            throw ModelStoreError.localFileMissing(files.path(platform.artifactPath))
-        }
-        let installed = InstalledModel(files: files, artifactPath: files.path(platform.artifactPath))
+        let installed = InstalledModel(files: files)
         try await initializeJavaScriptSession(platform, files: files)
         return installed
     }
@@ -143,8 +140,11 @@ public struct ModelDistribution: Sendable, Equatable {
     ) async throws {
         #if os(WASI)
         if let session = platform.javaScriptSession {
+            guard files.exists(session.modelPath) else {
+                throw ModelStoreError.localFileMissing(files.path(session.modelPath))
+            }
             try await files.initializeJSSession(
-                artifact: platform.artifactPath,
+                artifact: session.modelPath,
                 hostGlobal: session.hostGlobal,
                 method: session.method
             )
@@ -156,10 +156,8 @@ public struct ModelDistribution: Sendable, Equatable {
 /// A verified downloaded model or validated local model directory.
 public struct InstalledModel: Sendable {
     public let files: StoredModel
-    public let artifactPath: String
 
-    public init(files: StoredModel, artifactPath: String) {
+    public init(files: StoredModel) {
         self.files = files
-        self.artifactPath = artifactPath
     }
 }
