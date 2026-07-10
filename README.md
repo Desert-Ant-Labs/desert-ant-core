@@ -95,7 +95,9 @@ let modelPath = files.path("model.mlmodelc")
 ```
 
 `ModelResources.BundledResources` provides the same bytes, text, and path
-operations for model files shipped in a SwiftPM resource bundle.
+operations for model files shipped in a SwiftPM resource bundle. On wasm,
+`StoredModel.initializeJSSession` also hides the node-path versus browser-bytes
+handoff to a configurable JavaScript session factory.
 
 ## PlatformSupport
 

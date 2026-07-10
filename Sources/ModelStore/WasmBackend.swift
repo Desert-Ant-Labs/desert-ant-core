@@ -142,6 +142,29 @@ public struct JSTransport: ModelTransport {
     }
 }
 
+public extension StoredModel {
+    /// Give a downloaded model artifact to a JavaScript host session factory.
+    /// Node receives the cached path to avoid copying large models across the
+    /// wasm boundary. Browsers receive bytes because their store is in memory.
+    func initializeJSSession(
+        artifact: String,
+        hostGlobal: String,
+        method: String = "createSession"
+    ) async throws {
+        guard let host = JSObject.global[hostGlobal].object,
+              let createSession = host[method].object else {
+            throw ModelStoreError.io("missing \(hostGlobal).\(method)")
+        }
+        let argument: JSValue = jsIsNode()
+            ? .string(path(artifact))
+            : JSTypedArray<UInt8>(try read(artifact)).jsValue
+        guard let promise = createSession(argument).object.flatMap(JSPromise.init) else {
+            throw ModelStoreError.io("\(hostGlobal).\(method) did not return a promise")
+        }
+        _ = try await promise.value
+    }
+}
+
 public extension ModelStore {
     /// Default wasm store: JS `fetch` + node `fs` (persistent) or, in the
     /// browser, an in-memory filesystem. Returns the filesystem too so the
