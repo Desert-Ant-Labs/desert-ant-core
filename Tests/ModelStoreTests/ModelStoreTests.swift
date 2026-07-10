@@ -75,8 +75,10 @@ final class ModelStoreTests: XCTestCase {
 
         XCTAssertFalse(s.isDownloaded(m))
         let last = LockedDouble()
-        try await s.download(m) { p in last.set(p.fraction) }
+        let downloaded = try await s.download(m) { p in last.set(p.fraction) }
         XCTAssertEqual(last.get(), 1.0, accuracy: 0.0001)
+        XCTAssertEqual(try downloaded.read("labels.json"), payload["labels.json"])
+        XCTAssertEqual(try downloaded.readString("labels.json"), "{}")
         XCTAssertTrue(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
         XCTAssertTrue(s.isDownloaded(m))
 
@@ -108,6 +110,33 @@ final class ModelStoreTests: XCTestCase {
 
         // Offline reuse works for a folder model (manifest recorded the expansion).
         XCTAssertTrue(store(OfflineTransport()).isDownloaded(m))
+    }
+
+    func testManifestIsSpecificToRequestedFiles() async throws {
+        let payload = ["a.bin": [UInt8](repeating: 1, count: 4),
+                       "b.bin": [UInt8](repeating: 2, count: 4)]
+        let s = store(MockTransport(payload))
+        let a = model(["a.bin"])
+        let b = model(["b.bin"])
+
+        try await s.download(a)
+        XCTAssertTrue(s.isDownloaded(a))
+        XCTAssertFalse(s.isDownloaded(b))
+    }
+
+    func testUnsafePathsAndTreeEntriesAreRejected() async throws {
+        let s = store(MockTransport(["../escape": [1]]))
+        do { try await s.download(model(["../escape"])); XCTFail("expected invalid spec") }
+        catch let error as ModelStoreError {
+            guard case .invalidSpec = error else { return XCTFail("\(error)") }
+        }
+
+        let unsafeTree = store(MockTransport(["weights/../escape": [1]]))
+        let folder = model(["weights/"])
+        do { try await unsafeTree.download(folder); XCTFail("expected invalid response") }
+        catch let error as ModelStoreError {
+            guard case .invalidResponse = error else { return XCTFail("\(error)") }
+        }
     }
 
     func testMissingFileOrFolderThrows() async throws {

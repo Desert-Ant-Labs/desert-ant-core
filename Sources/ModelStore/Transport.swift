@@ -43,6 +43,10 @@ public protocol FileSystem: Sendable {
 }
 
 public enum ModelStoreError: Error, CustomStringConvertible {
+    /// The repo, revision, or requested paths are empty or unsafe.
+    case invalidSpec
+    /// The remote returned an invalid or unsafe entry.
+    case invalidResponse(String)
     /// A requested file or folder is not in the repo at that revision.
     case notInRepo(String)
     /// A download completed but failed its size/hash integrity check.
@@ -52,6 +56,8 @@ public enum ModelStoreError: Error, CustomStringConvertible {
 
     public var description: String {
         switch self {
+        case .invalidSpec: "invalid model specification"
+        case let .invalidResponse(message): message
         case let .notInRepo(f): "\(f) is not in the repo at that revision"
         case let .integrityCheckFailed(f): "integrity check failed for \(f)"
         case let .io(m): m

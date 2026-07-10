@@ -12,6 +12,9 @@ import Foundation
 //   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
 //   TextNormalization  String.nfkc via the platform normalizer
 //                (Foundation | Android ICU unorm2 | JS String.normalize)
+//   ModelStore   verified Hub downloads + platform-neutral StoredModel access
+//   ModelResources  SwiftPM bundle resource loading
+//   PlatformSupport environment + synchronous FFI/async bridge
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
 //   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
@@ -51,6 +54,8 @@ let package = Package(
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         .library(name: "Checksum", targets: ["Checksum"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
+        .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
+        .library(name: "ModelResources", targets: ["ModelResources"]),
         // Android JNI harness for model SDKs (empty off-Android).
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
@@ -80,6 +85,8 @@ let package = Package(
         ),
         .target(name: "FFIBuffer"),
         .target(name: "Checksum"),
+        .target(name: "PlatformSupport"),
+        .target(name: "ModelResources"),
         .target(
             name: "ModelStore",
             dependencies: [
@@ -97,6 +104,11 @@ let package = Package(
 
         .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
+        .testTarget(
+            name: "ModelResourcesTests",
+            dependencies: ["ModelResources"],
+            resources: [.copy("Resources/fixture.txt")]
+        ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),

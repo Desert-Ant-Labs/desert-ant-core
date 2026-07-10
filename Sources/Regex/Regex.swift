@@ -55,12 +55,17 @@ public struct Pattern {
 
     /// A match only if the pattern matches the whole of `text`.
     public func wholeMatch(in text: String) -> Match? {
-        anchored("^(?:\(pattern))$")?.matches(in: text, firstOnly: true).first.map { Match(text: text, groups: $0) }
+        guard let groups = anchored("^(?:\(pattern))$")?.matches(in: text, firstOnly: true).first else {
+            return nil
+        }
+        let match = Match(text: text, groups: groups)
+        return match.range.upperBound == text.endIndex ? match : nil
     }
 
     /// A match only if the pattern matches a prefix of `text`.
     public func prefixMatch(in text: String) -> Match? {
-        anchored("^(?:\(pattern))")?.matches(in: text, firstOnly: true).first.map { Match(text: text, groups: $0) }
+        anchored("^(?:\(pattern))")?.matches(in: text, firstOnly: true).first
+            .map { Match(text: text, groups: $0) }
     }
 
     /// Whether `text` contains a match (mirrors `text.contains(regex)`).
@@ -102,6 +107,53 @@ public struct Match {
     /// capture.
     public subscript(_ index: Int) -> Capture {
         (index >= 0 && index < captures.count) ? captures[index] : Capture(range: nil, substring: nil)
+    }
+
+    /// This match represented with UTF-16 offsets. Useful at FFI boundaries and
+    /// for pipelines shared with JavaScript, JVM, or Core ML code.
+    public func utf16Offsets(in text: String) -> UTF16Match {
+        UTF16Match(match: self, text: text)
+    }
+}
+
+/// A regex match represented in UTF-16 code-unit offsets.
+public struct UTF16Match {
+    public struct Capture {
+        public let range: Range<Int>?
+        public let substring: Substring?
+    }
+
+    private let captures: [Capture]
+
+    fileprivate init(match: Match, text: String) {
+        captures = (0..<match.count).map { index in
+            let capture = match[index]
+            return Capture(
+                range: capture.range.map {
+                    $0.lowerBound.utf16Offset(in: text)..<$0.upperBound.utf16Offset(in: text)
+                },
+                substring: capture.substring
+            )
+        }
+    }
+
+    public var range: Range<Int> { captures[0].range! }
+    public var substring: Substring { captures[0].substring! }
+    public var count: Int { captures.count }
+    public subscript(_ index: Int) -> Capture {
+        (index >= 0 && index < captures.count) ? captures[index] : Capture(range: nil, substring: nil)
+    }
+}
+
+public extension Pattern {
+    /// The first match represented with UTF-16 offsets.
+    func firstUTF16Match(in text: String) -> UTF16Match? {
+        firstMatch(in: text)?.utf16Offsets(in: text)
+    }
+
+    /// Every match represented with UTF-16 offsets.
+    func utf16Matches(in text: String) -> [UTF16Match] {
+        matches(in: text).map { $0.utf16Offsets(in: text) }
     }
 }
 

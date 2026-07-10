@@ -15,7 +15,7 @@ public func jsIsNode() -> Bool {
 /// In-memory filesystem for the browser, where there is no synchronous disk.
 /// A class so writes made by the transport are visible to the store and to the
 /// caller that reads the files back after downloading.
-public final class MemoryFileSystem: FileSystem {
+public final class MemoryFileSystem: FileSystem, @unchecked Sendable {
     private let cacheRoot: String
     private var files: [String: [UInt8]] = [:]
 

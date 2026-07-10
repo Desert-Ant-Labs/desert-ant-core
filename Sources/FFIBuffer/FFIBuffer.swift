@@ -81,5 +81,15 @@ public func ffiEmit(_ payload: [UInt8]) -> UnsafeMutablePointer<CChar>? {
     return raw.assumingMemoryBound(to: CChar.self)
 }
 
-/// Free a buffer returned by `FFIWriter.emit()` or `ffiEmit`.
+/// Copy a Swift string into a malloc'd, NUL-terminated UTF-8 buffer.
+public func ffiCString(_ string: String) -> UnsafeMutablePointer<CChar>? {
+    let bytes = Array(string.utf8) + [0]
+    guard let raw = malloc(bytes.count) else { return nil }
+    _ = bytes.withUnsafeBytes { source in
+        memcpy(raw, source.baseAddress!, source.count)
+    }
+    return raw.assumingMemoryBound(to: CChar.self)
+}
+
+/// Free a buffer returned by this module.
 public func ffiFree(_ ptr: UnsafeMutablePointer<CChar>?) { free(ptr) }

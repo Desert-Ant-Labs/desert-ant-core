@@ -33,7 +33,14 @@ public struct ModelStore: Sendable {
     /// The directory holding a model's files (present or not). Consumers open
     /// artifacts under here, e.g. `location(of:) + "/redact.mlmodelc"`.
     public func location(of model: ModelSpec) -> String {
-        join(model.cacheDirectory ?? fs.defaultCacheRoot(), "desert-ant-labs", model.repo, model.revision)
+        join(model.cacheDirectory ?? fs.defaultCacheRoot(), "desert-ant-models", model.repo, model.revision)
+    }
+
+    /// Access files at this model's cache location using the store's platform
+    /// filesystem. The files are only guaranteed to exist after `download` or
+    /// when `isDownloaded` returns true.
+    public func storedModel(for model: ModelSpec) -> StoredModel {
+        StoredModel(rootPath: location(of: model), fileSystem: fs)
     }
     private func manifestPath(_ model: ModelSpec) -> String { join(location(of: model), ".dal-meta", "manifest") }
     private func filePath(_ model: ModelSpec, _ file: String) -> String { join(location(of: model), file) }
@@ -51,10 +58,16 @@ public struct ModelStore: Sendable {
     /// already expanded) and re-hashes each against its recorded SHA-256. A
     /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
     public func isDownloaded(_ model: ModelSpec) -> Bool {
-        guard let bytes = try? fs.read(manifestPath(model)), let manifest = Manifest.parse(bytes),
+        guard isValid(model),
+              let bytes = try? fs.read(manifestPath(model)),
+              let manifest = Manifest.parse(bytes),
+              manifest.requested == model.files,
               !manifest.entries.isEmpty else { return false }
         for e in manifest.entries {
-            guard let data = try? fs.read(filePath(model, e.path)),
+            guard isSafeRelativePath(e.path), e.size >= 0,
+                  e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
+                  let data = try? fs.read(filePath(model, e.path)),
+                  Int64(data.count) == e.size,
                   SHA256.hexDigest(data) == e.sha256 else { return false }
         }
         return true
@@ -66,14 +79,19 @@ public struct ModelStore: Sendable {
     /// Downloads go to a `.part` temp file, are size- and SHA256-verified, then
     /// atomically moved into place; the manifest is written last, so a crash
     /// mid-download never yields a "downloaded" but broken model.
-    public func download(_ model: ModelSpec, progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }) async throws {
+    @discardableResult
+    public func download(
+        _ model: ModelSpec,
+        progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
+    ) async throws -> StoredModel {
+        guard isValid(model) else { throw ModelStoreError.invalidSpec }
         try fs.makeDirectory(location(of: model))
         if isDownloaded(model) {
             if let bytes = try? fs.read(manifestPath(model)), let m = Manifest.parse(bytes) {
                 let total = m.entries.reduce(0) { $0 + $1.size }
                 progress(DownloadProgress(completedBytes: total, totalBytes: total))
             }
-            return
+            return storedModel(for: model)
         }
 
         // One tree call resolves folders and gives size + LFS sha256 per file.
@@ -82,7 +100,9 @@ public struct ModelStore: Sendable {
 
         let totalBytes = resolved.reduce(0) { $0 + $1.size }
         var completedBytes: Int64 = 0
-        func report(_ done: Int64) { progress(DownloadProgress(completedBytes: done, totalBytes: totalBytes)) }
+        let report: @Sendable (Int64) -> Void = { done in
+            progress(DownloadProgress(completedBytes: done, totalBytes: totalBytes))
+        }
         report(0)
 
         var manifest: [Manifest.Entry] = []
@@ -105,7 +125,11 @@ public struct ModelStore: Sendable {
         }
 
         try fs.makeDirectory(parentDir(manifestPath(model)))
-        try fs.write(manifestPath(model), Manifest(entries: manifest).serialized())
+        try fs.write(
+            manifestPath(model),
+            Manifest(requested: model.files, entries: manifest).serialized()
+        )
+        return storedModel(for: model)
     }
 
     // MARK: internals
@@ -114,17 +138,22 @@ public struct ModelStore: Sendable {
     private func resolve(_ requested: [String], in tree: [RemoteEntry], repo: String) throws -> [RemoteEntry] {
         var out: [RemoteEntry] = []
         var seen = Set<String>()
-        func add(_ e: RemoteEntry) { if seen.insert(e.path).inserted { out.append(e) } }
+        func add(_ entry: RemoteEntry) throws {
+            guard isSafeRelativePath(entry.path), entry.size >= 0 else {
+                throw ModelStoreError.invalidResponse("unsafe tree entry: \(entry.path)")
+            }
+            if seen.insert(entry.path).inserted { out.append(entry) }
+        }
         for req in requested {
             if req.hasSuffix("/") {
                 let matches = tree.filter { $0.path == String(req.dropLast()) || $0.path.hasPrefix(req) }
                 guard !matches.isEmpty else { throw ModelStoreError.notInRepo("\(repo)/\(req)") }
-                matches.forEach(add)
+                try matches.forEach(add)
             } else {
                 guard let e = tree.first(where: { $0.path == req }) else {
                     throw ModelStoreError.notInRepo("\(repo)/\(req)")
                 }
-                add(e)
+                try add(e)
             }
         }
         return out
@@ -142,9 +171,10 @@ public struct ModelStore: Sendable {
 
         try await transport.download(fileURL(model, e.path), to: part, onBytes: onBytes)
 
-        if let got = fs.size(part), got != e.size {
+        guard let got = fs.size(part), got == e.size else {
+            let actual = fs.size(part).map(String.init) ?? "missing"
             fs.remove(part)
-            throw ModelStoreError.integrityCheckFailed("\(e.path): size \(got) != \(e.size)")
+            throw ModelStoreError.integrityCheckFailed("\(e.path): size \(actual) != \(e.size)")
         }
         let bytes = try fs.read(part)
         let sha = SHA256.hexDigest(bytes)
@@ -154,6 +184,23 @@ public struct ModelStore: Sendable {
         }
         try fs.move(part, to: dest)
         return sha
+    }
+
+    private func isValid(_ model: ModelSpec) -> Bool {
+        guard isSafeRelativePath(model.repo), isSafeRelativePath(model.revision),
+              !model.files.isEmpty else { return false }
+        return model.files.allSatisfy(isSafeRelativePath)
+    }
+
+    /// Reject absolute paths, traversal, control separators used by the
+    /// manifest, and empty path components. This protects every filesystem and
+    /// URL backend at the shared orchestration layer.
+    private func isSafeRelativePath(_ path: String) -> Bool {
+        let trimmed = path.hasSuffix("/") ? String(path.dropLast()) : path
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("/"),
+              !trimmed.contains("\t"), !trimmed.contains("\n"), !trimmed.contains("\r") else { return false }
+        return trimmed.split(separator: "/", omittingEmptySubsequences: false)
+            .allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
     }
 
     // MARK: path helpers (POSIX-style, all target platforms use "/")

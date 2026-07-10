@@ -23,8 +23,17 @@ final class RegexTests: XCTestCase {
         let re = try regex(#"a|aa"#)
         XCTAssertNotNil(re.wholeMatch(in: "aa"))           // anchors, so "aa" matches wholly
         XCTAssertNil(re.wholeMatch(in: "aab"))
+        XCTAssertNil(try regex(#"\d+"#).wholeMatch(in: "123\n"))
         XCTAssertNotNil(re.prefixMatch(in: "aabbb"))
         XCTAssertNotNil(try regex("abc", ignoresCase: true).firstMatch(in: "xxABCyy"))
+    }
+
+    func testUTF16Offsets() throws {
+        let text = "🙂 id 123"
+        let match = try XCTUnwrap(try Pattern(#"id (\d+)"#).firstUTF16Match(in: text))
+        XCTAssertEqual(match.range, 3..<9)
+        XCTAssertEqual(match[1].range, 6..<9)
+        XCTAssertEqual(match[1].substring, "123")
     }
 
     func testNonBMPOffsets() throws {
