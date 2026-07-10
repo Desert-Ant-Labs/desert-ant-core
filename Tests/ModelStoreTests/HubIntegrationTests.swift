@@ -17,7 +17,7 @@ final class HubIntegrationTests: XCTestCase {
 
         let store = ModelStore()  // Foundation (URLSession + FileManager)
         // A folder (expanded via the tree API) + an exact file.
-        let m = Model(repo: "desert-ant-labs/redact", revision: "v0.2.1",
+        let m = ModelSpec(repo: "desert-ant-labs/redact", revision: "v0.2.1",
                       files: ["redact.mlmodelc/", "README.md"], cacheDirectory: tmp)
 
         XCTAssertFalse(store.isDownloaded(m))

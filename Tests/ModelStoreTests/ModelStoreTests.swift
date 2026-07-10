@@ -58,8 +58,8 @@ final class ModelStoreTests: XCTestCase {
     override func setUp() { tmp = NSTemporaryDirectory() + "dal-modelstore-\(UUID().uuidString)" }
     override func tearDown() { try? FileManager.default.removeItem(atPath: tmp) }
 
-    private func model(_ files: [String], fs: FileSystem? = nil) -> Model {
-        Model(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: files,
+    private func model(_ files: [String], fs: FileSystem? = nil) -> ModelSpec {
+        ModelSpec(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: files,
               cacheDirectory: fs == nil ? tmp : nil)
     }
     private func store(_ t: ModelTransport, _ fs: FileSystem = FoundationFileSystem()) -> ModelStore {
@@ -160,7 +160,7 @@ final class ModelStoreTests: XCTestCase {
                        "redact.mlmodelc/weights/weight.bin": [UInt8](repeating: 0x11, count: 1234)]
         let posix = POSIXFileSystem(cacheRoot: tmp)
         let s = store(MockTransport(payload), posix)
-        let m = Model(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: Array(payload.keys))
+        let m = ModelSpec(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: Array(payload.keys))
 
         try await s.download(m)
         XCTAssertTrue(s.isDownloaded(m))

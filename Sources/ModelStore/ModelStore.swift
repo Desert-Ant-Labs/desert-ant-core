@@ -32,15 +32,15 @@ public struct ModelStore: Sendable {
 
     /// The directory holding a model's files (present or not). Consumers open
     /// artifacts under here, e.g. `location(of:) + "/redact.mlmodelc"`.
-    public func location(of model: Model) -> String {
+    public func location(of model: ModelSpec) -> String {
         join(model.cacheDirectory ?? fs.defaultCacheRoot(), "desert-ant-labs", model.repo, model.revision)
     }
-    private func manifestPath(_ model: Model) -> String { join(location(of: model), ".dal-meta", "manifest") }
-    private func filePath(_ model: Model, _ file: String) -> String { join(location(of: model), file) }
-    private func fileURL(_ model: Model, _ file: String) -> String {
+    private func manifestPath(_ model: ModelSpec) -> String { join(location(of: model), ".dal-meta", "manifest") }
+    private func filePath(_ model: ModelSpec, _ file: String) -> String { join(location(of: model), file) }
+    private func fileURL(_ model: ModelSpec, _ file: String) -> String {
         "\(endpoint)/\(model.repo)/resolve/\(model.revision)/\(file)"
     }
-    private func treeURL(_ model: Model) -> String {
+    private func treeURL(_ model: ModelSpec) -> String {
         "\(endpoint)/api/models/\(model.repo)/tree/\(model.revision)?recursive=true"
     }
 
@@ -50,7 +50,7 @@ public struct ModelStore: Sendable {
     /// manifest written at download time (so it knows the exact files, folders
     /// already expanded) and re-hashes each against its recorded SHA-256. A
     /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
-    public func isDownloaded(_ model: Model) -> Bool {
+    public func isDownloaded(_ model: ModelSpec) -> Bool {
         guard let bytes = try? fs.read(manifestPath(model)), let manifest = Manifest.parse(bytes),
               !manifest.entries.isEmpty else { return false }
         for e in manifest.entries {
@@ -66,7 +66,7 @@ public struct ModelStore: Sendable {
     /// Downloads go to a `.part` temp file, are size- and SHA256-verified, then
     /// atomically moved into place; the manifest is written last, so a crash
     /// mid-download never yields a "downloaded" but broken model.
-    public func download(_ model: Model, progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }) async throws {
+    public func download(_ model: ModelSpec, progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }) async throws {
         try fs.makeDirectory(location(of: model))
         if isDownloaded(model) {
             if let bytes = try? fs.read(manifestPath(model)), let m = Manifest.parse(bytes) {
@@ -132,7 +132,7 @@ public struct ModelStore: Sendable {
 
     /// Download one file to a temp path, verify size + (LFS) SHA-256, atomically
     /// move into place, and return the content SHA-256.
-    private func fetch(_ model: Model, _ e: RemoteEntry,
+    private func fetch(_ model: ModelSpec, _ e: RemoteEntry,
                        onBytes: @Sendable @escaping (Int64) -> Void) async throws -> String {
         let dest = filePath(model, e.path)
         let part = join(location(of: model), ".dal-meta", e.path + ".part")

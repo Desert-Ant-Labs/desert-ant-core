@@ -11,7 +11,7 @@
 /// the Hub (e.g. a Core ML `.mlmodelc`) is listed as its individual files
 /// (`redact.mlmodelc/model.mil`, `redact.mlmodelc/weights/weight.bin`, …), so
 /// the store fetches, verifies, and checks them per file with no special-casing.
-public struct Model: Sendable, Equatable {
+public struct ModelSpec: Sendable, Equatable {
     /// Hugging Face repo id, e.g. `"desert-ant-labs/redact"`.
     public let repo: String
     /// Pinned revision: a tag, branch, or commit, e.g. `"v0.2.1"`.
