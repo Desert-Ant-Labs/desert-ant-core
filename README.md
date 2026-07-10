@@ -93,18 +93,14 @@ joining platform paths:
 let distribution = ModelDistribution(
     repo: "org/model",
     revision: "v1",
-    platforms: [
-        .apple: ModelPlatformFiles(
-            files: ["model.mlmodelc/", "apple_tokenizer.bin"]
-        ),
-        .linux: ModelPlatformFiles(
-            files: ["model.onnx", "tokenizer.bin", "labels.json"]
-        )
+    files: [
+        .apple: ["model.mlmodelc/", "apple_tokenizer.bin"],
+        .linux: ["model.onnx", "tokenizer.bin", "labels.json"],
     ]
 )
-let files = try await distribution.install()
-// Or bypass download and caching:
-let local = try await distribution.load(from: "/path/to/model-directory")
+let files = try await distribution.install()          // download + cache
+// Or bypass download and caching entirely:
+let local = try distribution.load(from: "/path/to/model-directory")
 let tokenizer = try files.read("tokenizer.bin")
 let modelPath = files.path("model.onnx")
 ```

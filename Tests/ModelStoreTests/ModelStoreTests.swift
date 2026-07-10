@@ -118,16 +118,14 @@ final class ModelStoreTests: XCTestCase {
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example",
             revision: "v1",
-            platforms: [
-                .linux: ModelPlatformFiles(files: ["model.onnx", "tokenizer.bin"])
-            ]
+            files: [.linux: ["model.onnx", "tokenizer.bin"]]
         )
         let fs = FoundationFileSystem()
         let customStore = store(MockTransport(payload), fs)
         let spec = ModelSpec(
             repo: distribution.repo,
             revision: distribution.revision,
-            files: distribution.currentPlatformFiles!.files,
+            files: try XCTUnwrap(distribution.currentFiles),
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
@@ -138,11 +136,11 @@ final class ModelStoreTests: XCTestCase {
         try fs.makeDirectory(local)
         try fs.write(local + "/model.onnx", payload["model.onnx"]!)
         try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
-        let localFiles = try await distribution.load(from: local)
+        let localFiles = try distribution.load(from: local)
         XCTAssertEqual(localFiles.path("model.onnx"), local + "/model.onnx")
 
         fs.remove(local + "/tokenizer.bin")
-        do { _ = try await distribution.load(from: local); XCTFail("expected missing local file") }
+        do { _ = try distribution.load(from: local); XCTFail("expected missing local file") }
         catch let error as ModelStoreError {
             guard case .localFileMissing = error else { return XCTFail("\(error)") }
         }

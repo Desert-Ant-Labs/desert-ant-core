@@ -150,11 +150,11 @@ public extension StoredModel {
         return StoredModel(rootPath: rootPath, fileSystem: JSFileSystem(cacheRoot: rootPath))
     }
 
-    /// Give a downloaded model artifact to a JavaScript host session factory.
-    /// Node receives the cached path to avoid copying large models across the
-    /// wasm boundary. Browsers receive bytes because their store is in memory.
-    func initializeJSSession(
-        artifact: String,
+    /// Hand a model file to a JavaScript host session factory. Node receives
+    /// the cached path (avoiding a large copy across the wasm boundary);
+    /// browsers receive bytes because their store is in memory.
+    func createJavaScriptSession(
+        modelFile: String,
         hostGlobal: String,
         method: String = "createSession"
     ) async throws {
@@ -163,8 +163,8 @@ public extension StoredModel {
             throw ModelStoreError.io("missing \(hostGlobal).\(method)")
         }
         let argument: JSValue = jsIsNode()
-            ? .string(path(artifact))
-            : JSTypedArray<UInt8>(try read(artifact)).jsValue
+            ? .string(path(modelFile))
+            : JSTypedArray<UInt8>(try read(modelFile)).jsValue
         guard let promise = createSession(argument).object.flatMap(JSPromise.init) else {
             throw ModelStoreError.io("\(hostGlobal).\(method) did not return a promise")
         }
