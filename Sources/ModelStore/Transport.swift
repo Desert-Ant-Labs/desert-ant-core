@@ -47,6 +47,10 @@ public enum ModelStoreError: Error, CustomStringConvertible {
     case invalidSpec
     /// The remote returned an invalid or unsafe entry.
     case invalidResponse(String)
+    /// No file manifest was declared for the current platform.
+    case unsupportedPlatform(String)
+    /// A required file is absent from a user-supplied model directory.
+    case localFileMissing(String)
     /// A requested file or folder is not in the repo at that revision.
     case notInRepo(String)
     /// A download completed but failed its size/hash integrity check.
@@ -58,6 +62,8 @@ public enum ModelStoreError: Error, CustomStringConvertible {
         switch self {
         case .invalidSpec: "invalid model specification"
         case let .invalidResponse(message): message
+        case let .unsupportedPlatform(platform): "model does not support \(platform)"
+        case let .localFileMissing(path): "required local model file is missing: \(path)"
         case let .notInRepo(f): "\(f) is not in the repo at that revision"
         case let .integrityCheckFailed(f): "integrity check failed for \(f)"
         case let .io(m): m

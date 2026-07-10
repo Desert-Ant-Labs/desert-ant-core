@@ -143,6 +143,13 @@ public struct JSTransport: ModelTransport {
 }
 
 public extension StoredModel {
+    static func platformLocal(rootPath: String) throws -> StoredModel {
+        guard jsIsNode() else {
+            throw ModelStoreError.io("local model directories are only available under node")
+        }
+        return StoredModel(rootPath: rootPath, fileSystem: JSFileSystem(cacheRoot: rootPath))
+    }
+
     /// Give a downloaded model artifact to a JavaScript host session factory.
     /// Node receives the cached path to avoid copying large models across the
     /// wasm boundary. Browsers receive bytes because their store is in memory.

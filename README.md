@@ -93,11 +93,20 @@ joining platform paths:
 let distribution = ModelDistribution(
     repo: "org/model",
     revision: "v1",
-    sharedFiles: ["tokenizer.bin", "labels.json"],
-    appleArtifact: ModelArtifact(entry: "model.mlmodelc/"),
-    portableArtifact: ModelArtifact(entry: "model.onnx")
+    platforms: [
+        .apple: ModelPlatformFiles(
+            files: ["model.mlmodelc/", "apple_tokenizer.bin"],
+            artifactPath: "model.mlmodelc"
+        ),
+        .linux: ModelPlatformFiles(
+            files: ["model.onnx", "tokenizer.bin", "labels.json"],
+            artifactPath: "model.onnx"
+        )
+    ]
 )
 let installed = try await distribution.install()
+// Or bypass download and caching:
+let local = try await distribution.load(from: "/path/to/model-directory")
 let tokenizer = try installed.files.read("tokenizer.bin")
 let modelPath = installed.artifactPath
 ```

@@ -40,6 +40,12 @@ public struct CHostBridgeTransport: ModelTransport {
     }
 }
 
+public extension StoredModel {
+    static func platformLocal(rootPath: String) throws -> StoredModel {
+        StoredModel(rootPath: rootPath, fileSystem: POSIXFileSystem(cacheRoot: rootPath))
+    }
+}
+
 public extension ModelStore {
     static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
         guard let cacheDirectory, !cacheDirectory.isEmpty else {

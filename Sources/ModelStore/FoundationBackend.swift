@@ -120,6 +120,12 @@ public struct FoundationFileSystem: FileSystem {
     }
 }
 
+public extension StoredModel {
+    static func platformLocal(rootPath: String) throws -> StoredModel {
+        StoredModel(rootPath: rootPath, fileSystem: FoundationFileSystem())
+    }
+}
+
 public extension ModelStore {
     /// Default Apple/Linux store: URLSession + FileManager.
     init(endpoint: String = "https://huggingface.co") {

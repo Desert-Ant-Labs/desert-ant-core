@@ -118,24 +118,39 @@ final class ModelStoreTests: XCTestCase {
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example",
             revision: "v1",
-            sharedFiles: ["tokenizer.bin"],
-            appleArtifact: ModelArtifact(entry: "model.mlmodelc/"),
-            portableArtifact: ModelArtifact(entry: "model.onnx")
+            platforms: [
+                .linux: ModelPlatformFiles(
+                    files: ["model.onnx", "tokenizer.bin"],
+                    artifactPath: "model.onnx"
+                )
+            ]
         )
         let fs = FoundationFileSystem()
         let customStore = store(MockTransport(payload), fs)
-        let artifact = ModelArtifact(entry: "model.onnx")
         let spec = ModelSpec(
             repo: distribution.repo,
             revision: distribution.revision,
-            files: [artifact.entry] + distribution.sharedFiles,
+            files: distribution.currentPlatformFiles!.files,
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
-        let installed = InstalledModel(files: files, artifactPath: files.path(artifact.path))
+        let installed = InstalledModel(files: files, artifactPath: files.path("model.onnx"))
 
         XCTAssertTrue(installed.artifactPath.hasSuffix("/model.onnx"))
         XCTAssertEqual(try installed.files.read("tokenizer.bin"), payload["tokenizer.bin"])
+
+        let local = tmp + "/local"
+        try fs.makeDirectory(local)
+        try fs.write(local + "/model.onnx", payload["model.onnx"]!)
+        try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
+        let localInstall = try await distribution.load(from: local)
+        XCTAssertEqual(localInstall.artifactPath, local + "/model.onnx")
+
+        fs.remove(local + "/tokenizer.bin")
+        do { _ = try await distribution.load(from: local); XCTFail("expected missing local file") }
+        catch let error as ModelStoreError {
+            guard case .localFileMissing = error else { return XCTFail("\(error)") }
+        }
     }
 
     func testManifestIsSpecificToRequestedFiles() async throws {

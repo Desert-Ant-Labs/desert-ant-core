@@ -17,6 +17,11 @@ public struct StoredModel: Sendable {
         Self.join(rootPath, relativePath)
     }
 
+    /// Whether a repo-relative file or directory exists.
+    public func exists(_ relativePath: String) -> Bool {
+        fileSystem.exists(path(relativePath))
+    }
+
     /// Read a repo-relative artifact.
     public func read(_ relativePath: String) throws -> [UInt8] {
         try fileSystem.read(path(relativePath))
