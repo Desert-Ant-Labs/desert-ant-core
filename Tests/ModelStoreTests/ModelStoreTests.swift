@@ -160,6 +160,29 @@ final class ModelStoreTests: XCTestCase {
         }
     }
 
+    func testResolveAdoptsUserFilesButNotInterruptedDownloads() async throws {
+        let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
+                       "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
+        let distribution = ModelDistribution(
+            repo: "desert-ant-labs/example", revision: "v1",
+            files: [.linux: ["model.onnx", "tokenizer.bin"]]
+        )
+        let fs = FoundationFileSystem()
+        let dir = tmp + "/model"
+        try fs.makeDirectory(dir)
+        for (name, bytes) in payload { try fs.write(dir + "/" + name, bytes) }
+
+        // Files you placed (no `.dal-meta`) are adopted offline.
+        XCTAssertTrue(distribution.isAvailable(cacheDirectory: dir))
+        let files = try await distribution.resolve(cacheDirectory: dir)
+        XCTAssertEqual(try files.read("model.onnx"), payload["model.onnx"])
+
+        // An interrupted download (a `.dal-meta` marker, no verified manifest)
+        // is not adopted as available.
+        try fs.makeDirectory(dir + "/" + ModelStore.metadataDirectory)
+        XCTAssertFalse(distribution.isAvailable(cacheDirectory: dir))
+    }
+
     func testFailedDownloadIsNotCached() async throws {
         let s = store(DroppingTransport(["redact.onnx": [UInt8](repeating: 9, count: 4096)]))
         let m = model(["redact.onnx"])

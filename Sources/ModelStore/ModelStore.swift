@@ -48,7 +48,12 @@ public struct ModelStore: Sendable {
     public func storedModel(for model: ModelSpec) -> StoredModel {
         StoredModel(rootPath: location(of: model), fileSystem: fs)
     }
-    private func manifestPath(_ model: ModelSpec) -> String { join(location(of: model), ".dal-meta", "manifest") }
+    /// Directory holding the store's own bookkeeping (manifest, `.part` temps)
+    /// inside a model's location. Its presence marks a location as download-
+    /// managed rather than user-provided.
+    static let metadataDirectory = ".dal-meta"
+
+    private func manifestPath(_ model: ModelSpec) -> String { join(location(of: model), Self.metadataDirectory, "manifest") }
     private func filePath(_ model: ModelSpec, _ file: String) -> String { join(location(of: model), file) }
     private func fileURL(_ model: ModelSpec, _ file: String) -> String {
         "\(endpoint)/\(model.repo)/resolve/\(model.revision)/\(file)"
@@ -170,7 +175,7 @@ public struct ModelStore: Sendable {
     private func fetch(_ model: ModelSpec, _ e: RemoteEntry,
                        onBytes: @Sendable @escaping (Int64) -> Void) async throws -> String {
         let dest = filePath(model, e.path)
-        let part = join(location(of: model), ".dal-meta", e.path + ".part")
+        let part = join(location(of: model), Self.metadataDirectory, e.path + ".part")
         try fs.makeDirectory(parentDir(dest))
         try fs.makeDirectory(parentDir(part))
         fs.remove(part)

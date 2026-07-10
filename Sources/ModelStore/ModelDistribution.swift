@@ -70,6 +70,34 @@ public struct ModelDistribution: Sendable, Equatable {
         return store.isDownloaded(spec(cacheDirectory))
     }
 
+    /// Get the model for `cacheDirectory`, downloading it there on demand. Files
+    /// you placed there yourself are adopted offline; our own cache is reused
+    /// offline; otherwise the model is downloaded. `nil` uses the managed cache.
+    /// This is the one call a model SDK needs to obtain its files.
+    public func resolve(
+        cacheDirectory: String? = nil,
+        progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
+    ) async throws -> StoredModel {
+        if let placed = userPlacedFiles(cacheDirectory) { return placed }
+        return try await install(cacheDirectory: cacheDirectory, progress: progress)
+    }
+
+    /// Whether the model is available offline for `cacheDirectory`: files you
+    /// placed there, or our verified cache. An interrupted download is not.
+    public func isAvailable(cacheDirectory: String? = nil) -> Bool {
+        userPlacedFiles(cacheDirectory) != nil || isInstalled(cacheDirectory: cacheDirectory)
+    }
+
+    /// Files present in `cacheDirectory` that you provided (no in-progress
+    /// download bookkeeping), or `nil`. A `\(ModelStore.metadataDirectory)`
+    /// marker means the location is download-managed, so its validity is gated
+    /// by the verified manifest rather than mere file existence.
+    private func userPlacedFiles(_ cacheDirectory: String?) -> StoredModel? {
+        guard let cacheDirectory, let files = try? load(from: cacheDirectory),
+              !files.exists(ModelStore.metadataDirectory) else { return nil }
+        return files
+    }
+
     private func requiredFiles() throws -> [String] {
         guard let files = currentFiles else {
             throw ModelStoreError.unsupportedPlatform(ModelPlatform.current.rawValue)
