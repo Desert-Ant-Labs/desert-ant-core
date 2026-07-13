@@ -132,7 +132,7 @@ final class ModelStoreTests: XCTestCase {
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example",
             revision: "v1",
-            files: [.linux: ["model.onnx", "tokenizer.bin"]]
+            files: [.current: ["model.onnx", "tokenizer.bin"]]
         )
         let fs = FoundationFileSystem()
         let customStore = store(MockTransport(payload), fs)
@@ -165,7 +165,7 @@ final class ModelStoreTests: XCTestCase {
                        "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example", revision: "v1",
-            files: [.linux: ["model.onnx", "tokenizer.bin"]]
+            files: [.current: ["model.onnx", "tokenizer.bin"]]
         )
         let fs = FoundationFileSystem()
         let dir = tmp + "/model"
