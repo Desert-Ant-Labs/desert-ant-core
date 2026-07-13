@@ -173,8 +173,10 @@ public extension StoredModel {
 }
 
 public extension ModelStore {
-    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
-        ModelStore.js(cacheRoot: cacheDirectory ?? "").0
+    /// `cacheRoot` is the base for the managed nested layout (node `~/.cache`);
+    /// empty in the browser (in-memory filesystem).
+    static func platformDefault(cacheRoot: String?) throws -> ModelStore {
+        ModelStore.js(cacheRoot: cacheRoot ?? "").0
     }
 
     /// Default wasm store: JS `fetch` + node `fs` (persistent) or, in the

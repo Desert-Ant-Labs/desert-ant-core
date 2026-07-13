@@ -132,7 +132,8 @@ public extension ModelStore {
         self.init(transport: FoundationTransport(), fileSystem: FoundationFileSystem(), endpoint: endpoint)
     }
 
-    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
+    /// `cacheRoot` is ignored: FileManager provides a per-app default base.
+    static func platformDefault(cacheRoot: String?) throws -> ModelStore {
         ModelStore()
     }
 }

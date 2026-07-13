@@ -44,12 +44,18 @@ public struct ModelDistribution: Sendable, Equatable {
 
     /// Download and verify the current platform's file list, returning the
     /// cached model directory. A no-op (no network) once cached.
+    /// - Parameter cacheDirectory: an explicit directory for this model's files
+    ///   (direct layout), or `nil` for the managed nested layout.
+    /// - Parameter cacheRoot: the platform base under which the managed layout
+    ///   lives (the app cache dir on Android, node `~/.cache` on the web).
+    ///   Ignored on Apple/Linux, where FileManager supplies a per-app base.
     public func install(
         cacheDirectory: String? = nil,
+        cacheRoot: String? = nil,
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
     ) async throws -> StoredModel {
         _ = try requiredFiles()
-        let store = try ModelStore.platformDefault(cacheDirectory: cacheDirectory)
+        let store = try ModelStore.platformDefault(cacheRoot: cacheRoot)
         return try await store.download(spec(cacheDirectory), progress: progress)
     }
 
@@ -62,9 +68,9 @@ public struct ModelDistribution: Sendable, Equatable {
     }
 
     /// Whether the current platform's files are cached and intact (offline).
-    public func isInstalled(cacheDirectory: String? = nil) -> Bool {
+    public func isInstalled(cacheDirectory: String? = nil, cacheRoot: String? = nil) -> Bool {
         guard currentFiles != nil,
-              let store = try? ModelStore.platformDefault(cacheDirectory: cacheDirectory) else {
+              let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else {
             return false
         }
         return store.isDownloaded(spec(cacheDirectory))
@@ -76,16 +82,17 @@ public struct ModelDistribution: Sendable, Equatable {
     /// This is the one call a model SDK needs to obtain its files.
     public func resolve(
         cacheDirectory: String? = nil,
+        cacheRoot: String? = nil,
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
     ) async throws -> StoredModel {
         if let placed = userPlacedFiles(cacheDirectory) { return placed }
-        return try await install(cacheDirectory: cacheDirectory, progress: progress)
+        return try await install(cacheDirectory: cacheDirectory, cacheRoot: cacheRoot, progress: progress)
     }
 
     /// Whether the model is available offline for `cacheDirectory`: files you
     /// placed there, or our verified cache. An interrupted download is not.
-    public func isAvailable(cacheDirectory: String? = nil) -> Bool {
-        userPlacedFiles(cacheDirectory) != nil || isInstalled(cacheDirectory: cacheDirectory)
+    public func isAvailable(cacheDirectory: String? = nil, cacheRoot: String? = nil) -> Bool {
+        userPlacedFiles(cacheDirectory) != nil || isInstalled(cacheDirectory: cacheDirectory, cacheRoot: cacheRoot)
     }
 
     /// Files present in `cacheDirectory` that you provided (no in-progress

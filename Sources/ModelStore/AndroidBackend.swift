@@ -47,11 +47,13 @@ public extension StoredModel {
 }
 
 public extension ModelStore {
-    static func platformDefault(cacheDirectory: String?) throws -> ModelStore {
-        guard let cacheDirectory, !cacheDirectory.isEmpty else {
-            throw ModelStoreError.io("Android model installation requires a cache directory")
+    /// `cacheRoot` is the app's cache directory (from the host `Context`); the
+    /// managed nested layout lives under it.
+    static func platformDefault(cacheRoot: String?) throws -> ModelStore {
+        guard let cacheRoot, !cacheRoot.isEmpty else {
+            throw ModelStoreError.io("Android model installation requires a cache root")
         }
-        return ModelStore(cacheRoot: cacheDirectory)
+        return ModelStore(cacheRoot: cacheRoot)
     }
 
     /// Default Android store: host HTTP (CHostBridge) + POSIX filesystem.
