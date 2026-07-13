@@ -16,6 +16,7 @@ it, so the code that uses it never sees a platform `#if`:
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
 | `ModelResources` | SwiftPM bundle file loading | Foundation Bundle | - | - |
+| `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | `CoreMLSession` (Core ML) | `ORTSession` (ONNX Runtime C API) | `JSInferenceSession` (JS host session) |
 | `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader` | native C runtime | native C runtime | WASI libc |
 
 The design deliberately avoids linking Foundation on Android and wasm (it would
@@ -109,6 +110,34 @@ let modelPath = files.path("model.onnx")
 operations for model files shipped in a SwiftPM resource bundle. On wasm,
 `StoredModel.initializeJSSession` also hides the node-path versus browser-bytes
 handoff to a configurable JavaScript session factory.
+
+## Inference
+
+One named-tensor session API over every inference runtime, so a model SDK
+builds its input tensors once and runs them unchanged on all platforms:
+
+```swift
+import Inference
+
+let session: InferenceSession = try ORTSession(modelPath: path)   // or CoreMLSession / JSInferenceSession
+let logits = try await session.run(
+    inputs: [
+        "input_ids": Tensor(int64: ids, shape: [1, ids.count]),
+        "attention_mask": Tensor(int64: mask, shape: [1, ids.count]),
+    ],
+    outputs: ["logits"])[0]
+let values = logits.float32Values ?? []
+```
+
+`Tensor` is raw bytes plus an element type (`int32`/`int64`/`float32`) and
+shape; accessors copy out via memcpy, so large tensors are fine. Multiple
+inputs and outputs are supported, and autoregressive models feed outputs back
+as the next step's inputs. Backends: `CoreMLSession` (Apple, configurable
+`MLModelConfiguration`), `ORTSession` (Android/Linux, path or in-memory bytes;
+the consuming binary links `libonnxruntime.so`), and `JSInferenceSession`
+(wasm; the JS host owns the session and exposes `run(inputs)` on a per-model
+host global). The backends are integration-tested by the model SDKs that use
+them (e.g. redact), since exercising ORT/Core ML needs their runtimes.
 
 ## PlatformSupport
 

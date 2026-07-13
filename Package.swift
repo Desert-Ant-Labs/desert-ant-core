@@ -56,6 +56,8 @@ let package = Package(
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
         .library(name: "ModelResources", targets: ["ModelResources"]),
+        // Named-tensor inference sessions: Core ML | ONNX Runtime | JS host.
+        .library(name: "Inference", targets: ["Inference"]),
         // Android JNI harness for model SDKs (empty off-Android).
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
@@ -63,6 +65,17 @@ let package = Package(
     ],
     dependencies: jsDependencies,
     targets: [
+        // ONNX Runtime C API (Android/Linux). Vendored header; binaries that
+        // use Inference on these platforms link libonnxruntime.so themselves
+        // (the SDKs vendor it per platform). Compiling needs no library, so
+        // core builds and tests run without it.
+        .systemLibrary(name: "COnnxRuntime"),
+        .target(
+            name: "Inference",
+            dependencies: [
+                .target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android])),
+            ] + jsWasi + jsEventLoop
+        ),
         .target(
             name: "Regex",
             dependencies: [
