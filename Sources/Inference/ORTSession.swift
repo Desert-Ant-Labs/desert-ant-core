@@ -5,7 +5,7 @@ import COnnxRuntime
 /// the shared ``InferenceSession`` API. Load from a file path or from
 /// in-memory model bytes (e.g. classpath resources on Android). Binaries that
 /// use it must link `libonnxruntime.so` for the target platform.
-public final class ORTSession: InferenceSession {
+public final class ORTSession: InferenceSession, @unchecked Sendable {
     private let api: OrtApi
     private var env: OpaquePointer?
     private var session: OpaquePointer?

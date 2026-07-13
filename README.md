@@ -139,12 +139,24 @@ the consuming binary links `libonnxruntime.so`), and `JSInferenceSession`
 host global). The backends are integration-tested by the model SDKs that use
 them (e.g. redact), since exercising ORT/Core ML needs their runtimes.
 
+Model SDKs normally never name a backend: the session factory picks it, so a
+model repo carries no platform conditionals, just per-platform artifact names:
+
+```swift
+let files = try await distribution.resolve()                 // ModelStore
+let session = try await files.inferenceSession(
+    model: artifactName, hostGlobal: "__MyModelHost")        // CoreML | ORT | JS host
+// Bundled deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
+```
+
 ## PlatformSupport
 
 Small shared runtime utilities so model code writes no platform or concurrency
 plumbing:
 
 - `environmentVariable(_:)` reads an env var without importing Foundation.
+- `MessageError` gives an error type one `message`; it is `LocalizedError`
+  wherever Foundation exists, so SDKs skip the per-platform conformance.
 - `blockingValue(_:)` runs an async operation to completion on a synchronous FFI
   worker thread (never an app's main thread).
 - `LazyLoader<Value>` loads a value once, on demand, sharing the single in-flight

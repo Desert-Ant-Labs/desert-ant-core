@@ -9,7 +9,7 @@ import Foundation
 /// models accordingly). `float32`/`int32` outputs are copied out directly;
 /// other output types (e.g. float16) are converted to `float32` elementwise,
 /// which is slow for large outputs, so exporters should emit `float32`.
-public final class CoreMLSession: InferenceSession {
+public final class CoreMLSession: InferenceSession, @unchecked Sendable {
     private let model: MLModel
 
     /// Load a compiled model. The default configuration uses every compute

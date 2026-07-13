@@ -73,6 +73,7 @@ let package = Package(
         .target(
             name: "Inference",
             dependencies: [
+                "ModelStore",
                 .target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android])),
             ] + jsWasi + jsEventLoop
         ),

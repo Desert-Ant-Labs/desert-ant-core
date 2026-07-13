@@ -24,7 +24,9 @@ public enum InferenceError: Error, Sendable {
 /// Sessions are expensive to create and cheap to run: create one per model and
 /// reuse it. Autoregressive models feed outputs back as the next step's
 /// inputs. `run` is async because the JS backend awaits a Promise; the native
-/// backends satisfy it synchronously.
-public protocol InferenceSession {
+/// backends satisfy it synchronously. Sessions are `Sendable`: their state is
+/// set once at init, and the underlying runtimes' run calls are thread-safe
+/// (`MLModel.prediction`, `OrtApi.Run`; wasm is single-threaded).
+public protocol InferenceSession: Sendable {
     func run(inputs: [String: Tensor], outputs: [String]) async throws -> [Tensor]
 }

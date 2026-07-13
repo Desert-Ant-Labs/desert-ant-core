@@ -16,7 +16,7 @@ import JavaScriptKit
 ///
 /// Bytes cross the wasm boundary raw (host byte order), so the host rebuilds
 /// typed arrays from `data.buffer`; no per-element marshalling.
-public final class JSInferenceSession: InferenceSession {
+public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
     private let runFunction: JSObject
     private let hostGlobal: String
 
