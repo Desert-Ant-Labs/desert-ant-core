@@ -41,7 +41,10 @@ public struct StoredModel: Sendable {
     /// Read a UTF-8 text artifact.
     public func readString(_ relativePath: String) throws -> String {
         let bytes = try read(relativePath)
-        guard let string = String(validating: bytes, as: UTF8.self) else {
+        // `String(validating:as:)` needs macOS 15+, so validate by round-trip
+        // (decode replaces invalid sequences, so re-encoding then differs).
+        let string = String(decoding: bytes, as: UTF8.self)
+        guard Array(string.utf8) == bytes else {
             throw ModelStoreError.io("\(relativePath) is not valid UTF-8")
         }
         return string
