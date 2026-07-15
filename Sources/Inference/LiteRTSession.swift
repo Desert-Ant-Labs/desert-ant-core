@@ -1,5 +1,14 @@
 #if DAL_LITERT
 import CLiteRt
+#if os(Android)
+import Android
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#elseif canImport(Darwin)
+import Darwin
+#endif
 
 /// LiteRT (formerly TensorFlow Lite) inference backend (Android / Linux) over
 /// the LiteRT C API, behind the shared ``InferenceSession`` API. Load from a
@@ -16,6 +25,12 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
     private let inputNames: [String]
     private let outputNames: [String]
     private let outputIndex: [String: Int]
+    // The C shim owns one compiled model plus a single set of fixed-shape host
+    // tensor buffers, so a run (and the output reads that follow it, which read
+    // those same buffers) is not reentrant. Serialize the whole run+read so
+    // concurrent callers on one session are safe, matching the reentrant
+    // ``InferenceSession`` contract that ORTSession provides for free.
+    private var lock = pthread_mutex_t()
 
     /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 = CPU.
     public enum Accelerator: Int32, Sendable {
@@ -51,11 +66,17 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
         }
         outputNames = outs
         outputIndex = Dictionary(uniqueKeysWithValues: outs.enumerated().map { ($1, $0) })
+        pthread_mutex_init(&lock, nil)
     }
 
-    deinit { dal_lrt_free(session) }
+    deinit {
+        dal_lrt_free(session)
+        pthread_mutex_destroy(&lock)
+    }
 
     public func run(inputs: [String: Tensor], outputs: [String]) throws -> [Tensor] {
+        pthread_mutex_lock(&lock)
+        defer { pthread_mutex_unlock(&lock) }
         // Assemble input byte buffers in the model's declared input order.
         var buffers: [[UInt8]] = []
         buffers.reserveCapacity(inputNames.count)
