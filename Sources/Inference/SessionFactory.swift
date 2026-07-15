@@ -11,6 +11,8 @@ import ModelStore
 public func inferenceSession(modelPath: String) throws -> any InferenceSession {
     #if canImport(CoreML)
     return try CoreMLSession(modelPath: modelPath)
+    #elseif DAL_LITERT
+    return try LiteRTSession(modelPath: modelPath)
     #elseif canImport(COnnxRuntime)
     return try ORTSession(modelPath: modelPath)
     #else
@@ -21,7 +23,9 @@ public func inferenceSession(modelPath: String) throws -> any InferenceSession {
 /// This platform's inference session for in-memory model bytes (ONNX Runtime
 /// platforms; e.g. Android classpath resources).
 public func inferenceSession(modelBytes: [UInt8]) throws -> any InferenceSession {
-    #if canImport(COnnxRuntime)
+    #if DAL_LITERT
+    return try LiteRTSession(modelPath: "", modelBytes: modelBytes)
+    #elseif canImport(COnnxRuntime)
     return try ORTSession(modelPath: "", modelBytes: modelBytes)
     #else
     throw InferenceError.sessionUnavailable("in-memory models need ONNX Runtime (Android/Linux)")

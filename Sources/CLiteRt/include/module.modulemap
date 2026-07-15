@@ -1,0 +1,4 @@
+module CLiteRt {
+    header "CLiteRt.h"
+    export *
+}

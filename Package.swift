@@ -28,6 +28,32 @@ import Foundation
 
 let noJavaScriptKit = ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
+// Select the Android/Linux inference backend at build time. Default is ONNX
+// Runtime (COnnxRuntime + ORTSession). Set DAL_INFERENCE_LITERT to use LiteRT
+// (CLiteRt + LiteRTSession) instead: the consumer then vendors libLiteRt.so
+// (and passes -lLiteRt -L...) and ships .tflite artifacts, the same way the ORT
+// path vendors libonnxruntime.so and ships .onnx. Apple always uses Core ML and
+// wasm always uses the JS host session, so this only affects Android/Linux.
+let liteRT = ProcessInfo.processInfo.environment["DAL_INFERENCE_LITERT"] != nil
+
+// The on-device runtime target Inference links on Android/Linux, and the Swift
+// flag that switches ORTSession vs LiteRTSession in the session factory.
+let inferenceRuntimeDeps: [Target.Dependency] = liteRT
+    ? [.target(name: "CLiteRt", condition: .when(platforms: [.linux, .android]))]
+    : [.target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android]))]
+let inferenceSwiftSettings: [SwiftSetting] = liteRT ? [.define("DAL_LITERT")] : []
+
+// The LiteRT backend test suite is only added when that backend is selected, so
+// the default (ORT) `swift test` does not link Inference and need libonnxruntime.
+let liteRTTests: [Target] = liteRT ? [
+    .testTarget(
+        name: "InferenceTests",
+        dependencies: ["Inference"],
+        resources: [.copy("Resources/testmodel.tflite")],
+        swiftSettings: inferenceSwiftSettings
+    ),
+] : []
+
 let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
     .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
 ]
@@ -70,12 +96,21 @@ let package = Package(
         // (the SDKs vendor it per platform). Compiling needs no library, so
         // core builds and tests run without it.
         .systemLibrary(name: "COnnxRuntime"),
+        // LiteRT (formerly TensorFlow Lite) C API shim (Android/Linux),
+        // selected instead of COnnxRuntime when DAL_INFERENCE_LITERT is set.
+        // Vendored LiteRT C headers + a small C shim over libLiteRt.so; the
+        // consumer links libLiteRt.so (the SDKs vendor it per platform). Only
+        // built when the LiteRT backend is enabled.
+        .target(
+            name: "CLiteRt",
+            linkerSettings: [.linkedLibrary("LiteRt")]
+        ),
         .target(
             name: "Inference",
             dependencies: [
                 "ModelStore",
-                .target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android])),
-            ] + jsWasi + jsEventLoop
+            ] + inferenceRuntimeDeps + jsWasi + jsEventLoop,
+            swiftSettings: inferenceSwiftSettings
         ),
         .target(
             name: "Regex",
@@ -127,5 +162,5 @@ let package = Package(
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
-    ]
+    ] + liteRTTests
 )
