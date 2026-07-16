@@ -82,6 +82,38 @@ final class LiteRTSessionTests: XCTestCase {
         for p in probs { XCTAssertEqual(p, 1.0 / 3.0, accuracy: 1e-4) }
     }
 
+    /// The session must own its copy of the model bytes: LiteRT keeps a
+    /// zero-copy reference to the buffer, so a caller that frees or reuses the
+    /// source bytes right after creation (e.g. the Android bindings pass a
+    /// transient byte[]) must not corrupt the model. This smoke-tests that the
+    /// bytes path survives the source being overwritten and dropped. (The tiny
+    /// test model is fully deserialized at create, so the dangling-weights crash
+    /// only surfaces with a large real model, e.g. redact's Android integration
+    /// test; this still guards the ownership contract on the bytes path.)
+    func testInMemoryModelBytesSurvivesSourceMutation() throws {
+        let session: LiteRTSession
+        do {
+            var bytes = try [UInt8](Data(contentsOf: URL(fileURLWithPath: try modelPath())))
+            session = try LiteRTSession(modelPath: "", modelBytes: bytes)
+            // Overwrite the source the model was created from; the shim's own
+            // copy must be unaffected.
+            for i in bytes.indices { bytes[i] = 0 }
+            _ = bytes.count
+        }
+        // Force some churn so a freed buffer would likely be reused/unmapped.
+        var scratch = [[UInt8]]()
+        for _ in 0..<8 { scratch.append([UInt8](repeating: 0xAB, count: 1 << 20)) }
+        _ = scratch.count
+        let outputs = try session.run(
+            inputs: [
+                "features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3]),
+                "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
+            ],
+            outputs: ["probs"])
+        let probs = try XCTUnwrap(outputs.first?.float32Values)
+        for p in probs { XCTAssertEqual(p, 1.0 / 3.0, accuracy: 1e-4) }
+    }
+
     func testMissingInputThrows() throws {
         let session = try LiteRTSession(modelPath: try modelPath())
         XCTAssertThrowsError(try session.run(

@@ -12,6 +12,12 @@ struct DalLrtSession {
   LiteRtOptions options;
   LiteRtCompiledModel compiled;
 
+  // Owned copy of the model bytes when created from a buffer. LiteRT's
+  // LiteRtCreateModelFromBuffer is zero-copy ("the caller must ensure the
+  // buffer remains valid for the lifetime of the model"), so we must keep the
+  // bytes alive for as long as the model/compiled model reads them.
+  void* model_data;
+
   int num_inputs;
   int num_outputs;
   char** input_names;
@@ -83,6 +89,8 @@ void dal_lrt_free(DalLrtSession* s) {
   if (s->options) LiteRtDestroyOptions(s->options);
   if (s->model) LiteRtDestroyModel(s->model);
   if (s->env) LiteRtDestroyEnvironment(s->env);
+  // Freed only after the model that references it is destroyed.
+  free(s->model_data);
   free(s);
 }
 
@@ -106,7 +114,14 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
       set_err(errbuf, errbuf_len, "LiteRtCreateModelFromFile failed"); goto fail;
     }
   } else if (data && data_len > 0) {
-    if (LiteRtCreateModelFromBuffer(s->env, data, data_len, &s->model) != kLiteRtStatusOk) {
+    // Copy the bytes into a buffer we own: LiteRtCreateModelFromBuffer keeps a
+    // zero-copy reference, and the caller's buffer (e.g. a Swift [UInt8] or a
+    // JNI byte[]) is freed as soon as create returns, which would leave the
+    // model's flatbuffer dangling and crash at run.
+    s->model_data = malloc(data_len);
+    if (!s->model_data) { set_err(errbuf, errbuf_len, "out of memory"); goto fail; }
+    memcpy(s->model_data, data, data_len);
+    if (LiteRtCreateModelFromBuffer(s->env, s->model_data, data_len, &s->model) != kLiteRtStatusOk) {
       set_err(errbuf, errbuf_len, "LiteRtCreateModelFromBuffer failed"); goto fail;
     }
   } else {
