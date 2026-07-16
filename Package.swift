@@ -65,15 +65,12 @@ let jsEventLoop: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptEventLoop", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
 
-let package = Package(
-    name: "desert-ant-core",
-    platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
-        .tvOS(.v16),
-        .visionOS(.v1),
-    ],
-    products: [
+// Extracted into explicitly-typed constants so the Swift manifest type-checker
+// handles each array on its own. Inlined into one big Package(...) literal, the
+// many conditional array concatenations (inferenceRuntimeDeps/jsWasi/jsEventLoop
+// + liteRTTests) blow past the type-checker's time budget on some toolchains
+// (e.g. Xcode 26.x): "unable to type-check this expression in reasonable time".
+let products: [Product] = [
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
@@ -88,9 +85,9 @@ let package = Package(
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
-    ],
-    dependencies: jsDependencies,
-    targets: [
+]
+
+let libraryTargets: [Target] = [
         // ONNX Runtime C API (Android/Linux). Vendored header; binaries that
         // use Inference on these platforms link libonnxruntime.so themselves
         // (the SDKs vendor it per platform). Compiling needs no library, so
@@ -150,7 +147,9 @@ let package = Package(
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
         ),
+]
 
+let testTargets: [Target] = [
         .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
@@ -162,5 +161,19 @@ let package = Package(
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
-    ] + liteRTTests
+] + liteRTTests
+
+let coreTargets: [Target] = libraryTargets + testTargets
+
+let package = Package(
+    name: "desert-ant-core",
+    platforms: [
+        .iOS(.v16),
+        .macOS(.v13),
+        .tvOS(.v16),
+        .visionOS(.v1),
+    ],
+    products: products,
+    dependencies: jsDependencies,
+    targets: coreTargets
 )
