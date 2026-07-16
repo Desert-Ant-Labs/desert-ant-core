@@ -32,15 +32,22 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
     // ``InferenceSession`` contract that ORTSession provides for free.
     private var lock = pthread_mutex_t()
 
-    /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 = CPU.
+    /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 =
+    /// CPU, 2 = GPU, 4 = NPU. `.auto` (GPU|CPU) prefers the GPU and falls back
+    /// to CPU: the GPU is used automatically when its accelerator library is
+    /// bundled with the app and usable, otherwise the model runs on CPU
+    /// (XNNPACK). The C shim retries CPU-only if compiling for the GPU fails, so
+    /// requesting the GPU is always safe.
     public enum Accelerator: Int32, Sendable {
         case cpu = 1
         case gpu = 2
         case npu = 4
+        /// Prefer the GPU when its accelerator library is present; else CPU.
+        case auto = 3   // gpu | cpu
     }
 
     public init(modelPath: String, modelBytes: [UInt8]? = nil,
-                accelerator: Accelerator = .cpu) throws {
+                accelerator: Accelerator = .auto) throws {
         var errbuf = [CChar](repeating: 0, count: 256)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
             if let modelBytes {

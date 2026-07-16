@@ -20,7 +20,9 @@ final class LiteRTSessionTests: XCTestCase {
     }
 
     func testNamedTensorRunMatchesReference() throws {
-        let session = try LiteRTSession(modelPath: try modelPath())
+        // Pin CPU for an exact numeric reference: the default (.auto) may run on
+        // a GPU accelerator when one is bundled, whose kernels differ by ~1e-3.
+        let session = try LiteRTSession(modelPath: try modelPath(), accelerator: .cpu)
 
         // 4 time steps, each [0.25, 0.5, 0.75]; masked sum over time = [1, 2, 3].
         let features = [Float](repeating: 0, count: 4 * 3).enumerated().map { i, _ in
@@ -43,6 +45,27 @@ final class LiteRTSessionTests: XCTestCase {
         XCTAssertEqual(probs[0], 0.09003, accuracy: 1e-3)
         XCTAssertEqual(probs[1], 0.24473, accuracy: 1e-3)
         XCTAssertEqual(probs[2], 0.66524, accuracy: 1e-3)
+    }
+
+    /// The default accelerator is `.auto` (prefer GPU when its accelerator
+    /// library is bundled, else CPU). It must always load and run and produce a
+    /// valid softmax, whichever backend it lands on (GPU kernels differ from CPU
+    /// by ~1e-3, so assert loosely).
+    func testAutoAcceleratorRunsAndFallsBack() throws {
+        let session = try LiteRTSession(modelPath: try modelPath())   // .auto
+        let features = [Float](repeating: 0, count: 4 * 3).enumerated().map { i, _ in
+            Float([0.25, 0.5, 0.75][i % 3])
+        }
+        let outputs = try session.run(
+            inputs: [
+                "features": Tensor(float32: features, shape: [1, 4, 3]),
+                "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
+            ],
+            outputs: ["probs"])
+        let probs = try XCTUnwrap(outputs.first?.float32Values)
+        XCTAssertEqual(outputs[0].shape, [1, 3])
+        XCTAssertEqual(probs.reduce(0, +), 1.0, accuracy: 1e-2)
+        XCTAssertEqual(probs[2], 0.66524, accuracy: 1e-2)   // largest class, backend-agnostic
     }
 
     func testInMemoryModelBytes() throws {

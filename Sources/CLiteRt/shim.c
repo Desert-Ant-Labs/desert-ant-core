@@ -112,12 +112,28 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
   } else {
     set_err(errbuf, errbuf_len, "no model path or bytes"); goto fail;
   }
-  if (LiteRtCreateOptions(&s->options) != kLiteRtStatusOk) {
-    set_err(errbuf, errbuf_len, "LiteRtCreateOptions failed"); goto fail;
+  // Compile for the requested accelerator(s), but fall back to CPU if that
+  // fails, so a preferred GPU/NPU (used automatically when its accelerator
+  // library is bundled) never breaks model load on a device that lacks it or
+  // whose driver rejects the model. Ops the accelerator cannot run are already
+  // partitioned onto CPU by LiteRT; this only guards a hard compile failure.
+  LiteRtHwAcceleratorSet accel =
+      accelerator ? (LiteRtHwAcceleratorSet)accelerator : kLiteRtHwAcceleratorCpu;
+  LiteRtStatus compiled_status = kLiteRtStatusErrorRuntimeFailure;
+  for (int attempt = 0; attempt < 2; attempt++) {
+    if (LiteRtCreateOptions(&s->options) != kLiteRtStatusOk) {
+      set_err(errbuf, errbuf_len, "LiteRtCreateOptions failed"); goto fail;
+    }
+    LiteRtSetOptionsHardwareAccelerators(s->options, accel);
+    compiled_status = LiteRtCreateCompiledModel(s->env, s->model, s->options, &s->compiled);
+    if (compiled_status == kLiteRtStatusOk) break;
+    // Failed: drop this attempt's options and, if we asked for more than CPU,
+    // retry CPU-only once.
+    LiteRtDestroyOptions(s->options); s->options = NULL;
+    if (accel == kLiteRtHwAcceleratorCpu) break;
+    accel = kLiteRtHwAcceleratorCpu;
   }
-  LiteRtSetOptionsHardwareAccelerators(
-      s->options, accelerator ? (LiteRtHwAcceleratorSet)accelerator : kLiteRtHwAcceleratorCpu);
-  if (LiteRtCreateCompiledModel(s->env, s->model, s->options, &s->compiled) != kLiteRtStatusOk) {
+  if (compiled_status != kLiteRtStatusOk) {
     set_err(errbuf, errbuf_len, "LiteRtCreateCompiledModel failed"); goto fail;
   }
 
