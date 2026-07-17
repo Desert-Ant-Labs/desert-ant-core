@@ -9,10 +9,13 @@ import ModelStore
 /// Runtime on Android/Linux. wasm has no local file inference; use
 /// `StoredModel.inferenceSession(model:hostGlobal:)` instead.
 public func inferenceSession(modelPath: String) throws -> any InferenceSession {
-    #if canImport(CoreML)
-    return try CoreMLSession(modelPath: modelPath)
-    #elseif DAL_LITERT
+    // DAL_LITERT is checked before Core ML so a LiteRT-backed native build on an
+    // Apple host (the Node SDK's darwin native) uses LiteRT and its .tflite,
+    // while the default Apple SDK build (flag unset) falls through to Core ML.
+    #if DAL_LITERT
     return try LiteRTSession(modelPath: modelPath)
+    #elseif canImport(CoreML)
+    return try CoreMLSession(modelPath: modelPath)
     #elseif canImport(COnnxRuntime)
     return try ORTSession(modelPath: modelPath)
     #else

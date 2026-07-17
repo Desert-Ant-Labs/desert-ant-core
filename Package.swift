@@ -38,8 +38,12 @@ let liteRT = ProcessInfo.processInfo.environment["DAL_INFERENCE_LITERT"] != nil
 
 // The on-device runtime target Inference links on Android/Linux, and the Swift
 // flag that switches ORTSession vs LiteRTSession in the session factory.
+// LiteRT can also back a native server-side build on Apple hosts (the Node
+// SDK's darwin native uses it so it consumes the same .tflite as Linux), so its
+// target is available on macOS too when the LiteRT backend is selected. The
+// default Apple SDK build leaves DAL_INFERENCE_LITERT unset and uses Core ML.
 let inferenceRuntimeDeps: [Target.Dependency] = liteRT
-    ? [.target(name: "CLiteRt", condition: .when(platforms: [.linux, .android]))]
+    ? [.target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .macOS]))]
     : [.target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android]))]
 let inferenceSwiftSettings: [SwiftSetting] = liteRT ? [.define("DAL_LITERT")] : []
 
