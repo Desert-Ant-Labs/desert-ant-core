@@ -11,7 +11,7 @@ import Foundation
 //                (NSRegularExpression | java.util.regex | JS RegExp)
 //   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
 //   TextNormalization  String.nfkc via the platform normalizer
-//                (Foundation | Android ICU unorm2 | JS String.normalize)
+//                (Foundation | Android java.text.Normalizer | JS String.normalize)
 //   ModelStore   verified Hub downloads + platform-neutral StoredModel access
 //   ModelResources  SwiftPM bundle resource loading
 //   PlatformSupport environment + synchronous FFI/async bridge
@@ -126,11 +126,10 @@ let libraryTargets: [Target] = [
             ] + jsWasi
         ),
         .target(name: "CHostBridge"),
-        .systemLibrary(name: "CAndroidICU"),
         .target(
             name: "TextNormalization",
             dependencies: [
-                .target(name: "CAndroidICU", condition: .when(platforms: [.android])),
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
         .target(name: "FFIBuffer"),

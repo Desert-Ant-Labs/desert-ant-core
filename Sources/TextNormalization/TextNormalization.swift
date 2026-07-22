@@ -4,7 +4,7 @@
 // platform's own: no ICU is bundled where the OS or host already provides it.
 //
 //   Apple / Linux : Foundation's precomposedStringWithCompatibilityMapping
-//   Android       : the platform ICU (unorm2, via CAndroidICU / libicu, API 31+)
+//   Android       : the host's java.text.Normalizer (via CHostBridge), no ICU
 //   WebAssembly   : the JS host's String.prototype.normalize('NFKC')
 //
 // Model-agnostic and reusable across projects. Exactly one backend file (in

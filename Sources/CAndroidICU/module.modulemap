@@ -1,5 +1,0 @@
-module CAndroidICU [system] {
-  header "CAndroidICU.h"
-  link "icu"
-  export *
-}

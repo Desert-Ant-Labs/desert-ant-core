@@ -28,6 +28,16 @@ typedef char *(*HostJSONParseFn)(const char *json);
 void host_set_json_parse(HostJSONParseFn fn);
 char *host_json_parse(const char *json);
 
+// NFKC normalization (Android): the host normalizes text with its own
+// java.text.Normalizer (present since API 1), so the pure-Swift core links no
+// ICU (linking the platform libicu would force API 31+, and bundling
+// Foundation's ICU would add tens of megabytes). Returns a malloc'd,
+// NUL-terminated UTF-8 string the caller frees with host_free; NULL means "not
+// installed / failed", which the caller treats as "leave the text unchanged".
+typedef char *(*HostNormalizeFn)(const char *text);
+void host_set_normalize(HostNormalizeFn fn);
+char *host_normalize(const char *text);
+
 // HTTP (Android): the host performs the request off the pure-Swift library.
 // tree GETs the Hub tree API and returns a malloc'd listing, one file per line
 // as "path\tsize\tsha256" (empty sha256 for non-LFS files), NULL on failure.

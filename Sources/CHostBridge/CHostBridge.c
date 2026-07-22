@@ -17,6 +17,14 @@ char *host_json_parse(const char *json) {
     return g_json_parse ? g_json_parse(json) : 0;
 }
 
+static HostNormalizeFn g_normalize = 0;
+
+void host_set_normalize(HostNormalizeFn fn) { g_normalize = fn; }
+
+char *host_normalize(const char *text) {
+    return g_normalize ? g_normalize(text) : 0;
+}
+
 static HostHttpTreeFn g_http_tree = 0;
 static HostHttpDownloadFn g_http_download = 0;
 

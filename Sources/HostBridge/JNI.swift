@@ -25,6 +25,7 @@ private nonisolated(unsafe) var gVM: UnsafeMutablePointer<JavaVM?>?
 private nonisolated(unsafe) var gHostClass: jclass?
 private nonisolated(unsafe) var gRegexMatches: jmethodID?
 private nonisolated(unsafe) var gJSONParse: jmethodID?
+private nonisolated(unsafe) var gNormalize: jmethodID?
 private nonisolated(unsafe) var gHttpTree: jmethodID?
 private nonisolated(unsafe) var gHttpDownload: jmethodID?
 
@@ -146,6 +147,18 @@ private func hostJSONParse(_ json: UnsafePointer<CChar>?) -> UnsafeMutablePointe
     }
 }
 
+private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        guard let t = hostMakeBytes(env, Array(String(cString: text!).utf8)) else { return nil }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, t) }
+        let args = [jvalue(l: t)]
+        let result = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gNormalize, $0.baseAddress)
+        }
+        return resultBytes(env, result)
+    }
+}
+
 private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)) else { return nil }
@@ -189,23 +202,26 @@ private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointe
 
 // MARK: install
 
-/// Wire the CHostBridge regex/JSON callbacks to the host class's static
-/// methods. Call this once from a model's JNI entry points (idempotent). The
-/// host class must expose `static byte[] regexMatches(byte[] pattern, boolean
-/// caseInsensitive, byte[] text, boolean firstOnly)` and `static byte[]
-/// jsonParseTree(byte[] json)` (see the shared HostBridge.kt).
+/// Wire the CHostBridge regex/JSON/normalize callbacks to the host class's
+/// static methods. Call this once from a model's JNI entry points (idempotent).
+/// The host class must expose `static byte[] regexMatches(byte[] pattern,
+/// boolean caseInsensitive, byte[] text, boolean firstOnly)`, `static byte[]
+/// jsonParseTree(byte[] json)`, and `static byte[] normalizeNfkc(byte[] text)`
+/// (see the shared HostBridge.kt).
 public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gHostClass != nil { return }
     _ = env.pointee!.pointee.GetJavaVM(env, &gVM)
     if let cls { gHostClass = env.pointee!.pointee.NewGlobalRef(env, cls) }
     gRegexMatches = env.pointee!.pointee.GetStaticMethodID(env, cls, "regexMatches", "([BZ[BZ)[B")
     gJSONParse = env.pointee!.pointee.GetStaticMethodID(env, cls, "jsonParseTree", "([B)[B")
+    gNormalize = env.pointee!.pointee.GetStaticMethodID(env, cls, "normalizeNfkc", "([B)[B")
     // Optional: only wired if the host class provides them (ModelStore download).
     gHttpTree = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpTree", "([B)[B")
     gHttpDownload = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpDownload", "([B[B)I")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
+    if gNormalize != nil { host_set_normalize(hostNormalize) }
     if gHttpTree != nil { host_set_http_tree(hostHttpTree) }
     if gHttpDownload != nil { host_set_http_download(hostHttpDownload) }
 }

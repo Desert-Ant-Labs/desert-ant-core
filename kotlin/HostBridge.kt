@@ -37,6 +37,16 @@ import kotlinx.serialization.json.long
  */
 object HostBridge {
     /**
+     * NFKC-normalize [textUtf8] with the platform's own java.text.Normalizer
+     * (available since API 1), so the Swift core links no ICU on Android and the
+     * SDK is not pinned to the API 31 platform libicu. Returns UTF-8 bytes.
+     */
+    @JvmStatic
+    fun normalizeNfkc(textUtf8: ByteArray): ByteArray =
+        java.text.Normalizer.normalize(textUtf8.toString(Charsets.UTF_8), java.text.Normalizer.Form.NFKC)
+            .toByteArray(Charsets.UTF_8)
+
+    /**
      * Run [patternUtf8] over [textUtf8] with java.util.regex and return the
      * matches as newline-separated rows, each `g0s,g0e;g1s,g1e;...` of UTF-16
      * group offsets (`-1,-1` for an unmatched group). [firstOnly] stops after
