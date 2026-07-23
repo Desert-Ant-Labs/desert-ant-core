@@ -20,7 +20,7 @@ import Darwin
 /// buffer requirements, lock/unlock) lives in the C shim in `CLiteRt`; this type
 /// marshals named ``Tensor`` inputs and outputs across it. Hardware acceleration
 /// (XNNPACK on CPU by default; GPU/NPU when requested) is selected in the shim.
-public final class LiteRTSession: InferenceSession, @unchecked Sendable {
+final class LiteRTSession: InferenceSession, @unchecked Sendable {
     private let session: OpaquePointer
     private let inputNames: [String]
     private let outputNames: [String]
@@ -38,7 +38,7 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
     /// bundled with the app and usable, otherwise the model runs on CPU
     /// (XNNPACK). The C shim retries CPU-only if compiling for the GPU fails, so
     /// requesting the GPU is always safe.
-    public enum Accelerator: Int32, Sendable {
+    enum Accelerator: Int32, Sendable {
         case cpu = 1
         case gpu = 2
         case npu = 4
@@ -46,7 +46,7 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
         case auto = 3   // gpu | cpu
     }
 
-    public init(modelPath: String, modelBytes: [UInt8]? = nil,
+    init(modelPath: String, modelBytes: [UInt8]? = nil,
                 accelerator: Accelerator = .auto) throws {
         var errbuf = [CChar](repeating: 0, count: 256)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
@@ -81,7 +81,7 @@ public final class LiteRTSession: InferenceSession, @unchecked Sendable {
         pthread_mutex_destroy(&lock)
     }
 
-    public func run(inputs: [String: Tensor], outputs: [String]) throws -> [Tensor] {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
         pthread_mutex_lock(&lock)
         defer { pthread_mutex_unlock(&lock) }
         // Assemble input byte buffers in the model's declared input order.

@@ -1,5 +1,6 @@
 package ai.desertant.core
 
+import android.content.SharedPreferences
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -121,6 +122,48 @@ object HostBridge {
             -1
         }
     }
+
+    /**
+     * Small key/value persistence for desert-ant-core's `Usage` state, backed by
+     * SharedPreferences. The host app sets [preferences] once (e.g.
+     * `HostBridge.preferences = context.getSharedPreferences("desert-ant", MODE_PRIVATE)`);
+     * until then get returns empty and set is a no-op (state simply doesn't persist).
+     */
+    @JvmStatic
+    var preferences: SharedPreferences? = null
+
+    @JvmStatic
+    fun prefsGet(keyUtf8: ByteArray): ByteArray {
+        val value = preferences?.getString(keyUtf8.toString(Charsets.UTF_8), null)
+        return value?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+    }
+
+    @JvmStatic
+    fun prefsSet(keyUtf8: ByteArray, valueUtf8: ByteArray) {
+        preferences?.edit()
+            ?.putString(keyUtf8.toString(Charsets.UTF_8), valueUtf8.toString(Charsets.UTF_8))
+            ?.apply()
+    }
+
+    /**
+     * The application identity used as the usage turnstile key. The host app sets
+     * this once (e.g. `HostBridge.applicationId = context.packageName`).
+     */
+    @JvmStatic
+    var applicationId: String? = null
+
+    @JvmStatic
+    fun appId(): ByteArray = (applicationId ?: "").toByteArray(Charsets.UTF_8)
+
+    /**
+     * Flush pending usage for all active sessions. The host calls this from an
+     * app-background lifecycle callback, e.g.:
+     *   ProcessLifecycleOwner.get().lifecycle.addObserver(LifecycleEventObserver { _, e ->
+     *     if (e == Lifecycle.Event.ON_STOP) HostBridge.flushUsage()
+     *   })
+     * Implemented natively (desert-ant-core Inference); requires the SDK's .so loaded.
+     */
+    @JvmStatic external fun flushUsage()
 
     @JvmStatic
     fun jsonParseTree(jsonUtf8: ByteArray): ByteArray {

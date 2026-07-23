@@ -1,4 +1,8 @@
-import XCTest
+// ModelStore's default transport/filesystem are Foundation/POSIX-backed, which
+// are unavailable on WASI (the app there supplies its own), so the suite is
+// Apple/Linux only.
+#if !os(WASI)
+import Testing
 import Foundation
 import Checksum
 @testable import ModelStore
@@ -65,12 +69,12 @@ final class LockedDouble: @unchecked Sendable {
     func get() -> Double { lock.withLock { value } }
 }
 
-final class ModelStoreTests: XCTestCase {
-    private var tmp: String!
+final class ModelStoreTests {
+    private let tmp: String
     private let endpoint = "https://hub.test"
 
-    override func setUp() { tmp = NSTemporaryDirectory() + "dal-modelstore-\(UUID().uuidString)" }
-    override func tearDown() { try? FileManager.default.removeItem(atPath: tmp) }
+    init() { tmp = NSTemporaryDirectory() + "dal-modelstore-\(UUID().uuidString)" }
+    deinit { try? FileManager.default.removeItem(atPath: tmp) }
 
     private func model(_ files: [String], fs: FileSystem? = nil) -> ModelSpec {
         ModelSpec(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: files,
@@ -80,29 +84,29 @@ final class ModelStoreTests: XCTestCase {
         ModelStore(transport: t, fileSystem: fs, endpoint: endpoint)
     }
 
-    func testDownloadVerifyAndOfflineReuse() async throws {
+    @Test func downloadVerifyAndOfflineReuse() async throws {
         let payload = ["redact.onnx": [UInt8](repeating: 0x41, count: 5000),
                        "redact.mlmodelc/weights/weight.bin": [UInt8](repeating: 0x7, count: 800),
                        "labels.json": Array("{}".utf8)]
         let s = store(MockTransport(payload, lfs: false))  // labels/small files: no LFS hash
         let m = model(["redact.onnx", "redact.mlmodelc/weights/weight.bin", "labels.json"])
 
-        XCTAssertFalse(s.isDownloaded(m))
+        #expect(!s.isDownloaded(m))
         let last = LockedDouble()
         let downloaded = try await s.download(m) { p in last.set(p.fraction) }
-        XCTAssertEqual(last.get(), 1.0, accuracy: 0.0001)
-        XCTAssertEqual(try downloaded.read("labels.json"), payload["labels.json"])
-        XCTAssertEqual(try downloaded.readString("labels.json"), "{}")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
-        XCTAssertTrue(s.isDownloaded(m))
+        #expect(abs(last.get() - 1.0) <= 0.0001)
+        #expect(try downloaded.read("labels.json") == payload["labels.json"])
+        #expect(try downloaded.readString("labels.json") == "{}")
+        #expect(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
+        #expect(s.isDownloaded(m))
 
         // Offline: manifest present + valid, so a throwing transport is untouched.
         let offline = store(OfflineTransport())
-        XCTAssertTrue(offline.isDownloaded(m))
+        #expect(offline.isDownloaded(m))
         try await offline.download(m)
     }
 
-    func testFolderExpansion() async throws {
+    @Test func folderExpansion() async throws {
         // Pass a folder ("redact.mlmodelc/"); the tree expands it to its files.
         let payload = ["redact.mlmodelc/model.mil": [UInt8](repeating: 1, count: 500),
                        "redact.mlmodelc/coremldata.bin": [UInt8](repeating: 2, count: 60),
@@ -114,19 +118,19 @@ final class ModelStoreTests: XCTestCase {
         let m = model(["redact.mlmodelc/", "redact_tokenizer.bin"])
 
         try await s.download(m)
-        XCTAssertEqual(t.downloadCount, 4)  // 3 mlmodelc files + tokenizer, NOT README
-        XCTAssertTrue(s.isDownloaded(m))
+        #expect(t.downloadCount == 4)  // 3 mlmodelc files + tokenizer, NOT README
+        #expect(s.isDownloaded(m))
         for f in ["redact.mlmodelc/model.mil", "redact.mlmodelc/coremldata.bin",
                   "redact.mlmodelc/weights/weight.bin", "redact_tokenizer.bin"] {
-            XCTAssertTrue(FileManager.default.fileExists(atPath: s.location(of: m) + "/" + f), f)
+            #expect(FileManager.default.fileExists(atPath: s.location(of: m) + "/" + f), "\(f)")
         }
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/README.md"))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/README.md"))
 
         // Offline reuse works for a folder model (manifest recorded the expansion).
-        XCTAssertTrue(store(OfflineTransport()).isDownloaded(m))
+        #expect(store(OfflineTransport()).isDownloaded(m))
     }
 
-    func testModelDistributionSelectsAndInstallsArtifacts() async throws {
+    @Test func modelDistributionSelectsAndInstallsArtifacts() async throws {
         let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
                        "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
         let distribution = ModelDistribution(
@@ -139,28 +143,28 @@ final class ModelStoreTests: XCTestCase {
         let spec = ModelSpec(
             repo: distribution.repo,
             revision: distribution.revision,
-            files: try XCTUnwrap(distribution.currentFiles),
+            files: try #require(distribution.currentFiles),
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
-        XCTAssertTrue(files.path("model.onnx").hasSuffix("/model.onnx"))
-        XCTAssertEqual(try files.read("tokenizer.bin"), payload["tokenizer.bin"])
+        #expect(files.path("model.onnx").hasSuffix("/model.onnx"))
+        #expect(try files.read("tokenizer.bin") == payload["tokenizer.bin"])
 
         let local = tmp + "/local"
         try fs.makeDirectory(local)
         try fs.write(local + "/model.onnx", payload["model.onnx"]!)
         try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
         let localFiles = try distribution.load(from: local)
-        XCTAssertEqual(localFiles.path("model.onnx"), local + "/model.onnx")
+        #expect(localFiles.path("model.onnx") == local + "/model.onnx")
 
         fs.remove(local + "/tokenizer.bin")
-        do { _ = try distribution.load(from: local); XCTFail("expected missing local file") }
+        do { _ = try distribution.load(from: local); Issue.record("expected missing local file") }
         catch let error as ModelStoreError {
-            guard case .localFileMissing = error else { return XCTFail("\(error)") }
+            guard case .localFileMissing = error else { Issue.record("\(error)"); return }
         }
     }
 
-    func testResolveAdoptsUserFilesButNotInterruptedDownloads() async throws {
+    @Test func resolveAdoptsUserFilesButNotInterruptedDownloads() async throws {
         let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
                        "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
         let distribution = ModelDistribution(
@@ -173,29 +177,29 @@ final class ModelStoreTests: XCTestCase {
         for (name, bytes) in payload { try fs.write(dir + "/" + name, bytes) }
 
         // Files you placed (no `.dal-meta`) are adopted offline.
-        XCTAssertTrue(distribution.isAvailable(cacheDirectory: dir))
+        #expect(distribution.isAvailable(cacheDirectory: dir))
         let files = try await distribution.resolve(cacheDirectory: dir)
-        XCTAssertEqual(try files.read("model.onnx"), payload["model.onnx"])
+        #expect(try files.read("model.onnx") == payload["model.onnx"])
 
         // An interrupted download (a `.dal-meta` marker, no verified manifest)
         // is not adopted as available.
         try fs.makeDirectory(dir + "/" + ModelStore.metadataDirectory)
-        XCTAssertFalse(distribution.isAvailable(cacheDirectory: dir))
+        #expect(!distribution.isAvailable(cacheDirectory: dir))
     }
 
-    func testFailedDownloadIsNotCached() async throws {
+    @Test func failedDownloadIsNotCached() async throws {
         let s = store(DroppingTransport(["redact.onnx": [UInt8](repeating: 9, count: 4096)]))
         let m = model(["redact.onnx"])
-        do { try await s.download(m); XCTFail("expected the dropped download to throw") }
-        catch let error as ModelStoreError { if case .io = error {} else { XCTFail("\(error)") } }
+        do { try await s.download(m); Issue.record("expected the dropped download to throw") }
+        catch let error as ModelStoreError { if case .io = error {} else { Issue.record("\(error)") } }
 
         // Never treated as downloaded, and no half-written temp or file remains.
-        XCTAssertFalse(s.isDownloaded(m))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/.dal-meta/redact.onnx.part"))
+        #expect(!s.isDownloaded(m))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/.dal-meta/redact.onnx.part"))
     }
 
-    func testManifestIsSpecificToRequestedFiles() async throws {
+    @Test func manifestIsSpecificToRequestedFiles() async throws {
         let payload = ["a.bin": [UInt8](repeating: 1, count: 4),
                        "b.bin": [UInt8](repeating: 2, count: 4)]
         let s = store(MockTransport(payload))
@@ -203,70 +207,70 @@ final class ModelStoreTests: XCTestCase {
         let b = model(["b.bin"])
 
         try await s.download(a)
-        XCTAssertTrue(s.isDownloaded(a))
-        XCTAssertFalse(s.isDownloaded(b))
+        #expect(s.isDownloaded(a))
+        #expect(!s.isDownloaded(b))
     }
 
-    func testUnsafePathsAndTreeEntriesAreRejected() async throws {
+    @Test func unsafePathsAndTreeEntriesAreRejected() async throws {
         let s = store(MockTransport(["../escape": [1]]))
-        do { try await s.download(model(["../escape"])); XCTFail("expected invalid spec") }
+        do { try await s.download(model(["../escape"])); Issue.record("expected invalid spec") }
         catch let error as ModelStoreError {
-            guard case .invalidSpec = error else { return XCTFail("\(error)") }
+            guard case .invalidSpec = error else { Issue.record("\(error)"); return }
         }
 
         let unsafeTree = store(MockTransport(["weights/../escape": [1]]))
         let folder = model(["weights/"])
-        do { try await unsafeTree.download(folder); XCTFail("expected invalid response") }
+        do { try await unsafeTree.download(folder); Issue.record("expected invalid response") }
         catch let error as ModelStoreError {
-            guard case .invalidResponse = error else { return XCTFail("\(error)") }
+            guard case .invalidResponse = error else { Issue.record("\(error)"); return }
         }
     }
 
-    func testMissingFileOrFolderThrows() async throws {
+    @Test func missingFileOrFolderThrows() async throws {
         let t = MockTransport(["redact.onnx": [UInt8](repeating: 1, count: 10)])
         let s = store(t)
-        do { try await s.download(model(["nope.bin"])); XCTFail("expected notInRepo") }
-        catch let e as ModelStoreError { if case .notInRepo = e {} else { XCTFail("\(e)") } }
-        do { try await s.download(model(["missing.mlmodelc/"])); XCTFail("expected notInRepo") }
-        catch let e as ModelStoreError { if case .notInRepo = e {} else { XCTFail("\(e)") } }
+        do { try await s.download(model(["nope.bin"])); Issue.record("expected notInRepo") }
+        catch let e as ModelStoreError { if case .notInRepo = e {} else { Issue.record("\(e)") } }
+        do { try await s.download(model(["missing.mlmodelc/"])); Issue.record("expected notInRepo") }
+        catch let e as ModelStoreError { if case .notInRepo = e {} else { Issue.record("\(e)") } }
     }
 
-    func testCorruptionIsDetectedAndReDownloaded() async throws {
+    @Test func corruptionIsDetectedAndReDownloaded() async throws {
         let good = [UInt8](repeating: 0x9, count: 4096)
         let t = MockTransport(["redact.onnx": good])
         let s = store(t)
         let m = model(["redact.onnx"])
         try await s.download(m)
-        XCTAssertTrue(s.isDownloaded(m))
+        #expect(s.isDownloaded(m))
 
         try FoundationFileSystem().write(s.location(of: m) + "/redact.onnx", [UInt8](repeating: 0xFF, count: 4096))
-        XCTAssertFalse(s.isDownloaded(m))   // always re-hashes
+        #expect(!s.isDownloaded(m))   // always re-hashes
         try await s.download(m)
-        XCTAssertEqual(t.downloadCount, 2)  // re-fetched
-        XCTAssertTrue(s.isDownloaded(m))
+        #expect(t.downloadCount == 2)  // re-fetched
+        #expect(s.isDownloaded(m))
     }
 
-    func testSizeMismatchIsRejected() async throws {
+    @Test func sizeMismatchIsRejected() async throws {
         let t = MockTransport(["redact.onnx": [UInt8](repeating: 0x3, count: 2048)], sizeOverride: 9999)
         let s = store(t)
         let m = model(["redact.onnx"])
-        do { try await s.download(m); XCTFail("expected integrity failure") }
-        catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { XCTFail("\(e)") } }
-        XCTAssertFalse(s.isDownloaded(m))
-        XCTAssertFalse(FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
+        do { try await s.download(m); Issue.record("expected integrity failure") }
+        catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { Issue.record("\(e)") } }
+        #expect(!s.isDownloaded(m))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
     }
 
-    func testHashMismatchIsRejected() async throws {
+    @Test func hashMismatchIsRejected() async throws {
         let t = MockTransport(["redact.onnx": [UInt8](repeating: 0x3, count: 2048)],
                               shaOverride: String(repeating: "a", count: 64))
         let s = store(t)
         let m = model(["redact.onnx"])
-        do { try await s.download(m); XCTFail("expected integrity failure") }
-        catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { XCTFail("\(e)") } }
-        XCTAssertFalse(s.isDownloaded(m))
+        do { try await s.download(m); Issue.record("expected integrity failure") }
+        catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { Issue.record("\(e)") } }
+        #expect(!s.isDownloaded(m))
     }
 
-    func testPOSIXFileSystemBackend() async throws {
+    @Test func posixFileSystemBackend() async throws {
         // The Android FS backend is raw POSIX, identical on Linux.
         let payload = ["redact.onnx": [UInt8](repeating: 0x2b, count: 6000),
                        "redact.mlmodelc/weights/weight.bin": [UInt8](repeating: 0x11, count: 1234)]
@@ -275,10 +279,11 @@ final class ModelStoreTests: XCTestCase {
         let m = ModelSpec(repo: "desert-ant-labs/redact", revision: "v0.2.1", files: Array(payload.keys))
 
         try await s.download(m)
-        XCTAssertTrue(s.isDownloaded(m))
-        XCTAssertTrue(posix.exists(s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
+        #expect(s.isDownloaded(m))
+        #expect(posix.exists(s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
 
         try posix.write(s.location(of: m) + "/redact.onnx", [UInt8](repeating: 0, count: 6000))
-        XCTAssertFalse(s.isDownloaded(m))
+        #expect(!s.isDownloaded(m))
     }
 }
+#endif

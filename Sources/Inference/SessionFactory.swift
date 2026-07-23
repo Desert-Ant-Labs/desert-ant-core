@@ -13,11 +13,11 @@ public func inferenceSession(modelPath: String) throws -> any InferenceSession {
     // Apple host (the Node SDK's darwin native) uses LiteRT and its .tflite,
     // while the default Apple SDK build (flag unset) falls through to Core ML.
     #if DAL_LITERT
-    return try LiteRTSession(modelPath: modelPath)
+    return tracked(try LiteRTSession(modelPath: modelPath))
     #elseif canImport(CoreML)
-    return try CoreMLSession(modelPath: modelPath)
+    return tracked(try CoreMLSession(modelPath: modelPath))
     #elseif canImport(COnnxRuntime)
-    return try ORTSession(modelPath: modelPath)
+    return tracked(try ORTSession(modelPath: modelPath))
     #else
     throw InferenceError.sessionUnavailable("no on-device inference runtime on this platform")
     #endif
@@ -27,13 +27,25 @@ public func inferenceSession(modelPath: String) throws -> any InferenceSession {
 /// platforms; e.g. Android classpath resources).
 public func inferenceSession(modelBytes: [UInt8]) throws -> any InferenceSession {
     #if DAL_LITERT
-    return try LiteRTSession(modelPath: "", modelBytes: modelBytes)
+    return tracked(try LiteRTSession(modelPath: "", modelBytes: modelBytes))
     #elseif canImport(COnnxRuntime)
-    return try ORTSession(modelPath: "", modelBytes: modelBytes)
+    return tracked(try ORTSession(modelPath: "", modelBytes: modelBytes))
     #else
     throw InferenceError.sessionUnavailable("in-memory models need ONNX Runtime (Android/Linux)")
     #endif
 }
+
+#if os(WASI)
+/// A tracked inference session driven by a JS host global (browser/node), for
+/// SDKs that create the underlying model session themselves (e.g. a bundled
+/// model handed straight to `hostGlobal.createSession`) rather than going
+/// through `StoredModel.inferenceSession(model:hostGlobal:)`. The host must
+/// expose the `JSInferenceSession` tensor contract on `hostGlobal`. Usage is
+/// tracked like every other platform's session.
+public func inferenceSession(hostGlobal: String, method: String = "run") throws -> any InferenceSession {
+    tracked(try JSInferenceSession(hostGlobal: hostGlobal, method: method))
+}
+#endif
 
 public extension StoredModel {
     /// Build this platform's inference session for the resolved `model`
@@ -46,9 +58,9 @@ public extension StoredModel {
     func inferenceSession(model: String, hostGlobal: String = "__ModelHost") async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model, hostGlobal: hostGlobal)
-        return try JSInferenceSession(hostGlobal: hostGlobal)
+        return tracked(try JSInferenceSession(hostGlobal: hostGlobal))
         #else
-        return try Inference.inferenceSession(modelPath: path(model))
+        return try Inference.inferenceSession(modelPath: path(model))  // already tracked
         #endif
     }
 }

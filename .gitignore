@@ -1,4 +1,9 @@
 .build/
+.build-macos/
+.build-android/
+androidtest/build/
+androidtest/.gradle/
+androidtest/src/main/jniLibs/
 .swiftpm/
 .DS_Store
 *.xcodeproj

@@ -5,13 +5,13 @@ import COnnxRuntime
 /// the shared ``InferenceSession`` API. Load from a file path or from
 /// in-memory model bytes (e.g. classpath resources on Android). Binaries that
 /// use it must link `libonnxruntime.so` for the target platform.
-public final class ORTSession: InferenceSession, @unchecked Sendable {
+final class ORTSession: InferenceSession, @unchecked Sendable {
     private let api: OrtApi
     private var env: OpaquePointer?
     private var session: OpaquePointer?
     private var memoryInfo: OpaquePointer?
 
-    public init(modelPath: String, modelBytes: [UInt8]? = nil) throws {
+    init(modelPath: String, modelBytes: [UInt8]? = nil) throws {
         guard let base = OrtGetApiBase(), let apiPointer = base.pointee.GetApi(UInt32(ORT_API_VERSION)) else {
             throw InferenceError.sessionUnavailable("ONNX Runtime C API unavailable")
         }
@@ -36,7 +36,7 @@ public final class ORTSession: InferenceSession, @unchecked Sendable {
         if let env { api.ReleaseEnv(env) }
     }
 
-    public func run(inputs: [String: Tensor], outputs: [String]) throws -> [Tensor] {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
         let names = Array(inputs.keys)
         var inputValues: [OpaquePointer?] = Array(repeating: nil, count: names.count)
         var buffers: [UnsafeMutableRawBufferPointer] = []

@@ -1,4 +1,4 @@
-import XCTest
+import Testing
 @testable import Inference
 
 #if DAL_LITERT
@@ -13,13 +13,13 @@ import Foundation
 /// and `mask` [1,4,1] (float32), output `probs` [1,3] = softmax over the
 /// masked sum across the time axis. Feeding per-step features that sum to
 /// [1, 2, 3] makes `probs` == softmax([1, 2, 3]).
-final class LiteRTSessionTests: XCTestCase {
+struct LiteRTSessionTests {
     private func modelPath() throws -> String {
-        let url = try XCTUnwrap(Bundle.module.url(forResource: "testmodel", withExtension: "tflite"))
+        let url = try #require(Bundle.module.url(forResource: "testmodel", withExtension: "tflite"))
         return url.path
     }
 
-    func testNamedTensorRunMatchesReference() throws {
+    @Test func namedTensorRunMatchesReference() throws {
         // Pin CPU for an exact numeric reference: the default (.auto) may run on
         // a GPU accelerator when one is bundled, whose kernels differ by ~1e-3.
         let session = try LiteRTSession(modelPath: try modelPath(), accelerator: .cpu)
@@ -35,23 +35,23 @@ final class LiteRTSessionTests: XCTestCase {
                 "features": Tensor(float32: features, shape: [1, 4, 3]),
                 "mask": Tensor(float32: mask, shape: [1, 4, 1]),
             ],
-            outputs: ["probs"])
-        let probs = try XCTUnwrap(outputs.first?.float32Values)
+            outputs: ["probs"], deviceId: nil)
+        let probs = try #require(outputs.first?.float32Values)
 
-        XCTAssertEqual(outputs[0].shape, [1, 3])
-        XCTAssertEqual(probs.count, 3)
-        XCTAssertEqual(probs.reduce(0, +), 1.0, accuracy: 1e-4)   // softmax sums to 1
+        #expect(outputs[0].shape == [1, 3])
+        #expect(probs.count == 3)
+        #expect(abs(probs.reduce(0, +) - 1.0) <= 1e-4)   // softmax sums to 1
         // softmax([1, 2, 3]) = [0.09003, 0.24473, 0.66524]
-        XCTAssertEqual(probs[0], 0.09003, accuracy: 1e-3)
-        XCTAssertEqual(probs[1], 0.24473, accuracy: 1e-3)
-        XCTAssertEqual(probs[2], 0.66524, accuracy: 1e-3)
+        #expect(abs(probs[0] - 0.09003) <= 1e-3)
+        #expect(abs(probs[1] - 0.24473) <= 1e-3)
+        #expect(abs(probs[2] - 0.66524) <= 1e-3)
     }
 
     /// The default accelerator is `.auto` (prefer GPU when its accelerator
     /// library is bundled, else CPU). It must always load and run and produce a
     /// valid softmax, whichever backend it lands on (GPU kernels differ from CPU
     /// by ~1e-3, so assert loosely).
-    func testAutoAcceleratorRunsAndFallsBack() throws {
+    @Test func autoAcceleratorRunsAndFallsBack() throws {
         let session = try LiteRTSession(modelPath: try modelPath())   // .auto
         let features = [Float](repeating: 0, count: 4 * 3).enumerated().map { i, _ in
             Float([0.25, 0.5, 0.75][i % 3])
@@ -61,14 +61,14 @@ final class LiteRTSessionTests: XCTestCase {
                 "features": Tensor(float32: features, shape: [1, 4, 3]),
                 "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
             ],
-            outputs: ["probs"])
-        let probs = try XCTUnwrap(outputs.first?.float32Values)
-        XCTAssertEqual(outputs[0].shape, [1, 3])
-        XCTAssertEqual(probs.reduce(0, +), 1.0, accuracy: 1e-2)
-        XCTAssertEqual(probs[2], 0.66524, accuracy: 1e-2)   // largest class, backend-agnostic
+            outputs: ["probs"], deviceId: nil)
+        let probs = try #require(outputs.first?.float32Values)
+        #expect(outputs[0].shape == [1, 3])
+        #expect(abs(probs.reduce(0, +) - 1.0) <= 1e-2)
+        #expect(abs(probs[2] - 0.66524) <= 1e-2)   // largest class, backend-agnostic
     }
 
-    func testInMemoryModelBytes() throws {
+    @Test func inMemoryModelBytes() throws {
         let bytes = try [UInt8](Data(contentsOf: URL(fileURLWithPath: try modelPath())))
         let session = try LiteRTSession(modelPath: "", modelBytes: bytes)
         let outputs = try session.run(
@@ -76,10 +76,10 @@ final class LiteRTSessionTests: XCTestCase {
                 "features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3]),
                 "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
             ],
-            outputs: ["probs"])
+            outputs: ["probs"], deviceId: nil)
         // All-zero features -> softmax([0,0,0]) = [1/3, 1/3, 1/3].
-        let probs = try XCTUnwrap(outputs.first?.float32Values)
-        for p in probs { XCTAssertEqual(p, 1.0 / 3.0, accuracy: 1e-4) }
+        let probs = try #require(outputs.first?.float32Values)
+        for p in probs { #expect(abs(p - 1.0 / 3.0) <= 1e-4) }
     }
 
     /// The session must own its copy of the model bytes: LiteRT keeps a
@@ -90,7 +90,7 @@ final class LiteRTSessionTests: XCTestCase {
     /// test model is fully deserialized at create, so the dangling-weights crash
     /// only surfaces with a large real model, e.g. redact's Android integration
     /// test; this still guards the ownership contract on the bytes path.)
-    func testInMemoryModelBytesSurvivesSourceMutation() throws {
+    @Test func inMemoryModelBytesSurvivesSourceMutation() throws {
         let session: LiteRTSession
         do {
             var bytes = try [UInt8](Data(contentsOf: URL(fileURLWithPath: try modelPath())))
@@ -109,16 +109,18 @@ final class LiteRTSessionTests: XCTestCase {
                 "features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3]),
                 "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
             ],
-            outputs: ["probs"])
-        let probs = try XCTUnwrap(outputs.first?.float32Values)
-        for p in probs { XCTAssertEqual(p, 1.0 / 3.0, accuracy: 1e-4) }
+            outputs: ["probs"], deviceId: nil)
+        let probs = try #require(outputs.first?.float32Values)
+        for p in probs { #expect(abs(p - 1.0 / 3.0) <= 1e-4) }
     }
 
-    func testMissingInputThrows() throws {
+    @Test func missingInputThrows() throws {
         let session = try LiteRTSession(modelPath: try modelPath())
-        XCTAssertThrowsError(try session.run(
-            inputs: ["features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3])],
-            outputs: ["probs"]))
+        #expect(throws: (any Error).self) {
+            try session.run(
+                inputs: ["features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3])],
+                outputs: ["probs"], deviceId: nil)
+        }
     }
 }
 #endif

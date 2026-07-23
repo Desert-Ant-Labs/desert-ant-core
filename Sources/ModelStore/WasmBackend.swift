@@ -82,6 +82,17 @@ public struct JSFileSystem: FileSystem {
     public func remove(_ path: String) { if exists(path) { _ = fs.unlinkSync?(path) } }
 }
 
+// Opt-in verbose logging for the WASM model-download transport, enabled from JS
+// by setting `globalThis.__dalHttpDebug = true`. Logs go to `console.log`.
+private func jsTransportDebugEnabled() -> Bool {
+    JSObject.global.__dalHttpDebug.boolean ?? false
+}
+
+private func jsTransportDebugLog(_ message: @autoclosure () -> String) {
+    guard jsTransportDebugEnabled() else { return }
+    _ = JSObject.global.console.object?.log?("[DAL HTTP] \(message())".jsValue)
+}
+
 /// JS `fetch` transport. Writes downloaded bytes through the store's filesystem
 /// so the same code path caches to node's `fs` or the browser's memory store.
 public struct JSTransport: ModelTransport {
@@ -89,6 +100,7 @@ public struct JSTransport: ModelTransport {
     public init(fileSystem: FileSystem) { self.fileSystem = fileSystem }
 
     public func tree(_ url: String) async throws -> [RemoteEntry] {
+        jsTransportDebugLog("tree \(url)")
         let resp = try await fetch(url, .undefined)
         guard let jsonPromise = JSPromise(from: resp.json!()) else { throw ModelStoreError.io("json(\(url))") }
         let arr = try await jsonPromise.value
@@ -104,6 +116,7 @@ public struct JSTransport: ModelTransport {
     }
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
+        jsTransportDebugLog("download \(url) -> \(destinationPath)")
         let resp = try await fetch(url, .undefined)
         // Stream the body for fine-grained progress: read the ReadableStream
         // chunk by chunk, reporting cumulative bytes, then write the file.
@@ -131,10 +144,13 @@ public struct JSTransport: ModelTransport {
     }
 
     private func fetch(_ url: String, _ opts: JSValue) async throws -> JSObject {
+        jsTransportDebugLog("fetch \(url)")
         guard let promise = JSPromise(from: JSObject.global.fetch.function!(url, opts)) else {
             throw ModelStoreError.io("fetch(\(url))")
         }
         let value = try await promise.value
+        let status = Int(value.object?.status.number ?? 0)
+        jsTransportDebugLog("fetch \(url) -> status \(status)")
         guard let resp = value.object, (resp.ok.boolean ?? false) || (resp.status.number ?? 0) < 400 else {
             throw ModelStoreError.io("fetch(\(url)) not ok")
         }

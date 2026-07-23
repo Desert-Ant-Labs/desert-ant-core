@@ -1,0 +1,29 @@
+name: iOS
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: xcodebuild test (iOS Simulator)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+
+      # `mise run test-ios` runs xcodebuild on the desert-ant-core-Package
+      # scheme against an iPhone simulator.
+      - name: Test
+        run: mise run test-ios

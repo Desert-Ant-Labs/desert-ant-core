@@ -1,5 +1,10 @@
 # desert-ant-core
 
+[![macOS](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/macos.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/macos.yml)
+[![iOS](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/ios.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/ios.yml)
+[![Android](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/android.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/android.yml)
+[![WASI](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml)
+
 Reusable, cross-platform Swift building blocks shared by Desert Ant Labs'
 on-device model SDKs (redact, emo, shapes, ...).
 
@@ -9,15 +14,16 @@ it, so the code that uses it never sees a platform `#if`:
 | Module | API | Apple / Linux | Android | WebAssembly |
 |---|---|---|---|---|
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
-| `JSON` | `Codable` decoding | `Foundation.JSONDecoder` | host JSON parser (via `CHostBridge`) | JS `JSON.parse` |
-| `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | host `java.text.Normalizer` (via `CHostBridge`) | JS `String.normalize` |
+| `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
+| `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
 | `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
 | `ModelResources` | SwiftPM bundle file loading | Foundation Bundle | - | - |
 | `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | `CoreMLSession` (Core ML) | `ORTSession` (ONNX Runtime C API) | `JSInferenceSession` (JS host session) |
-| `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader` | native C runtime | native C runtime | WASI libc |
+| `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader`, async HTTP client | URLSession | host `java.net` (`CHostBridge`) | JS `fetch` |
+| `Usage` | usage turnstile: build/send `load` events | POST via HTTP client | POST via HTTP client | POST via HTTP client |
 
 The design deliberately avoids linking Foundation on Android and wasm (it would
 add a ~40 MB ICU blob); instead it calls the host platform's own regex/JSON,
@@ -50,12 +56,15 @@ generic `RegexComponent` contexts don't accept it.
 import JSON
 
 let user = try JSONDecoder().decode(User.self, from: jsonString)   // or from: [UInt8]
+let json = try JSONEncoder().encodeToString(user)                  // or encode(_) -> [UInt8]
 ```
 
-Same shape as `Foundation.JSONDecoder`. On Apple/Linux it wraps Foundation's; on
-Android/wasm it drives standard-library `Codable` over a JSON tree the host
-parses (no Foundation, no hand-rolled grammar). Input is `String`/`[UInt8]`
-because `Data` is Foundation-only.
+Same shape as `Foundation.JSONDecoder`/`JSONEncoder`. On Apple/Linux it wraps
+Foundation's; on Android/wasm it drives standard-library `Codable` over a JSON
+tree (host-parsed for decoding, serialized here for encoding — no Foundation, no
+hand-rolled grammar). Input is `String`/`[UInt8]` because `Data` is Foundation-
+only. Encoded output is compact with object keys sorted, so it is deterministic
+and byte-identical on every platform.
 
 ## TextNormalization
 
@@ -155,6 +164,10 @@ Small shared runtime utilities so model code writes no platform or concurrency
 plumbing:
 
 - `environmentVariable(_:)` reads an env var without importing Foundation.
+- `httpGET(_:)` / `httpPOST(_:body:contentType:)` / `httpRequest(...)` are an
+  async HTTP client that delegates to each platform's own networking: URLSession
+  on Apple/Linux, the host (java.net/OkHttp via `CHostBridge`) on Android, and
+  the JS host's `fetch` (JavaScriptKit) on WebAssembly.
 - `MessageError` gives an error type one `message`; it is `LocalizedError`
   wherever Foundation exists, so SDKs skip the per-platform conformance.
 - `blockingValue(_:)` runs an async operation to completion on a synchronous FFI

@@ -37,4 +37,27 @@ int32_t host_http_download(const char *url, const char *dest_path,
     return g_http_download ? g_http_download(url, dest_path, ctx, progress) : -1;
 }
 
+static HostHttpRequestFn g_http_request = 0;
+
+void host_set_http_request(HostHttpRequestFn fn) { g_http_request = fn; }
+char *host_http_request(const char *method, const char *url,
+                        const uint8_t *body, int32_t body_len,
+                        const char *content_type) {
+    return g_http_request ? g_http_request(method, url, body, body_len, content_type) : 0;
+}
+
+static HostPrefsGetFn g_prefs_get = 0;
+static HostPrefsSetFn g_prefs_set = 0;
+
+void host_set_prefs_get(HostPrefsGetFn fn) { g_prefs_get = fn; }
+char *host_prefs_get(const char *key) { return g_prefs_get ? g_prefs_get(key) : 0; }
+
+void host_set_prefs_set(HostPrefsSetFn fn) { g_prefs_set = fn; }
+void host_prefs_set(const char *key, const char *value) { if (g_prefs_set) g_prefs_set(key, value); }
+
+static HostAppIdFn g_app_id = 0;
+
+void host_set_app_id(HostAppIdFn fn) { g_app_id = fn; }
+char *host_app_id(void) { return g_app_id ? g_app_id() : 0; }
+
 void host_free(char *ptr) { free(ptr); }

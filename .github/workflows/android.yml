@@ -1,0 +1,76 @@
+name: Android
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+# On-device integration test: boots an x86_64 emulator and runs
+# `mise run test-android`, which cross-compiles the JNI harness
+# (Sources/CoreAndroidTests) into androidtest/'s jniLibs and runs
+# `connectedAndroidTest`. That installs the CHostBridge callbacks (kotlin
+# HostBridge.kt: java.util.regex + the host JSON parser) and asserts the Swift
+# core's host-backed paths work on the device. The GitHub ubuntu runner ships
+# the Android SDK + gradle; mise provides the Swift toolchain + JDK, and the task
+# installs the Swift Android SDK + NDK (cached below).
+jobs:
+  test:
+    name: connectedAndroidTest (emulator, API 31)
+    # ubuntu-22.04 is the proven-stable runner for android-emulator-runner
+    # (the emulator has been flaky on 24.04).
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The emulator needs ~7.4 GB for its userdata partition and the task then
+      # downloads the Swift Android SDK + NDK, but the runner is tight on disk.
+      # Drop preinstalled toolchains we don't use (keep the Android SDK).
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      # Hardware acceleration for the emulator on the Linux runner.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # Diagnostics: if /dev/kvm is missing the x86_64 emulator can't boot (that
+      # shows up as "device 'emulator-5554' not found").
+      - name: Check virtualization
+        run: |
+          ls -l /dev/kvm || echo "NO /dev/kvm"
+          grep -c -E '(vmx|svm)' /proc/cpuinfo || echo "no CPU virt flags"
+
+      - name: Set up mise (Swift toolchain + JDK)
+        uses: jdx/mise-action@v2
+
+      # The Swift Android SDK and NDK the task installs are large; cache the
+      # SwiftPM SDK dir (the NDK is installed inside the bundle) across runs.
+      - name: Cache Swift Android SDK + NDK
+        uses: actions/cache@v4
+        with:
+          # SwiftPM stores SDKs under ~/.config/swiftpm on Linux; the task
+          # installs the NDK inside the bundle, so this covers both.
+          path: ~/.config/swiftpm/swift-sdks
+          key: swift-android-sdk-6.3.3-ndk-r27d
+
+      - name: Test on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31          # matches androidtest minSdk (ICU NFKC needs 31+)
+          arch: x86_64
+          target: google_apis    # x86_64 system image that reliably exists for API 31
+          disable-animations: true
+          emulator-boot-timeout: 900
+          # Canonical headless-CI options (software GPU, no window/audio/boot-anim).
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: mise run test-android

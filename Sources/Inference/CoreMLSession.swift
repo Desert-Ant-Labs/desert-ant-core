@@ -9,17 +9,17 @@ import Foundation
 /// models accordingly). `float32`/`int32` outputs are copied out directly;
 /// other output types (e.g. float16) are converted to `float32` elementwise,
 /// which is slow for large outputs, so exporters should emit `float32`.
-public final class CoreMLSession: InferenceSession, @unchecked Sendable {
+final class CoreMLSession: InferenceSession, @unchecked Sendable {
     private let model: MLModel
 
     /// Load a compiled model. The default configuration uses every compute
     /// unit on device (CPU-only in the simulator); pass your own to override,
     /// e.g. `.cpuAndNeuralEngine` for large models.
-    public init(modelPath: String, configuration: MLModelConfiguration = CoreMLSession.defaultConfiguration()) throws {
+    init(modelPath: String, configuration: MLModelConfiguration = CoreMLSession.defaultConfiguration()) throws {
         model = try MLModel(contentsOf: URL(fileURLWithPath: modelPath), configuration: configuration)
     }
 
-    public static func defaultConfiguration() -> MLModelConfiguration {
+    static func defaultConfiguration() -> MLModelConfiguration {
         let configuration = MLModelConfiguration()
         #if targetEnvironment(simulator)
         configuration.computeUnits = .cpuOnly
@@ -29,7 +29,7 @@ public final class CoreMLSession: InferenceSession, @unchecked Sendable {
         return configuration
     }
 
-    public func run(inputs: [String: Tensor], outputs: [String]) throws -> [Tensor] {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
         var features: [String: Any] = [:]
         for (name, tensor) in inputs { features[name] = try multiArray(tensor) }
         let provider = try MLDictionaryFeatureProvider(dictionary: features)
