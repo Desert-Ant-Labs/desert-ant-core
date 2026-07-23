@@ -15,4 +15,22 @@ public struct JSONDecoder {
         try Foundation.JSONDecoder().decode(type, from: Data(bytes))
     }
 }
+
+/// Codable JSON encoding on Foundation platforms, wrapping `Foundation.JSONEncoder`
+/// so one `import JSON` gives the same encoding API on every platform. Output is
+/// compact (no whitespace) with object keys sorted, so it is deterministic and
+/// byte-identical to the non-Foundation encoder.
+public struct JSONEncoder {
+    public init() {}
+
+    public func encode<T: Encodable>(_ value: T) throws -> [UInt8] {
+        let encoder = Foundation.JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys] // deterministic + matches the non-Foundation encoder
+        return [UInt8](try encoder.encode(value))
+    }
+
+    public func encodeToString<T: Encodable>(_ value: T) throws -> String {
+        String(decoding: try encode(value), as: UTF8.self)
+    }
+}
 #endif

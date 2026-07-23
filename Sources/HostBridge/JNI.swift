@@ -28,6 +28,9 @@ private nonisolated(unsafe) var gJSONParse: jmethodID?
 private nonisolated(unsafe) var gNormalize: jmethodID?
 private nonisolated(unsafe) var gHttpTree: jmethodID?
 private nonisolated(unsafe) var gHttpDownload: jmethodID?
+private nonisolated(unsafe) var gPrefsGet: jmethodID?
+private nonisolated(unsafe) var gPrefsSet: jmethodID?
+private nonisolated(unsafe) var gAppId: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -159,6 +162,51 @@ private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointe
     }
 }
 
+// UsageState persistence: read a stored value string (empty/absent -> "").
+private func hostPrefsGet(_ key: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        guard let k = hostMakeBytes(env, Array(String(cString: key!).utf8)) else { return nil }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, k) }
+        let args = [jvalue(l: k)]
+        let result = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gPrefsGet, $0.baseAddress)
+        }
+        return resultBytes(env, result)
+    }
+}
+
+// App identity: the host's package name (context.packageName).
+private func hostAppId() -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gAppId, nil)
+        return resultBytes(env, result)
+    }
+}
+
+private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<CChar>?) {
+    guard let vm = gVM else { return }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+
+    guard let k = hostMakeBytes(env, Array(String(cString: key!).utf8)),
+          let v = hostMakeBytes(env, Array(String(cString: value!).utf8)) else { return }
+    defer { env.pointee!.pointee.DeleteLocalRef(env, k); env.pointee!.pointee.DeleteLocalRef(env, v) }
+    let args = [jvalue(l: k), jvalue(l: v)]
+    args.withUnsafeBufferPointer {
+        env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gPrefsSet, $0.baseAddress)
+    }
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+}
+
 private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)) else { return nil }
@@ -218,11 +266,19 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     // Optional: only wired if the host class provides them (ModelStore download).
     gHttpTree = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpTree", "([B)[B")
     gHttpDownload = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpDownload", "([B[B)I")
+    // Optional: UsageState persistence via SharedPreferences.
+    gPrefsGet = env.pointee!.pointee.GetStaticMethodID(env, cls, "prefsGet", "([B)[B")
+    gPrefsSet = env.pointee!.pointee.GetStaticMethodID(env, cls, "prefsSet", "([B[B)V")
+    // Optional: the app identity used as the usage turnstile key.
+    gAppId = env.pointee!.pointee.GetStaticMethodID(env, cls, "appId", "()[B")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
     if gNormalize != nil { host_set_normalize(hostNormalize) }
     if gHttpTree != nil { host_set_http_tree(hostHttpTree) }
     if gHttpDownload != nil { host_set_http_download(hostHttpDownload) }
+    if gPrefsGet != nil { host_set_prefs_get(hostPrefsGet) }
+    if gPrefsSet != nil { host_set_prefs_set(hostPrefsSet) }
+    if gAppId != nil { host_set_app_id(hostAppId) }
 }
 #endif

@@ -116,7 +116,9 @@ public struct FoundationFileSystem: FileSystem {
         if let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
             return url.path
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".cache").path
+        // Fallback: NSHomeDirectory() is portable (homeDirectoryForCurrentUser is
+        // macOS/Linux-only, unavailable on iOS/tvOS/watchOS).
+        return NSHomeDirectory() + "/.cache"
     }
 }
 

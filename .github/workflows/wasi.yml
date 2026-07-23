@@ -1,0 +1,26 @@
+name: WASI
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: wasi-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runs the suite on wasm32-unknown-wasi under Node, driven by `mise run
+# test-wasi`. The task provisions its pinned swift.org toolchain + Node and
+# fetches the matching Swift wasm SDK from swift.org on first run. The JS-host
+# backends (JSON.parse, RegExp, String.normalize) all execute here.
+jobs:
+  test:
+    name: swift test (wasm32-unknown-wasi, Node)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise (Swift toolchain + Node)
+        uses: jdx/mise-action@v2
+
+      - name: Test (WASI)
+        run: mise run test-wasi

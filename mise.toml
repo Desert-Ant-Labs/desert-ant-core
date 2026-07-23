@@ -1,0 +1,187 @@
+# Reproducible cross-platform test entry points:
+#
+#   mise run test-macos    # run the suite on macOS (swift test)
+#   mise run test-ios      # run the suite on an iOS Simulator (xcodebuild test)
+#   mise run test-wasi     # run the suite on wasm32-unknown-wasi under Node
+#   mise run test-android  # on-device integration test via a JNI host (see note)
+#
+# test-android is an instrumented (on-device) test, not the swift-testing suite:
+# on Android the JSON/Regex/TextNormalization backends call the host through
+# CHostBridge callbacks a JVM installs, so a bare `swift test` can't exercise
+# them. It cross-compiles the JNI harness (Sources/CoreAndroidTests) into
+# androidtest/'s jniLibs and runs `connectedAndroidTest`, which installs the host
+# bridge and asserts the host-backed paths work. Needs ANDROID_HOME + a device/
+# emulator + `gradle`. The pure Swift logic is still covered on macOS/iOS/WASI.
+#
+# Toolchains differ per task on purpose. test-macos/test-ios use the full Xcode
+# toolchain (Apple frameworks, Core ML), so they take no mise `swift`. Only
+# test-wasi pins a swift.org toolchain, because the wasm build needs its clang
+# (which has the WebAssembly target) and a matching cross-compilation SDK that
+# only exists for released Swift versions.
+
+[tasks.test-macos]
+description = "Run the test suite on macOS (swift test)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+
+# Build + start the echo server for HTTPTests, wait until it accepts, and stop it
+# cleanly on exit (success or failure). See Tools/EchoServer.swift.
+ECHO_BIN="$(mktemp -d)/echo-server"
+# Compile with the host-SDK toolchain: xcrun (Xcode) on macOS, plain swiftc on
+# Linux. The mise swift.org toolchain used for the wasm build has no macOS SDK.
+if command -v xcrun >/dev/null 2>&1; then xcrun swiftc -O Tools/EchoServer.swift -o "$ECHO_BIN"; else swiftc -O Tools/EchoServer.swift -o "$ECHO_BIN"; fi
+"$ECHO_BIN" 8199 &
+ECHO_PID=$!
+trap 'kill "$ECHO_PID" 2>/dev/null; wait "$ECHO_PID" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do curl -sf -o /dev/null http://127.0.0.1:8199/ && break; sleep 0.2; done
+kill -0 "$ECHO_PID" 2>/dev/null || { echo "error: echo server did not start (is port 8199 already in use?)" >&2; exit 1; }
+
+# Own scratch dir: the Xcode toolchain's build artifacts are incompatible with
+# the swift.org toolchain test-wasi uses, so they must not share `.build`.
+swift test --scratch-path .build-macos
+"""
+
+[tasks.test-ios]
+description = "Run the test suite on an iOS Simulator (xcodebuild test)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+
+# The auto-generated "<package>-Package" scheme builds every target and runs all
+# suites; -skipMacroValidation avoids the swift-syntax macro fingerprint prompt
+# (pulled in via JavaScriptKit's plugin). Pick the newest available iPhone sim.
+DEVICE=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?( Max)?' | tail -1)
+echo "Using simulator: ${DEVICE:?no iPhone simulator available}"
+xcodebuild test \\
+    -scheme desert-ant-core-Package \\
+    -destination "platform=iOS Simulator,name=$DEVICE" \\
+    -skipMacroValidation
+"""
+
+[tasks.test-android]
+description = "Run the Android integration test on an emulator/device (Tier 2a)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+# Pinned swift.org toolchain (the Android cross-compilation SDK only exists for
+# released Swift versions) + a JDK for Gradle. Own scratch dir (.build-android)
+# so the swift.org/Xcode toolchains never share `.build`.
+tools = { swift = "6.3.3", java = "temurin-21" }
+run = """
+set -euo pipefail
+
+API=${ANDROID_API:-31}
+NDK_VER=r27d
+export SWIFT_ANDROID_STATIC_BUILD=1   # drops JavaScriptKit (host macros) from the graph
+
+# Match the Android SDK bundle to the toolchain version. Download and install
+# from the local file (no --checksum needed), so any pinned Swift version works.
+SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]/){print $i; exit}}')
+[ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
+BUNDLE_NAME=swift-$SWIFT_VER-RELEASE_android.artifactbundle
+
+# SwiftPM's SDK dir varies by host: ~/.swiftpm (macOS), ~/.config/swiftpm (Linux).
+find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$BUNDLE_NAME" ] && { echo "$d/$BUNDLE_NAME"; return 0; }; done; return 1; }
+BUNDLE=$(find_bundle || true)
+if [ -z "$BUNDLE" ]; then
+    echo "Installing the Swift Android SDK $SWIFT_VER (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/sdk.tar.gz" "https://download.swift.org/swift-$SWIFT_VER-release/android-sdk/swift-$SWIFT_VER-RELEASE/$BUNDLE_NAME.tar.gz"
+    swift sdk install "$tmp/sdk.tar.gz"
+    rm -rf "$tmp"
+    BUNDLE=$(find_bundle || true)
+fi
+[ -n "$BUNDLE" ] || { echo "error: Android Swift SDK not found after install" >&2; exit 1; }
+
+# The SDK needs an Android NDK (r27d+); install it into the bundle once and run
+# its setup script (marker: a populated ndk-sysroot). Large one-time download.
+if ! find -L "$BUNDLE/swift-android/ndk-sysroot" -name libc++_shared.so 2>/dev/null | grep -q .; then
+    echo "Installing the Android NDK $NDK_VER and configuring the SDK (one-time, large download)..."
+    ( cd "$BUNDLE/swift-android"
+      curl -fSL -o ndk.zip "https://dl.google.com/android/repository/android-ndk-$NDK_VER-$(uname -s | tr '[:upper:]' '[:lower:]').zip"
+      unzip -qo ndk.zip
+      rm -f ndk.zip
+      ANDROID_NDK_HOME="$PWD/android-ndk-$NDK_VER" ./scripts/setup-android-sdk.sh )
+fi
+
+# Cross-compile the JNI harness for the emulator/device ABIs and stage it (plus
+# the NDK's libc++_shared.so) into the Gradle module's jniLibs. Static stdlib
+# bundles the Swift runtime into the .so, matching how an Android artifact ships.
+JNI=androidtest/src/main/jniLibs
+rm -rf "$JNI"
+for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
+    abi=${pair%%:*}; arch=${pair##*:}
+    resources="$BUNDLE/swift-android/swift-resources/usr/lib/swift_static-$arch"
+    swift build --scratch-path .build-android -c release --product CoreAndroidTests \\
+        --swift-sdk "$arch-unknown-linux-android$API" \\
+        -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
+    mkdir -p "$JNI/$abi"
+    cp ".build-android/$arch-unknown-linux-android$API/release/libCoreAndroidTests.so" "$JNI/$abi/"
+    cxx=$(find -L "$BUNDLE/swift-android/ndk-sysroot/usr/lib" -path "*$arch*" -name libc++_shared.so 2>/dev/null | head -1)
+    [ -n "$cxx" ] && cp "$cxx" "$JNI/$abi/"
+done
+
+# Run the instrumented test on a connected device/emulator. Requires ANDROID_HOME
+# (Android SDK), a device or booted emulator, and `gradle` on PATH.
+ADB="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/platform-tools/adb"
+[ -x "$ADB" ] || ADB=adb
+if ! "$ADB" devices 2>/dev/null | sed 1d | grep -qw device; then
+    echo "error: no Android device/emulator connected (start one, e.g. via Android Studio" >&2
+    echo "       or 'emulator -avd <name>'); CI provisions one with android-emulator-runner." >&2
+    exit 1
+fi
+( cd androidtest && gradle --no-daemon connectedAndroidTest )
+"""
+
+[tasks.test-wasi]
+description = "Run the test suite on WebAssembly (wasm32-unknown-wasi) under Node"
+dir = "{{ config_root }}"
+shell = "bash -c"
+# Pinned swift.org toolchain (wasm-capable clang) + Node for the PackageToJS test
+# harness. Bump `swift` when a newer release ships its wasm SDK.
+tools = { swift = "6.3.3", node = "22" }
+run = """
+set -euo pipefail
+
+# Match the SDK to the installed toolchain version. Download and install from the
+# local file (no --checksum needed that way), so any pinned Swift version works.
+SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]/){print $i; exit}}')
+[ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
+SDK=${WASM_SDK:-swift-$SWIFT_VER-RELEASE_wasm}
+
+# SwiftPM's SDK dir varies by host: ~/.swiftpm (macOS), ~/.config/swiftpm (Linux).
+have_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$1" ] && return 0; done; return 1; }
+if ! have_bundle "$SDK.artifactbundle"; then
+    echo "Installing the Swift WebAssembly SDK $SWIFT_VER (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/sdk.tar.gz" "https://download.swift.org/swift-$SWIFT_VER-release/wasm-sdk/swift-$SWIFT_VER-RELEASE/$SDK.artifactbundle.tar.gz"
+    swift sdk install "$tmp/sdk.tar.gz"
+    rm -rf "$tmp"
+fi
+
+# Build + start the echo server for HTTPTests (native host binary; the wasm run's
+# fetch reaches it over localhost), wait for it, and stop it cleanly on exit.
+ECHO_BIN="$(mktemp -d)/EchoServer"
+# Compile with the host-SDK toolchain: xcrun (Xcode) on macOS, plain swiftc on
+# Linux. The mise swift.org toolchain used for the wasm build has no macOS SDK.
+if command -v xcrun >/dev/null 2>&1; then xcrun swiftc -O Tools/EchoServer.swift -o "$ECHO_BIN"; else swiftc -O Tools/EchoServer.swift -o "$ECHO_BIN"; fi
+"$ECHO_BIN" 8199 &
+ECHO_PID=$!
+trap 'kill "$ECHO_PID" 2>/dev/null; wait "$ECHO_PID" 2>/dev/null || true' EXIT
+for _ in $(seq 1 50); do curl -sf -o /dev/null http://127.0.0.1:8199/ && break; sleep 0.2; done
+kill -0 "$ECHO_PID" 2>/dev/null || { echo "error: echo server did not start (is port 8199 already in use?)" >&2; exit 1; }
+
+# The JS backends (JSON.parse, RegExp, String.normalize, fetch) run in the Node
+# host, so the suite executes here.
+#   --disable-sandbox: the js plugin's test harness runs `npm install` to fetch
+#     the WASI shim; SwiftPM's plugin sandbox (macOS) blocks its network, so it
+#     must be disabled. No-op on Linux CI, which has no plugin sandbox.
+#   --allow-writing-to-package-directory: the plugin writes output under .build/,
+#     which the sandbox otherwise blocks.
+# Uses the default `.build`; test-macos builds into `.build-macos` so the Xcode
+# and swift.org toolchains never share a scratch dir (their host macro modules
+# are incompatible, and the js plugin mislocates products under a custom path).
+swift package --swift-sdk "$SDK" --disable-sandbox --allow-writing-to-package-directory js test --environment node
+"""

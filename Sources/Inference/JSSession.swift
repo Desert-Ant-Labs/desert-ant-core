@@ -16,11 +16,11 @@ import JavaScriptKit
 ///
 /// Bytes cross the wasm boundary raw (host byte order), so the host rebuilds
 /// typed arrays from `data.buffer`; no per-element marshalling.
-public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
+final class JSInferenceSession: InferenceSession, @unchecked Sendable {
     private let runFunction: JSObject
     private let hostGlobal: String
 
-    public init(hostGlobal: String, method: String = "run") throws {
+    init(hostGlobal: String, method: String = "run") throws {
         guard let host = JSObject.global[hostGlobal].object, let function = host[method].object else {
             throw InferenceError.sessionUnavailable("missing \(hostGlobal).\(method)")
         }
@@ -28,7 +28,7 @@ public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
         self.hostGlobal = hostGlobal
     }
 
-    public func run(inputs: [String: Tensor], outputs: [String]) async throws -> [Tensor] {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         guard let constructor = JSObject.global.Object.function else {
             throw InferenceError.runFailed("no JS Object constructor")
         }

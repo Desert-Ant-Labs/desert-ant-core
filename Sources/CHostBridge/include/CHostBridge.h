@@ -56,6 +56,35 @@ void host_set_http_download(HostHttpDownloadFn fn);
 int32_t host_http_download(const char *url, const char *dest_path,
                            void *ctx, HostProgressFn progress);
 
+// Generic HTTP request (Android): the host performs `method url` with an optional
+// body and content type, returning a malloc'd buffer laid out as:
+//   4-byte big-endian status, 4-byte big-endian body length, then body bytes.
+// Returns NULL on transport failure. `body`/`content_type` may be NULL.
+typedef char *(*HostHttpRequestFn)(const char *method, const char *url,
+                                   const uint8_t *body, int32_t body_len,
+                                   const char *content_type);
+void host_set_http_request(HostHttpRequestFn fn);
+char *host_http_request(const char *method, const char *url,
+                        const uint8_t *body, int32_t body_len,
+                        const char *content_type);
+
+// Preferences (Android): the host persists small string values keyed by name,
+// backed by SharedPreferences. get returns a malloc'd value string (NULL if
+// absent or no host); set stores value under key. Used for UsageState.
+typedef char *(*HostPrefsGetFn)(const char *key);
+void host_set_prefs_get(HostPrefsGetFn fn);
+char *host_prefs_get(const char *key);
+
+typedef void (*HostPrefsSetFn)(const char *key, const char *value);
+void host_set_prefs_set(HostPrefsSetFn fn);
+void host_prefs_set(const char *key, const char *value);
+
+// App identity (Android): the host returns its package name (context.packageName)
+// as a malloc'd string (NULL if unset). Used as the usage turnstile key.
+typedef char *(*HostAppIdFn)(void);
+void host_set_app_id(HostAppIdFn fn);
+char *host_app_id(void);
+
 void host_free(char *ptr);
 
 #ifdef __cplusplus

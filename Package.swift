@@ -14,7 +14,8 @@ import Foundation
 //                (Foundation | Android java.text.Normalizer | JS String.normalize)
 //   ModelStore   verified Hub downloads + platform-neutral StoredModel access
 //   ModelResources  SwiftPM bundle resource loading
-//   PlatformSupport environment + synchronous FFI/async bridge
+//   PlatformSupport environment + synchronous FFI/async bridge + HTTP client
+//   Usage        usage turnstile: builds/sends `load` events over the HTTP client
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
 //   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
@@ -68,6 +69,11 @@ let jsWasi: [Target.Dependency] = noJavaScriptKit ? [] : [
 let jsEventLoop: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptEventLoop", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
+// Installs the JS-backed global executor so `async` tests run under the wasm
+// test harness (needed by any suite that awaits, e.g. the fetch-backed HTTP).
+let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
+    .product(name: "JavaScriptEventLoopTestSupport", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
+]
 
 // Extracted into explicitly-typed constants so the Swift manifest type-checker
 // handles each array on its own. Inlined into one big Package(...) literal, the
@@ -82,6 +88,8 @@ let products: [Product] = [
         .library(name: "Checksum", targets: ["Checksum"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
+        // Usage turnstile: builds/sends `load` events over PlatformSupport's HTTP client.
+        .library(name: "Usage", targets: ["Usage"]),
         .library(name: "ModelResources", targets: ["ModelResources"]),
         // Named-tensor inference sessions: Core ML | ONNX Runtime | JS host.
         .library(name: "Inference", targets: ["Inference"]),
@@ -89,6 +97,9 @@ let products: [Product] = [
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
+        // Android on-device integration harness, cross-compiled to a JNI .so and
+        // driven by the instrumented test in androidtest/ (empty off-Android).
+        .library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
 ]
 
 let libraryTargets: [Target] = [
@@ -108,8 +119,10 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "Inference",
+            // Depends on Usage so every session the factory builds records usage;
+            // the concrete backends are non-public, so there is no untracked path.
             dependencies: [
-                "ModelStore",
+                "ModelStore", "Usage",
             ] + inferenceRuntimeDeps + jsWasi + jsEventLoop,
             swiftSettings: inferenceSwiftSettings
         ),
@@ -134,7 +147,19 @@ let libraryTargets: [Target] = [
         ),
         .target(name: "FFIBuffer"),
         .target(name: "Checksum"),
-        .target(name: "PlatformSupport"),
+        .target(
+            name: "PlatformSupport",
+            dependencies: [
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ] + jsWasi + jsEventLoop
+        ),
+        .target(
+            name: "Usage",
+            dependencies: [
+                "PlatformSupport", "JSON",
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ] + jsWasi
+        ),
         .target(name: "ModelResources"),
         .target(
             name: "ModelStore",
@@ -150,11 +175,18 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
         ),
+        .target(
+            name: "CoreAndroidTests",
+            dependencies: ["HostBridge", "Regex", "JSON", "TextNormalization"]
+        ),
 ]
 
 let testTargets: [Target] = [
         .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
-        .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"]),
+        .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsTestSupport),
+        .testTarget(name: "UsageTests", dependencies: ["Usage"]),
+        .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
+        .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
             name: "ModelResourcesTests",
