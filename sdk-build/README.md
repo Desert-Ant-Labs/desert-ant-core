@@ -21,7 +21,7 @@ tflite_files = "emo.tflite emo_meta.json emo_tokenizer.bin"  # staged into the A
 DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
 
 [task_config]
-includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//mise-tasks/model-sdk.toml?ref=model-sdk-v1"]
+includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=v0.4.0"]
 
 # Test harnesses differ per model, so the test aggregate + web/node tests stay
 # local. test-swift and test-android come from the catalog.
@@ -53,9 +53,11 @@ coordinates.
 
 ## Versioning
 
-Pinned by the `model-sdk-vN` tag (a dedicated tag namespace, separate from the
-`vX.Y.Z` artifact releases so it never triggers the publish/release workflows).
-Change the catalog, tag `model-sdk-vN+1`, and bump each model repo's `includes`
-ref. Included tasks shadow same-named local tasks, so keep the catalog fully
+The catalog rides desert-ant-core's own `vX.Y.Z` release tags: pin `includes` to
+a semver tag. It lives in `sdk-build/` (not `mise-tasks/`) so mise does not
+auto-load it into desert-ant-core's own task set. Change the catalog, cut a new
+core release (a version-only bump publishes nothing, since the publish gates
+skip unchanged artifacts), and bump each model repo's `includes` ref to the new
+tag. Included tasks shadow same-named local tasks, so keep the catalog fully
 parameterized; for a genuinely model-specific need, define a distinctly-named
 local task or branch on a var/`DAL_*` env inside the shared task.

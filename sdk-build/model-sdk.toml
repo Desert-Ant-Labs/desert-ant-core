@@ -14,7 +14,7 @@
 #   DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
 #
 #   [task_config]
-#   includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//mise-tasks/model-sdk.toml?ref=vX.Y.Z"]
+#   includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=v0.4.0"]
 #
 # The tasks derive every model-specific name from `model`/`product`. Test tasks
 # (test, test-node, test-web, test-android-firebase) stay in the model repo,
