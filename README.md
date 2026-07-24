@@ -86,7 +86,8 @@ A model core with a C ABI returns results as a self-describing binary payload
 instead of JSON, so neither side hand-rolls a parser. `FFIWriter` builds a
 big-endian, length-prefixed buffer (`u32`/`u64`/`f64`/length-prefixed UTF-8
 strings); the host reads it with its own standard library (see the matching
-`FfiReader` in `kotlin/HostBridge.kt`, a thin `java.nio.ByteBuffer` cursor) and
+`FfiReader` in `kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`, a thin
+`java.nio.ByteBuffer` cursor) and
 frees it with `ffiFree`. The payload *schema* is the model's own concern.
 
 ## ModelStore and model resources
@@ -188,9 +189,47 @@ The reusable Swift JNI harness every Android model SDK repeats: byte-array
 marshalling (`hostCopyBytes` / `hostMakeBytes` / `withHostCText` /
 `hostTakeBuffer`), the `GetEnv`-checked thread attach, and `installHostBridge`,
 which wires the `CHostBridge` regex/JSON callbacks to a host class's static
-`regexMatches` / `jsonParseTree` methods (see `kotlin/HostBridge.kt`, the Kotlin
-counterpart model SDKs vendor until a core Android artifact is published). A
-model keeps only its own `@_cdecl("Java_...")` entry points. Empty off-Android.
+`regexMatches` / `jsonParseTree` methods. The Kotlin counterpart
+(`kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`) ships as the
+`ai.desertant:core` Android artifact, so a model SDK depends on it rather than
+vendoring the file:
+
+```kotlin
+dependencies {
+    implementation("ai.desertant:core:0.3.0")
+}
+```
+
+A model keeps only its own `@_cdecl("Java_...")` entry points and thin
+`@JvmStatic` forwarders to `HostBridge`. Empty off-Android.
+
+Build and publish the artifact with mise (reproducible; provisions the Android
+SDK on first run): `mise run build-android`, `mise run publish-android`
+(Maven Central), or `mise run publish-android-local` (keyless, to `~/.m2`, for
+testing consumers). The version is single-sourced in `kotlin/build.gradle.kts`
+(`mise run set-version X.Y.Z`).
+
+### Releasing
+
+Releases are tag-driven. Bump the version, commit to `main`, then push a
+matching `vX.Y.Z` tag:
+
+```bash
+mise run set-version 0.3.1   # updates kotlin/build.gradle.kts (+ this README)
+# commit and merge to main
+git tag v0.3.1 && git push origin v0.3.1
+```
+
+The `Publish Android` workflow (`.github/workflows/publish-android.yml`) then
+runs `mise run publish-android` for you, but only when `kotlin/` actually
+changed since the previous tag (a Swift-only release skips it, and Maven Central
+versions are immutable so a version never republishes). It first checks that the
+tag matches the `kotlin/build.gradle.kts` version. Credentials come from the
+`maven-central` GitHub Environment secrets (`MAVEN_CENTRAL_USERNAME`,
+`MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
+`SIGNING_IN_MEMORY_KEY_PASSWORD`), so no local secrets are needed to cut a
+release. To publish by hand instead, run `mise run publish-android` with those
+values exported (for example via a gitignored `mise.local.toml`).
 
 ## Android wiring
 
