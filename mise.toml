@@ -313,8 +313,9 @@ echo "$v"
 """
 
 [tasks.set-version]
-description = "Set the ai.desertant:core artifact version (kotlin/build.gradle.kts + README snippet)"
+description = "Set the desert-ant-core artifact versions (ai.desertant:core + @desert-ant-labs/core + README)"
 dir = "{{ config_root }}"
+tools = { node = "22" }
 shell = "bash -c"
 usage = '''
 arg "<version>" help="Release version (X.Y.Z)"
@@ -323,8 +324,60 @@ run = """
 set -euo pipefail
 VERSION="${usage_version:?version arg required}"
 echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
+# Android artifact version (single-sourced in the Gradle build).
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kts && rm -f kotlin/build.gradle.kts.bak
+# npm package version (npm keeps package.json + any lockfile in sync).
+( cd js && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
 # The Maven coordinate in the README install snippet, if present.
 sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
-echo "version set to $VERSION"
+echo "version set to $VERSION (kotlin/build.gradle.kts, js/package.json, README)"
+"""
+
+# ---------------------------------------------------------------- npm artifact
+#
+# `@desert-ant-labs/core` (js/) is the shared JavaScript runtime the per-model
+# node packages build on (LiteRT.js host, koffi native loader, FFI reader). Pure
+# JS, no build step. Version single-sourced in js/package.json (mise run
+# set-version keeps it aligned with the Android artifact).
+
+[tasks.test-js]
+description = "Run the @desert-ant-labs/core JS test suite (js/)"
+dir = "{{ config_root }}/js"
+tools = { node = "22" }
+run = "node --test test/*.test.mjs"
+
+# Print the single-sourced npm version (from js/package.json).
+[tasks.check-version-npm]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+v=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' js/package.json)
+[ -n "$v" ] || { echo "error: no version in js/package.json" >&2; exit 1; }
+echo "$v"
+"""
+
+[tasks.publish-npm]
+description = "Publish @desert-ant-labs/core to npm"
+dir = "{{ config_root }}/js"
+depends = ["check-version-npm", "test-js"]
+tools = { node = "22" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# The npm tarball must carry the license (package.json: SEE LICENSE IN LICENSE.md).
+cp ../LICENSE.md LICENSE.md
+# Auth: NPM_TOKEN from mise.local.toml (or a CI env), else an interactive
+# `npm login`. The token goes through a throwaway userconfig so normal npm
+# commands and checked-in files never carry auth.
+if [ -n "${NPM_TOKEN:-}" ]; then
+    npmrc=$(mktemp)
+    trap 'rm -f "$npmrc"' EXIT
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$npmrc"
+    npm publish --access public --userconfig "$npmrc"
+else
+    npm publish --access public
+fi
+echo "published: @desert-ant-labs/core@$(mise run check-version-npm)"
 """

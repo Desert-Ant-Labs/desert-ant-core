@@ -211,25 +211,40 @@ testing consumers). The version is single-sourced in `kotlin/build.gradle.kts`
 
 ### Releasing
 
-Releases are tag-driven. Bump the version, commit to `main`, then push a
-matching `vX.Y.Z` tag:
+The repo ships two published sibling artifacts alongside the SwiftPM package:
+the `ai.desertant:core` Android library (`kotlin/`) and the
+`@desert-ant-labs/core` npm package (`js/`, the shared JavaScript runtime the
+model node packages build on). Both are versioned in lockstep with the SwiftPM
+package and released the same way: tag-driven.
+
+Bump the versions, commit to `main`, then push a matching `vX.Y.Z` tag:
 
 ```bash
-mise run set-version 0.3.1   # updates kotlin/build.gradle.kts (+ this README)
+mise run set-version 0.3.1   # bumps kotlin/build.gradle.kts, js/package.json, README
 # commit and merge to main
 git tag v0.3.1 && git push origin v0.3.1
 ```
 
-The `Publish Android` workflow (`.github/workflows/publish-android.yml`) then
-runs `mise run publish-android` for you, but only when `kotlin/` actually
-changed since the previous tag (a Swift-only release skips it, and Maven Central
-versions are immutable so a version never republishes). It first checks that the
-tag matches the `kotlin/build.gradle.kts` version. Credentials come from the
-`maven-central` GitHub Environment secrets (`MAVEN_CENTRAL_USERNAME`,
-`MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
-`SIGNING_IN_MEMORY_KEY_PASSWORD`), so no local secrets are needed to cut a
-release. To publish by hand instead, run `mise run publish-android` with those
-values exported (for example via a gitignored `mise.local.toml`).
+Two workflows react to the tag, each independent:
+
+- `Publish Android` (`.github/workflows/publish-android.yml`) runs
+  `mise run publish-android` when `kotlin/` changed since the previous tag.
+  Credentials: the `maven-central` GitHub Environment secrets
+  (`MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
+  `SIGNING_IN_MEMORY_KEY_PASSWORD`).
+- `Publish npm` (`.github/workflows/publish-npm.yml`) runs `mise run publish-npm`
+  when `js/` changed since the previous tag. Credentials: the `npm` GitHub
+  Environment secret (`NPM_TOKEN`).
+
+Each job only publishes when its own directory actually changed (a Swift-only
+release skips both; both npm and Maven Central versions are immutable so nothing
+ever republishes), and each first checks the tag matches its artifact version.
+No local secrets are needed to cut a release. To publish by hand instead, run
+`mise run publish-android` / `mise run publish-npm` with the credentials
+exported (for example via a gitignored `mise.local.toml`).
+
+The JavaScript runtime is documented in [`js/README.md`](js/README.md); build
+and test it locally with `mise run test-js`.
 
 ## Android wiring
 

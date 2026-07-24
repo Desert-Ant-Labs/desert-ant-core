@@ -14,3 +14,5 @@ kotlin/local.properties
 *.xcodeproj
 Package.resolved
 Vendor/
+js/node_modules/
+js/LICENSE.md
