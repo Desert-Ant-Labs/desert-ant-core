@@ -16,3 +16,5 @@ Package.resolved
 Vendor/
 js/node_modules/
 js/LICENSE.md
+gradle-plugin/build/
+gradle-plugin/.gradle/

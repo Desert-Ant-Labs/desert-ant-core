@@ -65,6 +65,7 @@ jobs:
           }
           AND=$(changed kotlin/ kotlin/build.gradle.kts '^[+-]version = "')
           NPM=$(changed js/ js/package.json '^[+-]  "version": "')
+          PLUGIN=$(changed gradle-plugin/ gradle-plugin/build.gradle.kts '^[+-]version = "')
 
           notes=$(mktemp)
           {
@@ -73,9 +74,10 @@ jobs:
             echo "- SwiftPM: \`.package(url: \"https://github.com/${GITHUB_REPOSITORY}.git\", from: \"${VER}\")\`"
             [ "$AND" = yes ] && echo "- Android: \`ai.desertant:core:${VER}\` (Maven Central)"
             [ "$NPM" = yes ] && echo "- npm: \`@desert-ant-labs/core@${VER}\`"
-            if [ "$AND" != yes ] && [ "$NPM" != yes ]; then
+            [ "$PLUGIN" = yes ] && echo "- Gradle plugin: \`ai.desertant.model-sdk\` / \`ai.desertant.model-resources\` ${VER} (Maven Central)"
+            if [ "$AND" != yes ] && [ "$NPM" != yes ] && [ "$PLUGIN" != yes ]; then
               echo
-              echo "_SwiftPM-only release; the Android and npm artifacts did not change._"
+              echo "_SwiftPM-only release; the Android, npm, and Gradle-plugin artifacts did not change._"
             fi
           } > "$notes"
 

@@ -326,11 +326,13 @@ VERSION="${usage_version:?version arg required}"
 echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
 # Android artifact version (single-sourced in the Gradle build).
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kts && rm -f kotlin/build.gradle.kts.bak
+# Gradle plugin version (published as ai.desertant:model-sdk-gradle-plugin).
+sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' gradle-plugin/build.gradle.kts && rm -f gradle-plugin/build.gradle.kts.bak
 # npm package version (npm keeps package.json + any lockfile in sync).
 ( cd js && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
 # The Maven coordinate in the README install snippet, if present.
 sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
-echo "version set to $VERSION (kotlin/build.gradle.kts, js/package.json, README)"
+echo "version set to $VERSION (kotlin/build.gradle.kts, gradle-plugin/build.gradle.kts, js/package.json, README)"
 """
 
 # ---------------------------------------------------------------- npm artifact
@@ -380,4 +382,53 @@ else
     npm publish --access public
 fi
 echo "published: @desert-ant-labs/core@$(mise run check-version-npm)"
+"""
+
+# ---------------------------------------------------------------- gradle plugin
+#
+# `ai.desertant:model-sdk-gradle-plugin` (gradle-plugin/): the Android
+# convention plugins (ai.desertant.model-sdk + ai.desertant.model-resources) the
+# model SDKs' <model>-kotlin modules apply. Pure JVM (no Android SDK needed to
+# build); published to Maven Central via vanniktech. Version single-sourced in
+# gradle-plugin/build.gradle.kts (kept aligned by set-version).
+
+[tasks.build-plugin]
+description = "Build the ai.desertant model-SDK Gradle plugin (gradle-plugin/)"
+dir = "{{ config_root }}/gradle-plugin"
+tools = { java = "temurin-21" }
+run = "./gradlew build"
+
+[tasks.publish-plugin-local]
+description = "Publish the Gradle plugin to the local Maven repo (~/.m2; keyless, for testing consumers)"
+dir = "{{ config_root }}/gradle-plugin"
+tools = { java = "temurin-21" }
+run = "./gradlew publishToMavenLocal"
+
+# Print the single-sourced plugin version (from gradle-plugin/build.gradle.kts).
+[tasks.check-version-plugin]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+v=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' gradle-plugin/build.gradle.kts)
+[ -n "$v" ] || { echo "error: no version in gradle-plugin/build.gradle.kts" >&2; exit 1; }
+echo "$v"
+"""
+
+[tasks.publish-plugin]
+description = "Publish the model-SDK Gradle plugin to Maven Central"
+dir = "{{ config_root }}/gradle-plugin"
+depends = ["check-version-plugin"]
+tools = { java = "temurin-21" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# Credentials come from mise.local.toml (same as publish-android):
+#   ORG_GRADLE_PROJECT_mavenCentralUsername / ORG_GRADLE_PROJECT_mavenCentralPassword
+#   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
+: "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
+: "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+echo "published: ai.desertant model-sdk Gradle plugin $(mise run check-version-plugin)"
 """
