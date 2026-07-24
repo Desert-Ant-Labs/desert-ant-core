@@ -34,9 +34,6 @@ tools = { node = "22" }
 run = "npm test"
 ```
 
-An optional `RELEASE_HIGHLIGHTS.md` at the repo root is appended to the
-`publish-swift` GitHub release notes.
-
 ## What the catalog owns
 
 `build`, `build-swift`, `build-android`, `build-web`, `node-natives`,
