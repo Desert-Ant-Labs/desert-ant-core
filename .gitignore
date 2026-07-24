@@ -1,9 +1,14 @@
+mise.local.toml
 .build/
 .build-macos/
 .build-android/
 androidtest/build/
 androidtest/.gradle/
 androidtest/src/main/jniLibs/
+kotlin/build/
+kotlin/.gradle/
+kotlin/local.properties
+.android-sdk/
 .swiftpm/
 .DS_Store
 *.xcodeproj

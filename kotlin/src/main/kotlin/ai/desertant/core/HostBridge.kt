@@ -31,8 +31,9 @@ import kotlinx.serialization.json.long
  * `regexMatches` and `jsonParseTree` (the signatures the Swift
  * `installHostBridge` looks up on the class passed to JNI) that delegate here.
  *
- * Model-agnostic and reusable. Until a desert-ant-core Android artifact is
- * published, model SDKs vendor this file verbatim.
+ * Model-agnostic and reusable. Published as the `ai.desertant:core` Android
+ * artifact (kotlin/build.gradle.kts); model SDKs depend on it rather than
+ * vendoring this file.
  */
 object HostBridge {
     /**
