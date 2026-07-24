@@ -196,7 +196,7 @@ vendoring the file:
 
 ```kotlin
 dependencies {
-    implementation("ai.desertant:core:0.4.0")
+    implementation("ai.desertant:core:0.4.1")
 }
 ```
 

@@ -23,7 +23,6 @@
 #
 # The release version is single-sourced from packages/<model>-node/package.json;
 # the two Gradle module versions must match it (the publish tasks verify).
-# publish-swift appends an optional RELEASE_HIGHLIGHTS.md from the repo root.
 
 # ---------------------------------------------------------------- build
 
@@ -327,10 +326,6 @@ cat > "$notes" <<EOF
 - Android bundled model resources: ai.desertant:{{ vars.model }}-tflite-resources:$VERSION
 - npm: @desert-ant-labs/{{ vars.model }}@$VERSION
 EOF
-# Optional per-repo marketing bullets.
-if [ -f RELEASE_HIGHLIGHTS.md ]; then
-    { echo; echo "## Highlights"; echo; cat RELEASE_HIGHLIGHTS.md; } >> "$notes"
-fi
 
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     echo "release exists: https://github.com/$REPO/releases/tag/$TAG"
