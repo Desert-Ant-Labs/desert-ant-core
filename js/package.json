@@ -1,0 +1,65 @@
+{
+  "name": "@desert-ant-labs/core",
+  "version": "0.3.0",
+  "description": "Shared JavaScript runtime for Desert Ant Labs on-device model SDKs: the LiteRT.js host session, the koffi native loader, and the FFI buffer reader that the per-model node packages build on.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://github.com/Desert-Ant-Labs/desert-ant-core",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+    "directory": "js"
+  },
+  "keywords": [
+    "on-device",
+    "litert",
+    "wasm",
+    "koffi",
+    "ffi",
+    "isomorphic",
+    "desert-ant-labs"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./index.js",
+  "browser": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./node": {
+      "types": "./node.d.ts",
+      "default": "./node.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "node.js",
+    "node.d.ts",
+    "src",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "peerDependencies": {
+    "@litertjs/core": ">=2.1.0",
+    "koffi": ">=2.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@litertjs/core": {
+      "optional": true
+    },
+    "koffi": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@litertjs/core": "^2.5.2"
+  }
+}
