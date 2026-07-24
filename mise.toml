@@ -5,6 +5,19 @@
 #   mise run test-wasi     # run the suite on wasm32-unknown-wasi under Node
 #   mise run test-android  # on-device integration test via a JNI host (see note)
 #
+# Android artifact (ai.desertant:core, the Kotlin HostBridge model SDKs depend on):
+#   mise run build-android          # assemble the release AAR (kotlin/)
+#   mise run publish-android        # publish ai.desertant:core to Maven Central
+#   mise run publish-android-local  # publish to ~/.m2 (keyless; for local testing)
+#   mise run set-version X.Y.Z       # bump the artifact version (build.gradle.kts + README)
+#
+# The Android tasks need a JDK (mise provides temurin-21) and the Android SDK.
+# `mise run android-sdk` (internal) provisions Google's command-line tools into
+# .android-sdk and writes kotlin/local.properties on first run, so a bare box
+# with no Android Studio can build/publish; set ANDROID_HOME to reuse an existing
+# SDK instead. The artifact is pure Kotlin (no native .so), so it builds from
+# source anywhere. The version is single-sourced in kotlin/build.gradle.kts.
+#
 # test-android is an instrumented (on-device) test, not the swift-testing suite:
 # on Android the JSON/Regex/TextNormalization backends call the host through
 # CHostBridge callbacks a JVM installs, so a bare `swift test` can't exercise
@@ -184,4 +197,134 @@ kill -0 "$ECHO_PID" 2>/dev/null || { echo "error: echo server did not start (is 
 # and swift.org toolchains never share a scratch dir (their host macro modules
 # are incompatible, and the js plugin mislocates products under a custom path).
 swift package --swift-sdk "$SDK" --disable-sandbox --allow-writing-to-package-directory js test --environment node
+"""
+
+# ---------------------------------------------------------------- android artifact
+#
+# `ai.desertant:core` is the reusable Kotlin HostBridge (kotlin/, published from
+# kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt). It is pure Kotlin, so
+# unlike the model SDK AARs it has no prebuilt native library and builds from
+# source anywhere. We still publish it to Maven Central for a stable coordinate.
+
+# Provision the Android SDK reproducibly. If ANDROID_HOME/ANDROID_SDK_ROOT points
+# at a usable SDK, reuse it; otherwise vendor Google's command-line tools into
+# {{config_root}}/.android-sdk and install the packages the AAR build needs. In
+# both cases write kotlin/local.properties (sdk.dir=...), which is how Gradle
+# finds the SDK - so build-android/publish-android need no ANDROID_HOME in env.
+[tasks.android-sdk]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+tools = { java = "temurin-21" }
+usage = '''
+flag "--cmdline-tools <ver>" help="Android command-line tools version to vendor" default="11076708"
+'''
+run = """
+set -euo pipefail
+
+# A usable SDK already on the machine (Android Studio, CI runner) wins: it just
+# needs cmdline-tools/latest or a bin/sdkmanager so we can add missing packages.
+EXISTING="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+if [ -n "$EXISTING" ] && [ -d "$EXISTING" ]; then
+    SDK="$EXISTING"
+else
+    SDK="{{ config_root }}/.android-sdk"
+fi
+
+SDKMANAGER=""
+for c in "$SDK/cmdline-tools/latest/bin/sdkmanager" "$SDK/cmdline-tools/bin/sdkmanager" "$SDK/tools/bin/sdkmanager"; do
+    [ -x "$c" ] && { SDKMANAGER="$c"; break; }
+done
+
+# No sdkmanager anywhere: bootstrap the command-line tools into the vendored SDK
+# (same download-on-first-run idiom the Swift/LiteRT tasks use). Google ships the
+# tools unpacked under cmdline-tools/, but sdkmanager expects them at
+# cmdline-tools/latest/, so move them there.
+if [ -z "$SDKMANAGER" ]; then
+    CLT_VER="${usage_cmdline_tools:-11076708}"
+    echo "Provisioning Android command-line tools $CLT_VER into $SDK (one-time)..."
+    mkdir -p "$SDK/cmdline-tools"
+    os=$(uname -s | tr '[:upper:]' '[:lower:]'); case "$os" in darwin) os=mac;; linux) os=linux;; esac
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    curl -fSL -o "$tmp/clt.zip" "https://dl.google.com/android/repository/commandlinetools-$os-${CLT_VER}_latest.zip"
+    unzip -qo "$tmp/clt.zip" -d "$tmp"
+    rm -rf "$SDK/cmdline-tools/latest"
+    mv "$tmp/cmdline-tools" "$SDK/cmdline-tools/latest"
+    SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+fi
+
+# Install the packages the AAR build needs (idempotent; sdkmanager no-ops when
+# already present). Accept licenses non-interactively.
+export ANDROID_HOME="$SDK" ANDROID_SDK_ROOT="$SDK"
+if [ ! -d "$SDK/platforms/android-35" ] || [ ! -d "$SDK/build-tools/35.0.0" ] || [ ! -d "$SDK/platform-tools" ]; then
+    echo "Installing Android SDK packages (platform 35, build-tools 35.0.0, platform-tools)..."
+    yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses >/dev/null 2>&1 || true
+    "$SDKMANAGER" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools" >/dev/null
+fi
+
+# Gradle reads the SDK location from local.properties (sdk.dir). Write it so the
+# build needs no ANDROID_HOME in the environment.
+echo "sdk.dir=$SDK" > kotlin/local.properties
+echo "Android SDK ready: $SDK"
+"""
+
+[tasks.build-android]
+description = "Assemble the ai.desertant:core release AAR (kotlin/)"
+dir = "{{ config_root }}/kotlin"
+depends = ["android-sdk"]
+tools = { java = "temurin-21" }
+run = "./gradlew assembleRelease"
+
+[tasks.publish-android]
+description = "Publish ai.desertant:core to Maven Central"
+dir = "{{ config_root }}/kotlin"
+depends = ["android-sdk", "check-version"]
+tools = { java = "temurin-21" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# Credentials come from mise.local.toml: a Central portal token and an in-memory
+# signing key, passed as Gradle properties via the env:
+#   ORG_GRADLE_PROJECT_mavenCentralUsername / ORG_GRADLE_PROJECT_mavenCentralPassword
+#   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
+: "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
+: "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+echo "published: ai.desertant:core:$(mise run check-version)"
+"""
+
+[tasks.publish-android-local]
+description = "Publish ai.desertant:core to the local Maven repo (~/.m2; keyless, for testing consumers)"
+dir = "{{ config_root }}/kotlin"
+depends = ["android-sdk"]
+tools = { java = "temurin-21" }
+run = "./gradlew publishToMavenLocal"
+
+# Print the single-sourced artifact version (from kotlin/build.gradle.kts).
+[tasks.check-version]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+v=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' kotlin/build.gradle.kts)
+[ -n "$v" ] || { echo "error: no version in kotlin/build.gradle.kts" >&2; exit 1; }
+echo "$v"
+"""
+
+[tasks.set-version]
+description = "Set the ai.desertant:core artifact version (kotlin/build.gradle.kts + README snippet)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+usage = '''
+arg "<version>" help="Release version (X.Y.Z)"
+'''
+run = """
+set -euo pipefail
+VERSION="${usage_version:?version arg required}"
+echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
+sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kts && rm -f kotlin/build.gradle.kts.bak
+# The Maven coordinate in the README install snippet, if present.
+sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
+echo "version set to $VERSION"
 """
