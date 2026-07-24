@@ -198,3 +198,9 @@ On Android, `Regex`/`JSON` call `host_regex_matches` / `host_json_parse` from
 `CHostBridge`; `HostBridge`'s `installHostBridge` installs the implementations
 once via `host_set_regex_matches` / `host_set_json_parse`. See
 `Sources/CHostBridge/include/CHostBridge.h` for the contract.
+
+## License
+
+[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
+most apps; a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
