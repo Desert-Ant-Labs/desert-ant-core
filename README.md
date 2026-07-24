@@ -214,11 +214,11 @@ testing consumers). The version is single-sourced in `kotlin/build.gradle.kts`
 The repo ships two published sibling artifacts alongside the SwiftPM package:
 the `ai.desertant:core` Android library (`kotlin/`) and the
 `@desert-ant-labs/core` npm package (`js/`, the shared JavaScript runtime the
-model node packages build on). Each versions independently, and releases are
-tag-driven: a `vX.Y.Z` tag publishes exactly the artifacts whose version equals
-`X.Y.Z`.
+model node packages build on). Releases are tag-driven and publish only what
+changed.
 
-For a unified release, bump both, commit to `main`, then push a matching tag:
+Bump the version whenever you like (it sets every artifact, so their versions
+stay current and aligned), commit to `main`, then push a matching `vX.Y.Z` tag:
 
 ```bash
 mise run set-version 0.3.2   # bumps kotlin/build.gradle.kts, js/package.json, README
@@ -226,27 +226,29 @@ mise run set-version 0.3.2   # bumps kotlin/build.gradle.kts, js/package.json, R
 git tag v0.3.2 && git push origin v0.3.2
 ```
 
-For an artifact-only release, bump just that one (edit `js/package.json` or
-`kotlin/build.gradle.kts`) and tag its version.
-
-Two workflows react to the tag, each independent:
+Two workflows react to the tag, each independent, and each publishes its artifact
+only if it actually changed:
 
 - `Publish Android` (`.github/workflows/publish-android.yml`) runs
-  `mise run publish-android` when the tag version equals
-  `kotlin/build.gradle.kts`'s. Credentials: the `maven-central` GitHub
-  Environment secrets (`MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`,
-  `SIGNING_IN_MEMORY_KEY`, `SIGNING_IN_MEMORY_KEY_PASSWORD`).
+  `mise run publish-android` when the tag matches the `kotlin/build.gradle.kts`
+  version **and** `kotlin/` changed since the previous tag. Credentials: the
+  `maven-central` GitHub Environment secrets (`MAVEN_CENTRAL_USERNAME`,
+  `MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
+  `SIGNING_IN_MEMORY_KEY_PASSWORD`).
 - `Publish npm` (`.github/workflows/publish-npm.yml`) runs `mise run publish-npm`
-  when the tag version equals `js/package.json`'s. Credentials: the `npm` GitHub
-  Environment secret (`NPM_TOKEN`).
+  when the tag matches the `js/package.json` version **and** `js/` changed since
+  the previous tag. Credentials: the `npm` GitHub Environment secret
+  (`NPM_TOKEN`).
 
-So the tag version selects which artifacts release: an artifact whose version
-doesn't match the tag is skipped (a Swift-only tag skips both; an npm-only bump
-tags only the npm release). npm and Maven Central versions are immutable, so a
-given version never republishes. No local secrets are needed to cut a release.
-To publish by hand instead, run `mise run publish-android` / `mise run
-publish-npm` with the credentials exported (for example via a gitignored
-`mise.local.toml`).
+A **pure version bump does not count as a change**, so a blanket `set-version`
+that touches nothing but version lines republishes nothing. An artifact that did
+not change is simply skipped and keeps its last published version, so **published
+versions may skip** (e.g. the Android artifact can go from `0.3.0` straight to
+`0.3.3` while the npm package publishes the in-between versions). npm and Maven
+Central versions are immutable, so a given version never republishes. No local
+secrets are needed to cut a release. To publish by hand instead, run
+`mise run publish-android` / `mise run publish-npm` with the credentials
+exported (for example via a gitignored `mise.local.toml`).
 
 The JavaScript runtime is documented in [`js/README.md`](js/README.md); build
 and test it locally with `mise run test-js`.
