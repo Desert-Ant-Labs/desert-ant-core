@@ -1,18 +1,17 @@
 name: Publish Android
 
 # Publish the ai.desertant:core Android artifact to Maven Central when a release
-# tag (vX.Y.Z) whose version matches the artifact is pushed. The artifact is pure
-# Kotlin, so this needs no emulator and no Swift toolchain: it runs
+# tag (vX.Y.Z) is pushed, but only if the artifact actually changed. The artifact
+# is pure Kotlin, so this needs no emulator and no Swift toolchain: it runs
 # `mise run publish-android`, driven by the runner's Android SDK and a mise JDK.
 # Credentials come from the `maven-central` GitHub Environment secrets.
 #
-# Gating: the repo's `v*` tags are shared by the SwiftPM package and the two core
-# artifacts, which version independently. This workflow publishes only when the
-# tag version equals the Android artifact version (single-sourced in
-# kotlin/build.gradle.kts); a tag that bumps only the npm package or the SwiftPM
-# package leaves kotlin/build.gradle.kts untouched and is skipped here. Bump with
-# `mise run set-version X.Y.Z` (or edit kotlin/build.gradle.kts for an
-# Android-only release), commit, then tag vX.Y.Z.
+# Release model: `mise run set-version X.Y.Z` bumps every artifact's version (so
+# they stay current), you commit and push `vX.Y.Z`, and each publish workflow
+# ships only the artifact whose content changed since the previous tag. A pure
+# version bump does not count as a change, so a blanket set-version that touches
+# nothing but version lines republishes nothing. Published versions may skip
+# (an unchanged artifact keeps its last published version until it next changes).
 #
 # Environment `maven-central` secrets (set with `gh secret set --env maven-central`):
 #   MAVEN_CENTRAL_USERNAME          Central portal token username
@@ -34,26 +33,56 @@ permissions:
 
 jobs:
   gate:
-    name: tag matches the Android artifact version?
+    name: should this tag publish the Android artifact?
     runs-on: ubuntu-latest
     outputs:
-      publish: ${{ steps.v.outputs.publish }}
+      publish: ${{ steps.g.outputs.publish }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, to diff against the previous tag
 
-      - id: v
+      - id: g
         shell: bash
         run: |
           set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
           VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' kotlin/build.gradle.kts)
           [ -n "$VERSION" ] || { echo "no version in kotlin/build.gradle.kts" >&2; exit 1; }
-          if [ "${GITHUB_REF_NAME#v}" = "$VERSION" ]; then
-            echo "tag ${GITHUB_REF_NAME} matches ai.desertant:core ${VERSION}; will publish."
-            echo "publish=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag ${GITHUB_REF_NAME} != ai.desertant:core ${VERSION}; skipping (not an Android release)."
-            echo "publish=false" >> "$GITHUB_OUTPUT"
+
+          # The tag must name this artifact's version (set-version bumps it).
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "tag ${TAG} != ai.desertant:core ${VERSION}; skipping (not this artifact's release)."
+            echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
+
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          if [ -z "$PREV" ]; then
+            echo "no previous tag; publishing ${VERSION}."
+            echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Publish only if kotlin/ actually changed since the previous tag,
+          # counting a pure version bump in build.gradle.kts as no change (so a
+          # blanket set-version that only touches version lines republishes
+          # nothing). Any other changed file - including binaries - counts.
+          files=$(git diff --name-only "$PREV" "$TAG" -- kotlin/)
+          if [ -z "$files" ]; then
+            publish=false
+          elif [ "$files" = "kotlin/build.gradle.kts" ]; then
+            body=$(git diff "$PREV" "$TAG" -- kotlin/build.gradle.kts \
+              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]version = "' || true)
+            [ -n "$body" ] && publish=true || publish=false
+          else
+            publish=true
+          fi
+
+          if [ "$publish" = true ]; then
+            echo "kotlin/ changed since ${PREV}; publishing ${VERSION}."
+          else
+            echo "kotlin/ unchanged since ${PREV} (only the version bump, if any); skipping."
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   publish:
     name: Publish ai.desertant:core to Maven Central
