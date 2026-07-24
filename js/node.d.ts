@@ -12,7 +12,6 @@ export interface NativeCore {
   version: string;
   nativeDir: () => string;
   defaultCacheRoot: () => string;
-  defaultModelDirectory: (cacheRoot: string) => string;
 }
 
 export function loadNative(options: {

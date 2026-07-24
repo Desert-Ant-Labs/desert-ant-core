@@ -36,8 +36,7 @@ const coreFile = (name) => ({ linux: `lib${name}.so`, darwin: `lib${name}.dylib`
  * @param {string[]} [o.targets] supported target keys for the error hint
  * @returns {{ lib: Record<string,any>, koffi: any, callAsync: Function,
  *   decodeResult: (ptr:any)=>FfiReader, version: string,
- *   nativeDir: ()=>string, defaultModelDirectory: (cacheRoot:string)=>string,
- *   defaultCacheRoot: ()=>string }}
+ *   nativeDir: ()=>string, defaultCacheRoot: ()=>string }}
  */
 export function loadNative({ here, packageName, coreName, symbols, targets }) {
   const version = JSON.parse(fs.readFileSync(path.join(here, "package.json"), "utf8")).version;
@@ -94,14 +93,10 @@ export function loadNative({ here, packageName, coreName, symbols, targets }) {
     return path.join(os.homedir(), ".cache");
   }
 
-  // Versioned per-host cache folder: <cacheRoot>/@desert-ant-labs/<pkg>/<ver>/<host>.
-  // The npm package ships no model, so the Node entry always supplies a concrete
-  // directory (an explicit one, or this) rather than letting the Swift core try
-  // SwiftPM resource bundles that are not part of the npm package.
-  const short = packageName.replace(/^@[^/]+\//, "");
-  function defaultModelDirectory(cacheRoot) {
-    return path.join(cacheRoot, "@desert-ant-labs", short, version, `${process.platform}-${process.arch}`);
-  }
+  // The single managed cache layout - <cacheRoot>/desert-ant-models/<repo>/<revision>
+  // - is owned by desert-ant-core's Swift ModelStore. The Node entry passes
+  // cacheRoot (defaultCacheRoot below) and a null directory, so there is no
+  // JS-side model-path computation.
 
   return {
     get koffi() {
@@ -113,6 +108,5 @@ export function loadNative({ here, packageName, coreName, symbols, targets }) {
     version,
     nativeDir,
     defaultCacheRoot,
-    defaultModelDirectory,
   };
 }
