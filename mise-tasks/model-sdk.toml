@@ -1,0 +1,533 @@
+# Shared build/test/publish task catalog for Desert Ant Labs model SDKs.
+#
+# A model repo (shapes, emo, redact, ...) includes this from a pinned tag:
+#
+#   [tools]
+#   swift = "6.3.3"
+#
+#   [vars]
+#   model        = "emo"        # lowercase: paths + npm/Maven/HF/GitHub coordinates
+#   product      = "Emo"        # capitalized: Swift products, lib names
+#   tflite_files = "emo.tflite emo_meta.json emo_tokenizer.bin"  # staged into the AAR resources
+#
+#   [env]
+#   DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
+#
+#   [task_config]
+#   includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//mise-tasks/model-sdk.toml?ref=vX.Y.Z"]
+#
+# The tasks derive every model-specific name from `model`/`product`. Test tasks
+# (test, test-node, test-web, test-android-firebase) stay in the model repo,
+# since their harnesses differ; this catalog owns the identical build, publish,
+# version, and the two invariant test entry points (test-swift, test-android).
+#
+# The release version is single-sourced from packages/<model>-node/package.json;
+# the two Gradle module versions must match it (the publish tasks verify).
+# publish-swift appends an optional RELEASE_HIGHLIGHTS.md from the repo root.
+
+# ---------------------------------------------------------------- build
+
+["build"]
+description = "Build every artifact (swift + android + web + node native)"
+depends = ["build-swift", "build-android", "build-web", "node-natives"]
+
+["litert-libs"]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+usage = '''
+flag "--gpu" help="Also vendor the LiteRT GPU accelerator sibling (for GPU models)"
+flag "--litert-version <ver>" help="LiteRT (ai-edge-litert) version to vendor" default="2.1.6"
+'''
+run = """
+set -euo pipefail
+LITERT_VER="${usage_litert_version:-2.1.6}"
+LITERT_GPU="${DAL_GPU:-${usage_gpu:-}}"   # non-empty (--gpu or [env] DAL_GPU) also ships the accelerator sibling
+# Apple hosts need no LiteRT: the Swift SDK uses Core ML, and so does the
+# server-side Node native (it loads the bundled .mlmodelc by path). Only
+# Linux/Windows link the vendored libLiteRt.
+if [ "$(uname)" = "Darwin" ]; then exit 0; fi
+# Match the vendored lib to the host arch (linux-x64 or linux-arm64).
+case "$(uname -m)" in
+  x86_64|amd64) LARCH=linux-x64; WHEEL_PLAT=x86_64-manylinux_2_28;;
+  aarch64|arm64) LARCH=linux-arm64; WHEEL_PLAT=aarch64-manylinux_2_28;;
+  *) echo "error: unsupported arch $(uname -m)" >&2; exit 1;;
+esac
+dest="Vendor/litert/lib/$LARCH"
+if [ -f "$dest/libLiteRt.so" ]; then exit 0; fi
+mkdir -p "$dest"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+echo "Fetching ai-edge-litert $LITERT_VER ($LARCH libLiteRt.so, one-time)..."
+# uv resolves the matching Linux wheel for the target platform (no host Python
+# needed) and unpacks it into a throwaway target dir; the runtime .so ships at
+# ai_edge_litert/libLiteRt.so.
+uv pip install --python-platform "$WHEEL_PLAT" --python-version 3.12 \\
+    --target "$tmp/site" --only-binary=:all: "ai-edge-litert==$LITERT_VER" >/dev/null
+[ -f "$tmp/site/ai_edge_litert/libLiteRt.so" ] || { echo "error: libLiteRt.so not in ai-edge-litert wheel" >&2; exit 1; }
+cp "$tmp/site/ai_edge_litert/libLiteRt.so" "$dest/"
+# GPU models also ship the WebGPU accelerator sibling, which core's LiteRTSession
+# (.auto default) then uses automatically. CPU models ship libLiteRt.so only.
+if [ -n "$LITERT_GPU" ] && [ -f "$tmp/site/ai_edge_litert/libLiteRtWebGpuAccelerator.so" ]; then
+    cp "$tmp/site/ai_edge_litert/libLiteRtWebGpuAccelerator.so" "$dest/"
+fi
+ls -la "$dest"
+"""
+
+["build-swift"]
+description = "SwiftPM build (Core ML on Apple hosts, LiteRT on Linux)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+depends = ["litert-libs"]
+run = """
+set -euo pipefail
+# On Apple, Core ML is part of the OS. On Linux the non-Apple backend is LiteRT
+# (DAL_INFERENCE_LITERT flips desert-ant-core to LiteRTSession), so link the
+# vendored libLiteRt.so.
+if [ "$(uname)" = "Darwin" ]; then
+    swift build
+else
+    DAL_INFERENCE_LITERT=1 swift build -Xlinker -LVendor/litert/lib/linux-x64
+fi
+"""
+
+["build-android"]
+description = "Build the Android AAR (drives android-natives, then Gradle)"
+dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+tools = { java = "temurin-21" }
+run = "./gradlew assembleRelease"
+
+["build-web"]
+description = "Build the WebAssembly core into packages/{{ vars.model }}-node/dist"
+dir = "{{ config_root }}"
+shell = "bash -c"
+tools = { "aqua:WebAssembly/binaryen" = "130" }  # wasm-opt
+run = """
+set -euo pipefail
+
+# The Swift SDK for WebAssembly installs on demand (matched to the toolchain
+# version). wasm-opt (binaryen) comes from mise [tools]; the check below still
+# degrades gracefully if it is somehow absent (ships ~3x larger).
+OUT=.build/wasm-package
+DIST=packages/{{ vars.model }}-node/dist
+
+# Match the SDK to the installed toolchain version. Download and install from the
+# local file (no --checksum needed that way), so any Swift version just works.
+SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]/){print $i; exit}}')
+[ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
+SDK=${WASM_SDK:-swift-$SWIFT_VER-RELEASE_wasm}
+
+have_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$1" ] && return 0; done; return 1; }
+if ! have_bundle "$SDK.artifactbundle"; then
+    echo "Installing the Swift WebAssembly SDK $SWIFT_VER (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/sdk.tar.gz" "https://download.swift.org/swift-$SWIFT_VER-release/wasm-sdk/swift-$SWIFT_VER-RELEASE/$SDK.artifactbundle.tar.gz"
+    swift sdk install "$tmp/sdk.tar.gz"
+    rm -rf "$tmp"
+fi
+
+# --allow-writing-to-package-directory: the js packaging plugin writes $OUT under
+# .build/, which SwiftPM's plugin sandbox blocks on macOS without this.
+swift package -Xswiftc -Osize --swift-sdk "$SDK" --allow-writing-to-package-directory js --product {{ vars.product }}Web -c release --output "$OUT"
+
+if command -v wasm-opt >/dev/null; then
+    wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types --strip-debug --strip-producers "$OUT/{{ vars.product }}Web.wasm" -o "$OUT/{{ vars.product }}Web.wasm"
+else
+    echo "warning: wasm-opt not found; shipping unoptimized wasm (~3x larger)" >&2
+fi
+
+rm -rf "$DIST"
+mkdir -p "$DIST"
+cp "$OUT"/{{ vars.product }}Web.wasm "$OUT"/index.js "$OUT"/index.d.ts "$OUT"/instantiate.js "$OUT"/instantiate.d.ts "$OUT"/runtime.js "$OUT"/runtime.d.ts "$DIST/"
+cp -r "$OUT"/platforms "$DIST/platforms"
+# The npm tarball must carry the license (package.json: SEE LICENSE IN LICENSE.md).
+cp LICENSE.md packages/{{ vars.model }}-node/LICENSE.md
+
+ls -la "$DIST/{{ vars.product }}Web.wasm"
+echo "done: packages/{{ vars.model }}-node is ready (npm pack in that directory to check the tarball)"
+"""
+
+["node-natives"]
+description = "Build the native server-side Node core into packages/{{ vars.model }}-node/native/<platform>-<arch> (run per OS)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+depends = ["litert-libs"]
+run = """
+set -euo pipefail
+# The Node package is isomorphic: browsers get the WebAssembly + LiteRT.js build,
+# Node gets this prebuilt native core (the {{ vars.product }}Node product = the C ABI in
+# CABI.swift; AndroidJNI.swift is #if os(Android), so a host build is just the
+# ABI). koffi in packages/{{ vars.model }}-node binds {{ vars.model }}_* over it. Cross-OS builds
+# aren't possible, so run this on each target OS; publish gathers them.
+#
+# Backend per OS matches the rest of the SDK: Linux uses LiteRT (.tflite, links
+# the vendored libLiteRt.so, static Swift+Foundation so the .so is
+# self-contained); macOS uses Core ML (.mlmodelc) against the OS-provided Swift
+# runtime and system frameworks (nothing extra to ship).
+#
+# Two Linux distribution rules (learned the hard way): build on an OLD glibc base
+# (the published libs are built in a swift:6.3.2-jammy container = glibc 2.35, so
+# they run on Ubuntu 22.04+/Debian 12+, not just the build host), and link
+# `-z nodelete` so the process doesn't dlclose the static Swift runtime at
+# shutdown (which otherwise segfaults on natural exit on some glibc versions).
+ARCH=$(uname -m); case "$ARCH" in x86_64|amd64) NARCH=x64;; arm64|aarch64) NARCH=arm64;; *) NARCH=$ARCH;; esac
+if [ "$(uname)" = "Darwin" ]; then
+    # macOS: the Node native uses Core ML (against the OS-provided Swift runtime
+    # and system frameworks) and loads the bundled .mlmodelc by path - so it
+    # needs no LiteRT and ships no extra runtime.
+    KEY="darwin-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
+    swift build -c release --product {{ vars.product }}Node --disable-default-traits -Xlinker -rpath -Xlinker @loader_path
+    cp ".build/release/lib{{ vars.product }}Node.dylib" "$dest/"
+else
+    KEY="linux-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
+    # Static Foundation on Linux autolinks -lcurl/-lxml2/-lz; provide dev-name
+    # symlinks to the runtime sonames (the recorded DT_NEEDED stays the soname,
+    # which is present on any normal Linux).
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    ldc=$(command -v ldconfig || echo /sbin/ldconfig)
+    for so in libcurl.so.4 libxml2.so.2 libz.so.1; do
+        src=$("$ldc" -p 2>/dev/null | awk -v n="$so" '$1==n{print $NF; exit}' || true)
+        [ -n "$src" ] && ln -sf "$src" "$tmp/$(echo "$so" | sed 's/\\.so.*/.so/')" || true
+    done
+    LARCH=$([ "$NARCH" = "x64" ] && echo linux-x64 || echo linux-arm64)
+    DAL_INFERENCE_LITERT=1 swift build -c release --product {{ vars.product }}Node --disable-default-traits -Xswiftc -static-stdlib \\
+        -Xlinker "-L$tmp" -Xlinker "-LVendor/litert/lib/$LARCH" -Xlinker -rpath -Xlinker '$ORIGIN' \\
+        -Xlinker -z -Xlinker nodelete
+    cp ".build/release/lib{{ vars.product }}Node.so" "$dest/"
+    cp "Vendor/litert/lib/$LARCH/libLiteRt.so" "$dest/"
+fi
+ls -la "$dest"
+echo "done: packages/{{ vars.model }}-node/native/$KEY ready"
+"""
+
+# ---------------------------------------------------------------- test
+
+["test-swift"]
+description = "SwiftPM test suite (Core ML on macOS, LiteRT on Linux)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+depends = ["litert-libs"]
+run = """
+set -euo pipefail
+# On Apple, Core ML is part of the OS. On Linux the tests run against LiteRT, so
+# select it (DAL_INFERENCE_LITERT) and link/load libLiteRt.so from Vendor/.
+if [ "$(uname)" = "Darwin" ]; then
+    swift test
+else
+    DAL_INFERENCE_LITERT=1 LD_LIBRARY_PATH=Vendor/litert/lib/linux-x64 swift test -Xlinker -LVendor/litert/lib/linux-x64
+fi
+"""
+
+["test-android"]
+description = "Instrumented AAR test suite on a connected device/emulator"
+dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+tools = { java = "temurin-21" }
+run = "./gradlew connectedDebugAndroidTest"
+
+# ---------------------------------------------------------------- publish
+
+["set-version"]
+description = "Set the release version everywhere (package.json, Gradle modules, README)"
+dir = "{{ config_root }}"
+tools = { node = "22" }
+shell = "bash -c"
+usage = '''
+arg "<version>" help="Release version (X.Y.Z)"
+'''
+run = """
+set -euo pipefail
+VERSION="${usage_version:?version arg required}"
+echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
+
+# npm keeps package.json and package-lock.json in sync.
+( cd packages/{{ vars.model }}-node && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
+
+# The two Gradle modules (project version drives the Maven coordinates).
+for f in packages/{{ vars.model }}-kotlin/build.gradle.kts packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/build.gradle.kts; do
+    sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' "$f" && rm -f "$f.bak"
+done
+
+# The SwiftPM install snippet in the README.
+sed -i.bak 's|\\(url: "https://github.com/Desert-Ant-Labs/{{ vars.model }}.git", from: "\\)[^"]*"|\\1'"$VERSION"'"|' README.md && rm -f README.md.bak
+
+mise run check-version >/dev/null
+echo "version set to $VERSION (package.json + lock, 2 Gradle modules, README)"
+"""
+
+# Verifies the release version is consistent everywhere before any publish:
+# packages/<model>-node/package.json is the single source; the two Gradle module
+# versions must equal it. Prints the version.
+["check-version"]
+hide = true
+dir = "{{ config_root }}"
+shell = "bash -c"
+run = """
+set -euo pipefail
+npm_version=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model }}-node/package.json)
+[ -n "$npm_version" ] || { echo "error: no version in packages/{{ vars.model }}-node/package.json" >&2; exit 1; }
+for f in packages/{{ vars.model }}-kotlin/build.gradle.kts packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/build.gradle.kts; do
+    gradle_version=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$f")
+    [ "$gradle_version" = "$npm_version" ] || { echo "error: $f has version $gradle_version, package.json has $npm_version" >&2; exit 1; }
+done
+echo "$npm_version"
+"""
+
+["publish-swift"]
+description = "Release the Swift package: tag vX.Y.Z on origin/main and create the GitHub release"
+dir = "{{ config_root }}"
+depends = ["check-version"]
+shell = "bash -c"
+run = """
+set -euo pipefail
+# SwiftPM releases are semver tags on the repo; consumers pin
+# .package(url: ..., from: "X.Y.Z"). Tag the pushed main, not local state, then
+# create the GitHub Release object so the release is visible on github.com.
+VERSION=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model }}-node/package.json)
+TAG="v$VERSION"
+REPO="Desert-Ant-Labs/{{ vars.model }}"
+
+jj git fetch
+COMMIT=$(jj log -r main@origin --no-graph -T commit_id)
+[ -n "$COMMIT" ] || { echo "error: no main@origin bookmark" >&2; exit 1; }
+
+# Local tag may already exist from an interrupted or repeated release. It is ok
+# only if it already points at the commit we are publishing.
+if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    existing=$(git rev-parse "refs/tags/$TAG^{commit}")
+    [ "$existing" = "$COMMIT" ] || {
+        echo "error: local tag $TAG points at $existing, expected $COMMIT" >&2
+        exit 1
+    }
+else
+    git tag "$TAG" "$COMMIT"
+fi
+
+# Remote tag may also already exist. Verify it rather than force-pushing.
+remote=$(git ls-remote --tags origin "refs/tags/$TAG" | awk '{print $1}')
+if [ -n "$remote" ]; then
+    [ "$remote" = "$COMMIT" ] || {
+        echo "error: remote tag $TAG points at $remote, expected $COMMIT" >&2
+        exit 1
+    }
+    echo "tag exists: $TAG -> $COMMIT"
+else
+    git push origin "$TAG"
+    echo "pushed tag: $TAG -> $COMMIT"
+fi
+
+notes=$(mktemp)
+trap 'rm -f "$notes"' EXIT
+cat > "$notes" <<EOF
+{{ vars.product }} $VERSION release.
+
+## Packages
+
+- SwiftPM: https://github.com/Desert-Ant-Labs/{{ vars.model }}.git, from $VERSION
+- Android: ai.desertant:{{ vars.model }}:$VERSION
+- Android bundled model resources: ai.desertant:{{ vars.model }}-tflite-resources:$VERSION
+- npm: @desert-ant-labs/{{ vars.model }}@$VERSION
+EOF
+# Optional per-repo marketing bullets.
+if [ -f RELEASE_HIGHLIGHTS.md ]; then
+    { echo; echo "## Highlights"; echo; cat RELEASE_HIGHLIGHTS.md; } >> "$notes"
+fi
+
+if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+    echo "release exists: https://github.com/$REPO/releases/tag/$TAG"
+else
+    gh release create "$TAG" --repo "$REPO" --title "{{ vars.product }} $VERSION" --notes-file "$notes"
+fi
+
+echo "published: Swift package release $TAG -> $COMMIT"
+"""
+
+["publish-android"]
+description = "Publish ai.desertant:{{ vars.model }} + :{{ vars.model }}-tflite-resources to Maven Central"
+dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+depends = ["check-version"]
+tools = { java = "temurin-21" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# Credentials come from mise.local.toml: a Central portal token and an in-memory
+# signing key, passed as Gradle properties via the env:
+#   ORG_GRADLE_PROJECT_mavenCentralUsername / ORG_GRADLE_PROJECT_mavenCentralPassword
+#   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
+: "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
+: "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+"""
+
+["publish-web"]
+description = "Publish @desert-ant-labs/{{ vars.model }} to npm"
+dir = "{{ config_root }}/packages/{{ vars.model }}-node"
+depends = ["check-version", "build-web"]
+tools = { node = "22" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# Auth: NPM_TOKEN from mise.local.toml, or `npm login`.
+# The token goes through a throwaway userconfig so normal npm commands and
+# checked-in files never carry auth.
+if [ -n "${NPM_TOKEN:-}" ]; then
+    npmrc=$(mktemp)
+    trap 'rm -f "$npmrc"' EXIT
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$npmrc"
+    npm publish --access public --userconfig "$npmrc"
+else
+    npm publish --access public
+fi
+"""
+
+# ---------------------------------------------------------------- internal
+
+["android-natives"]
+description = "Cross-compile the Android native libs into packages/{{ vars.model }}-kotlin/src/main/jniLibs (invoked by the Gradle build)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+usage = '''
+flag "--gpu" help="Ship the LiteRT GPU accelerator siblings (for GPU models)"
+flag "--litert-version <ver>" help="LiteRT android AAR version to vendor" default="2.1.6"
+flag "--android-api <api>" help="Android minSdk/API level to build against" default="24"
+'''
+run = """
+set -euo pipefail
+
+# Uses a static Swift stdlib (-static-stdlib), so the whole Swift runtime is
+# linked into a single dead-stripped lib{{ vars.product }}Android.so instead of shipping the
+# ~10 MB dynamic runtime closure. Only lib{{ vars.product }}Android.so + the NDK's
+# libc++_shared.so are copied per ABI (alongside libLiteRt.so).
+#
+# SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest: its
+# swift-syntax macros build for the host and conflict with the -resource-dir
+# that static linking needs. The wasm/JS code is all #if os(WASI), so it is
+# absent from an Android build anyway.
+#
+# DAL_INFERENCE_LITERT selects the LiteRT backend in desert-ant-core (SwiftPM
+# re-evaluates the core manifest in this process env, so exporting it here is
+# what flips core to LiteRTSession). The litert-android AAR's per-ABI
+# libLiteRt.so must be under Vendor/litert/lib/android-<arch>/. The Swift
+# Android SDK and the NDK it depends on (r27d+) install on demand below.
+API="${usage_android_api:-24}"
+KOTLIN=packages/{{ vars.model }}-kotlin/src/main
+NDK_VER=r27d
+export SWIFT_ANDROID_STATIC_BUILD=1
+export DAL_INFERENCE_LITERT=1
+
+# Build the Android natives against the finagolfin API-24 Swift Android SDK: the
+# official release bundles floor at API 28 (Bionic gained posix_spawn there),
+# while this community bundle is compiled at API 24 (self-contained NDK-27d
+# sysroot) and pairs with the matching OSS Swift toolchain. Override the trio to
+# swap in another bundle/toolchain (e.g. the official 6.4+ stable one later).
+FIN_TC="${SWIFT_ANDROID_TOOLCHAIN:-6.2.0}"
+FIN_URL="${SWIFT_ANDROID_SDK_URL:-https://github.com/finagolfin/swift-android-sdk/releases/download/6.2/swift-6.2-RELEASE-android-24-0.1.artifactbundle.tar.gz}"
+FIN_SUM="${SWIFT_ANDROID_SDK_CHECKSUM:-c26ebfd4e32c0ca1beabcc45729b62042da57ee76d7d043f63f2235da90dc491}"
+
+command -v swiftly >/dev/null 2>&1 || { echo "error: swiftly is required to manage the OSS Swift $FIN_TC toolchain the Android build needs" >&2; exit 1; }
+swiftly list 2>/dev/null | grep -q "Swift $FIN_TC\b" || { echo "Installing Swift $FIN_TC (one-time, ~800MB)..."; swiftly install "$FIN_TC"; }
+SW() { swiftly run "$@" +"$FIN_TC"; }   # run a command under the pinned OSS toolchain
+
+# Locate (installing on demand) the API-24 artifactbundle. SwiftPM's SDK dir
+# differs by host OS, so check both.
+find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do b=$(ls -dt "$d"/*android*24*.artifactbundle 2>/dev/null | head -1 || true); [ -n "$b" ] && { echo "$b"; return 0; }; done; return 1; }
+BUNDLE=$(find_bundle || true)
+if [ -z "$BUNDLE" ]; then
+    echo "Installing the API-24 Swift Android SDK (one-time, ~370MB)..."
+    SW swift sdk install "$FIN_URL" --checksum "$FIN_SUM"
+    BUNDLE=$(find_bundle || true)
+fi
+[ -n "$BUNDLE" ] || { echo "error: android-24 Swift SDK bundle not found after install" >&2; exit 1; }
+
+# LiteRT android libs (linked per ABI) from the litert-android AAR on Google's
+# Maven. Each jni/<abi>/libLiteRt.so exposes the LiteRT CompiledModel C API the
+# CLiteRt shim needs. Accelerator choice is a packaging decision, not a code
+# one: core's LiteRTSession defaults to .auto (GPU when its accelerator library
+# is bundled, else CPU/XNNPACK). CPU models ship libLiteRt.so only; a GPU model
+# sets DAL_GPU (or --gpu) to also vendor the accelerator sibling(s).
+LITERT_VER="${usage_litert_version:-2.1.6}"
+LITERT_GPU="${DAL_GPU:-${usage_gpu:-}}"   # non-empty ships the accelerator sibling(s)
+if [ ! -f "Vendor/litert/lib/android-aarch64/libLiteRt.so" ] || [ ! -f "Vendor/litert/lib/android-x86_64/libLiteRt.so" ]; then
+    echo "Fetching LiteRT $LITERT_VER android libs (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/litert.aar" "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$LITERT_VER/litert-$LITERT_VER.aar"
+    ( cd "$tmp" && unzip -qo litert.aar )
+    for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
+        abi=${pair%:*}; arch=${pair#*:}
+        mkdir -p "Vendor/litert/lib/android-$arch"
+        cp "$tmp/jni/$abi/libLiteRt.so" "Vendor/litert/lib/android-$arch/libLiteRt.so"
+        if [ -n "$LITERT_GPU" ]; then
+            for acc in "$tmp/jni/$abi/"libLiteRt*Accelerator.so; do
+                [ -f "$acc" ] && cp "$acc" "Vendor/litert/lib/android-$arch/"
+            done
+        fi
+    done
+    rm -rf "$tmp"
+fi
+
+# Strip tool: prefer llvm-strip/llvm-objcopy on PATH or in the Swift toolchain
+# bin; else the NDK's llvm-strip (the one the task downloaded into the bundle,
+# or ANDROID_NDK_HOME). Both handle Android ELF on any host.
+strip_bin=""; strip_mode=""
+sbin=$(dirname "$(command -v swift)")
+for c in llvm-strip "$sbin/llvm-strip" llvm-objcopy "$sbin/llvm-objcopy"; do
+    if command -v "$c" >/dev/null 2>&1; then
+        strip_bin=$(command -v "$c")
+        case "$c" in *objcopy) strip_mode=objcopy;; *) strip_mode=strip;; esac
+        break
+    fi
+done
+if [ -z "$strip_bin" ]; then
+    # The finagolfin bundle ships no NDK toolchain; reuse any llvm-strip from an
+    # installed Swift Android SDK's NDK, ANDROID_NDK_HOME, or $ANDROID_HOME/ndk.
+    for base in "$BUNDLE" $HOME/.swiftpm/swift-sdks/* "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
+        cand=$(find "$base" -name llvm-strip 2>/dev/null | head -1 || true)
+        [ -n "$cand" ] && { strip_bin=$cand; strip_mode=strip; break; }
+    done
+fi
+
+# ABI:arch pairs (no bash-4 associative arrays, so macOS bash 3.2 works too).
+for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
+    abi=${pair%:*}
+    arch=${pair#*:}
+    echo "== $abi ($arch) =="
+    # finagolfin names the static stdlib dir per-arch (swift_static-<arch>), but the
+    # driver derives the runtime dir as a sibling `swift_static/`, so bridge it with
+    # a per-arch symlink and point -resource-dir at it (yields a self-contained .so).
+    libdir=$(dirname "$(find "$BUNDLE" -type d -name "swift_static-$arch" 2>/dev/null | head -1)")
+    [ -n "$libdir" ] || { echo "error: swift_static-$arch not found in $BUNDLE" >&2; exit 1; }
+    ln -sfn "swift_static-$arch" "$libdir/swift_static"
+    SW swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$libdir/swift_static" -Xlinker -LVendor/litert/lib/android-$arch
+
+    dest="$KOTLIN/jniLibs/$abi"
+    rm -rf "$dest" && mkdir -p "$dest"
+    cp ".build/$arch-unknown-linux-android$API/release/lib{{ vars.product }}Android.so" "$dest/"
+    cp "Vendor/litert/lib/android-$arch/libLiteRt.so" "$dest/"
+    # GPU models: also ship any vendored accelerator siblings.
+    for acc in "Vendor/litert/lib/android-$arch/"libLiteRt*Accelerator.so; do
+        [ -f "$acc" ] && cp "$acc" "$dest/"
+    done
+    ndk_cxx=$(find -L "$BUNDLE" -path "*$arch-linux-android*" -name libc++_shared.so 2>/dev/null | head -1 || true)
+    cp "$ndk_cxx" "$dest/"
+
+    so="$dest/lib{{ vars.product }}Android.so"
+    if [ "$strip_mode" = objcopy ]; then
+        "$strip_bin" --strip-unneeded "$so" "$so.s" && mv "$so.s" "$so"
+    elif [ "$strip_mode" = strip ]; then
+        "$strip_bin" --strip-unneeded "$so"
+    else
+        echo "warning: no LLVM strip tool found; shipping an unstripped library" >&2
+    fi
+done
+
+# Model files go into the OPTIONAL :{{ vars.model }}-tflite-resources module (classpath
+# resources, read via getResourceAsStream). The base AAR ships no model and
+# downloads on demand; an app opts into bundling by depending on the module.
+res="packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/src/main/resources"
+mkdir -p "$res"
+for f in {{ vars.tflite_files }}; do cp "Sources/{{ vars.product }}TFLiteResources/Resources/$f" "$res/"; done
+# The base AAR must ship no model; drop any staged there by older builds.
+for f in {{ vars.tflite_files }}; do rm -f "$KOTLIN/resources/$f"; done
+
+du -sh "$KOTLIN/jniLibs" "$res"
+echo "done: {{ vars.model }}-kotlin native + {{ vars.model }}-tflite-resources are ready for the AAR build"
+"""
