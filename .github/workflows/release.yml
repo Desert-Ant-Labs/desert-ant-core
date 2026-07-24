@@ -1,0 +1,91 @@
+name: Release
+
+# Create a GitHub Release for every pushed release tag (vX.Y.Z). The tag is the
+# SwiftPM release (consumers pin `.package(url: ..., from: "X.Y.Z")`), so a
+# Release is always warranted, independent of whether the Android/npm artifacts
+# changed. Runs alongside the publish workflows.
+#
+# The notes list exactly the artifacts that changed this release (using the same
+# detection the publish workflows gate on: a pure version bump does not count),
+# and GitHub auto-generates the changelog (What's Changed / PRs since the last
+# release) beneath them.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, to diff against the previous tag
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VER="${TAG#v}"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG already exists; nothing to do."
+            exit 0
+          fi
+
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+
+          # Same change detection the publish workflows use: a directory counts as
+          # changed if any file other than its manifest changed, or the manifest
+          # changed beyond its version line. No previous tag -> everything counts.
+          changed() {  # $1 dir  $2 manifest  $3 version-line pattern to ignore
+            local files body
+            [ -z "$PREV" ] && { echo yes; return; }
+            files=$(git diff --name-only "$PREV" "$TAG" -- "$1")
+            if [ -z "$files" ]; then echo no; return; fi
+            if [ "$files" = "$2" ]; then
+              body=$(git diff "$PREV" "$TAG" -- "$2" \
+                | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE "$3" || true)
+              [ -n "$body" ] && echo yes || echo no
+            else
+              echo yes
+            fi
+          }
+          AND=$(changed kotlin/ kotlin/build.gradle.kts '^[+-]version = "')
+          NPM=$(changed js/ js/package.json '^[+-]  "version": "')
+
+          notes=$(mktemp)
+          {
+            echo "## Packages"
+            echo
+            echo "- SwiftPM: \`.package(url: \"https://github.com/${GITHUB_REPOSITORY}.git\", from: \"${VER}\")\`"
+            [ "$AND" = yes ] && echo "- Android: \`ai.desertant:core:${VER}\` (Maven Central)"
+            [ "$NPM" = yes ] && echo "- npm: \`@desert-ant-labs/core@${VER}\`"
+            if [ "$AND" != yes ] && [ "$NPM" != yes ]; then
+              echo
+              echo "_SwiftPM-only release; the Android and npm artifacts did not change._"
+            fi
+          } > "$notes"
+
+          # generate_release_notes:true auto-generates the changelog; a provided
+          # body is pre-pended to it (GitHub REST behavior).
+          jq -n \
+            --arg tag "$TAG" \
+            --arg name "desert-ant-core ${VER}" \
+            --rawfile body "$notes" \
+            '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true}' \
+            | gh api "repos/${GITHUB_REPOSITORY}/releases" --input - >/dev/null
+
+          echo "created release $TAG (android-changed=$AND npm-changed=$NPM)"
