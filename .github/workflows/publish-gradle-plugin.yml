@@ -1,0 +1,95 @@
+name: Publish Gradle plugin
+
+# Publish the ai.desertant model-SDK Gradle plugin to Maven Central when a
+# release tag (vX.Y.Z) is pushed, but only if it actually changed. Pure JVM (no
+# Android SDK), so it just runs `mise run publish-plugin`. Credentials come from
+# the `maven-central` GitHub Environment secrets.
+#
+# Same publish-on-change model as the other artifacts: `mise run set-version`
+# bumps every version, the tag names the release, and this publishes only when
+# gradle-plugin/ changed since the previous tag (a pure version bump does not
+# count). Published versions may skip.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: publish-gradle-plugin-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: should this tag publish the Gradle plugin?
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.g.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags, to diff against the previous tag
+
+      - id: g
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' gradle-plugin/build.gradle.kts)
+          [ -n "$VERSION" ] || { echo "no version in gradle-plugin/build.gradle.kts" >&2; exit 1; }
+
+          if [ "${TAG#v}" != "$VERSION" ]; then
+            echo "tag ${TAG} != plugin ${VERSION}; skipping (not this artifact's release)."
+            echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          if [ -z "$PREV" ]; then
+            echo "no previous tag; publishing ${VERSION}."
+            echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+
+          # Publish only if gradle-plugin/ changed since the previous tag,
+          # counting a pure version bump in build.gradle.kts as no change.
+          files=$(git diff --name-only "$PREV" "$TAG" -- gradle-plugin/)
+          if [ -z "$files" ]; then
+            publish=false
+          elif [ "$files" = "gradle-plugin/build.gradle.kts" ]; then
+            body=$(git diff "$PREV" "$TAG" -- gradle-plugin/build.gradle.kts \
+              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]version = "' || true)
+            [ -n "$body" ] && publish=true || publish=false
+          else
+            publish=true
+          fi
+
+          if [ "$publish" = true ]; then
+            echo "gradle-plugin/ changed since ${PREV}; publishing ${VERSION}."
+          else
+            echo "gradle-plugin/ unchanged since ${PREV} (only the version bump, if any); skipping."
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Publish the Gradle plugin to Maven Central
+    needs: gate
+    if: needs.gate.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+
+      - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        run: mise run publish-plugin
