@@ -409,29 +409,45 @@ NDK_VER=r27d
 export SWIFT_ANDROID_STATIC_BUILD=1
 export DAL_INFERENCE_LITERT=1
 
-# Build the Android natives against the finagolfin API-24 Swift Android SDK: the
-# official release bundles floor at API 28 (Bionic gained posix_spawn there),
-# while this community bundle is compiled at API 24 (self-contained NDK-27d
-# sysroot) and pairs with the matching OSS Swift toolchain. Override the trio to
-# swap in another bundle/toolchain (e.g. the official 6.4+ stable one later).
-FIN_TC="${SWIFT_ANDROID_TOOLCHAIN:-6.2.0}"
-FIN_URL="${SWIFT_ANDROID_SDK_URL:-https://github.com/finagolfin/swift-android-sdk/releases/download/6.2/swift-6.2-RELEASE-android-24-0.1.artifactbundle.tar.gz}"
-FIN_SUM="${SWIFT_ANDROID_SDK_CHECKSUM:-c26ebfd4e32c0ca1beabcc45729b62042da57ee76d7d043f63f2235da90dc491}"
+# Build against the OFFICIAL Swift Android SDK. The stable release bundles floor
+# at API 28 (Bionic gained posix_spawn there), but the 6.4.x snapshots support
+# API 23+, so this keeps minSdk 24 with first-party tooling. The SDK and the host
+# toolchain must be the SAME snapshot - a mismatch is what produced the old
+# "missing required module 'SwiftAndroid'" failures. Override the trio to move to
+# a newer snapshot, or to a stable release once one ships API 24.
+SNAP="${DAL_SWIFT_ANDROID_SNAPSHOT:-swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a}"
+SNAP_BRANCH="${DAL_SWIFT_ANDROID_BRANCH:-swift-6.4.x-branch}"
+SDK_SUM="${DAL_SWIFT_ANDROID_SDK_CHECKSUM:-54a9c6b9491ea531cd3f5696f1071c2ca055cad89b89a2f408633b73f373c601}"
+SDK_URL="https://download.swift.org/$SNAP_BRANCH/android-sdk/$SNAP/${SNAP}_android.artifactbundle.tar.gz"
 
-command -v swiftly >/dev/null 2>&1 || { echo "error: swiftly is required to manage the OSS Swift $FIN_TC toolchain the Android build needs" >&2; exit 1; }
-swiftly list 2>/dev/null | grep -q "Swift $FIN_TC\b" || { echo "Installing Swift $FIN_TC (one-time, ~800MB)..."; swiftly install "$FIN_TC"; }
-SW() { swiftly run "$@" +"$FIN_TC"; }   # run a command under the pinned OSS toolchain
+# Host toolchain matching the SDK. On Linux we fetch the tarball into a cache dir
+# (no swiftly: it has no packages for every distro, and CI needs no shell setup).
+# On macOS the snapshot ships as a .pkg, so use swiftly there.
+if [ "$(uname)" = "Darwin" ]; then
+    command -v swiftly >/dev/null 2>&1 || { echo "error: swiftly is required on macOS to install the $SNAP toolchain" >&2; exit 1; }
+    swiftly list 2>/dev/null | grep -q "$SNAP" || { echo "Installing $SNAP (one-time)..."; swiftly install "$SNAP"; }
+    SWIFT() { swiftly run "$@" +"$SNAP"; }
+else
+    TC_ROOT="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/$SNAP"
+    if [ ! -x "$TC_ROOT/usr/bin/swift" ]; then
+        echo "Installing the $SNAP host toolchain (one-time, ~1.2GB)..."
+        mkdir -p "$TC_ROOT"
+        curl -fSL "https://download.swift.org/$SNAP_BRANCH/ubuntu2404/$SNAP/$SNAP-ubuntu24.04.tar.gz" \
+            | tar -xz -C "$TC_ROOT" --strip-components=1
+    fi
+    [ -x "$TC_ROOT/usr/bin/swift" ] || { echo "error: $SNAP toolchain not usable at $TC_ROOT" >&2; exit 1; }
+    SWIFT() { "$TC_ROOT/usr/bin/$@"; }
+fi
 
-# Locate (installing on demand) the API-24 artifactbundle. SwiftPM's SDK dir
-# differs by host: ~/.swiftpm (macOS), ~/.config/swiftpm (Linux).
-find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do b=$(ls -dt "$d"/*android*24*.artifactbundle 2>/dev/null | head -1 || true); [ -n "$b" ] && { echo "$b"; return 0; }; done; return 1; }
+# Install the Android SDK bundle with that toolchain (idempotent: skip if present).
+find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do b=$(ls -dt "$d"/*"$SNAP"*.artifactbundle 2>/dev/null | head -1 || true); [ -n "$b" ] && { echo "$b"; return 0; }; done; return 1; }
 BUNDLE=$(find_bundle || true)
 if [ -z "$BUNDLE" ]; then
-    echo "Installing the API-24 Swift Android SDK (one-time, ~370MB)..."
-    SW swift sdk install "$FIN_URL" --checksum "$FIN_SUM"
+    echo "Installing the official Android SDK for $SNAP (one-time, ~330MB)..."
+    SWIFT swift sdk install "$SDK_URL" --checksum "$SDK_SUM"
     BUNDLE=$(find_bundle || true)
 fi
-[ -n "$BUNDLE" ] || { echo "error: android-24 Swift SDK bundle not found after install" >&2; exit 1; }
+[ -n "$BUNDLE" ] || { echo "error: Android SDK bundle for $SNAP not found after install" >&2; exit 1; }
 
 # LiteRT android libs (linked per ABI) from the litert-android AAR on Google's
 # Maven. Each jni/<abi>/libLiteRt.so exposes the LiteRT CompiledModel C API the
@@ -485,15 +501,11 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     abi=${pair%:*}
     arch=${pair#*:}
     echo "== $abi ($arch) =="
-    # No -resource-dir override: the bundle's swift-sdk.json already declares
-    #   sdkRootPath              android-27d-sysroot
-    #   swiftStaticResourcesPath android-27d-sysroot/usr/lib/swift_static-<arch>
-    # per triple, and SwiftPM applies the static one for -static-stdlib. Passing
-    # -resource-dir by hand clobbered the sysroot association the SDK sets up, so
-    # Android.swiftmodule resolved but its SwiftAndroid C module (declared in
-    # android/<arch>/android.modulemap) did not - the "missing required module
-    # 'SwiftAndroid'" failure. Let the SDK describe its own layout.
-    SW swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xlinker -LVendor/litert/lib/android-$arch
+    # No -resource-dir override: the SDK descriptor declares sdkRootPath and
+    # swiftStaticResourcesPath per triple, and SwiftPM applies the static one for
+    # -static-stdlib. Overriding it by hand clobbers the sysroot association and
+    # breaks the Android overlay's SwiftAndroid module.
+    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xlinker -LVendor/litert/lib/android-$arch
 
     dest="$KOTLIN/jniLibs/$abi"
     rm -rf "$dest" && mkdir -p "$dest"
@@ -503,7 +515,17 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     for acc in "Vendor/litert/lib/android-$arch/"libLiteRt*Accelerator.so; do
         [ -f "$acc" ] && cp "$acc" "$dest/"
     done
+    # The app must ship the NDK's libc++_shared.so alongside the native. Prefer
+    # the copy inside the SDK bundle; fall back to an installed NDK, since the
+    # official bundles do not always vendor one.
     ndk_cxx=$(find -L "$BUNDLE" -path "*$arch-linux-android*" -name libc++_shared.so 2>/dev/null | head -1 || true)
+    if [ -z "$ndk_cxx" ]; then
+        for base in "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
+            ndk_cxx=$(find -L "$base" -path "*$arch-linux-android*" -name libc++_shared.so 2>/dev/null | head -1 || true)
+            [ -n "$ndk_cxx" ] && break
+        done
+    fi
+    [ -n "$ndk_cxx" ] || { echo "error: libc++_shared.so for $arch not found (set ANDROID_NDK_HOME)" >&2; exit 1; }
     cp "$ndk_cxx" "$dest/"
 
     so="$dest/lib{{ vars.product }}Android.so"
