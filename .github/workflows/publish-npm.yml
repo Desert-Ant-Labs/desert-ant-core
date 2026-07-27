@@ -12,10 +12,10 @@ name: Publish npm
 # nothing but version lines republishes nothing. Published versions may skip
 # (an unchanged artifact keeps its last published version until it next changes).
 #
-# Organization secret (set once for the whole org with
-# `gh secret set NPM_TOKEN --org Desert-Ant-Labs --repos desert-ant-core,shapes,emo,redact`),
-# so every SDK repo publishes with the same credential and there is one place to
-# rotate it:
+# Organization secret, visibility `all` (set once for the whole org with
+# `gh secret set NPM_TOKEN --org Desert-Ant-Labs --visibility all`), so every SDK
+# repo - including new model SDKs, with no per-repo setup - publishes with the
+# same credential and there is one place to rotate it:
 #   NPM_TOKEN  npm automation token with publish rights on @desert-ant-labs
 #
 # The `npm` environment below holds no secrets; it is kept only as an optional
