@@ -1,0 +1,123 @@
+name: Consumer
+
+# Build a real model SDK against this checkout of core, on the targets that
+# core's own suites cannot cover.
+#
+# Every regression that broke the SDK releases passed core's own tests:
+#
+#   JSInferenceSession narrowed to internal   only fails when a *consumer*
+#                                             constructs it; core never does
+#   run(...) not public                       same - a public-protocol
+#                                             conformance detail
+#   getenv unresolved on Android (Usage)      core's android.yml builds
+#                                             CoreAndroidTests, which does not
+#                                             reference the Usage module
+#
+# The common thread is that core compiles fine in isolation while breaking its
+# consumers. So this checks out shapes (the smallest SDK) and points its
+# Package.swift at the core commit under test, then builds the two targets that
+# actually exercise core's public API surface across platforms:
+#
+#   wasm   ShapesWeb - constructs JSInferenceSession, so it catches visibility
+#          and API-shape breaks
+#   android ShapesAndroid - pulls PlatformSupport/FFIBuffer/ModelStore/Usage, so
+#          it catches libc-import and platform-guard breaks
+#
+# This is a build check, not a release: nothing is published.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: consumer-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  consumer:
+    name: shapes builds against this core (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [wasm, android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out core
+        uses: actions/checkout@v4
+        with:
+          path: core
+
+      - name: Check out the consumer SDK
+        uses: actions/checkout@v4
+        with:
+          repository: Desert-Ant-Labs/shapes
+          path: shapes
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+          df -h /
+
+      - name: Swift toolchain system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+
+      - name: Set up mise
+        uses: jdx/mise-action@v2
+        with:
+          install: false
+
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Point the SDK at this core checkout, so the build uses the code under
+      # test rather than the pinned release. A local path override needs no
+      # version or revision, which is why the pins are removed outright.
+      - name: Override desert-ant-core with this checkout
+        working-directory: shapes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import re
+          src = open("Package.swift").read()
+          out = re.sub(
+              r'\.package\(\s*url:\s*"[^"]*desert-ant-core\.git"\s*,[^)]*\)',
+              '.package(name: "desert-ant-core", path: "../core")',
+              src, count=1)
+          assert out != src, "core dependency not found in Package.swift"
+          open("Package.swift", "w").write(out)
+          PY
+          rm -f Package.resolved   # stale pins conflict with a path dependency
+          grep -n "desert-ant-core" Package.swift
+
+      - name: Cache Swift SDKs
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            shapes/Vendor/litert
+          key: consumer-${{ matrix.target }}-v1
+
+      # The SDK's own mise catalog drives the build, so this verifies core
+      # against the same toolchain and flags a real release would use.
+      - name: Build the wasm target (exercises core's public API)
+        if: matrix.target == 'wasm'
+        working-directory: shapes
+        run: mise run build-web
+
+      - name: Build the Android target (exercises the platform guards)
+        if: matrix.target == 'android'
+        working-directory: shapes
+        run: mise run android-natives
