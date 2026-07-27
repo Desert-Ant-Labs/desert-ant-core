@@ -513,7 +513,12 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
 
     dest="$KOTLIN/jniLibs/$abi"
     rm -rf "$dest" && mkdir -p "$dest"
-    cp ".build/$arch-unknown-linux-android$API/release/lib{{ vars.product }}Android.so" "$dest/"
+    # Locate the built library rather than hardcoding a layout: Swift 6.4's build
+    # system emits .build/out/Products/Release-android-<arch>/, older SwiftPM used
+    # .build/<triple>/release/. Both contain the arch, so match on that.
+    built=$(find .build -type f -name "lib{{ vars.product }}Android.so" -path "*$arch*" 2>/dev/null | head -1)
+    [ -n "$built" ] || { echo "error: lib{{ vars.product }}Android.so for $arch not found under .build" >&2; exit 1; }
+    cp "$built" "$dest/"
     cp "Vendor/litert/lib/android-$arch/libLiteRt.so" "$dest/"
     # GPU models: also ship any vendored accelerator siblings.
     for acc in "Vendor/litert/lib/android-$arch/"libLiteRt*Accelerator.so; do
