@@ -15,7 +15,9 @@ import CHostBridge
 import JavaScriptKit
 #endif
 
-#if canImport(Glibc)
+#if os(Android)
+import Android          // on Android the Android module *is* libc (getenv et al)
+#elseif canImport(Glibc)
 import Glibc
 #elseif canImport(Darwin)
 import Darwin
