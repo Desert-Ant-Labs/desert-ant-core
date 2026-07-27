@@ -116,7 +116,7 @@ SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-
 [ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
 SDK=${WASM_SDK:-swift-$SWIFT_VER-RELEASE_wasm}
 
-have_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$1" ] && return 0; done; return 1; }
+have_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$1" ] && return 0; done; return 1; }
 if ! have_bundle "$SDK.artifactbundle"; then
     echo "Installing the Swift WebAssembly SDK $SWIFT_VER (one-time)..."
     tmp=$(mktemp -d)
@@ -423,8 +423,8 @@ swiftly list 2>/dev/null | grep -q "Swift $FIN_TC\b" || { echo "Installing Swift
 SW() { swiftly run "$@" +"$FIN_TC"; }   # run a command under the pinned OSS toolchain
 
 # Locate (installing on demand) the API-24 artifactbundle. SwiftPM's SDK dir
-# differs by host OS, so check both.
-find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do b=$(ls -dt "$d"/*android*24*.artifactbundle 2>/dev/null | head -1 || true); [ -n "$b" ] && { echo "$b"; return 0; }; done; return 1; }
+# differs by host: ~/.swiftpm (macOS), ~/.config/swiftpm (Linux).
+find_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do b=$(ls -dt "$d"/*android*24*.artifactbundle 2>/dev/null | head -1 || true); [ -n "$b" ] && { echo "$b"; return 0; }; done; return 1; }
 BUNDLE=$(find_bundle || true)
 if [ -z "$BUNDLE" ]; then
     echo "Installing the API-24 Swift Android SDK (one-time, ~370MB)..."
