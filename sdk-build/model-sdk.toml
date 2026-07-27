@@ -169,13 +169,19 @@ set -euo pipefail
 # they run on Ubuntu 22.04+/Debian 12+, not just the build host), and link
 # `-z nodelete` so the process doesn't dlclose the static Swift runtime at
 # shutdown (which otherwise segfaults on natural exit on some glibc versions).
+# --disable-default-traits is rejected by SwiftPM on a package that declares no
+# traits, so only pass it when the manifest actually has some. Models small
+# enough to bundle declare a BundledModel trait (disabled here, since the npm
+# package ships no SwiftPM resource bundle); larger models declare none.
+TRAITS=""
+grep -q "traits:" Package.swift && TRAITS="--disable-default-traits"
 ARCH=$(uname -m); case "$ARCH" in x86_64|amd64) NARCH=x64;; arm64|aarch64) NARCH=arm64;; *) NARCH=$ARCH;; esac
 if [ "$(uname)" = "Darwin" ]; then
     # macOS: the Node native uses Core ML (against the OS-provided Swift runtime
     # and system frameworks) and loads the bundled .mlmodelc by path - so it
     # needs no LiteRT and ships no extra runtime.
     KEY="darwin-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
-    swift build -c release --product {{ vars.product }}Node --disable-default-traits -Xlinker -rpath -Xlinker @loader_path
+    swift build -c release --product {{ vars.product }}Node $TRAITS -Xlinker -rpath -Xlinker @loader_path
     cp ".build/release/lib{{ vars.product }}Node.dylib" "$dest/"
 else
     KEY="linux-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
@@ -189,7 +195,7 @@ else
         [ -n "$src" ] && ln -sf "$src" "$tmp/$(echo "$so" | sed 's/\\.so.*/.so/')" || true
     done
     LARCH=$([ "$NARCH" = "x64" ] && echo linux-x64 || echo linux-arm64)
-    DAL_INFERENCE_LITERT=1 swift build -c release --product {{ vars.product }}Node --disable-default-traits -Xswiftc -static-stdlib \\
+    DAL_INFERENCE_LITERT=1 swift build -c release --product {{ vars.product }}Node $TRAITS -Xswiftc -static-stdlib \\
         -Xlinker "-L$tmp" -Xlinker "-LVendor/litert/lib/$LARCH" -Xlinker -rpath -Xlinker '$ORIGIN' \\
         -Xlinker -z -Xlinker nodelete
     cp ".build/release/lib{{ vars.product }}Node.so" "$dest/"
