@@ -1,0 +1,147 @@
+name: Model SDK build
+
+# The shared build check for every Desert Ant model SDK, so each repo verifies it
+# compiles on every platform it ships to - not just at release time. Each SDK repo
+# has an ~8-line caller:
+#
+#   name: Build
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#   jobs:
+#     build:
+#       uses: Desert-Ant-Labs/desert-ant-core/.github/workflows/model-sdk-build.yml@vX.Y.Z
+#
+# Same shape as model-sdk-release.yml: a reusable workflow checks out the caller's
+# repo, so the definition lives here once and runs against whichever SDK called
+# it. The model id defaults to the repository name.
+#
+# This exists because the SDKs previously had no CI at all - only tag-triggered
+# releases - so a broken build was invisible until someone cut a tag. Each job
+# maps to a platform the SDK actually ships:
+#
+#   swift-apple   the Swift package on macOS (Core ML path)
+#   swift-linux   the Swift package on Linux (LiteRT path)
+#   android       the per-ABI Swift JNI natives + the AAR
+#   wasm          the WebAssembly core the browser package embeds
+#   node-native   the prebuilt server-side core (both host OSes)
+#
+# Build-only: nothing is published and no credentials are used.
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: "Model id (defaults to the repository name)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  swift-apple:
+    name: swift build (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - run: mise run build-swift
+
+  swift-linux:
+    name: swift build (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mise run build-swift
+
+  android:
+    name: android natives + AAR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+      - name: Swift toolchain system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # The snapshot toolchain (~1.2 GB) and Android SDK (~330 MB) install on
+      # demand; cache them so only the first run on a key pays for it.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            Vendor/litert
+          key: swift-android-6.4.x-2026-07-17-a-api24-litert-2.1.6
+      - run: mise run build-android
+
+  wasm:
+    name: wasm core
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+          key: swift-wasm-sdk-v1
+      - run: mise run build-web
+
+  node-native:
+    name: node native (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # One runner per host OS: the Linux and macOS code paths differ (LiteRT +
+        # static Foundation vs Core ML). Linux builds on 22.04 (glibc 2.35) to
+        # match the release floor.
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build deps (static Foundation autolinks these)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mise run node-natives

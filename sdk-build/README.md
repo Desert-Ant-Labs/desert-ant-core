@@ -48,6 +48,26 @@ is the single source of truth), `Sources/<Product>TFLiteResources/Resources`,
 and `Desert-Ant-Labs/<model>` / `ai.desertant:<model>` / `@desert-ant-labs/<model>`
 coordinates.
 
+## Building a model SDK (CI)
+
+Every SDK repo verifies it compiles on all its platforms via a second shared
+reusable workflow, so a broken build is caught on the PR rather than at release:
+
+```yaml
+# <model>/.github/workflows/build.yml
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  build:
+    uses: Desert-Ant-Labs/desert-ant-core/.github/workflows/model-sdk-build.yml@v0.5.5
+```
+
+Jobs: `swift-apple`, `swift-linux`, `android` (natives + AAR), `wasm`, and
+`node-native` on both host OSes. Build-only - no credentials, nothing published.
+
 ## Releasing a model SDK
 
 Releases are tag-driven and shared: every SDK repo calls one reusable workflow,
