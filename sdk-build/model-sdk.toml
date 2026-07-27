@@ -505,7 +505,11 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     # swiftStaticResourcesPath per triple, and SwiftPM applies the static one for
     # -static-stdlib. Overriding it by hand clobbers the sysroot association and
     # breaks the Android overlay's SwiftAndroid module.
-    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xlinker -LVendor/litert/lib/android-$arch
+    # --static-swift-stdlib (SwiftPM), not -Xswiftc -static-stdlib: the latter only
+    # tells the compiler, so SwiftPM still resolved swiftResourcesPath (the
+    # dynamic swift-<arch> dir) and the driver could not find
+    # android/static-stdlib-args.lnk, which only exists under swift_static-<arch>.
+    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" --static-swift-stdlib -Xlinker -LVendor/litert/lib/android-$arch
 
     dest="$KOTLIN/jniLibs/$abi"
     rm -rf "$dest" && mkdir -p "$dest"
