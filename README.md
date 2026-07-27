@@ -226,19 +226,35 @@ mise run set-version 0.3.2   # bumps kotlin/build.gradle.kts, js/package.json, R
 git tag v0.3.2 && git push origin v0.3.2
 ```
 
-Two workflows react to the tag, each independent, and each publishes its artifact
-only if it actually changed:
+Three workflows react to the tag, each independent, and each publishes its
+artifact only if it actually changed:
 
 - `Publish Android` (`.github/workflows/publish-android.yml`) runs
   `mise run publish-android` when the tag matches the `kotlin/build.gradle.kts`
-  version **and** `kotlin/` changed since the previous tag. Credentials: the
-  `maven-central` GitHub Environment secrets (`MAVEN_CENTRAL_USERNAME`,
-  `MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
-  `SIGNING_IN_MEMORY_KEY_PASSWORD`).
+  version **and** `kotlin/` changed since the previous tag.
 - `Publish npm` (`.github/workflows/publish-npm.yml`) runs `mise run publish-npm`
   when the tag matches the `js/package.json` version **and** `js/` changed since
-  the previous tag. Credentials: the `npm` GitHub Environment secret
-  (`NPM_TOKEN`).
+  the previous tag.
+- `Publish Gradle plugin` (`.github/workflows/publish-gradle-plugin.yml`) runs
+  `mise run publish-plugin` when the tag matches the
+  `gradle-plugin/build.gradle.kts` version **and** `gradle-plugin/` changed since
+  the previous tag.
+
+Credentials are **Desert-Ant-Labs organization secrets**, shared by every SDK
+repo so there is a single place to rotate them: `MAVEN_CENTRAL_USERNAME`,
+`MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
+`SIGNING_IN_MEMORY_KEY_PASSWORD`, and `NPM_TOKEN`. They are scoped to the
+publishing repos:
+
+```bash
+gh secret set MAVEN_CENTRAL_USERNAME --org Desert-Ant-Labs \
+    --repos desert-ant-core,shapes,emo,redact
+```
+
+The `maven-central` and `npm` environments hold **no** secrets; they are kept
+only as optional approval gates (add required reviewers to gate a release) and
+for deployment history. Do not add secrets to them - environment secrets shadow
+organization ones.
 
 A **pure version bump does not count as a change**, so a blanket `set-version`
 that touches nothing but version lines republishes nothing. An artifact that did

@@ -2,8 +2,8 @@ name: Publish npm
 
 # Publish the @desert-ant-labs/core npm package when a release tag (vX.Y.Z) is
 # pushed, but only if the package actually changed. Pure JS, no build step, so it
-# just runs `mise run publish-npm`. The token comes from the `npm` GitHub
-# Environment secret.
+# just runs `mise run publish-npm`. The token comes from the Desert-Ant-Labs
+# organization secrets.
 #
 # Release model: `mise run set-version X.Y.Z` bumps every artifact's version (so
 # they stay current), you commit and push `vX.Y.Z`, and each publish workflow
@@ -12,8 +12,15 @@ name: Publish npm
 # nothing but version lines republishes nothing. Published versions may skip
 # (an unchanged artifact keeps its last published version until it next changes).
 #
-# Environment `npm` secret (set with `gh secret set --env npm`):
+# Organization secret (set once for the whole org with
+# `gh secret set NPM_TOKEN --org Desert-Ant-Labs --repos desert-ant-core,shapes,emo,redact`),
+# so every SDK repo publishes with the same credential and there is one place to
+# rotate it:
 #   NPM_TOKEN  npm automation token with publish rights on @desert-ant-labs
+#
+# The `npm` environment below holds no secrets; it is kept only as an optional
+# approval gate and for deployment history. Never add a secret to it -
+# environment secrets shadow organization ones.
 
 on:
   push:

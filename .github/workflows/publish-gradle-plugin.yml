@@ -3,7 +3,10 @@ name: Publish Gradle plugin
 # Publish the ai.desertant model-SDK Gradle plugin to Maven Central when a
 # release tag (vX.Y.Z) is pushed, but only if it actually changed. Pure JVM (no
 # Android SDK), so it just runs `mise run publish-plugin`. Credentials come from
-# the `maven-central` GitHub Environment secrets.
+# the Desert-Ant-Labs organization secrets (MAVEN_CENTRAL_* / SIGNING_IN_MEMORY_*).
+# The `maven-central` environment below holds no secrets; it is kept only as an
+# optional approval gate. Never add a secret to it - environment secrets shadow
+# organization ones.
 #
 # Same publish-on-change model as the other artifacts: `mise run set-version`
 # bumps every version, the tag names the release, and this publishes only when
