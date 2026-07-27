@@ -116,9 +116,11 @@ jobs:
               | grep -vE '^[+-]  "version": "' || true)
             [ -n "$body" ] && echo yes || echo no
           }
-          # Sources/ is shared by both artifacts, so a pipeline change ships both.
-          AND=$(changed "Sources/" "packages/$MODEL-kotlin/")
-          NPM=$(changed "Sources/" "packages/$MODEL-node/")
+          # Sources/ and the manifest are shared by both artifacts (the manifest
+          # pins desert-ant-core, whose code is compiled into both the AAR and the
+          # Node native), so a change to either ships both.
+          AND=$(changed "Sources/" "Package.swift" "Package.resolved" "packages/$MODEL-kotlin/")
+          NPM=$(changed "Sources/" "Package.swift" "Package.resolved" "packages/$MODEL-node/")
           echo "since ${PREV}: android=$AND npm=$NPM"
           { echo "android=$([ "$AND" = yes ] && echo true || echo false)"
             echo "npm=$([ "$NPM" = yes ] && echo true || echo false)"; } >> "$GITHUB_OUTPUT"
