@@ -143,6 +143,14 @@ jobs:
           sudo docker image prune --all --force || true
           df -h /
 
+      # The swiftly-installed OSS toolchain needs these; swiftly warns about
+      # libcurl explicitly and the build fails without them.
+      - name: Swift toolchain system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+
       - name: Set up mise
         uses: jdx/mise-action@v2
         with:
@@ -218,6 +226,13 @@ jobs:
         uses: jdx/mise-action@v2
         with:
           install: false
+
+      # `litert-libs` extracts libLiteRt.so from the ai-edge-litert wheel with uv,
+      # which dev machines have but runners do not.
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build the native core
         run: mise run node-natives
