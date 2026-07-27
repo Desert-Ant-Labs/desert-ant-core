@@ -156,28 +156,17 @@ jobs:
         with:
           install: false
 
-      # `android-natives` builds against the finagolfin API-24 Swift Android SDK
-      # under a pinned OSS toolchain, which it manages with swiftly.
-      - name: Install swiftly
-        run: |
-          set -euo pipefail
-          curl -fSL -o /tmp/swiftly.tar.gz \
-            "https://download.swift.org/swiftly/linux/swiftly-$(uname -m).tar.gz"
-          mkdir -p /tmp/swiftly && tar -xzf /tmp/swiftly.tar.gz -C /tmp/swiftly
-          /tmp/swiftly/swiftly init --assume-yes --skip-install --quiet-shell-followup
-          echo "$HOME/.local/share/swiftly/bin" >> "$GITHUB_PATH"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      # The OSS toolchain (~800 MB) and the Android SDK bundle (~370 MB) install
-      # on demand; cache both so only the first release pays for them.
+      # The snapshot host toolchain (~1.2 GB) and the official Android SDK bundle
+      # (~330 MB) install on demand; cache both so only the first release pays.
       - name: Cache Swift Android toolchain + SDK
         uses: actions/cache@v4
         with:
           path: |
-            ~/.local/share/swiftly
+            ~/.cache/desert-ant/toolchains
             ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.2.0-api24-litert-2.1.6
+          key: swift-android-6.4.x-2026-07-17-a-api24-litert-2.1.6
 
       # Run the cross-compile as its own step: Gradle's Exec task swallows the
       # underlying mise stderr, which makes failures here undiagnosable.
