@@ -28,7 +28,7 @@ public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
         self.hostGlobal = hostGlobal
     }
 
-    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
+    public func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         guard let constructor = JSObject.global.Object.function else {
             throw InferenceError.runFailed("no JS Object constructor")
         }
