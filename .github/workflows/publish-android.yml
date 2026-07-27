@@ -13,10 +13,10 @@ name: Publish Android
 # nothing but version lines republishes nothing. Published versions may skip
 # (an unchanged artifact keeps its last published version until it next changes).
 #
-# Organization secrets (set once for the whole org with
-# `gh secret set <NAME> --org Desert-Ant-Labs --repos desert-ant-core,shapes,emo,redact`),
-# so every SDK repo publishes with the same credentials and there is one place
-# to rotate them:
+# Organization secrets, visibility `all` (set once for the whole org with
+# `gh secret set <NAME> --org Desert-Ant-Labs --visibility all`), so every SDK
+# repo - including new model SDKs, with no per-repo setup - publishes with the
+# same credentials and there is one place to rotate them:
 #   MAVEN_CENTRAL_USERNAME          Central portal token username
 #   MAVEN_CENTRAL_PASSWORD          Central portal token password
 #   SIGNING_IN_MEMORY_KEY           ASCII-armored GPG private key (multiline)

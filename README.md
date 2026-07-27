@@ -243,13 +243,18 @@ artifact only if it actually changed:
 Credentials are **Desert-Ant-Labs organization secrets**, shared by every SDK
 repo so there is a single place to rotate them: `MAVEN_CENTRAL_USERNAME`,
 `MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
-`SIGNING_IN_MEMORY_KEY_PASSWORD`, and `NPM_TOKEN`. They are scoped to the
-publishing repos:
+`SIGNING_IN_MEMORY_KEY_PASSWORD`, and `NPM_TOKEN`. They use visibility `all`, so
+a **new model SDK repo publishes with no secret setup at all** - it just needs
+the publish workflows:
 
 ```bash
-gh secret set MAVEN_CENTRAL_USERNAME --org Desert-Ant-Labs \
-    --repos desert-ant-core,shapes,emo,redact
+gh secret set MAVEN_CENTRAL_USERNAME --org Desert-Ant-Labs --visibility all
 ```
+
+Note that GitHub has no "public repositories only" scope (visibility is `all`,
+`private`, or `selected`), so `all` also exposes these to the org's private
+repos. Any workflow in any org repo can therefore read the publish credentials;
+they are not readable from fork pull requests. Rotate via the same command.
 
 The `maven-central` and `npm` environments hold **no** secrets; they are kept
 only as optional approval gates (add required reviewers to gate a release) and
