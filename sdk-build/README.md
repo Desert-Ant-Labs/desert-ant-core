@@ -48,6 +48,39 @@ is the single source of truth), `Sources/<Product>TFLiteResources/Resources`,
 and `Desert-Ant-Labs/<model>` / `ai.desertant:<model>` / `@desert-ant-labs/<model>`
 coordinates.
 
+## Releasing a model SDK
+
+Releases are tag-driven and shared: every SDK repo calls one reusable workflow,
+`.github/workflows/model-sdk-release.yml` in this repo, so the pipeline is
+defined once.
+
+```yaml
+# <model>/.github/workflows/release.yml  - the whole thing
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:        # dry-runs the build paths without publishing
+jobs:
+  release:
+    uses: Desert-Ant-Labs/desert-ant-core/.github/workflows/model-sdk-release.yml@v0.4.3
+    secrets: inherit
+```
+
+`mise run set-version X.Y.Z`, commit, push `vX.Y.Z`, and it publishes only what
+changed since the previous tag (a pure version bump counts as no change):
+
+| Artifact | Ships when |
+|---|---|
+| GitHub Release (the SwiftPM release) | always - the tag *is* the release |
+| `ai.desertant:<model>` + `:<model>-tflite-resources` | `Sources/` or `packages/<model>-kotlin/` changed |
+| `@desert-ant-labs/<model>` | `Sources/` or `packages/<model>-node/` changed |
+
+The npm job builds the prebuilt native core for linux-x64, linux-arm64, and
+darwin-arm64 in a matrix and gathers them into the tarball, replacing the manual
+per-platform build. Credentials are organization secrets, so a new SDK repo needs
+no secret setup - just the caller workflow above.
+
 ## Versioning
 
 The catalog rides desert-ant-core's own `vX.Y.Z` release tags: pin `includes` to
