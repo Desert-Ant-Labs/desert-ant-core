@@ -4,7 +4,7 @@ name: Publish Android
 # tag (vX.Y.Z) is pushed, but only if the artifact actually changed. The artifact
 # is pure Kotlin, so this needs no emulator and no Swift toolchain: it runs
 # `mise run publish-android`, driven by the runner's Android SDK and a mise JDK.
-# Credentials come from the `maven-central` GitHub Environment secrets.
+# Credentials come from Desert-Ant-Labs organization secrets.
 #
 # Release model: `mise run set-version X.Y.Z` bumps every artifact's version (so
 # they stay current), you commit and push `vX.Y.Z`, and each publish workflow
@@ -13,11 +13,19 @@ name: Publish Android
 # nothing but version lines republishes nothing. Published versions may skip
 # (an unchanged artifact keeps its last published version until it next changes).
 #
-# Environment `maven-central` secrets (set with `gh secret set --env maven-central`):
+# Organization secrets (set once for the whole org with
+# `gh secret set <NAME> --org Desert-Ant-Labs --repos desert-ant-core,shapes,emo,redact`),
+# so every SDK repo publishes with the same credentials and there is one place
+# to rotate them:
 #   MAVEN_CENTRAL_USERNAME          Central portal token username
 #   MAVEN_CENTRAL_PASSWORD          Central portal token password
 #   SIGNING_IN_MEMORY_KEY           ASCII-armored GPG private key (multiline)
 #   SIGNING_IN_MEMORY_KEY_PASSWORD  passphrase for that key
+#
+# The `maven-central` environment below holds no secrets; it is kept only as an
+# optional approval gate (add required reviewers to it to gate releases) and for
+# deployment history. Never add a secret to it - environment secrets shadow
+# organization ones.
 
 on:
   push:
