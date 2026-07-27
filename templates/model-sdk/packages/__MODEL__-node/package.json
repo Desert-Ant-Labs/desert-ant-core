@@ -1,0 +1,37 @@
+{
+  "name": "@desert-ant-labs/__MODEL__",
+  "version": "0.1.0",
+  "description": "__DESCRIPTION__ Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://desertant.com/models/__MODEL__/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/__MODEL__.git",
+    "directory": "packages/__MODEL__-node"
+  },
+  "keywords": ["on-device", "__MODEL__", "wasm", "litert", "isomorphic"],
+  "publishConfig": { "access": "public" },
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./index.d.ts",
+  "scripts": { "test": "node --test test/*.test.mjs" },
+  "exports": {
+    ".": { "types": "./index.d.ts", "default": "./browser.js" },
+    "./native": { "types": "./index.d.ts", "default": "./node.js" },
+    "./browser": { "types": "./index.d.ts", "default": "./browser.js" },
+    "./wasm": "./dist/__PRODUCT__Web.wasm"
+  },
+  "imports": {
+    "#platform": { "browser": "./platform-browser.js", "default": "./platform-node.js" }
+  },
+  "files": ["browser.js", "node.js", "platform-browser.js", "platform-node.js", "index.d.ts", "dist", "native", "LICENSE.md", "README.md"],
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@desert-ant-labs/core": "^__CORE_NPM_VERSION__"
+  },
+  "optionalDependencies": { "koffi": "^2.9.0" },
+  "peerDependencies": { "@litertjs/core": ">=2.1.0" },
+  "peerDependenciesMeta": { "@litertjs/core": { "optional": true } },
+  "devDependencies": { "@litertjs/core": "^2.5.2" }
+}

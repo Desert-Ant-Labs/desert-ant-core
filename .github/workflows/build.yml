@@ -48,3 +48,43 @@ jobs:
         with:
           install: false
       - run: mise run build-plugin
+
+  template:
+    name: model-SDK template generates a coherent SDK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      # A generator is a one-time copy, so unlike the catalog and the Gradle
+      # plugin its changes do not propagate to existing SDKs. This guards against
+      # the template silently drifting into something that cannot build.
+      - name: Generate a throwaway SDK
+        run: mise run new-sdk probe --description "On-device probe." --out /tmp/probe
+      - name: No unsubstituted placeholders
+        run: |
+          set -euo pipefail
+          if grep -rl '__MODEL__\|__PRODUCT__\|__CORE_\|__PLUGIN_\|__DESCRIPTION\|__HOSTGLOBAL__\|__EXPORTSGLOBAL__' /tmp/probe; then
+            echo "template left placeholders unsubstituted" >&2; exit 1
+          fi
+          echo "clean"
+      - name: Manifests and workflows are valid
+        run: |
+          set -euo pipefail
+          cd /tmp/probe
+          python3 -c "import json;json.load(open('packages/probe-node/package.json'))"
+          python3 -c "import yaml;yaml.safe_load(open('.github/workflows/build.yml'));yaml.safe_load(open('.github/workflows/release.yml'))"
+          mise trust >/dev/null && mise run check-version
+      - name: Pinned dependency versions actually exist
+        run: |
+          set -euo pipefail
+          cd /tmp/probe
+          # Match the semver itself; anchoring on $ fails because these lines
+          # end in a quote.
+          npmv=$(grep -oE '"@desert-ant-labs/core": "\^?[0-9]+\.[0-9]+\.[0-9]+"' packages/probe-node/package.json | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          plugv=$(grep -oE 'ai\.desertant\.model-sdk"\) version "[0-9]+\.[0-9]+\.[0-9]+"' packages/probe-kotlin/build.gradle.kts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          [ -n "$npmv" ] && [ -n "$plugv" ] || { echo "could not extract pinned versions" >&2; exit 1; }
+          curl -sf "https://registry.npmjs.org/@desert-ant-labs/core/$npmv" >/dev/null || { echo "npm core $npmv not published" >&2; exit 1; }
+          curl -sf "https://repo1.maven.org/maven2/ai/desertant/model-sdk-gradle-plugin/$plugv/" >/dev/null || { echo "plugin $plugv not published" >&2; exit 1; }
+          echo "npm core $npmv and plugin $plugv both resolve"

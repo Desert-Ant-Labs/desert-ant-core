@@ -48,6 +48,29 @@ is the single source of truth), `Sources/<Product>TFLiteResources/Resources`,
 and `Desert-Ant-Labs/<model>` / `ai.desertant:<model>` / `@desert-ant-labs/<model>`
 coordinates.
 
+## Creating a new model SDK
+
+```bash
+# from a desert-ant-core checkout
+mise run new-sdk emotion --description "On-device facial emotion recognition."
+```
+
+Scaffolds `../emotion` with a working skeleton: a stub pipeline that builds and
+passes CI, so you start from green and replace `Sources/<Product>/` with the real
+model. Everything else - the Swift manifest, the C ABI and JNI shims (fully
+name-derived), the wasm entry, the Kotlin and node packages, both CI workflows -
+is generated.
+
+Version pins come from the checkout you generate from, so the result is coherent:
+git-tagged pins (SwiftPM core, catalog ref, reusable workflows) use that
+checkout's version, while registry pins (the npm core, the Gradle plugin) are
+resolved to the **latest published** versions, which lag the repo whenever
+publish-on-change skipped an unchanged artifact.
+
+Unlike the catalog and the Gradle plugin, the template is a one-time copy - it
+does not propagate to existing SDKs. Core's `build.yml` generates a throwaway SDK
+on every PR to keep it from drifting.
+
 ## Building a model SDK (CI)
 
 Every SDK repo verifies it compiles on all its platforms via a second shared

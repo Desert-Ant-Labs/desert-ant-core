@@ -1,0 +1,17 @@
+name: Build
+
+# Verify this SDK compiles on every platform it ships to. The pipeline lives in
+# desert-ant-core's reusable model-sdk-build workflow, shared by every model SDK.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    uses: Desert-Ant-Labs/desert-ant-core/.github/workflows/model-sdk-build.yml@__CORE_TAG__

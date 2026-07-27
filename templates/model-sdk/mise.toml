@@ -1,0 +1,29 @@
+# Build/test/publish for __MODEL__. The shared build/publish/version logic lives
+# in desert-ant-core's model-SDK catalog (sdk-build/model-sdk.toml, pinned below);
+# this file supplies __MODEL__'s config and its model-specific test tasks.
+[tools]
+swift = "6.3.3"
+
+[vars]
+model = "__MODEL__"
+product = "__PRODUCT__"
+tflite_files = "__MODEL__.tflite __MODEL___meta.json"
+
+[env]
+DAL_GPU = ""
+
+[task_config]
+includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=__CORE_TAG__"]
+
+# Test harnesses are model-specific, so they stay local (test-swift and
+# test-android come from the catalog).
+[tasks.test]
+description = "Run every test suite (swift + web + android)"
+depends = ["test-swift", "test-web", "test-android"]
+
+[tasks.test-web]
+description = "npm test suite for packages/__MODEL__-node"
+dir = "{{ config_root }}/packages/__MODEL__-node"
+depends = ["build-web"]
+tools = { node = "22" }
+run = "npm test"

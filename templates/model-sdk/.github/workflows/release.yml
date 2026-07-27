@@ -1,0 +1,22 @@
+name: Release
+
+# Tag-driven release. The whole pipeline lives in desert-ant-core's reusable
+# workflow, shared by every model SDK, so this file only names the version.
+#
+#   mise run set-version X.Y.Z && git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# Publishes only what changed since the previous tag. A manual run dry-runs both
+# build paths without publishing anything.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    uses: Desert-Ant-Labs/desert-ant-core/.github/workflows/model-sdk-release.yml@__CORE_TAG__
+    secrets: inherit

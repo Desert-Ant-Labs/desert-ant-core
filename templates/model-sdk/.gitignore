@@ -1,0 +1,17 @@
+.build/
+.build-macos/
+.build-android/
+.swiftpm/
+.DS_Store
+*.xcodeproj
+Vendor/
+mise.local.toml
+packages/*-kotlin/build/
+packages/*-kotlin/.gradle/
+packages/*-kotlin/local.properties
+packages/*-kotlin/src/main/jniLibs/
+packages/*-kotlin/*-tflite-resources/src/main/resources/
+packages/*-node/node_modules/
+packages/*-node/dist/
+packages/*-node/native/
+packages/*-node/LICENSE.md

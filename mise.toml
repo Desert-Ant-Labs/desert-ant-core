@@ -432,3 +432,102 @@ set -euo pipefail
 ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
 echo "published: ai.desertant model-sdk Gradle plugin $(mise run check-version-plugin)"
 """
+
+# ---------------------------------------------------------------- scaffolding
+
+# Generate a new model SDK from templates/model-sdk. Every shared version the
+# generated repo pins (the catalog ref, the reusable workflows, the Gradle
+# plugin, desert-ant-core itself, @desert-ant-labs/core) is read from THIS
+# checkout, so a generated SDK is always coherent with the core release it came
+# from: `git checkout vX.Y.Z && mise run new-sdk foo` is reproducible.
+#
+#   mise run new-sdk emotion --description "On-device facial emotion recognition."
+#
+# It writes a working skeleton - a stub pipeline that builds and passes CI - so
+# you start from green and replace Sources/<Product>/ with the real model.
+[tasks.new-sdk]
+description = "Scaffold a new model SDK from templates/model-sdk"
+dir = "{{ config_root }}"
+tools = { node = "22" }
+shell = "bash -c"
+usage = '''
+arg "<model>" help="Model id, lowercase (e.g. emotion). Becomes the repo name."
+flag "--description <text>" help="One-line description for the READMEs and POMs"
+flag "--out <dir>" help="Where to write the SDK (default: ../<model>)"
+flag "--core-tag <tag>" help="Pin the shared workflows/catalog to this tag (default: this checkout's version)"
+'''
+run = """
+set -euo pipefail
+MODEL="${usage_model:?model id required}"
+echo "$MODEL" | grep -Eq '^[a-z][a-z0-9]*$' || { echo "error: model id must be lowercase alphanumeric, got '$MODEL'" >&2; exit 1; }
+PRODUCT="$(printf '%s' "${MODEL:0:1}" | tr '[:lower:]' '[:upper:]')${MODEL:1}"
+OUT="${usage_out:-../$MODEL}"
+DESC="${usage_description:-On-device $MODEL for Apple platforms, Android, and the web.}"
+# Short form for prose that already says "On-device ...".
+DESC_SHORT="$(printf '%s' "$DESC" | sed -E 's/^On-device //; s/\\.$//')"
+
+# The git-tagged pins (SwiftPM dependency, catalog ref, reusable workflows) come
+# from this checkout - a tag always exists for them. The registry pins (npm, the
+# Gradle plugin, the Android AAR) must instead be the LATEST PUBLISHED versions,
+# which lag the repo version whenever publish-on-change skipped an unchanged
+# artifact. Pinning the repo version there would generate an SDK that cannot
+# resolve its dependencies.
+CORE_VERSION=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' kotlin/build.gradle.kts)
+CORE_TAG="${usage_core_tag:-v$CORE_VERSION}"
+
+latest_maven() { curl -sf "https://repo1.maven.org/maven2/ai/desertant/$1/maven-metadata.xml" \\
+    | grep -o '<latest>[^<]*' | sed 's/<latest>//' | head -1; }
+CORE_NPM=$(curl -sf https://registry.npmjs.org/@desert-ant-labs/core \\
+    | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d)["dist-tags"].latest))' 2>/dev/null || true)
+PLUGIN_VERSION=$(latest_maven model-sdk-gradle-plugin || true)
+for pair in "CORE_NPM:@desert-ant-labs/core (npm)" "PLUGIN_VERSION:ai.desertant:model-sdk-gradle-plugin"; do
+    var=${pair%%:*}; name=${pair#*:}
+    [ -n "${!var:-}" ] || { echo "error: could not determine the published version of $name" >&2; exit 1; }
+done
+
+[ -e "$OUT" ] && { echo "error: $OUT already exists" >&2; exit 1; }
+mkdir -p "$OUT"
+cp -R templates/model-sdk/. "$OUT/"
+cp LICENSE.md "$OUT/LICENSE.md"
+
+# Rename placeholder paths. -depth walks children first, and only the basename
+# is rewritten, so a parent directory is still under its old name when its
+# contents are renamed.
+find "$OUT" -depth \\( -name '*__MODEL__*' -o -name '*__PRODUCT__*' \\) | while read -r p; do
+    d=$(dirname "$p"); b=$(basename "$p")
+    nb=$(printf '%s' "$b" | sed "s/__PRODUCT__/$PRODUCT/g; s/__MODEL__/$MODEL/g")
+    [ "$b" = "$nb" ] || mv "$p" "$d/$nb"
+done
+
+# Substitute placeholders in file contents.
+find "$OUT" -type f -print0 | xargs -0 sed -i \\
+    -e "s/__PRODUCT__/$PRODUCT/g" \\
+    -e "s/__MODEL__/$MODEL/g" \\
+    -e "s/__HOSTGLOBAL__/__${PRODUCT}Host/g" \\
+    -e "s/__EXPORTSGLOBAL__/__${PRODUCT}Exports/g" \\
+    -e "s/__CORE_TAG__/$CORE_TAG/g" \\
+    -e "s/__CORE_VERSION__/$CORE_VERSION/g" \\
+    -e "s/__PLUGIN_VERSION__/$PLUGIN_VERSION/g" \\
+    -e "s/__CORE_NPM_VERSION__/$CORE_NPM/g" \\
+    -e "s|__DESCRIPTION_SHORT__|$DESC_SHORT|g" \\
+    -e "s|__DESCRIPTION__|$DESC|g"
+
+# The Gradle wrapper is a binary; reuse this repo's rather than templating it.
+mkdir -p "$OUT/packages/$MODEL-kotlin/gradle/wrapper"
+cp kotlin/gradle/wrapper/gradle-wrapper.jar kotlin/gradle/wrapper/gradle-wrapper.properties \\
+   "$OUT/packages/$MODEL-kotlin/gradle/wrapper/"
+cp kotlin/gradlew kotlin/gradlew.bat "$OUT/packages/$MODEL-kotlin/"
+chmod +x "$OUT/packages/$MODEL-kotlin/gradlew"
+
+echo
+echo "created $OUT  ($(find "$OUT" -type f | wc -l | tr -d ' ') files)"
+echo "  model=$MODEL product=$PRODUCT"
+echo "  pinned: SwiftPM core $CORE_VERSION, catalog/workflows $CORE_TAG"
+echo "          published: gradle plugin $PLUGIN_VERSION, npm core $CORE_NPM"
+echo
+echo "next:"
+echo "  1. replace Sources/$PRODUCT/ with the real pipeline (the stub builds and passes CI)"
+echo "  2. add the model files under Sources/${PRODUCT}{CoreML,TFLite}Resources/Resources/"
+echo "  3. cd $OUT && git init && mise run build"
+echo "  4. gh repo create Desert-Ant-Labs/$MODEL --private --source=. --push"
+"""
