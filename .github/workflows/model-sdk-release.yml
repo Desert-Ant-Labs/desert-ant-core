@@ -179,6 +179,11 @@ jobs:
             Vendor/litert
           key: swift-android-6.2.0-api24-litert-2.1.6
 
+      # Run the cross-compile as its own step: Gradle's Exec task swallows the
+      # underlying mise stderr, which makes failures here undiagnosable.
+      - name: Cross-compile the Android natives
+        run: mise run android-natives
+
       - name: Build the AAR
         run: mise run build-android
 
