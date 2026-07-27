@@ -488,10 +488,18 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     # finagolfin names the static stdlib dir per-arch (swift_static-<arch>), but the
     # driver derives the runtime dir as a sibling `swift_static/`, so bridge it with
     # a per-arch symlink and point -resource-dir at it (yields a self-contained .so).
-    libdir=$(dirname "$(find "$BUNDLE" -type d -name "swift_static-$arch" 2>/dev/null | head -1)")
-    [ -n "$libdir" ] || { echo "error: swift_static-$arch not found in $BUNDLE" >&2; exit 1; }
+    resources=$(find "$BUNDLE" -type d -name "swift_static-$arch" 2>/dev/null | head -1)
+    [ -n "$resources" ] || { echo "error: swift_static-$arch not found in $BUNDLE" >&2; exit 1; }
+    libdir=$(dirname "$resources")
+    # `ln -sfn` links *inside* the target when it already exists as a real
+    # directory, which would leave the sibling pointing somewhere with no
+    # android/ subdir. Clear it first so the symlink is always the link itself.
+    [ -L "$libdir/swift_static" ] || rm -rf "$libdir/swift_static"
     ln -sfn "swift_static-$arch" "$libdir/swift_static"
-    SW swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$libdir/swift_static" -Xlinker -LVendor/litert/lib/android-$arch
+    # Point -resource-dir at the real per-arch dir (as desert-ant-core's own
+    # green Android CI does) rather than the sibling symlink, so the Android
+    # overlay + android.modulemap resolve unambiguously.
+    SW swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources" -Xlinker -LVendor/litert/lib/android-$arch
 
     dest="$KOTLIN/jniLibs/$abi"
     rm -rf "$dest" && mkdir -p "$dest"
