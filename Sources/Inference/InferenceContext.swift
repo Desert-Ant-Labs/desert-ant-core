@@ -53,7 +53,75 @@ public enum InferenceContext {
         if callGroup != nil { return try await body() }
         return try await $callGroup.withValue(InferenceCallGroup(), operation: body)
     }
+
+    /// Bind the process-global call group named `id` for `body` (created on first
+    /// use), so every run inside bills as one call. A `nil` id runs ungrouped.
+    ///
+    /// This is the reuse path for hosts whose calls cross a boundary that does
+    /// not preserve a task-local — chiefly a native C ABI invoked once per host
+    /// call (the JS/koffi SDKs): the host passes a stable id per logical
+    /// operation and releases it with `endCallGroup(_:)` (or the
+    /// `dal_call_group_end` C entry point) when done. Every SDK reuses this
+    /// registry, so none reimplements the grouping bookkeeping.
+    public static func withCallGroup<T>(
+        id: String?,
+        _ body: () async throws -> T
+    ) async rethrows -> T {
+        guard let id else { return try await body() }
+        return try await $callGroup.withValue(CallGroupRegistry.shared.group(id), operation: body)
+    }
+
+    /// Release the process-global call group named `id`. Safe to call for an
+    /// unknown id (no-op). Pairs with `withCallGroup(id:)`.
+    public static func endCallGroup(_ id: String) {
+        CallGroupRegistry.shared.end(id)
+    }
 }
+
+/// Process-global registry of call groups by id, so several host calls (each a
+/// separate C-ABI invocation) that share an id coalesce into one billed usage
+/// call. Shared by every SDK; created lazily per id, dropped by `endCallGroup`.
+#if os(WASI)
+final class CallGroupRegistry: @unchecked Sendable {
+    static let shared = CallGroupRegistry()
+    private var groups: [String: InferenceCallGroup] = [:]   // single-threaded: no lock
+
+    func group(_ id: String) -> InferenceCallGroup {
+        if let existing = groups[id] { return existing }
+        let group = InferenceCallGroup(); groups[id] = group; return group
+    }
+    func end(_ id: String) { groups[id] = nil }
+}
+#else
+final class CallGroupRegistry: @unchecked Sendable {
+    static let shared = CallGroupRegistry()
+    private var mutex = pthread_mutex_t()
+    private var groups: [String: InferenceCallGroup] = [:]
+
+    init() { pthread_mutex_init(&mutex, nil) }
+
+    func group(_ id: String) -> InferenceCallGroup {
+        pthread_mutex_lock(&mutex); defer { pthread_mutex_unlock(&mutex) }
+        if let existing = groups[id] { return existing }
+        let group = InferenceCallGroup(); groups[id] = group; return group
+    }
+    func end(_ id: String) {
+        pthread_mutex_lock(&mutex); defer { pthread_mutex_unlock(&mutex) }
+        groups[id] = nil
+    }
+}
+#endif
+
+// Generic C entry point to release a call group, exported by every SDK's native
+// core (they all link Inference). The JS/koffi hosts bind this one symbol rather
+// than each SDK shipping its own `*_group_end`. Native only (no C ABI on WASI).
+#if !os(WASI)
+@_cdecl("dal_call_group_end")
+public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
+    guard let id else { return }
+    InferenceContext.endCallGroup(String(cString: id))
+}
+#endif
 
 /// Identity for a set of inference runs that should bill as a single usage call.
 /// It records which usage clients have already been attributed within the group,
