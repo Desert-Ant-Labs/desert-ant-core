@@ -38,6 +38,9 @@ public struct ClientDeps {
     /// App identity for keyless attribution (bundle id / package name), sent as
     /// `app.id`. Distinct from `key`, which is a publishable API key.
     public var appId: String?
+    /// Identity of the SDK emitting usage (e.g. the model SDK wrapping core),
+    /// sent as `sdk`. Defaults to desert-ant-core's own identity.
+    public var sdk: SDKInfo
     public var platform: String
     /// Authoritative call count read at emit time; overrides recordCall() when set.
     public var callCount: (() -> Int)?
@@ -54,6 +57,7 @@ public struct ClientDeps {
         deviceId: String,
         key: String? = nil,
         appId: String? = nil,
+        sdk: SDKInfo = SDKInfo(),
         platform: String = defaultPlatform,
         callCount: (() -> Int)? = nil,
         context: (() -> [String: String]?)? = nil,
@@ -66,6 +70,7 @@ public struct ClientDeps {
         self.deviceId = deviceId
         self.key = key
         self.appId = appId
+        self.sdk = sdk
         self.platform = platform
         self.callCount = callCount
         self.context = context
@@ -164,6 +169,6 @@ public final class UsageClient {
     }
 
     private func makeBody(_ events: [IngestEvent]) -> IngestBody {
-        IngestBody(platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: SDKInfo(), sentAt: iso8601(epochMs: deps.now()), events: events)
+        IngestBody(platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk, sentAt: iso8601(epochMs: deps.now()), events: events)
     }
 }

@@ -1,4 +1,6 @@
-import Usage
+// Re-exported so SDKs importing `Inference` (for the session factory) also get
+// the usage wire types (`SDKInfo`, `IngestBody`, ...) without a separate import.
+@_exported import Usage
 
 /// Errors from building or running an inference session.
 public enum InferenceError: Error, Sendable {

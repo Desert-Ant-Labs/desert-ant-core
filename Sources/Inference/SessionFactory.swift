@@ -1,4 +1,5 @@
 import ModelStore
+import Usage
 
 // The platform seam for building sessions, so model SDKs never name a concrete
 // session type (and need no platform conditionals): declare the artifact per
@@ -8,16 +9,16 @@ import ModelStore
 /// `.mlmodelc` through Core ML on Apple platforms, a `.onnx` through ONNX
 /// Runtime on Android/Linux. wasm has no local file inference; use
 /// `StoredModel.inferenceSession(model:hostGlobal:)` instead.
-public func inferenceSession(modelPath: String) throws -> any InferenceSession {
+public func inferenceSession(modelPath: String, sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     // DAL_LITERT is checked before Core ML so a LiteRT-backed native build on an
     // Apple host (the Node SDK's darwin native) uses LiteRT and its .tflite,
     // while the default Apple SDK build (flag unset) falls through to Core ML.
     #if DAL_LITERT
-    return tracked(try LiteRTSession(modelPath: modelPath))
+    return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
     #elseif canImport(CoreML)
-    return tracked(try CoreMLSession(modelPath: modelPath))
+    return tracked(try CoreMLSession(modelPath: modelPath), sdk: sdk)
     #elseif canImport(COnnxRuntime)
-    return tracked(try ORTSession(modelPath: modelPath))
+    return tracked(try ORTSession(modelPath: modelPath), sdk: sdk)
     #else
     throw InferenceError.sessionUnavailable("no on-device inference runtime on this platform")
     #endif
@@ -25,11 +26,11 @@ public func inferenceSession(modelPath: String) throws -> any InferenceSession {
 
 /// This platform's inference session for in-memory model bytes (ONNX Runtime
 /// platforms; e.g. Android classpath resources).
-public func inferenceSession(modelBytes: [UInt8]) throws -> any InferenceSession {
+public func inferenceSession(modelBytes: [UInt8], sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if DAL_LITERT
-    return tracked(try LiteRTSession(modelPath: "", modelBytes: modelBytes))
+    return tracked(try LiteRTSession(modelPath: "", modelBytes: modelBytes), sdk: sdk)
     #elseif canImport(COnnxRuntime)
-    return tracked(try ORTSession(modelPath: "", modelBytes: modelBytes))
+    return tracked(try ORTSession(modelPath: "", modelBytes: modelBytes), sdk: sdk)
     #else
     throw InferenceError.sessionUnavailable("in-memory models need ONNX Runtime (Android/Linux)")
     #endif
@@ -42,8 +43,8 @@ public func inferenceSession(modelBytes: [UInt8]) throws -> any InferenceSession
 /// through `StoredModel.inferenceSession(model:hostGlobal:)`. The host must
 /// expose the `JSInferenceSession` tensor contract on `hostGlobal`. Usage is
 /// tracked like every other platform's session.
-public func inferenceSession(hostGlobal: String, method: String = "run") throws -> any InferenceSession {
-    tracked(try JSInferenceSession(hostGlobal: hostGlobal, method: method))
+public func inferenceSession(hostGlobal: String, method: String = "run", sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
+    tracked(try JSInferenceSession(hostGlobal: hostGlobal, method: method), sdk: sdk)
 }
 #endif
 
@@ -55,12 +56,12 @@ public extension StoredModel {
     /// host's session is driven through the `JSInferenceSession` tensor
     /// contract. This is the one call a model SDK makes to go from resolved
     /// files to a runnable session.
-    func inferenceSession(model: String, hostGlobal: String = "__ModelHost") async throws -> any InferenceSession {
+    func inferenceSession(model: String, hostGlobal: String = "__ModelHost", sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model, hostGlobal: hostGlobal)
-        return tracked(try JSInferenceSession(hostGlobal: hostGlobal))
+        return tracked(try JSInferenceSession(hostGlobal: hostGlobal), sdk: sdk)
         #else
-        return try Inference.inferenceSession(modelPath: path(model))  // already tracked
+        return try Inference.inferenceSession(modelPath: path(model), sdk: sdk)  // already tracked
         #endif
     }
 }

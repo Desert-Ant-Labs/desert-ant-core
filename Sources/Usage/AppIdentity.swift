@@ -74,6 +74,20 @@ public func hostProvidedDeviceId() -> String? {
 #endif
 }
 
+/// A host-provided ingest endpoint, overriding the built-in one. On WASI reads
+/// `globalThis.__dalIngestEndpoint` (string or function); elsewhere reads the
+/// `DAL_INGEST_ENDPOINT` environment variable. `nil` when unset. Intended for
+/// tests, local capture, and diagnostics — production uses the built-in default.
+public func hostProvidedIngestEndpoint() -> String? {
+#if os(WASI)
+    return jsHostString("__dalIngestEndpoint")
+#else
+    guard let raw = getenv("DAL_INGEST_ENDPOINT") else { return nil }
+    let value = String(cString: raw)
+    return value.isEmpty ? nil : value
+#endif
+}
+
 /// The application identity for the current platform. Used as the wire key.
 public func defaultAppIdentifier() -> String {
 #if os(macOS) || os(iOS) || os(tvOS) || os(visionOS) || os(watchOS)

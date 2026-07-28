@@ -10,8 +10,8 @@ import Usage
 /// Wrap a session so usage is recorded and sent automatically. Called by the
 /// session factory; the derived app identity + native storage come from
 /// `makeClient`.
-func tracked(_ session: any InferenceSession) -> any InferenceSession {
-    TrackedSession(wrapping: session)
+func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
+    TrackedSession(wrapping: session, sdk: sdk)
 }
 
 /// An `InferenceSession` that records a usage call per `run` and batches sends.
@@ -41,6 +41,7 @@ actor TrackedSession: InferenceSession {
     init(
         wrapping session: any InferenceSession,
         appId: String? = nil,
+        sdk: SDKInfo = SDKInfo(),
         storage: UsageStorage? = nil,
         windowMs: Int64 = dayMs,
         flushAfter: Double = 3,
@@ -52,7 +53,7 @@ actor TrackedSession: InferenceSession {
         self.storage = resolvedStorage
         self.debounceNanos = UInt64(max(0, flushAfter) * 1_000_000_000)
         self.makeDeviceClient = clientFactory ?? { deviceId in
-            makeClient(appId: resolvedAppId, deviceId: deviceId, windowMs: windowMs, storage: resolvedStorage)
+            makeClient(appId: resolvedAppId, sdk: sdk, deviceId: deviceId, windowMs: windowMs, storage: resolvedStorage)
         }
         // When enabled, register a force-flush hook so a caller can make this
         // session emit immediately (bypassing the debounce + re-emit window).
