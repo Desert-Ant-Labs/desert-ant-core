@@ -7,8 +7,10 @@ import JavaScriptKit
 #endif
 
 /// The shared ingest endpoint. Every SDK reports to the same place, so it is not
-/// part of the public API.
-private let ingestEndpoint = "https://platform.desertant.ai/api/v1/ingest"
+/// part of the public API. A host may override it (tests/diagnostics) via
+/// `hostProvidedIngestEndpoint()`.
+private let defaultIngestEndpoint = "https://platform.desertant.ai/api/v1/ingest"
+private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
 /// A `send` transport that POSTs the serialized body to `endpoint`.
 ///
@@ -72,6 +74,7 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 public func makeClient(
     appId: String? = nil,
     key: String? = nil,
+    sdk: SDKInfo = SDKInfo(),
     deviceId: String? = nil,
     platform: String = defaultPlatform,
     windowMs: Int64 = dayMs,
@@ -88,6 +91,7 @@ public func makeClient(
         deviceId: device,
         key: resolvedKey,
         appId: resolvedAppId,
+        sdk: sdk,
         platform: platform,
         callCount: callCount,
         context: context,

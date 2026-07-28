@@ -144,20 +144,23 @@ struct UsageClientTests {
 
 struct WireTests {
     @Test func buildBodySerializesExpectedJSON() throws {
+        // Capture the device id once: on platforms without persistent storage
+        // (e.g. WASI in-memory) each defaultStorage() call yields a fresh UUID.
+        let deviceId = defaultStorage().persistentDeviceId()
         let body = IngestBody(
             platform: "test",
             app: AppInfo(id: "co.acme.app"),
             sdk: SDKInfo(name: "desert-ant-core", version: "0.1.0"),
             sentAt: "2024-01-02T03:04:05.678Z",
-            events: [IngestEvent(deviceId: "dev-1", callCount: 3, context: ["appVersion": "1.0"])]
+            events: [IngestEvent(deviceId: deviceId, callCount: 3, context: ["appVersion": "1.0"])]
         )
         let json = try buildBody(body)
         // Object keys are sorted (deterministic, identical across platforms).
-        #expect(json == #"{"app":{"id":"co.acme.app"},"events":[{"callCount":3,"context":{"appVersion":"1.0"},"deviceId":"dev-1","name":"load"}],"platform":"test","sdk":{"name":"desert-ant-core","version":"0.1.0"},"sentAt":"2024-01-02T03:04:05.678Z"}"#)
+        #expect(json == #"{"app":{"id":"co.acme.app"},"events":[{"callCount":3,"context":{"appVersion":"1.0"},"deviceId":"\#(deviceId)","name":"load"}],"platform":"test","sdk":{"name":"desert-ant-core","version":"0.1.0"},"sentAt":"2024-01-02T03:04:05.678Z"}"#)
     }
 
     @Test func attributionAndOptionalFieldsOmittedWhenUnset() throws {
-        let body = IngestBody(platform: "test", sentAt: "2024-01-02T03:04:05.678Z", events: [IngestEvent(deviceId: "dev-1")])
+        let body = IngestBody(platform: "test", sentAt: "2024-01-02T03:04:05.678Z", events: [IngestEvent(deviceId: defaultStorage().persistentDeviceId())])
         let json = try buildBody(body)
         #expect(!json.contains("\"key\""))
         #expect(!json.contains("\"app\""))
