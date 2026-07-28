@@ -79,7 +79,12 @@ actor TrackedSession: InferenceSession {
         startIfNeeded()
         let client = clientFor(device(deviceId))
         client.start()
-        client.recordCall()
+        // Inside a call group, only the first run per device records a call, so a
+        // multi-run operation bills as one. Outside a group, every run counts.
+        // The task-local propagates into this actor method on the caller's task.
+        if InferenceContext.callGroup?.markCounted(ObjectIdentifier(client)) ?? true {
+            client.recordCall()
+        }
         let result = try await wrapped.run(inputs: inputs, outputs: outputs)
         scheduleFlush()
         return result
