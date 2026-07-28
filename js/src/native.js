@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { FfiReader } from "./ffi.js";
+import { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./callgroup.js";
 
 const require = createRequire(import.meta.url);
 
@@ -67,6 +68,10 @@ export function loadNative({ here, packageName, coreName, symbols, targets }) {
     const core = koffi.load(path.join(dir, CORE[process.platform] || CORE.linux));
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
+    // Export the generic call-group
+    // release symbol; bind it here so `withCallGroup` works without each SDK
+    // declaring it.
+    lib.dalCallGroupEnd ??= core.func(CALL_GROUP_END_SYMBOL);
     return lib;
   }
 
@@ -98,6 +103,10 @@ export function loadNative({ here, packageName, coreName, symbols, targets }) {
   // cacheRoot (defaultCacheRoot below) and a null directory, so there is no
   // JS-side model-path computation.
 
+  // Reusable call-group API: mint an id, run the body, release the native group.
+  // A logical operation wraps several `{ group }` calls to bill them as one.
+  const { withCallGroup } = makeCallGroups((id) => loadLib().dalCallGroupEnd(id));
+
   return {
     get koffi() {
       return koffiModule();
@@ -105,6 +114,7 @@ export function loadNative({ here, packageName, coreName, symbols, targets }) {
     lib: new Proxy({}, { get: (_t, prop) => loadLib()[prop] }),
     callAsync,
     decodeResult,
+    withCallGroup,
     version,
     nativeDir,
     defaultCacheRoot,
