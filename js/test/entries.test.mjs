@@ -18,6 +18,10 @@ test("browser-safe entry exports the expected surface", async () => {
     "browserWasmDir",
     "browserReadModelSource",
     "browserCacheRoot",
+    "installAudioHost",
+    "decodeWav",
+    "mixdownMono",
+    "resampleLinear",
   ]) {
     assert.equal(typeof core[name], "function", `exports ${name}`);
   }
@@ -34,6 +38,7 @@ test("node entry exports the native loader + node seam", async () => {
     "nodeCacheRoot",
     "FfiReader",
     "FfiWriter",
+    "installAudioHost",
   ]) {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }

@@ -24,6 +24,8 @@ importable for consumers that want a narrower dependency:
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
 | `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
+| `AudioIO` | decode to mono `Float` + WAV encode | AVFoundation (Apple) / WAV codec (Linux) | host MediaCodec (via `CHostBridge`) | JS `AudioContext.decodeAudioData` |
+| `AudioDSP` | STFT/ISTFT, mel, windows, framing | Accelerate BLAS/vDSP | pure Swift | pure Swift |
 | `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
 | `WasmBindings` | model-agnostic wasm export surface | empty | empty | `globalThis.__DesertAntExports` |
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
@@ -180,6 +182,51 @@ The JS side resolves it with `wasmExports(modelId)` (or gets it back from
 `browserSetup`/`nodeSetup`), so a model package supplies only its payload codecs.
 `group` and `deviceId` behave exactly as on the C ABI, so usage attribution and
 call grouping work identically on every runtime.
+
+## AudioIO and AudioDSP
+
+One decode/encode API and one DSP toolbox, so an audio model SDK (clear, uhm)
+ships no per-platform audio code. `AudioIO.decode` always returns mono `Float`
+at the sample rate you ask for, resampling and mixing down for you:
+
+```swift
+import AudioIO
+
+let samples = try await AudioIO.decode(path: file, sampleRate: 16_000)  // or decode(bytes:)
+let wav = AudioIO.encodeWAV(samples, sampleRate: 16_000)                // 16-bit PCM, portable
+```
+
+`decode` is `async` (the wasm backend awaits a JS Promise; native backends
+satisfy it synchronously) and picks the backend per platform: AVFoundation on
+Apple, the pure-Swift WAV codec on Linux, the host decoder through
+`CHostBridge`'s `host_audio_decode` on Android, and
+`AudioContext.decodeAudioData` via the `__DalAudioHost` JS global on wasm.
+Encoding a 16-bit PCM WAV is pure Swift, identical everywhere.
+
+The host decoders ship in core's own runtime artifacts, so a model SDK writes no
+audio glue: `HostBridge.audioDecode` (MediaExtractor/MediaCodec) in the
+published `ai.desertant:core` Android artifact, wired by `installHostBridge`;
+and `installAudioHost()` in the `@desert-ant-labs/core` npm package (Web Audio
+in the browser, the WAV codec under Node), which sets `__DalAudioHost`.
+
+`AudioDSP` is the shared spectral/vector toolbox a speech model runs on both
+sides of inference. Pure Swift, Accelerate-backed on Apple (STFT/mel run as BLAS
+matmuls on the vector units), so every platform gets bit-compatible results:
+
+```swift
+import AudioDSP
+
+let stft = STFT(nFFT: 400, hop: 100)          // periodic Hann, center + reflect pad
+let spec = stft.forward(samples)              // magnitude()/phase() available
+let audio = stft.inverse(spec, length: samples.count)   // windowed COLA overlap-add
+
+let (norm, gain) = VectorOps.energyNormalize(samples)   // undo with scaled(_, by: 1/gain)
+let mel = MelSpectrogram(sampleRate: 16_000, nFFT: 400, hop: 160, mels: 80).logMel(samples)
+
+// Run a fixed-size model over an arbitrary-length signal and stitch outputs:
+for (start, end) in Framing.windows(count: n, window: 30 * sr, hop: 25 * sr) { /* run */ }
+var acc = OverlapAccumulator(length: totalFrames)       // average() or normalized() (COLA)
+```
 
 ## ModelStore and model resources
 
@@ -370,10 +417,14 @@ and test it locally with `mise run test-js`.
 
 ## Android wiring
 
-On Android, `Regex`/`JSON` call `host_regex_matches` / `host_json_parse` from
-`CHostBridge`; `HostBridge`'s `installHostBridge` installs the implementations
-once via `host_set_regex_matches` / `host_set_json_parse`. See
-`Sources/CHostBridge/include/CHostBridge.h` for the contract.
+On Android, `Regex`/`JSON`/`AudioIO` call `host_regex_matches` /
+`host_json_parse` / `host_audio_decode` from `CHostBridge`; `HostBridge`'s
+`installHostBridge` installs the implementations once via
+`host_set_regex_matches` / `host_set_json_parse` / `host_set_audio_decode`,
+wired to the shared `HostBridge.kt` statics (`regexMatches` / `jsonParseTree` /
+`audioDecode`) in the published `ai.desertant:core` artifact, so a model SDK
+vendors none of them. See `Sources/CHostBridge/include/CHostBridge.h` for the
+contract.
 
 ## License
 
