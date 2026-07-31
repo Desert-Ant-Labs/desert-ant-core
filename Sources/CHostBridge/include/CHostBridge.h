@@ -85,6 +85,19 @@ typedef char *(*HostAppIdFn)(void);
 void host_set_app_id(HostAppIdFn fn);
 char *host_app_id(void);
 
+// Audio decode (Android / hosts with no in-process audio decoder): the host
+// decodes the file at `path` (or, when `path` is NULL, the `byte_count` bytes at
+// `bytes`) to mono PCM at `target_sample_rate`, mixing channels down and
+// resampling as needed. It returns a malloc'd, length-prefixed FFI buffer the
+// caller frees with host_free: a big-endian uint32 body length, then a uint32
+// sample rate, then a float32 array (uint32 count, then that many big-endian
+// floats). NULL means "not installed / decode failed".
+typedef char *(*HostAudioDecodeFn)(const char *path, const unsigned char *bytes,
+                                   int64_t byte_count, double target_sample_rate);
+void host_set_audio_decode(HostAudioDecodeFn fn);
+char *host_audio_decode(const char *path, const unsigned char *bytes,
+                        int64_t byte_count, double target_sample_rate);
+
 void host_free(char *ptr);
 
 #ifdef __cplusplus

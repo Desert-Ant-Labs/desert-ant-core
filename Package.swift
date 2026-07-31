@@ -16,6 +16,10 @@ import Foundation
 //   ModelResources  SwiftPM bundle resource loading
 //   PlatformSupport environment + synchronous FFI/async bridge + HTTP client
 //   Usage        usage turnstile: builds/sends `load` events over the HTTP client
+//   AudioIO      decode to mono Float (AVFoundation | WAV codec | host MediaCodec
+//                | JS decodeAudioData) + portable 16-bit PCM WAV encode
+//   AudioDSP     STFT/ISTFT, mel, windows, framing, vector ops (Accelerate on
+//                Apple, pure Swift elsewhere)
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
 //   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
@@ -86,6 +90,10 @@ let products: [Product] = [
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         .library(name: "Checksum", targets: ["Checksum"]),
+        // Cross-platform audio: decode/encode (AudioIO) and STFT/mel/framing
+        // DSP (AudioDSP), so audio model SDKs ship no per-platform audio code.
+        .library(name: "AudioIO", targets: ["AudioIO"]),
+        .library(name: "AudioDSP", targets: ["AudioDSP"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
         // Usage turnstile: builds/sends `load` events over PlatformSupport's HTTP client.
@@ -160,6 +168,19 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
+        // Pure-Swift DSP (STFT/ISTFT, windows, mel, framing, vector ops);
+        // Accelerate-backed on Apple via canImport, so no explicit dependency.
+        .target(name: "AudioDSP"),
+        // Audio decode/encode: AVFoundation on Apple, the host decoder via
+        // CHostBridge on Android, the JS host on wasm, the pure-Swift WAV
+        // codec on Linux/other. FFIBuffer's FFIReader parses the host buffer.
+        .target(
+            name: "AudioIO",
+            dependencies: [
+                .target(name: "FFIBuffer", condition: .when(platforms: [.android])),
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ] + jsWasi + jsEventLoop
+        ),
         .target(name: "ModelResources"),
         .target(
             name: "ModelStore",
@@ -196,6 +217,9 @@ let testTargets: [Target] = [
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
+        .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
+        .testTarget(name: "AudioIOTests", dependencies: ["AudioIO"]),
+        .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ] + liteRTTests
 
 let coreTargets: [Target] = libraryTargets + testTargets

@@ -31,6 +31,7 @@ private nonisolated(unsafe) var gHttpDownload: jmethodID?
 private nonisolated(unsafe) var gPrefsGet: jmethodID?
 private nonisolated(unsafe) var gPrefsSet: jmethodID?
 private nonisolated(unsafe) var gAppId: jmethodID?
+private nonisolated(unsafe) var gAudioDecode: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -207,6 +208,31 @@ private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<C
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
 }
 
+// Audio decode: marshal the optional path (UTF-8 bytes) and optional file
+// bytes to jbyteArrays and the target rate to a jdouble, call the host
+// decoder, and take its length-prefixed FFI buffer (u32 rate + f32 array).
+private func hostAudioDecode(_ path: UnsafePointer<CChar>?, _ bytes: UnsafePointer<UInt8>?,
+                             _ byteCount: Int64, _ sampleRate: Double) -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        let pathArr: jbyteArray? = path.map { hostMakeBytes(env, Array(String(cString: $0).utf8)) ?? nil } ?? nil
+        let dataArr: jbyteArray?
+        if let bytes, byteCount > 0 {
+            dataArr = hostMakeBytes(env, Array(UnsafeBufferPointer(start: bytes, count: Int(byteCount))))
+        } else {
+            dataArr = nil
+        }
+        defer {
+            if let pathArr { env.pointee!.pointee.DeleteLocalRef(env, pathArr) }
+            if let dataArr { env.pointee!.pointee.DeleteLocalRef(env, dataArr) }
+        }
+        let args = [jvalue(l: pathArr), jvalue(l: dataArr), jvalue(d: sampleRate)]
+        let result = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gAudioDecode, $0.baseAddress)
+        }
+        return resultBytes(env, result)
+    }
+}
+
 private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)) else { return nil }
@@ -271,6 +297,8 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gPrefsSet = env.pointee!.pointee.GetStaticMethodID(env, cls, "prefsSet", "([B[B)V")
     // Optional: the app identity used as the usage turnstile key.
     gAppId = env.pointee!.pointee.GetStaticMethodID(env, cls, "appId", "()[B")
+    // Optional: audio decode (AudioIO on Android) via MediaExtractor/MediaCodec.
+    gAudioDecode = env.pointee!.pointee.GetStaticMethodID(env, cls, "audioDecode", "([B[BD)[B")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
@@ -280,5 +308,6 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gPrefsGet != nil { host_set_prefs_get(hostPrefsGet) }
     if gPrefsSet != nil { host_set_prefs_set(hostPrefsSet) }
     if gAppId != nil { host_set_app_id(hostAppId) }
+    if gAudioDecode != nil { host_set_audio_decode(hostAudioDecode) }
 }
 #endif

@@ -9,14 +9,16 @@ import Usage
 /// `.mlmodelc` through Core ML on Apple platforms, a `.onnx` through ONNX
 /// Runtime on Android/Linux. wasm has no local file inference; use
 /// `StoredModel.inferenceSession(model:hostGlobal:)` instead.
-public func inferenceSession(modelPath: String, sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
+public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .all,
+                             sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     // DAL_LITERT is checked before Core ML so a LiteRT-backed native build on an
     // Apple host (the Node SDK's darwin native) uses LiteRT and its .tflite,
     // while the default Apple SDK build (flag unset) falls through to Core ML.
+    // `computeUnits` is a Core ML concern; the other backends ignore it.
     #if DAL_LITERT
     return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
     #elseif canImport(CoreML)
-    return tracked(try CoreMLSession(modelPath: modelPath), sdk: sdk)
+    return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
     #elseif canImport(COnnxRuntime)
     return tracked(try ORTSession(modelPath: modelPath), sdk: sdk)
     #else
@@ -56,12 +58,13 @@ public extension StoredModel {
     /// host's session is driven through the `JSInferenceSession` tensor
     /// contract. This is the one call a model SDK makes to go from resolved
     /// files to a runnable session.
-    func inferenceSession(model: String, hostGlobal: String = "__ModelHost", sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
+    func inferenceSession(model: String, hostGlobal: String = "__ModelHost",
+                          computeUnits: ComputeUnits = .all, sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model, hostGlobal: hostGlobal)
         return tracked(try JSInferenceSession(hostGlobal: hostGlobal), sdk: sdk)
         #else
-        return try Inference.inferenceSession(modelPath: path(model), sdk: sdk)  // already tracked
+        return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits, sdk: sdk)  // already tracked
         #endif
     }
 }

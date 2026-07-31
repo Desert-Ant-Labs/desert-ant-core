@@ -13,6 +13,10 @@ test("browser-safe entry exports the expected surface", async () => {
     "browserWasmDir",
     "browserReadModelSource",
     "browserCacheRoot",
+    "installAudioHost",
+    "decodeWav",
+    "mixdownMono",
+    "resampleLinear",
   ]) {
     assert.equal(typeof core[name], "function", `exports ${name}`);
   }
@@ -20,7 +24,7 @@ test("browser-safe entry exports the expected surface", async () => {
 
 test("node entry exports the native loader + node seam", async () => {
   const node = await import("../node.js");
-  for (const name of ["loadNative", "nodeSetup", "nodeWasmDir", "nodeReadModelSource", "nodeCacheRoot", "FfiReader"]) {
+  for (const name of ["loadNative", "nodeSetup", "nodeWasmDir", "nodeReadModelSource", "nodeCacheRoot", "FfiReader", "installAudioHost"]) {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }
 });
