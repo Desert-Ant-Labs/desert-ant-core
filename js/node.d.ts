@@ -1,6 +1,10 @@
 // Type declarations for the node-only entry of @desert-ant-labs/core/node.
-import { FfiReader } from "./index.js";
+import { FfiReader, AudioHost } from "./index.js";
 export { FfiReader };
+
+/** Install `globalThis.__DalAudioHost` backed by the pure-JS WAV codec (Node
+ *  has no Web Audio). Reads the file at `path` through `node:fs`. */
+export function installAudioHost(): AudioHost;
 
 export interface NativeCore {
   koffi: any;

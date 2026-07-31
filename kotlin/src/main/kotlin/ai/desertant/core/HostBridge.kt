@@ -1,9 +1,13 @@
 package ai.desertant.core
 
 import android.content.SharedPreferences
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaFormat
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.File
+import java.nio.ByteOrder
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
@@ -165,6 +169,143 @@ object HostBridge {
      * Implemented natively (desert-ant-core Inference); requires the SDK's .so loaded.
      */
     @JvmStatic external fun flushUsage()
+
+    /**
+     * Decode an audio file (any container/codec MediaCodec supports) to mono
+     * `Float` PCM at [sampleRate], the counterpart of Swift AudioIO's decode on
+     * Android. Pass the file path as [pathUtf8], or the file bytes as [data]
+     * (staged to a temp file, since MediaExtractor reads a path/fd). Returns the
+     * length-prefixed FFI buffer AudioIO expects: big-endian u32 body length,
+     * then u32 sample rate, then a float32 array (u32 count, then big-endian
+     * floats). Empty result on failure ("leave it to the caller").
+     */
+    @JvmStatic
+    fun audioDecode(pathUtf8: ByteArray?, data: ByteArray?, sampleRate: Double): ByteArray {
+        var temp: File? = null
+        return try {
+            val path = when {
+                pathUtf8 != null -> pathUtf8.toString(Charsets.UTF_8)
+                data != null -> {
+                    val f = File.createTempFile("dal-audio", ".bin")
+                    f.writeBytes(data)
+                    temp = f
+                    f.absolutePath
+                }
+                else -> return ByteArray(0)
+            }
+            val (pcm, srcRate, channels) = decodePcmMono16(path)
+            val mono = if (channels > 1) mixdownMono(pcm, channels) else pcm
+            val resampled = resampleLinear(mono, srcRate.toDouble(), sampleRate)
+            encodeAudioBuffer(sampleRate.toInt(), resampled)
+        } catch (e: Exception) {
+            ByteArray(0)
+        } finally {
+            temp?.delete()
+        }
+    }
+
+    // Decode via MediaExtractor + MediaCodec to interleaved 16-bit PCM ->
+    // Float in [-1, 1]. Synchronous (dequeue) loop; the model SDKs decode whole
+    // files, not streams.
+    private fun decodePcmMono16(path: String): Triple<FloatArray, Int, Int> {
+        val extractor = MediaExtractor()
+        extractor.setDataSource(path)
+        var track = -1
+        var format: MediaFormat? = null
+        for (i in 0 until extractor.trackCount) {
+            val f = extractor.getTrackFormat(i)
+            if (f.getString(MediaFormat.KEY_MIME)?.startsWith("audio/") == true) {
+                track = i; format = f; break
+            }
+        }
+        if (track < 0 || format == null) { extractor.release(); throw IllegalStateException("no audio track") }
+        extractor.selectTrack(track)
+        val srcRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+        val channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+        val mime = format.getString(MediaFormat.KEY_MIME)!!
+
+        val codec = MediaCodec.createDecoderByType(mime)
+        codec.configure(format, null, null, 0)
+        codec.start()
+        val info = MediaCodec.BufferInfo()
+        val out = ArrayList<Float>()
+        var sawInputEnd = false
+        var sawOutputEnd = false
+        while (!sawOutputEnd) {
+            if (!sawInputEnd) {
+                val inIndex = codec.dequeueInputBuffer(10_000)
+                if (inIndex >= 0) {
+                    val buf = codec.getInputBuffer(inIndex)!!
+                    val size = extractor.readSampleData(buf, 0)
+                    if (size < 0) {
+                        codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+                        sawInputEnd = true
+                    } else {
+                        codec.queueInputBuffer(inIndex, 0, size, extractor.sampleTime, 0)
+                        extractor.advance()
+                    }
+                }
+            }
+            val outIndex = codec.dequeueOutputBuffer(info, 10_000)
+            if (outIndex >= 0) {
+                if (info.size > 0) {
+                    val buf = codec.getOutputBuffer(outIndex)!!
+                    buf.position(info.offset)
+                    buf.limit(info.offset + info.size)
+                    val shorts = buf.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+                    while (shorts.hasRemaining()) out.add(shorts.get() / 32768f)
+                }
+                codec.releaseOutputBuffer(outIndex, false)
+                if (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) sawOutputEnd = true
+            }
+        }
+        codec.stop(); codec.release(); extractor.release()
+        return Triple(out.toFloatArray(), srcRate, channels)
+    }
+
+    private fun mixdownMono(interleaved: FloatArray, channels: Int): FloatArray {
+        val frames = interleaved.size / channels
+        val out = FloatArray(frames)
+        val inv = 1f / channels
+        for (f in 0 until frames) {
+            var acc = 0f
+            val base = f * channels
+            for (c in 0 until channels) acc += interleaved[base + c]
+            out[f] = acc * inv
+        }
+        return out
+    }
+
+    private fun resampleLinear(x: FloatArray, from: Double, to: Double): FloatArray {
+        if (from <= 0 || to <= 0 || from == to || x.size < 2) return x
+        val outCount = Math.round(x.size * (to / from)).toInt()
+        if (outCount <= 0) return FloatArray(0)
+        val out = FloatArray(outCount)
+        val step = from / to
+        for (i in 0 until outCount) {
+            val src = i * step
+            val i0 = src.toInt()
+            if (i0 >= x.size - 1) { out[i] = x[x.size - 1]; continue }
+            val frac = (src - i0).toFloat()
+            out[i] = x[i0] * (1 - frac) + x[i0 + 1] * frac
+        }
+        return out
+    }
+
+    // FFI buffer: big-endian u32 body length, then u32 sample rate, then an
+    // f32 array (u32 count + big-endian floats), matching Swift's FFIReader.
+    private fun encodeAudioBuffer(sampleRate: Int, samples: FloatArray): ByteArray {
+        val body = ByteArrayOutputStream()
+        DataOutputStream(body).use { d ->
+            d.writeInt(sampleRate)
+            d.writeInt(samples.size)
+            for (v in samples) d.writeFloat(v)
+        }
+        val tree = body.toByteArray()
+        val out = ByteArrayOutputStream()
+        DataOutputStream(out).use { it.writeInt(tree.size); it.write(tree) }
+        return out.toByteArray()
+    }
 
     @JvmStatic
     fun jsonParseTree(jsonUtf8: ByteArray): ByteArray {

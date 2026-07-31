@@ -48,6 +48,19 @@ public struct FFIWriter {
     /// Append a double as its big-endian IEEE-754 bit pattern.
     public mutating func f64(_ v: Double) { u64(v.bitPattern) }
 
+    /// Append a float as its big-endian IEEE-754 bit pattern. `truncatingIfNeeded`
+    /// keeps the 32 bits verbatim on wasm32, where `Int` is 32-bit and a plain
+    /// `Int(bitPattern)` traps for any pattern with the high bit set.
+    public mutating func f32(_ v: Float) { u32(Int(truncatingIfNeeded: v.bitPattern)) }
+
+    /// Append a uint32 element count, then that many big-endian floats. The
+    /// portable typed-array payload for audio buffers and feature vectors that
+    /// cross the C ABI (host reads it with the matching `FfiReader`).
+    public mutating func f32Array(_ values: [Float]) {
+        u32(values.count)
+        for v in values { f32(v) }
+    }
+
     /// Append a uint32 UTF-8 byte count, then the UTF-8 bytes.
     public mutating func string(_ s: String) {
         let utf8 = Array(s.utf8)
@@ -93,3 +106,76 @@ public func ffiCString(_ string: String) -> UnsafeMutablePointer<CChar>? {
 
 /// Free a buffer returned by this module.
 public func ffiFree(_ ptr: UnsafeMutablePointer<CChar>?) { free(ptr) }
+
+/// Reads a payload written by `FFIWriter` (or the host's matching writer). The
+/// mirror image of `FFIWriter`: same big-endian, length-prefixed layout, so the
+/// Swift side parses a host-produced buffer without a hand-rolled cursor.
+///
+/// Every read advances the cursor; out-of-range reads return zero/empty rather
+/// than trapping, so a truncated buffer degrades instead of crashing an app.
+public struct FFIReader {
+    private let bytes: [UInt8]
+    private var offset: Int
+
+    /// Read from a raw payload (no outer length prefix).
+    public init(_ bytes: [UInt8]) {
+        self.bytes = bytes
+        self.offset = 0
+    }
+
+    /// Read from a length-prefixed buffer as emitted by `ffiEmit` (a big-endian
+    /// uint32 length then the body), returning a reader over the body.
+    public init(lengthPrefixed buffer: [UInt8]) {
+        guard buffer.count >= 4 else { self.init([]); return }
+        var length = 0
+        for i in 0..<4 { length = (length << 8) | Int(buffer[i]) }
+        let end = min(buffer.count, 4 + length)
+        self.init(Array(buffer[4..<end]))
+    }
+
+    /// Bytes not yet consumed.
+    public var remaining: Int { bytes.count - offset }
+
+    private mutating func byte() -> UInt8 {
+        guard offset < bytes.count else { return 0 }
+        defer { offset += 1 }
+        return bytes[offset]
+    }
+
+    /// Read a big-endian uint32.
+    public mutating func u32() -> Int {
+        var v = 0
+        for _ in 0..<4 { v = (v << 8) | Int(byte()) }
+        return v
+    }
+
+    /// Read a big-endian uint64.
+    public mutating func u64() -> UInt64 {
+        var v: UInt64 = 0
+        for _ in 0..<8 { v = (v << 8) | UInt64(byte()) }
+        return v
+    }
+
+    /// Read a big-endian IEEE-754 float.
+    public mutating func f32() -> Float { Float(bitPattern: UInt32(truncatingIfNeeded: u32())) }
+
+    /// Read a big-endian IEEE-754 double.
+    public mutating func f64() -> Double { Double(bitPattern: u64()) }
+
+    /// Read a uint32 UTF-8 byte count, then that many bytes as a string.
+    public mutating func string() -> String {
+        let count = u32()
+        var scalars = [UInt8](); scalars.reserveCapacity(count)
+        for _ in 0..<count { scalars.append(byte()) }
+        return String(decoding: scalars, as: UTF8.self)
+    }
+
+    /// Read a uint32 count, then that many big-endian floats.
+    public mutating func f32Array() -> [Float] {
+        let count = u32()
+        guard count >= 0, count <= remaining / 4 else { return [] }
+        var out = [Float](); out.reserveCapacity(count)
+        for _ in 0..<count { out.append(f32()) }
+        return out
+    }
+}

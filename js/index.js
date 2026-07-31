@@ -4,6 +4,8 @@
 // helper, the browser platform seam, and the FFI reader. The node-only native
 // loader and node platform seam live in the "./node" subpath.
 export { FfiReader } from "./src/ffi.js";
+export { installAudioHost } from "./src/audio.js";
+export { decodeWav, mixdownMono, resampleLinear } from "./src/wav.js";
 export {
   loadLiteRt,
   assertBrowserRuntime,
