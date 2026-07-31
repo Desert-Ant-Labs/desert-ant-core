@@ -48,6 +48,19 @@ public struct FFIWriter {
     /// Append a double as its big-endian IEEE-754 bit pattern.
     public mutating func f64(_ v: Double) { u64(v.bitPattern) }
 
+    /// Append a float as its big-endian IEEE-754 bit pattern. `truncatingIfNeeded`
+    /// keeps the 32 bits verbatim on wasm32, where `Int` is 32-bit and a plain
+    /// `Int(bitPattern)` traps for any pattern with the high bit set.
+    public mutating func f32(_ v: Float) { u32(Int(truncatingIfNeeded: v.bitPattern)) }
+
+    /// Append a uint32 element count, then that many big-endian floats. The
+    /// portable typed-array payload for audio buffers and feature vectors that
+    /// cross the C ABI (host reads it with the matching `FfiReader`).
+    public mutating func f32Array(_ values: [Float]) {
+        u32(values.count)
+        for v in values { f32(v) }
+    }
+
     /// Append a uint32 UTF-8 byte count, then the UTF-8 bytes.
     public mutating func string(_ s: String) {
         let utf8 = Array(s.utf8)
@@ -119,10 +132,22 @@ public struct FFIReader {
         }
     }
 
+    /// Read from a length-prefixed buffer as emitted by `ffiEmit` (a big-endian
+    /// uint32 length then the body), giving a reader over the body alone. This is
+    /// the shape a host hands back from a callback (see AudioIO's HostAudioIO).
+    public init(lengthPrefixed buffer: [UInt8]) {
+        guard buffer.count >= 4 else { self.init([]); return }
+        var length = 0
+        for i in 0..<4 { length = (length << 8) | Int(buffer[i]) }
+        self.init(Array(buffer[4..<min(buffer.count, 4 + length)]))
+    }
+
     /// Whether anything was supplied at all (an empty payload means defaults).
     public var isEmpty: Bool { bytes.isEmpty }
     /// Whether every byte has been consumed.
     public var isAtEnd: Bool { offset >= bytes.count }
+    /// Bytes not yet consumed.
+    public var remaining: Int { bytes.count - offset }
 
     private mutating func take(_ n: Int) -> ArraySlice<UInt8>? {
         guard offset + n <= bytes.count else { offset = bytes.count; return nil }
@@ -144,6 +169,18 @@ public struct FFIReader {
 
     /// Read a double from its big-endian IEEE-754 bit pattern, or 0 on underflow.
     public mutating func f64() -> Double { Double(bitPattern: u64()) }
+
+    /// Read a float from its big-endian IEEE-754 bit pattern, or 0 on underflow.
+    public mutating func f32() -> Float { Float(bitPattern: UInt32(truncatingIfNeeded: u32())) }
+
+    /// Read a `u32` count followed by that many big-endian floats (audio frames
+    /// crossing the FFI boundary). A count larger than the bytes left is a
+    /// malformed buffer and yields `[]`.
+    public mutating func f32Array() -> [Float] {
+        let count = u32()
+        guard count > 0, count <= remaining / 4 else { return [] }
+        return (0..<count).map { _ in f32() }
+    }
 
     /// Read a length-prefixed UTF-8 string, or "" on underflow.
     public mutating func string() -> String {

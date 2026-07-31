@@ -60,4 +60,12 @@ static HostAppIdFn g_app_id = 0;
 void host_set_app_id(HostAppIdFn fn) { g_app_id = fn; }
 char *host_app_id(void) { return g_app_id ? g_app_id() : 0; }
 
+static HostAudioDecodeFn g_audio_decode = 0;
+
+void host_set_audio_decode(HostAudioDecodeFn fn) { g_audio_decode = fn; }
+char *host_audio_decode(const char *path, const unsigned char *bytes,
+                        int64_t byte_count, double target_sample_rate) {
+    return g_audio_decode ? g_audio_decode(path, bytes, byte_count, target_sample_rate) : 0;
+}
+
 void host_free(char *ptr) { free(ptr); }
