@@ -13,3 +13,4 @@ export {
   nodeCacheRoot,
 } from "./src/platform-node.js";
 export { FfiReader, FfiWriter } from "./src/ffi.js";
+export { installAudioHost } from "./src/audio-node.js";

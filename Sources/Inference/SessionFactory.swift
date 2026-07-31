@@ -8,9 +8,13 @@ import Usage
 /// This platform's inference session for a model artifact on disk: Core ML on
 /// Apple platforms and LiteRT on Android/Linux. wasm uses the JS-hosted factory
 /// in `StoredModel.inferenceSession(model:hostGlobal:)` instead.
-public func inferenceSession(modelPath: String, sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
+///
+/// `computeUnits` is a Core ML concern (LiteRT picks its own delegates), and the
+/// environment can still override it - see `CoreMLSession.configuration(for:)`.
+public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .all,
+                             sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if canImport(CoreML)
-    return tracked(try CoreMLSession(modelPath: modelPath), sdk: sdk)
+    return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
     #elseif canImport(CLiteRt)
     return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
     #else
@@ -48,12 +52,13 @@ public extension StoredModel {
     /// host's session is driven through the `JSInferenceSession` tensor
     /// contract. This is the one call a model SDK makes to go from resolved
     /// files to a runnable session.
-    func inferenceSession(model: String, hostGlobal: String = "__ModelHost", sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
+    func inferenceSession(model: String, hostGlobal: String = "__ModelHost",
+                          computeUnits: ComputeUnits = .all, sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model, hostGlobal: hostGlobal)
         return tracked(try JSInferenceSession(hostGlobal: hostGlobal), sdk: sdk)
         #else
-        return try Inference.inferenceSession(modelPath: path(model), sdk: sdk)  // already tracked
+        return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits, sdk: sdk)  // already tracked
         #endif
     }
 }

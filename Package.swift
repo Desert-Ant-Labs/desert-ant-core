@@ -62,6 +62,10 @@ let products: [Product] = [
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         .library(name: "ModelBinding", targets: ["ModelBinding"]),
         .library(name: "Checksum", targets: ["Checksum"]),
+        // Cross-platform audio: decode/encode (AudioIO) and STFT/mel/framing
+        // DSP (AudioDSP), so audio model SDKs ship no per-platform audio code.
+        .library(name: "AudioIO", targets: ["AudioIO"]),
+        .library(name: "AudioDSP", targets: ["AudioDSP"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "ModelCatalog", targets: ["ModelCatalog"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
@@ -184,6 +188,19 @@ let libraryTargets: [Target] = [
             dependencies: ["ModelStore", "Usage", "PlatformSupport"],
             exclude: models.map(\.name)
         ),
+        // Pure-Swift DSP (STFT/ISTFT, windows, mel, framing, vector ops);
+        // Accelerate-backed on Apple via canImport, so no explicit dependency.
+        .target(name: "AudioDSP"),
+        // Audio decode/encode: AVFoundation on Apple, the host decoder via
+        // CHostBridge on Android, the JS host on wasm, the pure-Swift WAV
+        // codec on Linux/other. FFIBuffer's FFIReader parses the host buffer.
+        .target(
+            name: "AudioIO",
+            dependencies: [
+                .target(name: "FFIBuffer", condition: .when(platforms: [.android])),
+                .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+            ] + jsWasi + jsEventLoop
+        ),
         .target(
             name: "ModelStore",
             dependencies: [
@@ -227,6 +244,9 @@ let testTargets: [Target] = [
             dependencies: ["Inference"],
             resources: [.copy("Resources/testmodel.tflite")]
         ),
+        .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
+        .testTarget(name: "AudioIOTests", dependencies: ["AudioIO"]),
+        .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ]
 
 let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
