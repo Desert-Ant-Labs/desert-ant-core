@@ -1,0 +1,17 @@
+{
+  "name": "emo-wasm-example",
+  "private": true,
+  "type": "module",
+  "description": "Node and headless-browser examples for @desert-ant-labs/emo",
+  "scripts": {
+    "node-example": "node main.mjs",
+    "browser-example": "node browser-test.mjs"
+  },
+  "dependencies": {
+    "@desert-ant-labs/emo": "^0.7.0",
+    "@litertjs/core": "^2.5.2"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

@@ -23,7 +23,7 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@v2
 
-      # `mise run test-ios` runs xcodebuild on the desert-ant-core-Package
+      # `mise run test-ios` runs xcodebuild on the DesertAnt-Package
       # scheme against an iPhone simulator.
       - name: Test
         run: mise run test-ios

@@ -1,0 +1,131 @@
+// On-device emoji suggestion for JavaScript. This is the universal entry: it
+// resolves model assets, owns the LiteRT.js session (via @desert-ant-labs/core),
+// and exposes the public typed API (an `Emo` class with an async `load`
+// factory). It runs in the browser and, via the platform seam below,
+// server-side in Node (the Client-Component SSR pass frameworks render in Node),
+// both on the same WebAssembly + @litertjs/core (LiteRT.js) pipeline:
+// XNNPACK-accelerated CPU ("wasm") by default, with optional WebGPU in the
+// browser.
+//
+// All node-only code lives behind the `#platform` import, which bundlers resolve
+// at build time by condition (browser -> platform-browser.js, otherwise
+// platform-node.js). That keeps this file free of `node:*` and of any static
+// reference to node-only chunks, so a single import builds cleanly for every
+// target of a multi-target bundler. For a prebuilt native server core (no
+// @litertjs/core, best server throughput), import `@desert-ant-labs/emo/native`.
+import { setupCore, defaultWasmDir, readModelSource, defaultCacheRoot } from "#platform";
+import { installLiteRtHost, loadLiteRt, assertBrowserRuntime } from "@desert-ant-labs/core";
+
+const PACKAGE_NAME = "@desert-ant-labs/emo";
+
+const SKIN_TONES = {
+  default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5,
+};
+
+// The wasm core instantiates at import time (top-level await); the model is
+// only wired in load(). The build-time-selected platform seam owns whatever is
+// node- or browser-specific about instantiation.
+const core = await setupCore();
+
+/**
+ * On-device emoji suggestion. Create one with `await Emo.load(...)` and reuse
+ * it, mirroring the iOS/Swift SDK.
+ *
+ * ```js
+ * const emo = await Emo.load();                 // downloads the model on first use, cached
+ * const suggestions = await emo.suggestions("Pay my bills");  // [{ emoji, confidence }, ...]
+ * ```
+ */
+export class Emo {
+  /**
+   * Load the model and return a ready suggester. By default the model is
+   * downloaded from the Hugging Face Hub at the pinned revision, verified, and
+   * cached by the runtime (Cache API / IndexedDB in the browser);
+   * @desert-ant-labs/core owns the LiteRT.js session behind the generic tensor
+   * contract (createSession + run). Pass a `modelBaseUrl` to fetch self-hosted
+   * files from your own origin (offline / no runtime CDN) instead. The repo and
+   * revision are pinned to the SDK.
+   */
+  static async load(options = {}) {
+    const resolved = options;
+    assertBrowserRuntime({ packageName: PACKAGE_NAME, litert: resolved.litert });
+    const lrt = await loadLiteRt({
+      litert: resolved.litert,
+      wasmDir: resolved.litertWasmDir,
+      defaultWasmDir,
+      packageName: PACKAGE_NAME,
+    });
+    const { loadAndCompile, Tensor } = lrt;
+    const accelerator = resolved.accelerator ?? "wasm";
+
+    // Generic tensor I/O with the WebAssembly runtime (JSInferenceSession): the
+    // emo tflite takes the n-gram/semantic int32/float32 inputs and returns a
+    // float32 `probabilities` tensor. @desert-ant-labs/core installs the host +
+    // manages tensor memory; setModel lets the modelBaseUrl branch feed the same
+    // run() closure.
+    const { setModel } = installLiteRtHost({
+      hostGlobal: "__EmoHost",
+      accelerator,
+      loadAndCompile,
+      Tensor,
+      readModelSource,
+    });
+
+    const onProgress = typeof resolved.onProgress === "function" ? resolved.onProgress : undefined;
+    if (resolved.modelBaseUrl != null) {
+      // Self-hosted files (offline / no runtime CDN): fetch the model + sidecars
+      // from the given base URL, compile the model here, and hand the metadata +
+      // tokenizer to the wasm core, no Hub download. This is the browser opt-out,
+      // e.g. an app that serves the model from its own origin.
+      const { metaJSON, tokenizerBytes, modelBytes } = await fetchModelFrom(resolved.modelBaseUrl);
+      setModel(await loadAndCompile(modelBytes, { accelerator }));
+      await core.loadBundled(metaJSON, tokenizerBytes);
+      onProgress?.(1);
+    } else {
+      // Default: the runtime downloads this platform's files from the HF Hub at
+      // the pinned tag (SHA-256 verified), fetched + cached by the JS host, and
+      // wires the session through the installed host. `directory` (node) adopts
+      // a self-hosted folder. Base for the managed nested cache (node): ~/.cache;
+      // empty (in-memory) in the browser.
+      const cacheRoot = await defaultCacheRoot();
+      await core.load(cacheRoot, resolved.directory ?? "", onProgress);
+    }
+    return new Emo();
+  }
+
+  /**
+   * Suggest emojis for a phrase, most likely first. Returns up to `limit`
+   * `{ emoji, confidence }` suggestions; empty input returns `[]`.
+   *
+   * `options.deviceId` (a string or a zero-arg function returning one)
+   * attributes usage to a specific end-user device. It is collected per call
+   * and bound to that call, so it is safe for concurrent multi-tenant hosts.
+   */
+  async suggestions(text, options = {}) {
+    const limit = options.limit ?? 3;
+    const skinTone = SKIN_TONES[options.skinTone ?? "default"] ?? 0;
+    return core.suggest(String(text ?? ""), limit, skinTone, options.deviceId);
+  }
+
+  /**
+   * Free native resources. No-op in the WebAssembly runtime; present so the same
+   * code works against the native server build (`@desert-ant-labs/emo/native`).
+   */
+  dispose() {}
+}
+
+// Fetch self-hosted model files from a base URL (the `modelBaseUrl` opt-out).
+// Accepts absolute URLs and root-relative paths (e.g. "/assets/emo/").
+async function fetchModelFrom(baseUrl) {
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  const [meta, tokenizer, model] = await Promise.all([
+    fetch(`${base}emo_meta.json`).then((r) => r.text()),
+    fetch(`${base}emo_tokenizer.bin`).then((r) => r.arrayBuffer()),
+    fetch(`${base}emo.tflite`).then((r) => r.arrayBuffer()),
+  ]);
+  return {
+    metaJSON: meta,
+    tokenizerBytes: new Uint8Array(tokenizer),
+    modelBytes: new Uint8Array(model),
+  };
+}
