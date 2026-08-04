@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { FfiReader } from "../src/ffi.js";
+import { FfiReader, FfiWriter } from "../src/ffi.js";
 
 // Build a big-endian buffer the way the Swift FFIWriter / Kotlin FfiReader do.
 function buildPayload() {
@@ -48,4 +48,52 @@ test("FfiReader.bytes returns a view and advances", () => {
   assert.deepEqual(Array.from(r.bytes(3)), [10, 20, 30]);
   assert.equal(r.offset, 3);
   assert.deepEqual(Array.from(r.bytes(2)), [40, 50]);
+});
+
+// FfiWriter is the encoder for the options payloads a model reads off Swift's
+// FFIReader, so the two must agree byte for byte.
+
+test("FfiWriter matches the reference big-endian encoding", () => {
+  const ref = buildPayload();
+  ref.u32(5);
+  ref.f64(3.5);
+  ref.str("héllo");
+  const w = new FfiWriter().u32(5).f64(3.5).str("héllo");
+  assert.deepEqual(Array.from(w.done()), Array.from(ref.done()));
+  assert.equal(w.length, ref.done().length);
+});
+
+test("FfiWriter round-trips through FfiReader", () => {
+  const bytes = new FfiWriter()
+    .u32(3)
+    .f64(0.6)
+    .str("EMAIL")
+    .strings(["GIVEN_NAME", "SURNAME"])
+    .blob(new Uint8Array([1, 2, 3]))
+    .done();
+  const r = new FfiReader(bytes);
+  assert.equal(r.u32(), 3);
+  assert.equal(r.f64(), 0.6);
+  assert.equal(r.str(), "EMAIL");
+  assert.equal(r.u32(), 2);                       // strings() writes a count first
+  assert.equal(r.str(), "GIVEN_NAME");
+  assert.equal(r.str(), "SURNAME");
+  assert.equal(r.u32(), 3);                       // blob() length prefix
+  assert.deepEqual(Array.from(r.bytes(3)), [1, 2, 3]);
+  assert.equal(r.remaining, 0);
+});
+
+test("FfiWriter encodes the two model option payloads", () => {
+  // Emo: u32 limit, u32 skinTone (Sources/ModelCatalog/Emo/Binding.swift).
+  const emo = new FfiReader(new FfiWriter().u32(5).u32(3).done());
+  assert.equal(emo.u32(), 5);
+  assert.equal(emo.u32(), 3);
+  assert.equal(emo.remaining, 0);
+
+  // Redact: f64 minimumConfidence, then u32 count + names
+  // (Sources/ModelCatalog/Redact/Binding.swift). An empty label set means all.
+  const redact = new FfiReader(new FfiWriter().f64(0.75).strings([]).done());
+  assert.equal(redact.f64(), 0.75);
+  assert.equal(redact.u32(), 0);
+  assert.equal(redact.remaining, 0);
 });

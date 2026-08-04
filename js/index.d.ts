@@ -20,6 +20,20 @@ export class FfiReader {
   readonly remaining: number;
 }
 
+/** Builds the FFIBuffer payloads the native core reads (the JS counterpart of
+ *  Swift's `FFIReader`): a model's `dal_run` options, or a file manifest for
+ *  `dal_create_from_files`. */
+export class FfiWriter {
+  u32(v: number): this;
+  f64(v: number): this;
+  str(s: string): this;
+  strings(values: Iterable<string>): this;
+  blob(bytes: Uint8Array | ArrayLike<number>): this;
+  raw(bytes: Uint8Array | ArrayLike<number>): this;
+  readonly length: number;
+  done(): Uint8Array;
+}
+
 export function loadLiteRt(options: {
   litert?: any;
   wasmDir?: string;

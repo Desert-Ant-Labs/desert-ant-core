@@ -10,6 +10,7 @@
 // folder plus one line in `Catalog.swift`; nothing shared changes.
 
 import ModelStore
+import Usage
 
 /// One model in the Desert Ant Labs catalog: what it is, where its files come
 /// from, and which of them each platform needs.
@@ -21,6 +22,11 @@ public protocol ModelDeclaration: Sendable {
     static var product: String { get }
     /// Pinned model revision the SDK is built against (a `v`-prefixed tag).
     static var revision: String { get }
+    /// The SDK's own released version, as published to npm and Maven. This is the
+    /// single source: it is what usage attributes to, and `ModelCatalogTests`
+    /// checks it against `packages/<id>-node/package.json` and
+    /// `packages/<id>-kotlin/build.gradle.kts` so the three cannot drift.
+    static var sdkVersion: String { get }
     /// One line describing what the model does.
     static var summary: String { get }
     /// Repo-relative entries each platform needs. Directory artifacts (e.g. a
@@ -35,6 +41,12 @@ public extension ModelDeclaration {
     /// Hugging Face repo id, e.g. `"desert-ant-labs/redact"`. Uniform across the
     /// catalog, so it is derived rather than declared per model.
     static var repo: String { "desert-ant-labs/\(id)" }
+
+    /// This SDK's usage identity, attached to every emitted telemetry body's
+    /// `sdk` field so usage attributes to this model rather than to the core it
+    /// is built on. Derived, so a model cannot forget to pass one (which silently
+    /// bills its inference to the default identity) or let the version go stale.
+    static var sdkInfo: SDKInfo { SDKInfo(name: product, version: sdkVersion) }
 
     /// This model's Hub declaration: repo, pinned revision, per-platform files.
     /// The single value an SDK needs to download, adopt, or verify its model.
