@@ -7,7 +7,9 @@ import DesertAnt
 
 // The model's file names, per-platform manifest, repo and pinned revision live
 // in the monorepo catalog (`ModelCatalog/Redact/Redact.swift`) as `RedactModel`,
-// so tooling and this SDK read one declaration.
+// so tooling and this SDK read one declaration. The same declaration derives the
+// SDK's usage identity (`RedactModel.sdkInfo`), which every session below is
+// built with so inference attributes to Redact rather than to the core.
 
 /// Loaded model inputs: the sidecar files plus a ready inference session. Also
 /// the entry point for the cross-language bindings and custom deployments (not
@@ -27,7 +29,7 @@ public struct ModelAssets: Sendable {
     public init(tokenizer: [UInt8], labelsJSON: String, modelBytes: [UInt8]) throws {
         self.init(
             tokenizer: tokenizer, labelsJSON: labelsJSON,
-            session: try inferenceSession(modelBytes: modelBytes))
+            session: try inferenceSession(modelBytes: modelBytes, sdk: RedactModel.sdkInfo))
     }
 
     /// Bindings entry point: load the artifact from a file path (the server-side
@@ -38,7 +40,7 @@ public struct ModelAssets: Sendable {
     public init(tokenizer: [UInt8], labelsJSON: String, modelPath: String) throws {
         self.init(
             tokenizer: tokenizer, labelsJSON: labelsJSON,
-            session: try inferenceSession(modelPath: modelPath))
+            session: try inferenceSession(modelPath: modelPath, sdk: RedactModel.sdkInfo))
     }
 
     /// Bindings entry point: build from an already-constructed session (e.g. the
@@ -56,7 +58,8 @@ public struct ModelAssets: Sendable {
         ModelAssets(
             tokenizer: try files.read(RedactModel.tokenizer),
             labelsJSON: try files.readString(RedactModel.labels),
-            session: try await files.inferenceSession(model: RedactModel.artifact, hostGlobal: "__RedactHost"))
+            session: try await files.inferenceSession(
+                model: RedactModel.artifact, hostGlobal: "__RedactHost", sdk: RedactModel.sdkInfo))
     }
 }
 
@@ -120,7 +123,7 @@ extension ModelAssets {
             return ModelAssets(
                 tokenizer: try resources.read(RedactModel.tokenizer),
                 labelsJSON: try resources.readString(RedactModel.labels),
-                session: try inferenceSession(modelPath: try resources.path(artifact)))
+                session: try inferenceSession(modelPath: try resources.path(artifact), sdk: RedactModel.sdkInfo))
         } catch {
             throw RedactError.resourceMissing
         }

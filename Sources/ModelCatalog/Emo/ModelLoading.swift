@@ -5,13 +5,9 @@
 // DesertAnt's `inferenceSession` factory.
 import DesertAnt
 
-/// This SDK's usage identity, attached to every emitted telemetry body's `sdk`
-/// field so usage attributes to Emo (not the underlying core).
-let emoSDKInfo = SDKInfo(name: "Emo", version: emoSDKVersion)
-
-/// The Emo SDK version. Keep in sync with the package version (single-sourced
-/// from packages/emo-node/package.json; see `mise run set-version`).
-let emoSDKVersion = "0.7.0"
+// The SDK's usage identity (`EmoModel.sdkInfo`) is derived from the catalog
+// declaration's `product` + `sdkVersion`, so it cannot drift from the published
+// package version or be forgotten on a session.
 
 // The model's file names, per-platform manifest, repo and pinned revision live
 // in the monorepo catalog (`ModelCatalog/Emo/Emo.swift`) as `EmoModel`, so
@@ -37,7 +33,7 @@ public struct ModelAssets: Sendable {
         self.init(
             metaJSON: metaJSON,
             tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelBytes: modelBytes, sdk: emoSDKInfo))
+            session: try inferenceSession(modelBytes: modelBytes, sdk: EmoModel.sdkInfo))
     }
 
     /// Bindings entry point: load the artifact from a file path (the Node
@@ -50,7 +46,7 @@ public struct ModelAssets: Sendable {
         self.init(
             metaJSON: metaJSON,
             tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelPath: modelPath, sdk: emoSDKInfo))
+            session: try inferenceSession(modelPath: modelPath, sdk: EmoModel.sdkInfo))
     }
 
     /// Bindings entry point: build from an already-constructed session (e.g. the
@@ -68,7 +64,7 @@ public struct ModelAssets: Sendable {
         ModelAssets(
             metaJSON: try files.readString(EmoModel.meta),
             tokenizer: try files.read(EmoModel.tokenizer),
-            session: try await files.inferenceSession(model: EmoModel.artifact, hostGlobal: "__EmoHost", sdk: emoSDKInfo))
+            session: try await files.inferenceSession(model: EmoModel.artifact, hostGlobal: "__EmoHost", sdk: EmoModel.sdkInfo))
     }
 }
 
@@ -131,7 +127,7 @@ extension ModelAssets {
             return ModelAssets(
                 metaJSON: try resources.readString(EmoModel.meta),
                 tokenizer: try resources.read(EmoModel.tokenizer),
-                session: try inferenceSession(modelPath: try resources.path(EmoModel.artifact), sdk: emoSDKInfo))
+                session: try inferenceSession(modelPath: try resources.path(EmoModel.artifact), sdk: EmoModel.sdkInfo))
         } catch {
             throw EmoError.modelNotFound
         }

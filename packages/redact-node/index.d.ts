@@ -36,6 +36,19 @@ export interface Options {
   minimumConfidence?: number;
   /** Restrict detection to these labels. Omit to detect every category. */
   labels?: Iterable<string>;
+  /**
+   * Attributes usage to a specific end-user device (multi-tenant hosts serving
+   * many users). A string, or a zero-arg function returning one, collected per
+   * call and bound to that call so it is safe under concurrency. Omit to use the
+   * default device. Native Node build only.
+   */
+  deviceId?: string | (() => string);
+  /**
+   * Bills this call as part of a shared usage call group, so a logical operation
+   * made of several redactions counts once. Get an id from
+   * {@link Redact.withCallGroup}. Native Node build only.
+   */
+  group?: string;
 }
 
 /**
@@ -104,6 +117,12 @@ export declare class Redact {
    * safe to hand to an LLM and restore afterwards via {@link Redaction.restore}.
    */
   redaction(text: string, options?: Options): Promise<Redaction>;
+  /**
+   * Run `body` with a fresh call-group id, so every `redaction({ group })` inside
+   * it bills as a single usage call. The group is released when `body` settles.
+   * Native Node build only.
+   */
+  withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
   /** Free native resources (the `@desert-ant-labs/redact/native` build). No-op in
    * the default WebAssembly build. Safe to call in both. */
   dispose(): void;

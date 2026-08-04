@@ -5,39 +5,38 @@
 // Node resolves this file, browsers resolve `browser.js`. No flags, no setup.
 //
 // The koffi harness (resolve native/<platform>-<arch>, load the LiteRT runtime
-// first, bind the C ABI, run blocking calls off the event loop) and the FFI
-// buffer decode live in @desert-ant-labs/core/node; this file supplies the C
-// ABI, the model decode, and the public API.
+// first, bind the generic `dal_*` C ABI, run blocking calls off the event loop)
+// and the FFI codecs live in @desert-ant-labs/core/node; this file supplies only
+// Emo's options/result payload schemas and the public API.
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { loadNative } from "@desert-ant-labs/core/node";
+import { loadNative, FfiWriter } from "@desert-ant-labs/core/node";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
+
+/** The catalog id, which is how the model-agnostic C ABI is asked for Emo. */
+const MODEL_ID = "emo";
 
 const SKIN_TONES = { default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5 };
 
 // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
 // this file (built by `mise run node-natives`): the self-contained Swift core
-// (libEmoNode) plus the LiteRT runtime it links (libLiteRt).
-const core = loadNative({
-  here: HERE,
-  packageName: "@desert-ant-labs/emo",
-  coreName: "EmoNode",
-  symbols: {
-    create: "void* emo_create(const char*, const char*)",
-    isDownloaded: "int emo_is_downloaded(void*)",
-    download: "int emo_download(void*)",
-    runGrouped: "void* emo_run_grouped(void*, const char*, int, int, const char*, const char*)",
-    destroy: "void emo_destroy(void*)",
-    stringFree: "void emo_string_free(void*)",
-  },
-});
+// (libDesertAntNode, one library for every model) plus the LiteRT runtime it
+// links (libLiteRt). The symbol table is the shared `dal_*` ABI, so it is the
+// loader's default and this call names no symbols.
+const core = loadNative({ here: HERE, packageName: "@desert-ant-labs/emo" });
 const { lib, callAsync, decodeResult, withCallGroup } = core;
+
+/** Encode Emo's `dal_run` options payload: `u32 limit`, `u32 skinTone`. Must
+ *  match the reader in Sources/ModelCatalog/Emo/Binding.swift. */
+function encodeOptions({ limit, skinTone }) {
+  return new FfiWriter().u32(limit).u32(skinTone).done();
+}
 
 /** Decode the FFI buffer the core returns (via `decodeResult`, positioned at the
  *  payload): a u32 count, then per suggestion a u32-length UTF-8 emoji string
- *  and an IEEE-754 double confidence. Mirrors `emo_run` in
- *  Sources/EmoAndroid/CABI.swift and the Kotlin FfiReader. */
+ *  and an IEEE-754 double confidence. Mirrors the writer in
+ *  Sources/ModelCatalog/Emo/Binding.swift and the Kotlin FfiReader. */
 function decodeSuggestions(r) {
   const count = r.u32();
   const out = [];
@@ -83,7 +82,7 @@ export class Emo {
     // `directory` adopts a consumer-provided folder for offline use.
     const cacheRoot = options.cacheRoot ?? core.defaultCacheRoot();
     const directory = options.directory ?? null;
-    const handle = lib.create(cacheRoot, directory);
+    const handle = lib.create(MODEL_ID, cacheRoot, directory);
     if (!handle) throw new Error("@desert-ant-labs/emo: failed to create suggester");
     const emo = new Emo(handle);
     // Ready the model now (download if needed) so the first suggestion is instant
@@ -118,13 +117,15 @@ export class Emo {
     const skinTone = SKIN_TONES[options.skinTone ?? "default"] ?? 0;
     const deviceId = typeof options.deviceId === "function" ? options.deviceId() : options.deviceId;
     const group = options.group != null ? String(options.group) : null;
+    const payload = encodeOptions({ limit, skinTone });
     const ptr = await callAsync(
-      lib.runGrouped, this.#handle, phrase, limit, skinTone, group, deviceId != null ? String(deviceId) : null);
+      lib.run, this.#handle, phrase, payload, payload.length, group,
+      deviceId != null ? String(deviceId) : null);
     if (!ptr) throw new Error("@desert-ant-labs/emo: suggestion failed");
     try {
       return decodeSuggestions(decodeResult(ptr));
     } finally {
-      lib.stringFree(ptr);
+      lib.bufferFree(ptr);
     }
   }
 
