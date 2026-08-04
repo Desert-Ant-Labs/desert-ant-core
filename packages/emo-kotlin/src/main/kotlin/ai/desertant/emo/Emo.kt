@@ -1,8 +1,14 @@
 package ai.desertant.emo
 
+import ai.desertant.DesertAntNative
 import ai.desertant.core.FfiReader
+import ai.desertant.core.FfiWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** The catalog id, which is how the shared native layer is asked for Emo. */
+private const val MODEL_ID = "emo"
+private val MODEL_ID_BYTES = MODEL_ID.toByteArray(Charsets.UTF_8)
 
 /** A single emoji suggestion returned by [Emo.suggestions]. */
 data class EmoSuggestion(
@@ -51,18 +57,23 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
         }
 
         private fun bundledHandleOrNull(): Long? {
-            EmoNative.ensureLoaded()
-            val meta = resourceOrNull("emo_meta.json") ?: return null
-            val tokenizer = resourceOrNull("emo_tokenizer.bin") ?: return null
-            val model = resourceOrNull("emo.tflite") ?: return null
-            val handle = EmoNative.createBundled(meta, tokenizer, model)
+            DesertAntNative.ensureLoaded()
+            // Named as in the catalog manifest (Sources/ModelCatalog/Emo/Catalog.swift),
+            // which is how the native side finds each file in the payload.
+            val files = FfiWriter().int(3)
+            for (name in listOf("emo_meta.json", "emo_tokenizer.bin", "emo.tflite")) {
+                files.string(name).blob(resourceOrNull(name) ?: return null)
+            }
+            val handle = DesertAntNative.createFromFiles(MODEL_ID_BYTES, files.done(), null)
             return handle.takeIf { it != 0L }
         }
 
         private fun createHandle(cacheRoot: String, directory: String?): Long {
-            EmoNative.ensureLoaded()
-            val handle = EmoNative.create(
-                cacheRoot.toByteArray(Charsets.UTF_8), directory?.toByteArray(Charsets.UTF_8))
+            DesertAntNative.ensureLoaded()
+            val handle = DesertAntNative.create(
+                MODEL_ID_BYTES,
+                cacheRoot.toByteArray(Charsets.UTF_8),
+                directory?.toByteArray(Charsets.UTF_8))
             if (handle == 0L) throw EmoException("failed to create Emo")
             return handle
         }
@@ -72,7 +83,7 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
     }
 
     /** Whether the model is available for this suggester with no network. */
-    fun isDownloaded(): Boolean = EmoNative.isDownloaded(handle) != 0
+    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handle) != 0
 
     /**
      * Download the model ahead of time so the first [suggestions] is instant. A
@@ -80,7 +91,7 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
      * dispatcher.
      */
     suspend fun download(): Unit = withContext(Dispatchers.IO) {
-        if (EmoNative.download(handle) != 0) throw EmoException("model download failed")
+        if (DesertAntNative.download(handle) != 0) throw EmoException("model download failed")
     }
 
     /**
@@ -92,12 +103,15 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
         text: String, limit: Int = 3, skinTone: EmojiSkinTone = EmojiSkinTone.DEFAULT,
     ): List<EmoSuggestion> = withContext(Dispatchers.Default) {
         if (text.isBlank()) return@withContext emptyList()
-        val bytes = EmoNative.run(handle, text.toByteArray(Charsets.UTF_8), limit, skinTone.nativeValue)
+        // Options payload: u32 limit, u32 skinTone. Must match the reader in
+        // Sources/ModelCatalog/Emo/Binding.swift.
+        val options = FfiWriter().int(limit).int(skinTone.nativeValue).done()
+        val bytes = DesertAntNative.run(handle, text.toByteArray(Charsets.UTF_8), options)
             ?: throw EmoException("suggestion failed")
         val r = FfiReader(bytes)
         List(r.int()) { EmoSuggestion(r.string(), r.double()) }
     }
 
     /** Release the native model. The suggester is unusable afterwards. */
-    override fun close() = EmoNative.destroy(handle)
+    override fun close() = DesertAntNative.destroy(handle)
 }

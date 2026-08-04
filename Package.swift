@@ -267,7 +267,9 @@ let libraryTargets: [Target] = [
         // The catalog's shared half: the ModelDeclaration protocol every model
         // conforms to. Each model folder beside it is its own target (see
         // modelTargets), so it is excluded here.
-        .target(name: "ModelCatalog", dependencies: ["ModelStore"], exclude: ["Emo", "Redact"]),
+        // `Usage` is here for the SDK identity each declaration derives (product +
+        // sdkVersion), so a model's telemetry cannot be misattributed or go stale.
+        .target(name: "ModelCatalog", dependencies: ["ModelStore", "Usage"], exclude: ["Emo", "Redact"]),
         .target(
             name: "ModelStore",
             dependencies: [

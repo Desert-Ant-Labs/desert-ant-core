@@ -68,8 +68,11 @@ class ModelSdkPlugin : Plugin<Project> {
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 
         // Native build (was swift-android.gradle.kts): `mise run android-natives`
-        // builds lib<Product>Android.so per ABI into src/main/jniLibs and stages
+        // builds libDesertAntAndroid.so per ABI into src/main/jniLibs and stages
         // the model into the resources module, before the Android package steps.
+        // One native library serves every model (the model is a `modelId` argument
+        // to the shared JNI surface, ai.desertant.DesertAntNative), so the .so name
+        // does not vary per SDK.
         val repoRoot = project.file("${project.rootDir}/../..")
         val buildNatives = project.tasks.register("buildSwiftNatives", Exec::class.java) { t ->
             t.group = "build"
