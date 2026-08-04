@@ -93,3 +93,84 @@ public func ffiCString(_ string: String) -> UnsafeMutablePointer<CChar>? {
 
 /// Free a buffer returned by this module.
 public func ffiFree(_ ptr: UnsafeMutablePointer<CChar>?) { free(ptr) }
+
+/// Reads a payload written by `FFIWriter`, for the other direction: arguments the
+/// host passes in. Every read is bounds-checked and returns a default on
+/// underflow, so a truncated or malformed buffer yields empty values rather than
+/// trapping - the host is untrusted foreign code.
+///
+/// This is what lets one generic C ABI serve every model: a model's options are
+/// a payload it decodes itself, instead of a per-model argument list that would
+/// need its own exported symbol.
+public struct FFIReader {
+    private let bytes: [UInt8]
+    private var offset = 0
+
+    /// Read from a payload (no outer length prefix).
+    public init(_ bytes: [UInt8]) { self.bytes = bytes }
+
+    /// Read from a host pointer/length pair. NULL or a non-positive length is an
+    /// empty payload, which every decoder must treat as "all defaults".
+    public init(_ pointer: UnsafePointer<UInt8>?, _ count: Int32) {
+        if let pointer, count > 0 {
+            self.bytes = Array(UnsafeBufferPointer(start: pointer, count: Int(count)))
+        } else {
+            self.bytes = []
+        }
+    }
+
+    /// Whether anything was supplied at all (an empty payload means defaults).
+    public var isEmpty: Bool { bytes.isEmpty }
+    /// Whether every byte has been consumed.
+    public var isAtEnd: Bool { offset >= bytes.count }
+
+    private mutating func take(_ n: Int) -> ArraySlice<UInt8>? {
+        guard offset + n <= bytes.count else { offset = bytes.count; return nil }
+        defer { offset += n }
+        return bytes[offset..<(offset + n)]
+    }
+
+    /// Read a big-endian uint32, or 0 on underflow.
+    public mutating func u32() -> Int {
+        guard let s = take(4) else { return 0 }
+        return s.reduce(0) { ($0 << 8) | Int($1) }
+    }
+
+    /// Read a big-endian uint64, or 0 on underflow.
+    public mutating func u64() -> UInt64 {
+        guard let s = take(8) else { return 0 }
+        return s.reduce(0) { ($0 << 8) | UInt64($1) }
+    }
+
+    /// Read a double from its big-endian IEEE-754 bit pattern, or 0 on underflow.
+    public mutating func f64() -> Double { Double(bitPattern: u64()) }
+
+    /// Read a length-prefixed UTF-8 string, or "" on underflow.
+    public mutating func string() -> String {
+        let count = u32()
+        guard count > 0, let s = take(count) else { return "" }
+        return String(decoding: Array(s))
+    }
+
+    /// Read a length-prefixed byte blob, or [] on underflow.
+    public mutating func blob() -> [UInt8] {
+        let count = u32()
+        guard count > 0, let s = take(count) else { return [] }
+        return Array(s)
+    }
+
+    /// Read a `u32` count followed by that many strings.
+    public mutating func strings() -> [String] {
+        let count = u32()
+        guard count > 0 else { return [] }
+        return (0..<count).map { _ in string() }
+    }
+}
+
+// Foundation-free UTF-8 decoding (this module builds on Android and wasm, where
+// Foundation is avoided), replacing invalid sequences rather than failing.
+private extension String {
+    init(decoding bytes: [UInt8]) {
+        self = String(decoding: bytes, as: UTF8.self)
+    }
+}

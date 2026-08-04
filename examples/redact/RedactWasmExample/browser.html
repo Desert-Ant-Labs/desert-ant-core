@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Browser example for packages/redact-node with local WebAssembly and LiteRT.js. -->
+<html>
+<body>
+<script type="importmap">
+  {
+    "imports": {
+      "@bjorn3/browser_wasi_shim": "/node_modules/@bjorn3/browser_wasi_shim/dist/index.js",
+      "@desert-ant-labs/redact": "/node_modules/@desert-ant-labs/redact/browser.js",
+      "@litertjs/core": "/node_modules/@litertjs/core/dist/index.js",
+      "@litertjs/wasm-utils": "/node_modules/@litertjs/wasm-utils/dist/index.js"
+    }
+  }
+</script>
+<script type="module">
+  import * as litert from "@litertjs/core";
+
+  async function run() {
+    const { Redact } = await import("@desert-ant-labs/redact");
+    // Redact downloads, verifies, and caches the model from the Hub; LiteRT.js
+    // runs inference on the .tflite (XNNPACK CPU via the "wasm" accelerator).
+    const redact = await Redact.load({
+      litert,
+      litertWasmDir: "/node_modules/@litertjs/core/wasm/",
+    });
+
+    const text = "Hi, I'm Anna Kowalska. Email me at anna.k@example.com or call +1 (555) 010-4477. " +
+      "I live at 123 Any Street, Apt 4B, Seattle, WA 98109. Card: 4539 1488 0343 6467.";
+    const start = performance.now();
+    const r = await redact.redaction(text);
+    return {
+      redactedText: r.redactedText,
+      items: r.items,
+      ms: Math.round(performance.now() - start),
+    };
+  }
+
+  run().then(r => { window.__result = r; }, e => { window.__error = String(e && e.stack || e); });
+</script>
+</body>
+</html>
