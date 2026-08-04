@@ -1,8 +1,14 @@
 package ai.desertant.redact
 
+import ai.desertant.DesertAntNative
 import ai.desertant.core.FfiReader
+import ai.desertant.core.FfiWriter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** The catalog id, which is how the shared native layer is asked for Redact. */
+private const val MODEL_ID = "redact"
+private val MODEL_ID_BYTES = MODEL_ID.toByteArray(Charsets.UTF_8)
 
 /** A single detected entity and the placeholder that stands in for it. */
 data class RedactionItem(
@@ -88,18 +94,23 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
         }
 
         private fun bundledHandleOrNull(): Long? {
-            RedactNative.ensureLoaded()
-            val tokenizer = resourceOrNull("redact_tokenizer.bin") ?: return null
-            val labels = resourceOrNull("labels.json") ?: return null
-            val model = resourceOrNull("redact.tflite") ?: return null
-            val handle = RedactNative.createBundled(tokenizer, labels, model)
+            DesertAntNative.ensureLoaded()
+            // Named as in the catalog manifest (Sources/ModelCatalog/Redact/Catalog.swift),
+            // which is how the native side finds each file in the payload.
+            val files = FfiWriter().int(3)
+            for (name in listOf("redact_tokenizer.bin", "labels.json", "redact.tflite")) {
+                files.string(name).blob(resourceOrNull(name) ?: return null)
+            }
+            val handle = DesertAntNative.createFromFiles(MODEL_ID_BYTES, files.done(), null)
             return handle.takeIf { it != 0L }
         }
 
         private fun createHandle(cacheRoot: String, directory: String?): Long {
-            RedactNative.ensureLoaded()
-            val handle = RedactNative.create(
-                cacheRoot.toByteArray(Charsets.UTF_8), directory?.toByteArray(Charsets.UTF_8))
+            DesertAntNative.ensureLoaded()
+            val handle = DesertAntNative.create(
+                MODEL_ID_BYTES,
+                cacheRoot.toByteArray(Charsets.UTF_8),
+                directory?.toByteArray(Charsets.UTF_8))
             if (handle == 0L) throw RedactException("failed to create Redact")
             return handle
         }
@@ -109,7 +120,7 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
     }
 
     /** Whether the model is available for this redactor with no network. */
-    fun isDownloaded(): Boolean = RedactNative.isDownloaded(handle) != 0
+    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handle) != 0
 
     /**
      * Download the model ahead of time so the first [redaction] is instant. A
@@ -117,7 +128,7 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
      * dispatcher.
      */
     suspend fun download(): Unit = withContext(Dispatchers.IO) {
-        if (RedactNative.download(handle) != 0) throw RedactException("model download failed")
+        if (DesertAntNative.download(handle) != 0) throw RedactException("model download failed")
     }
 
     /**
@@ -128,8 +139,14 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
      */
     suspend fun redaction(text: String, options: Options = Options()): Redaction =
         withContext(Dispatchers.Default) {
-            val bytes = RedactNative.run(
-                handle, text.toByteArray(Charsets.UTF_8), options.minimumConfidence, csv(options.labels))
+            // Options payload: f64 minimumConfidence, then an int label count and
+            // that many names (empty means every label). Must match the reader in
+            // Sources/ModelCatalog/Redact/Binding.swift.
+            val payload = FfiWriter()
+                .double(options.minimumConfidence)
+                .strings(options.labels?.toList() ?: emptyList())
+                .done()
+            val bytes = DesertAntNative.run(handle, text.toByteArray(Charsets.UTF_8), payload)
                 ?: throw RedactException("redaction failed")
             val buf = FfiReader(bytes)  // matches the native FFIWriter encoding
             val redactedText = buf.string()
@@ -151,8 +168,5 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
         }
 
     /** Release the native model. The redactor is unusable afterwards. */
-    override fun close() = RedactNative.destroy(handle)
-
-    private fun csv(labels: Set<String>?): ByteArray? =
-        labels?.joinToString(",")?.toByteArray(Charsets.UTF_8)
+    override fun close() = DesertAntNative.destroy(handle)
 }

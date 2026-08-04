@@ -222,3 +222,48 @@ class FfiReader(bytes: ByteArray) {
         return String(b, Charsets.UTF_8)
     }
 }
+
+/**
+ * Writes the payloads the native side reads with Swift's `FFIReader`: the
+ * per-model options a run takes, and the file manifest for
+ * [DesertAntNative.createFromFiles]. Same encoding as [FfiReader] reads.
+ *
+ * This is what lets one JNI surface serve every model: a model's options are a
+ * payload it decodes itself rather than a per-model argument list that would
+ * need its own native method.
+ */
+class FfiWriter {
+    private val out = ByteArrayOutputStream()
+    private val data = DataOutputStream(out)
+
+    /** Append a big-endian int. */
+    fun int(v: Int): FfiWriter = apply { data.writeInt(v) }
+
+    /** Append a big-endian IEEE-754 double. */
+    fun double(v: Double): FfiWriter = apply { data.writeDouble(v) }
+
+    /** Append a uint32 UTF-8 byte count, then the UTF-8 bytes. */
+    fun string(s: String): FfiWriter = apply {
+        val bytes = s.toByteArray(Charsets.UTF_8)
+        data.writeInt(bytes.size)
+        data.write(bytes)
+    }
+
+    /** Append an int count, then that many length-prefixed strings. */
+    fun strings(values: Collection<String>): FfiWriter = apply {
+        data.writeInt(values.size)
+        for (s in values) string(s)
+    }
+
+    /** Append an int byte count, then the raw bytes. */
+    fun blob(bytes: ByteArray): FfiWriter = apply {
+        data.writeInt(bytes.size)
+        data.write(bytes)
+    }
+
+    /** The finished payload (no outer length prefix). */
+    fun done(): ByteArray {
+        data.flush()
+        return out.toByteArray()
+    }
+}

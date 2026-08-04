@@ -3,7 +3,7 @@
 // session contract, the LiteRT loader/guards, the self-hosted-model fetch
 // helper, the browser platform seam, and the FFI reader. The node-only native
 // loader and node platform seam live in the "./node" subpath.
-export { FfiReader } from "./src/ffi.js";
+export { FfiReader, FfiWriter } from "./src/ffi.js";
 export {
   loadLiteRt,
   assertBrowserRuntime,

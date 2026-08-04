@@ -1,7 +1,12 @@
 // The shared server-side native loader for the model node packages: it resolves
 // the per-host prebuilt Swift core under native/<platform>-<arch>, loads the
 // LiteRT runtime first (so the core's DT_NEEDED resolves in-process), binds the
-// model's C ABI with koffi, and runs blocking calls on a libuv worker thread.
+// `dal_*` C ABI with koffi, and runs blocking calls on a libuv worker thread.
+//
+// There is one native core (DesertAntNode) and one set of C symbols for every
+// model: the model is a `modelId` string argument, and its options/results cross
+// as FFI payloads it encodes and decodes itself. So a model package supplies no
+// symbols and no library name here - only its codecs.
 //
 // Node-only (uses node:*, koffi). Browser code never imports this file.
 import { createRequire } from "node:module";
@@ -20,10 +25,29 @@ function koffiModule() {
   return (_koffi ??= require("koffi"));
 }
 
-// The LiteRT runtime is the same across models; the core library name is the
-// model's (e.g. "ShapesNode" -> libShapesNode.so / .dylib / ShapesNode.dll).
+// The LiteRT runtime and the Swift core are both model-agnostic: every model
+// package loads the same DesertAntNode library (libDesertAntNode.so / .dylib /
+// DesertAntNode.dll) built from the Bindings target.
 const RUNTIME = { linux: "libLiteRt.so", darwin: "libLiteRt.dylib", win32: "LiteRt.dll" };
 const coreFile = (name) => ({ linux: `lib${name}.so`, darwin: `lib${name}.dylib`, win32: `${name}.dll` });
+
+/** The default native core: one library for the whole SDK. */
+export const DEFAULT_CORE_NAME = "DesertAntNode";
+
+/**
+ * The generic C ABI every model goes through (Sources/Bindings/CABI.swift).
+ * `modelId` selects the model, options in and results out are FFI payloads whose
+ * schema belongs to the model, so adding a model adds no symbol here.
+ */
+export const DAL_SYMBOLS = {
+  create: "void* dal_create(const char*, const char*, const char*)",
+  createFromFiles: "void* dal_create_from_files(const char*, const uint8_t*, int, const char*)",
+  isDownloaded: "int dal_is_downloaded(void*)",
+  download: "int dal_download(void*)",
+  run: "void* dal_run(void*, const char*, const uint8_t*, int, const char*, const char*)",
+  destroy: "void dal_destroy(void*)",
+  bufferFree: "void dal_buffer_free(void*)",
+};
 
 /**
  * Load and bind the prebuilt native core for this host.
@@ -31,15 +55,21 @@ const coreFile = (name) => ({ linux: `lib${name}.so`, darwin: `lib${name}.dylib`
  * @param {object} o
  * @param {string} o.here directory of the model's node.js (import.meta dir)
  * @param {string} o.packageName consumer package (for error messages)
- * @param {string} o.coreName C core base name, e.g. "ShapesNode"
- * @param {Record<string,string>} o.symbols koffi prototypes keyed by a friendly
- *   name, e.g. { create: "void* shapes_create(const char*, const char*)", ... }
+ * @param {string} [o.coreName] C core base name; defaults to "DesertAntNode"
+ * @param {Record<string,string>} [o.symbols] koffi prototypes keyed by a friendly
+ *   name; defaults to the generic `dal_*` ABI ({@link DAL_SYMBOLS})
  * @param {string[]} [o.targets] supported target keys for the error hint
  * @returns {{ lib: Record<string,any>, koffi: any, callAsync: Function,
  *   decodeResult: (ptr:any)=>FfiReader, version: string,
  *   nativeDir: ()=>string, defaultCacheRoot: ()=>string }}
  */
-export function loadNative({ here, packageName, coreName, symbols, targets }) {
+export function loadNative({
+  here,
+  packageName,
+  coreName = DEFAULT_CORE_NAME,
+  symbols = DAL_SYMBOLS,
+  targets,
+}) {
   const version = JSON.parse(fs.readFileSync(path.join(here, "package.json"), "utf8")).version;
   const supported = (targets ?? ["linux-x64", "linux-arm64", "darwin-arm64"]).join(", ");
 

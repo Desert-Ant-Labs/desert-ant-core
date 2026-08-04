@@ -1,6 +1,6 @@
 // Type declarations for the node-only entry of @desert-ant-labs/core/node.
-import { FfiReader } from "./index.js";
-export { FfiReader };
+import { FfiReader, FfiWriter } from "./index.js";
+export { FfiReader, FfiWriter };
 
 export interface NativeCore {
   koffi: any;
@@ -20,11 +20,18 @@ export interface NativeCore {
   defaultCacheRoot: () => string;
 }
 
+/** The one native core every model package loads: "DesertAntNode". */
+export const DEFAULT_CORE_NAME: string;
+
+/** The generic `dal_*` C ABI (Sources/Bindings/CABI.swift), keyed by friendly
+ *  name. The model is a `modelId` argument, so this is the same for every SDK. */
+export const DAL_SYMBOLS: Record<string, string>;
+
 export function loadNative(options: {
   here: string;
   packageName: string;
-  coreName: string;
-  symbols: Record<string, string>;
+  coreName?: string;
+  symbols?: Record<string, string>;
   targets?: string[];
 }): NativeCore;
 
