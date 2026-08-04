@@ -24,7 +24,7 @@
 # them. It cross-compiles the JNI harness (Sources/CoreAndroidTests) into
 # androidtest/'s jniLibs and runs `connectedAndroidTest`, which installs the host
 # bridge and asserts the host-backed paths work. Needs ANDROID_HOME + a device/
-# emulator + `gradle`. The pure Swift logic is still covered on macOS/iOS/WASI.
+# emulator (Gradle comes from the repo's root wrapper). The pure Swift logic is still covered on macOS/iOS/WASI.
 #
 # Toolchains differ per task on purpose. test-macos/test-ios use the full Xcode
 # toolchain (Apple frameworks, Core ML), so they take no mise `swift`. Only
@@ -69,7 +69,7 @@ set -euo pipefail
 DEVICE=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?( Max)?' | tail -1)
 echo "Using simulator: ${DEVICE:?no iPhone simulator available}"
 xcodebuild test \\
-    -scheme desert-ant-core-Package \\
+    -scheme DesertAnt-Package \\
     -destination "platform=iOS Simulator,name=$DEVICE" \\
     -skipMacroValidation
 """
@@ -137,7 +137,8 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
 done
 
 # Run the instrumented test on a connected device/emulator. Requires ANDROID_HOME
-# (Android SDK), a device or booted emulator, and `gradle` on PATH.
+# (Android SDK) and a device or booted emulator; Gradle comes from the repo's
+# root wrapper.
 ADB="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/platform-tools/adb"
 [ -x "$ADB" ] || ADB=adb
 if ! "$ADB" devices 2>/dev/null | sed 1d | grep -qw device; then
@@ -145,7 +146,7 @@ if ! "$ADB" devices 2>/dev/null | sed 1d | grep -qw device; then
     echo "       or 'emulator -avd <name>'); CI provisions one with android-emulator-runner." >&2
     exit 1
 fi
-( cd androidtest && gradle --no-daemon connectedAndroidTest )
+./gradlew --no-daemon -p androidtest connectedAndroidTest
 """
 
 [tasks.test-wasi]
@@ -268,16 +269,19 @@ echo "sdk.dir=$SDK" > kotlin/local.properties
 echo "Android SDK ready: $SDK"
 """
 
+# One Gradle wrapper lives at the repo root and every build runs it with
+# `-p <project>`, so kotlin/, gradle-plugin/, androidtest/, packages/*-kotlin and
+# the examples share a single pinned Gradle version instead of a copy each.
 [tasks.build-android]
 description = "Assemble the ai.desertant:core release AAR (kotlin/)"
-dir = "{{ config_root }}/kotlin"
+dir = "{{ config_root }}"
 depends = ["android-sdk"]
 tools = { java = "temurin-21" }
-run = "./gradlew assembleRelease"
+run = "./gradlew -p kotlin assembleRelease"
 
 [tasks.publish-android]
 description = "Publish ai.desertant:core to Maven Central"
-dir = "{{ config_root }}/kotlin"
+dir = "{{ config_root }}"
 depends = ["android-sdk", "check-version"]
 tools = { java = "temurin-21" }
 shell = "bash -c"
@@ -289,16 +293,16 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
-./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+./gradlew -p kotlin publishAndReleaseToMavenCentral --no-configuration-cache
 echo "published: ai.desertant:core:$(mise run check-version)"
 """
 
 [tasks.publish-android-local]
 description = "Publish ai.desertant:core to the local Maven repo (~/.m2; keyless, for testing consumers)"
-dir = "{{ config_root }}/kotlin"
+dir = "{{ config_root }}"
 depends = ["android-sdk"]
 tools = { java = "temurin-21" }
-run = "./gradlew publishToMavenLocal"
+run = "./gradlew -p kotlin publishToMavenLocal"
 
 # Print the single-sourced artifact version (from kotlin/build.gradle.kts).
 [tasks.check-version]
@@ -394,15 +398,15 @@ echo "published: @desert-ant-labs/core@$(mise run check-version-npm)"
 
 [tasks.build-plugin]
 description = "Build the ai.desertant model-SDK Gradle plugin (gradle-plugin/)"
-dir = "{{ config_root }}/gradle-plugin"
+dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew build"
+run = "./gradlew -p gradle-plugin build"
 
 [tasks.publish-plugin-local]
 description = "Publish the Gradle plugin to the local Maven repo (~/.m2; keyless, for testing consumers)"
-dir = "{{ config_root }}/gradle-plugin"
+dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew publishToMavenLocal"
+run = "./gradlew -p gradle-plugin publishToMavenLocal"
 
 # Print the single-sourced plugin version (from gradle-plugin/build.gradle.kts).
 [tasks.check-version-plugin]
@@ -418,7 +422,7 @@ echo "$v"
 
 [tasks.publish-plugin]
 description = "Publish the model-SDK Gradle plugin to Maven Central"
-dir = "{{ config_root }}/gradle-plugin"
+dir = "{{ config_root }}"
 depends = ["check-version-plugin"]
 tools = { java = "temurin-21" }
 shell = "bash -c"
@@ -429,6 +433,6 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
-./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+./gradlew -p gradle-plugin publishAndReleaseToMavenCentral --no-configuration-cache
 echo "published: ai.desertant model-sdk Gradle plugin $(mise run check-version-plugin)"
 """

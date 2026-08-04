@@ -24,7 +24,7 @@ name: Model SDK release
 # previous tag - a pure version bump does not count. Published versions may skip.
 #
 #   SwiftPM  the tag itself is the release, so a GitHub Release is always created
-#   Android  ai.desertant:<model> (+ :<model>-tflite-resources) -> Maven Central
+#   Android  ai.desertant:<model> -> Maven Central
 #   npm      @desert-ant-labs/<model> -> npm, with prebuilt natives for
 #            linux-x64, linux-arm64, and darwin-arm64 built in a matrix
 #
@@ -319,7 +319,6 @@ jobs:
             echo "- SwiftPM: \`.package(url: \"https://github.com/${GITHUB_REPOSITORY}.git\", from: \"${VER}\")\`"
             if [ "$AND" = true ]; then
               echo "- Android: \`ai.desertant:${MODEL}:${VER}\` (Maven Central)"
-              echo "- Android bundled model resources: \`ai.desertant:${MODEL}-tflite-resources:${VER}\`"
             fi
             [ "$NPM" = true ] && echo "- npm: \`@desert-ant-labs/${MODEL}@${VER}\`"
             if [ "$AND" != true ] && [ "$NPM" != true ]; then

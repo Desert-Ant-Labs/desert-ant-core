@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- Browser example for packages/emo-node with local WebAssembly and LiteRT.js. -->
+<html>
+<body>
+<script type="importmap">
+  {
+    "imports": {
+      "@bjorn3/browser_wasi_shim": "/packages/emo-node/node_modules/@bjorn3/browser_wasi_shim/dist/index.js",
+      "@desert-ant-labs/emo": "/packages/emo-node/browser.js",
+      "#platform": "/packages/emo-node/platform-browser.js",
+      "@desert-ant-labs/core": "/packages/emo-node/node_modules/@desert-ant-labs/core/index.js",
+      "@litertjs/core": "/packages/emo-node/node_modules/@litertjs/core/dist/index.js",
+      "@litertjs/wasm-utils": "/packages/emo-node/node_modules/@litertjs/wasm-utils/dist/index.js"
+    }
+  }
+</script>
+<script>
+  // Enable DAL HTTP request logging (must run before modules load).
+  globalThis.__dalHttpDebug = true;
+  globalThis.__dalAppId = "ai.desertant.wasm.browser";
+</script>
+<script type="module">
+  import * as litert from "@litertjs/core";
+
+  // A self-provided, stable per-device id. Multi-tenant WebAssembly hosts pass
+  // their own device id per call; the core binds it into the InferenceContext
+  // for that call, so usage is attributed to this device (safe under
+  // concurrency). Here we persist one in localStorage across reloads.
+  function selfProvidedDeviceId() {
+    let id = localStorage.getItem("emoDeviceId");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("emoDeviceId", id);
+    }
+    return id;
+  }
+
+  async function run() {
+    const { Emo } = await import("@desert-ant-labs/emo");
+    // Emo downloads, verifies, and caches the model from the Hub; LiteRT.js
+    // runs inference on the .tflite (XNNPACK CPU via the "wasm" accelerator).
+    const emo = await Emo.load({
+      litert,
+      litertWasmDir: "/packages/emo-node/node_modules/@litertjs/core/wasm/",
+    });
+
+    const start = performance.now();
+    const suggestions = await emo.suggestions("Pay my bills", {
+      limit: 3,
+      deviceId: selfProvidedDeviceId,
+    });
+    // Force the usage telemetry POST out now and await it before continuing.
+    if (globalThis.__EmoExports?.flushTelemetry) {
+      await globalThis.__EmoExports.flushTelemetry();
+    }
+    return { suggestions, ms: Math.round(performance.now() - start) };
+  }
+
+  run().then(r => { window.__result = r; }, e => { window.__error = String(e && e.stack || e); });
+</script>
+</body>
+</html>

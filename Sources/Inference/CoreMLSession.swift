@@ -1,6 +1,7 @@
 #if canImport(CoreML)
 import CoreML
 import Foundation
+import PlatformSupport
 
 /// Core ML inference backend (Apple platforms): a compiled `.mlmodelc` behind
 /// the shared ``InferenceSession`` API.
@@ -19,13 +20,26 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
         model = try MLModel(contentsOf: URL(fileURLWithPath: modelPath), configuration: configuration)
     }
 
+    /// Every compute unit on device, except where that is not trustworthy or not
+    /// available: the simulator has no Neural Engine, and neither does a
+    /// virtualized macOS host (CI runners), where `.all` can silently yield
+    /// useless outputs rather than failing. `DAL_COREML_COMPUTE_UNITS` overrides
+    /// the choice - `cpu`, `cpuAndGPU`, `cpuAndNeuralEngine`, or `all` - which is
+    /// how a CI job pins itself to a configuration that is reproducible there.
     static func defaultConfiguration() -> MLModelConfiguration {
         let configuration = MLModelConfiguration()
-        #if targetEnvironment(simulator)
-        configuration.computeUnits = .cpuOnly
-        #else
-        configuration.computeUnits = .all
-        #endif
+        switch environmentVariable("DAL_COREML_COMPUTE_UNITS") {
+        case "cpu", "cpuOnly": configuration.computeUnits = .cpuOnly
+        case "cpuAndGPU": configuration.computeUnits = .cpuAndGPU
+        case "cpuAndNeuralEngine": configuration.computeUnits = .cpuAndNeuralEngine
+        case "all": configuration.computeUnits = .all
+        default:
+            #if targetEnvironment(simulator)
+            configuration.computeUnits = .cpuOnly
+            #else
+            configuration.computeUnits = .all
+            #endif
+        }
         return configuration
     }
 
