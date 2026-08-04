@@ -31,7 +31,7 @@ Copy the checkboxes into a release issue. Fill in
 | Training (**private**) | `Desert-Ant-Labs/<model>-training` |
 | SDK repo | `github.com/Desert-Ant-Labs/<model>` |
 | npm | `@desert-ant-labs/<model>` |
-| Maven | `ai.desertant:<model>` (+ `:<model>-tflite-resources` if offline bundling) |
+| Maven | `ai.desertant:<model>` |
 | HF model | `huggingface.co/desert-ant-labs/<model>` |
 | HF demo | `huggingface.co/spaces/desert-ant-labs/<model>-demo` |
 | Website | `desertant.com/models/<model>/` |

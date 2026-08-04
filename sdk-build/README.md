@@ -19,7 +19,6 @@ swift = "6.3.3"
 [vars]
 model        = "emo"        # lowercase: paths + npm/Maven/HF/GitHub coordinates
 product      = "Emo"        # capitalized: Swift products, native lib names
-tflite_files = "emo.tflite emo_meta.json emo_tokenizer.bin"  # staged into the AAR resources
 
 [env]
 DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
@@ -45,12 +44,12 @@ run = "npm test"
 `test-android`, `set-version`, `check-version`, `publish-swift`,
 `publish-android`, `publish-web`.
 
-Everything model-specific is derived from `model` / `product` / `tflite_files`.
-The catalog assumes the standard SDK layout: `packages/<model>-kotlin` (+ a
-`<model>-tflite-resources` Gradle module), `packages/<model>-node` (npm version
-is the single source of truth), `Sources/<Product>TFLiteResources/Resources`,
-and `Desert-Ant-Labs/<model>` / `ai.desertant:<model>` / `@desert-ant-labs/<model>`
-coordinates.
+Everything model-specific is derived from `model` / `product`. The catalog
+assumes the standard SDK layout: `packages/<model>-kotlin`, `packages/<model>-node`
+(npm version is the single source of truth), and `Desert-Ant-Labs/<model>` /
+`ai.desertant:<model>` / `@desert-ant-labs/<model>` coordinates. No SDK ships a
+model artifact - every platform downloads the revision pinned in the core model
+catalog - so there is nothing to stage into a build.
 
 ## Building a model SDK (CI)
 
@@ -97,7 +96,7 @@ changed since the previous tag (a pure version bump counts as no change):
 | Artifact | Ships when |
 |---|---|
 | GitHub Release (the SwiftPM release) | always - the tag *is* the release |
-| `ai.desertant:<model>` + `:<model>-tflite-resources` | `Sources/` or `packages/<model>-kotlin/` changed |
+| `ai.desertant:<model>` | `Sources/` or `packages/<model>-kotlin/` changed |
 | `@desert-ant-labs/<model>` | `Sources/` or `packages/<model>-node/` changed |
 
 The npm job builds the prebuilt native core for linux-x64, linux-arm64, and

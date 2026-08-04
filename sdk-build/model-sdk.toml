@@ -8,7 +8,9 @@
 #   [vars]
 #   model        = "emo"        # lowercase: paths + npm/Maven/HF/GitHub coordinates
 #   product      = "Emo"        # capitalized: Swift products, lib names
-#   tflite_files = "emo.tflite emo_meta.json emo_tokenizer.bin"  # staged into the AAR resources
+#
+# No SDK ships a model artifact: every platform downloads the revision pinned in
+# the core model catalog on first use, so there is nothing to stage or publish.
 #
 #   [env]
 #   DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
@@ -92,9 +94,9 @@ fi
 
 ["build-android"]
 description = "Build the Android AAR (drives android-natives, then Gradle)"
-dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew assembleRelease"
+run = "./gradlew -p packages/{{ vars.model }}-kotlin assembleRelease"
 
 ["build-web"]
 description = "Build the WebAssembly core into packages/{{ vars.model }}-node/dist"
@@ -225,9 +227,9 @@ fi
 
 ["test-android"]
 description = "Instrumented AAR test suite on a connected device/emulator"
-dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew connectedDebugAndroidTest"
+run = "./gradlew -p packages/{{ vars.model }}-kotlin connectedDebugAndroidTest"
 
 # ---------------------------------------------------------------- publish
 
@@ -247,21 +249,20 @@ echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: versio
 # npm keeps package.json and package-lock.json in sync.
 ( cd packages/{{ vars.model }}-node && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
 
-# The two Gradle modules (project version drives the Maven coordinates).
-for f in packages/{{ vars.model }}-kotlin/build.gradle.kts packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/build.gradle.kts; do
-    sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' "$f" && rm -f "$f.bak"
-done
+# The Gradle module (project version drives the Maven coordinates).
+kts=packages/{{ vars.model }}-kotlin/build.gradle.kts
+sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' "$kts" && rm -f "$kts.bak"
 
 # The SwiftPM install snippet in the README.
 sed -i.bak 's|\\(url: "https://github.com/Desert-Ant-Labs/{{ vars.model }}.git", from: "\\)[^"]*"|\\1'"$VERSION"'"|' README.md && rm -f README.md.bak
 
 mise run check-version >/dev/null
-echo "version set to $VERSION (package.json + lock, 2 Gradle modules, README)"
+echo "version set to $VERSION (package.json + lock, Gradle module, README)"
 """
 
 # Verifies the release version is consistent everywhere before any publish:
-# packages/<model>-node/package.json is the single source; the two Gradle module
-# versions must equal it. Prints the version.
+# packages/<model>-node/package.json is the single source; the Gradle module
+# version must equal it. Prints the version.
 ["check-version"]
 hide = true
 dir = "{{ config_root }}"
@@ -270,10 +271,9 @@ run = """
 set -euo pipefail
 npm_version=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model }}-node/package.json)
 [ -n "$npm_version" ] || { echo "error: no version in packages/{{ vars.model }}-node/package.json" >&2; exit 1; }
-for f in packages/{{ vars.model }}-kotlin/build.gradle.kts packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/build.gradle.kts; do
-    gradle_version=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$f")
-    [ "$gradle_version" = "$npm_version" ] || { echo "error: $f has version $gradle_version, package.json has $npm_version" >&2; exit 1; }
-done
+f=packages/{{ vars.model }}-kotlin/build.gradle.kts
+gradle_version=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$f")
+[ "$gradle_version" = "$npm_version" ] || { echo "error: $f has version $gradle_version, package.json has $npm_version" >&2; exit 1; }
 echo "$npm_version"
 """
 
@@ -329,7 +329,6 @@ cat > "$notes" <<EOF
 
 - SwiftPM: https://github.com/Desert-Ant-Labs/{{ vars.model }}.git, from $VERSION
 - Android: ai.desertant:{{ vars.model }}:$VERSION
-- Android bundled model resources: ai.desertant:{{ vars.model }}-tflite-resources:$VERSION
 - npm: @desert-ant-labs/{{ vars.model }}@$VERSION
 EOF
 
@@ -343,8 +342,8 @@ echo "published: Swift package release $TAG -> $COMMIT"
 """
 
 ["publish-android"]
-description = "Publish ai.desertant:{{ vars.model }} + :{{ vars.model }}-tflite-resources to Maven Central"
-dir = "{{ config_root }}/packages/{{ vars.model }}-kotlin"
+description = "Publish ai.desertant:{{ vars.model }} to Maven Central"
+dir = "{{ config_root }}"
 depends = ["check-version"]
 tools = { java = "temurin-21" }
 shell = "bash -c"
@@ -356,7 +355,7 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
-./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+./gradlew -p packages/{{ vars.model }}-kotlin publishAndReleaseToMavenCentral --no-configuration-cache
 """
 
 ["publish-web"]
@@ -553,15 +552,10 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     fi
 done
 
-# Model files go into the OPTIONAL :{{ vars.model }}-tflite-resources module (classpath
-# resources, read via getResourceAsStream). The base AAR ships no model and
-# downloads on demand; an app opts into bundling by depending on the module.
-res="packages/{{ vars.model }}-kotlin/{{ vars.model }}-tflite-resources/src/main/resources"
-mkdir -p "$res"
-for f in {{ vars.tflite_files }}; do cp "Sources/{{ vars.product }}TFLiteResources/Resources/$f" "$res/"; done
-# The base AAR must ship no model; drop any staged there by older builds.
-for f in {{ vars.tflite_files }}; do rm -f "$KOTLIN/resources/$f"; done
+# The AAR ships no model: it downloads the pinned revision on first use. Remove
+# any model files an older build staged into the AAR's classpath resources.
+rm -rf "$KOTLIN/resources"
 
-du -sh "$KOTLIN/jniLibs" "$res"
-echo "done: {{ vars.model }}-kotlin native + {{ vars.model }}-tflite-resources are ready for the AAR build"
+du -sh "$KOTLIN/jniLibs"
+echo "done: {{ vars.model }}-kotlin native libs are ready for the AAR build"
 """

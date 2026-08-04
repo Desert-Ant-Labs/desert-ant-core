@@ -8,11 +8,19 @@
 Reusable, cross-platform Swift building blocks shared by Desert Ant Labs'
 on-device model SDKs (redact, emo, shapes, ...).
 
+A model SDK depends on the single `DesertAnt` product and writes one import:
+
+```swift
+import DesertAnt   // re-exports every module in the table below
+```
+
 Each module exposes one small public API and picks a per-platform backend behind
-it, so the code that uses it never sees a platform `#if`:
+it, so the code that uses it never sees a platform `#if`. They stay individually
+importable for consumers that want a narrower dependency:
 
 | Module | API | Apple / Linux | Android | WebAssembly |
 |---|---|---|---|---|
+| `ModelCatalog` | every model in the monorepo: coordinates + per-platform file manifest | same on every platform | | |
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
 | `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |

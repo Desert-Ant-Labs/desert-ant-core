@@ -23,6 +23,18 @@ jobs:
       - name: Set up mise
         uses: jdx/mise-action@v2
 
+      # No model artifact is committed, so the model-backed suites download the
+      # pinned revision from the Hub on a cold cache. Cache the store so that
+      # happens once per revision instead of once per push, which also keeps the
+      # run independent of Hugging Face being reachable. Each model's pinned
+      # revision lives in its Catalog.swift, so those files are the cache key.
+      - name: Cache downloaded models
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/desert-ant-models
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/ModelCatalog/*/Catalog.swift') }}
+          restore-keys: models-${{ runner.os }}-
+
       # `mise run test-macos` runs the suite with the Xcode toolchain.
       - name: Test
         run: mise run test-macos
