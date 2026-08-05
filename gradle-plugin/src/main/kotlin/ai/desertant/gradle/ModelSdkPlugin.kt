@@ -63,8 +63,9 @@ class ModelSdkPlugin : Plugin<Project> {
         }
 
         val deps = project.dependencies
+        // Core owns LoadedModel's coroutine runtime, so model modules need no
+        // second direct dependency.
         deps.add("implementation", "ai.desertant:core:${ext.coreVersion.get()}")
-        deps.add("implementation", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
         deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
         deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")

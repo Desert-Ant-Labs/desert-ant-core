@@ -33,8 +33,8 @@ version = "1.2.3"                        // single-sourced for mise set-version/
 desertAntSdk { description = "On-device ... for Android." }
 ```
 
-Everything else (namespace, coordinates, POM name/url/license/scm, the core +
-coroutines dependencies, the `buildSwiftNatives` task) is derived
+Everything else (namespace, coordinates, POM name/url/license/scm, the core
+and instrumentation-test dependencies, the `buildSwiftNatives` task) is derived
 from the Gradle root project name (`rootProject.name = "<model>"`). Override the
 core dependency version with `desertAntSdk { coreVersion = "X.Y.Z" }`.
 
