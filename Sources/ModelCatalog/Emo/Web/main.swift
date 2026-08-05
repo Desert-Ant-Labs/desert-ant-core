@@ -1,6 +1,7 @@
 #if os(WASI)
 import DesertAnt
 import WasmBindings
+import Bindings
 @_spi(EmoBindings) import Emo
 
 // Emo's WebAssembly entry point.

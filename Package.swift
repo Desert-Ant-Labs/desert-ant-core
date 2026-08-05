@@ -12,7 +12,9 @@ import Foundation
 // Android's static-stdlib link, where host macros conflict with `-resource-dir`.
 //
 // So JavaScriptKit is opt-in: only a build that actually targets wasm sets
-// DAL_WASM_BUILD=1 (mise `test-wasi`, sdk-build `build-web`). Everyone else
+// DAL_WASM_BUILD=1 - mise `test-wasi` and `build-wasm-entries`, sdk-build
+// `build-web`. A wasm task that forgets it fails with "no product named
+// 'EmoWeb'", because the *Web products below are declared with it. Everyone else
 // resolves a graph without it. SWIFT_ANDROID_STATIC_BUILD stays honoured as a
 // hard opt-out so an Android build can never pick it up by accident.
 //
@@ -98,6 +100,9 @@ let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.map { model in
         dependencies: [
             .byName(name: model.name),
             .byName(name: "WasmBindings"),
+            // The model's `ModelBinding` lives in Bindings (a model module
+            // references no FFI), and the wasm ABI is driven by it.
+            .byName(name: "Bindings"),
         ] + jsWasi + jsEventLoop,
         path: "Sources/ModelCatalog/\(model.name)/Web"
     )
@@ -113,7 +118,15 @@ let modelTargets: [Target] = models.map { model in
 } + [
     .target(
         name: "Bindings",
-        dependencies: [.byName(name: "DesertAnt")] + modelDependencies
+        // FFIBuffer and ModelBinding are named explicitly even though the
+        // DesertAnt umbrella re-exports both, because this target calls their
+        // API directly: a dependency you use should be one you declare, and it
+        // keeps the graph honest for tools that read it.
+        dependencies: [
+            .byName(name: "DesertAnt"),
+            .byName(name: "FFIBuffer"),
+            .byName(name: "ModelBinding"),
+        ] + modelDependencies
     ),
 ] + modelWasmTargets
 
@@ -202,7 +215,12 @@ let libraryTargets: [Target] = [
         .target(
             name: "AudioIO",
             dependencies: [
-                .target(name: "FFIBuffer", condition: .when(platforms: [.android])),
+                // FFIBuffer is only *used* on Android (HostAudioIO parses the
+                // host's buffer), but the dependency is unconditional: Xcode
+                // drops a target from a link entirely if any edge to it is
+                // platform-conditional, which loses libFFIBuffer for every
+                // other target that needs it on iOS.
+                "FFIBuffer",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi + jsEventLoop
         ),
@@ -237,6 +255,13 @@ let testTargets: [Target] = [
         .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
+        // The FFI payload schemas, which live with the conformances in Bindings
+        // rather than in the model modules (so a model links no FFI layer).
+        .testTarget(
+            name: "BindingsTests",
+            dependencies: [.byName(name: "Bindings"), .byName(name: "DesertAnt"),
+                           .byName(name: "TestSupport")] + modelDependencies
+        ),
         .testTarget(
             name: "ModelCatalogTests",
             dependencies: [.byName(name: "DesertAnt")] + modelDependencies
