@@ -265,14 +265,13 @@ plumbing:
 
 ## HostBridge (Android JNI)
 
-The reusable Swift JNI harness every Android model SDK repeats: byte-array
-marshalling (`hostCopyBytes` / `hostMakeBytes` / `withHostCText` /
-`hostTakeBuffer`), the `GetEnv`-checked thread attach, and `installHostBridge`,
-which wires the `CHostBridge` regex/JSON callbacks to a host class's static
-`regexMatches` / `jsonParseTree` methods. The Kotlin counterpart
-(`kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`) ships as the
-`ai.desertant:core` Android artifact, so a model SDK depends on it rather than
-vendoring the file:
+The reusable Swift JNI harness provides byte-array marshalling
+(`hostCopyBytes` / `hostMakeBytes` / `withHostCText` / `hostTakeBuffer`), the
+`GetEnv`-checked thread attach, and `installHostBridge`, which wires the
+`CHostBridge` callbacks to Kotlin. Its Kotlin counterpart ships in the
+`ai.desertant:core` Android artifact alongside the generic `DesertAntNative`
+JNI surface and `LoadedModel` SDK shell, so a model SDK depends on them rather
+than implementing any of that lifecycle itself:
 
 ```kotlin
 dependencies {
@@ -280,8 +279,13 @@ dependencies {
 }
 ```
 
-A model keeps only its own `@_cdecl("Java_...")` entry points and thin
-`@JvmStatic` forwarders to `HostBridge`. Empty off-Android.
+The native ABI takes a catalog `modelId`, so adding a model adds no JNI symbol
+or Kotlin native class. Its Android SDK wraps one `LoadedModel(modelId, name,
+context, directory, exceptionFactory)`, then keeps only its typed API plus the
+options/result payload codec. The shared shell creates the opaque handle,
+checks offline availability, moves download and inference off the main thread,
+preserves each SDK's exception type, guards use after close, and releases the
+handle exactly once.
 
 Build and publish the artifact with mise (reproducible; provisions the Android
 SDK on first run): `mise run build-android`, `mise run publish-android`

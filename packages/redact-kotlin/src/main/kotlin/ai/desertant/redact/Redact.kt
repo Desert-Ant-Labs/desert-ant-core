@@ -1,14 +1,11 @@
 package ai.desertant.redact
 
-import ai.desertant.DesertAntNative
-import ai.desertant.core.FfiReader
 import ai.desertant.core.FfiWriter
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import ai.desertant.core.LoadedModel
 
 /** The catalog id, which is how the shared native layer is asked for Redact. */
 private const val MODEL_ID = "redact"
-private val MODEL_ID_BYTES = MODEL_ID.toByteArray(Charsets.UTF_8)
+private const val MODEL_NAME = "Redact"
 
 /** A single detected entity and the placeholder that stands in for it. */
 data class RedactionItem(
@@ -67,53 +64,34 @@ class RedactException(message: String) : Exception(message)
  * r.redactedText            // "Email [GIVEN_NAME_1] at [EMAIL_1]."
  * redact.close()
  * ```
+ *
+ * Creating, downloading, running, and releasing the model are the shared
+ * `ai.desertant:core` shell ([LoadedModel]); what lives here is Redact's API and
+ * its payload schemas.
+ *
+ * @param directory the model's home. Files already there are adopted (so an app
+ *   that ships the model just points at the folder it unpacked it into),
+ *   otherwise the model is downloaded into it. Omit to use the app cache.
  */
-class Redact private constructor(private val handle: Long) : AutoCloseable {
-    // The native handle is a retained pointer: releasing it twice over-releases
-    // the model, and using it after release dereferences freed memory. Both are
-    // easy to hit with `use { }` plus a defensive close(), so guard here rather
-    // than crash the app.
-    @Volatile private var closed = false
+class Redact(
+    context: android.content.Context,
+    directory: String? = null,
+) : AutoCloseable {
+    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::RedactException)
 
-    private fun handleOrThrow(): Long {
-        if (closed) throw RedactException("this Redact is closed")
-        return handle
-    }
-
-    /**
-     * A redactor that downloads the model into the app cache on first use and
-     * reuses it offline afterward. When [directory] is supplied, that directory
-     * is the model's home instead: files already there are adopted (so an app
-     * that ships the model just points at the folder it unpacked it into),
-     * otherwise the model is downloaded into it. Construction is cheap; the
-     * model loads on the first [redaction] (or eagerly via [download]).
-     */
-    constructor(context: android.content.Context, directory: String? = null)
-        : this(createHandle(context.cacheDir.absolutePath, directory))
-
-    companion object {
-        private fun createHandle(cacheRoot: String, directory: String?): Long {
-            DesertAntNative.ensureLoaded()
-            val handle = DesertAntNative.create(
-                MODEL_ID_BYTES,
-                cacheRoot.toByteArray(Charsets.UTF_8),
-                directory?.toByteArray(Charsets.UTF_8))
-            if (handle == 0L) throw RedactException("failed to create Redact")
-            return handle
-        }
-    }
+    // The old handle factory lived here. Keep the marker so the generated JVM
+    // `Redact.Companion` field remains binary-compatible.
+    companion object
 
     /** Whether the model is available for this redactor with no network. */
-    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handleOrThrow()) != 0
+    fun isDownloaded(): Boolean = model.isDownloaded()
 
     /**
      * Download the model ahead of time so the first [redaction] is instant. A
      * no-op once available (see [isDownloaded]). Suspends on a background
      * dispatcher.
      */
-    suspend fun download(): Unit = withContext(Dispatchers.IO) {
-        if (DesertAntNative.download(handleOrThrow()) != 0) throw RedactException("model download failed")
-    }
+    suspend fun download() = model.download()
 
     /**
      * Detect and redact the PII in [text]. Each entity is replaced by a unique,
@@ -121,41 +99,32 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
      * an LLM and restore afterwards via [Redaction.restore]. Loads the model
      * lazily on first call.
      */
-    suspend fun redaction(text: String, options: Options = Options()): Redaction =
-        withContext(Dispatchers.Default) {
-            // Options payload: f64 minimumConfidence, then an int label count and
-            // that many names (empty means every label). Must match the reader in
-            // Sources/ModelCatalog/Redact/Binding.swift.
-            val payload = FfiWriter()
-                .double(options.minimumConfidence)
-                .strings(options.labels?.toList() ?: emptyList())
-                .done()
-            val bytes = DesertAntNative.run(handleOrThrow(), text.toByteArray(Charsets.UTF_8), payload)
-                ?: throw RedactException("redaction failed")
-            val buf = FfiReader(bytes)  // matches the native FFIWriter encoding
-            val redactedText = buf.string()
-            val n = buf.int()
-            val items = ArrayList<RedactionItem>(n)
-            repeat(n) {
-                items.add(
-                    RedactionItem(
-                        label = buf.string(),
-                        original = buf.string(),
-                        placeholder = buf.string(),
-                        confidence = buf.double(),
-                        start = buf.int(),
-                        end = buf.int(),
-                    )
+    suspend fun redaction(text: String, options: Options = Options()): Redaction {
+        // Options payload: f64 minimumConfidence, then a label count and that
+        // many names (empty means every label); result payload: the redacted
+        // text, an item count, then per item its strings, confidence, and UTF-16
+        // offsets. Must match Sources/ModelCatalog/Redact/Binding.swift.
+        val payload = FfiWriter()
+            .double(options.minimumConfidence)
+            .strings(options.labels?.toList() ?: emptyList())
+            .done()
+        return model.run(text, payload, failureMessage = "redaction failed") { r ->
+            val redactedText = r.string()
+            val items = List(r.int()) {
+                RedactionItem(
+                    label = r.string(),
+                    original = r.string(),
+                    placeholder = r.string(),
+                    confidence = r.double(),
+                    start = r.int(),
+                    end = r.int(),
                 )
             }
             Redaction(redactedText = redactedText, items = items)
         }
-
-    /** Release the native model. The redactor is unusable afterwards; calling this
-     *  again is a no-op. */
-    @Synchronized override fun close() {
-        if (closed) return
-        closed = true
-        DesertAntNative.destroy(handle)
     }
+
+    /** Release the native model. The redactor is unusable afterwards; calling
+     *  this again is a no-op. */
+    @Synchronized override fun close() = model.close()
 }
