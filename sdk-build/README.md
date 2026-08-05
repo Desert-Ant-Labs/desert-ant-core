@@ -1,9 +1,5 @@
 # Shared model-SDK build catalog
 
-> Taking a model all the way live (HF, npm, Maven, GitHub, org pages,
-> desertant.com)? Follow **[MODEL-GO-LIVE-CHECKLIST.md](./MODEL-GO-LIVE-CHECKLIST.md)** —
-> this file is just the build/CI mechanics it references.
-
 `model-sdk.toml` is the shared mise task catalog for the Desert Ant Labs model
 SDKs (shapes, emo, redact, ...). The identical build/publish/version logic lives
 here once; each model repo includes it from a pinned tag and supplies a few
