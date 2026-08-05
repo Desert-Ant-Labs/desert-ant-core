@@ -12,7 +12,8 @@ import Foundation
 // and consumers that want a narrower dependency.
 //
 //   DesertAnt    re-exports everything below (`import DesertAnt`)
-//   ModelCatalog every model in the monorepo: coordinates + per-platform files
+//   ModelCatalog every model in the monorepo: coordinates + per-platform files,
+//                plus the `LoadedModel` shell an SDK's public class wraps
 //   Regex        stdlib-`Regex`-shaped matching, type `Pattern`
 //                (NSRegularExpression | java.util.regex | JS RegExp)
 //   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
@@ -269,7 +270,13 @@ let libraryTargets: [Target] = [
         // modelTargets), so it is excluded here.
         // `Usage` is here for the SDK identity each declaration derives (product +
         // sdkVersion), so a model's telemetry cannot be misattributed or go stale.
-        .target(name: "ModelCatalog", dependencies: ["ModelStore", "Usage"], exclude: ["Emo", "Redact"]),
+        // `PlatformSupport` is here for `LazyLoader`, which backs the shared
+        // `LoadedModel` shell every model SDK is built on.
+        .target(
+            name: "ModelCatalog",
+            dependencies: ["ModelStore", "Usage", "PlatformSupport"],
+            exclude: ["Emo", "Redact"]
+        ),
         .target(
             name: "ModelStore",
             dependencies: [
