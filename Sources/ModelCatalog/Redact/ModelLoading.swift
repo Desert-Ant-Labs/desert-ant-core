@@ -1,5 +1,5 @@
 // How Redact obtains and shapes its model: the file manifest, the
-// download/adopt/bundle sources, and the `ModelAssets` the pipeline consumes.
+// download/adopt sources, and the `ModelAssets` the pipeline consumes.
 // (Running the model is `Model.swift`.) All platform variation is data here
 // (which artifact ships where); building the platform's session is
 // DesertAnt's `inferenceSession` factory.
@@ -88,45 +88,12 @@ public extension Redact {
     private static func distribution() -> ModelDistribution { RedactModel.distribution }
 }
 
-// MARK: opt-in app bundling (Apple / Linux)
+// MARK: shipping the model with your app
 
-// This package ships no model artifact, so bundling means model files the app
-// supplies: put this platform's artifact plus the sidecars in a resource bundle
-// of your own and pass it. (Android's equivalent is classpath resources, and wasm
-// always downloads.) This is the one platform conditional in the model code:
-// `Bundle` is a Foundation type, so the initializer only exists where SwiftPM
-// resource bundles do.
-#if canImport(CoreML) || os(Linux)
-import Foundation
-
-public extension Redact {
-    /// Load a model bundled into your app:
-    ///
-    /// ```swift
-    /// let redact = Redact(bundle: myModelBundle)
-    /// ```
-    convenience init(bundle: Bundle) {
-        self.init(
-            resolve: { _ in try ModelAssets.redact(bundle: bundle) },
-            isAvailable: { true }
-        )
-    }
-}
-
-extension ModelAssets {
-    /// Build from a resource bundle: the sidecars plus this platform's session
-    /// for the bundled artifact.
-    static func redact(bundle: Bundle) throws -> ModelAssets {
-        let resources = BundledResources(bundle)
-        let artifact = RedactModel.artifact
-        do {
-            return ModelAssets(
-                tokenizer: try resources.read(RedactModel.tokenizer),
-                labelsJSON: try resources.readString(RedactModel.labels),
-                session: try inferenceSession(modelPath: try resources.path(artifact), sdk: RedactModel.sdkInfo))
-        } catch {
-            throw RedactError.resourceMissing
-        }
-    }
-}
-#endif
+// This package bundles no model artifact and has no resource bundle to load
+// one from. The model is downloaded on demand: to a managed cache location by
+// default, or to the `directory` you pass. Shipping the model with your app is
+// therefore just pointing `directory` at a folder that already holds this
+// platform's artifact plus the sidecars - it is then used offline, with no
+// download. (Android's equivalent is classpath resources, and wasm always
+// downloads.)
