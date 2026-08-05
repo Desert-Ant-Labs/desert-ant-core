@@ -69,6 +69,17 @@ class RedactException(message: String) : Exception(message)
  * ```
  */
 class Redact private constructor(private val handle: Long) : AutoCloseable {
+    // The native handle is a retained pointer: releasing it twice over-releases
+    // the model, and using it after release dereferences freed memory. Both are
+    // easy to hit with `use { }` plus a defensive close(), so guard here rather
+    // than crash the app.
+    @Volatile private var closed = false
+
+    private fun handleOrThrow(): Long {
+        if (closed) throw RedactException("this Redact is closed")
+        return handle
+    }
+
     /**
      * A redactor that downloads the model into the app cache on first use and
      * reuses it offline afterward. When [directory] is supplied, that directory
@@ -93,7 +104,7 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
     }
 
     /** Whether the model is available for this redactor with no network. */
-    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handle) != 0
+    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handleOrThrow()) != 0
 
     /**
      * Download the model ahead of time so the first [redaction] is instant. A
@@ -101,7 +112,7 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
      * dispatcher.
      */
     suspend fun download(): Unit = withContext(Dispatchers.IO) {
-        if (DesertAntNative.download(handle) != 0) throw RedactException("model download failed")
+        if (DesertAntNative.download(handleOrThrow()) != 0) throw RedactException("model download failed")
     }
 
     /**
@@ -119,7 +130,7 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
                 .double(options.minimumConfidence)
                 .strings(options.labels?.toList() ?: emptyList())
                 .done()
-            val bytes = DesertAntNative.run(handle, text.toByteArray(Charsets.UTF_8), payload)
+            val bytes = DesertAntNative.run(handleOrThrow(), text.toByteArray(Charsets.UTF_8), payload)
                 ?: throw RedactException("redaction failed")
             val buf = FfiReader(bytes)  // matches the native FFIWriter encoding
             val redactedText = buf.string()
@@ -140,6 +151,11 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
             Redaction(redactedText = redactedText, items = items)
         }
 
-    /** Release the native model. The redactor is unusable afterwards. */
-    override fun close() = DesertAntNative.destroy(handle)
+    /** Release the native model. The redactor is unusable afterwards; calling this
+     *  again is a no-op. */
+    @Synchronized override fun close() {
+        if (closed) return
+        closed = true
+        DesertAntNative.destroy(handle)
+    }
 }

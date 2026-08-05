@@ -104,6 +104,8 @@ export interface LoadOptions {
  * ```
  */
 export declare class Redact {
+  /** Use Redact.load(); the constructor is internal. */
+  private constructor();
   /**
    * Load the model and return a ready redactor. By default it downloads from the
    * Hugging Face Hub at the pinned tag on first call, verifies it (SHA-256), and

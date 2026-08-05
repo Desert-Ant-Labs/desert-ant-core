@@ -126,8 +126,10 @@ private func performHTTPRequest(method: String, url: String, body: [UInt8]?, con
     do {
         value = try await promise.value
     } catch {
+        // A rejected fetch throws a raw JS value; wrap it so callers can match on
+        // `HTTPClientError` the same way they do on every other platform.
         httpDebugLog("fetch rejected for \(url): \(error)")
-        throw error
+        throw HTTPClientError.requestFailed("\(method) \(url): \(error)")
     }
     guard let response = value.object else { throw HTTPClientError.requestFailed("no response") }
     let status = Int(response.status.number ?? 0)
@@ -140,10 +142,17 @@ private func performHTTPRequest(method: String, url: String, body: [UInt8]?, con
         headers.append(("Content-Type", ct))
     }
 
-    guard let bufferPromise = JSPromise(from: response.arrayBuffer!()) else {
+    guard let arrayBuffer = response.arrayBuffer.function,
+          let bufferPromise = JSPromise(from: arrayBuffer(this: response)) else {
         throw HTTPClientError.requestFailed("arrayBuffer(\(url))")
     }
-    let u8 = JSObject.global.Uint8Array.function!.new(try await bufferPromise.value)
+    let buffer: JSValue
+    do {
+        buffer = try await bufferPromise.value
+    } catch {
+        throw HTTPClientError.requestFailed("body of \(url): \(error)")
+    }
+    let u8 = JSObject.global.Uint8Array.function!.new(buffer)
     guard let array = JSTypedArray<UInt8>(from: u8) else {
         throw HTTPClientError.requestFailed("bytes(\(url))")
     }
