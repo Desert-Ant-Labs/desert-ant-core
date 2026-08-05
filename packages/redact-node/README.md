@@ -76,6 +76,28 @@ the OS cache dir; in the browser it is the fetch cache. Use `directory` (Node) o
 `modelBaseUrl` (browser) to self-host / run fully offline. `@litertjs/core` is an
 optional peer dependency (browser builds only).
 
+## Choosing what gets redacted
+
+`redaction(text, options)` accepts:
+
+- `minimumConfidence`: minimum score for neural detections (default `0.6`).
+  Structured recognizers (email, cards, IBANs, …) always apply.
+- `labels`: restrict redaction to these categories. Omit for `DEFAULT_LABELS`.
+
+`ORG` (company / organisation name) is detected but **not redacted by default**,
+because a company is not a natural person. It exists so that names like
+`Silverfin` or `Odoo` are recognised as organisations rather than mislabelled as
+a `SURNAME`. Opt in when you do want companies masked:
+
+```js
+import { Redact, DEFAULT_LABELS, ALL_LABELS } from "@desert-ant-labs/redact";
+
+await redact.redaction(text, { labels: [...DEFAULT_LABELS, "ORG"] });
+await redact.redaction(text, { labels: ["EMAIL", "PHONE"] });  // only these
+```
+
+`DEFAULT_LABELS` and `ALL_LABELS` are frozen arrays exported from both entries.
+
 ## Bundlers and SSR
 
 The default `@desert-ant-labs/redact` import is safe to use directly in

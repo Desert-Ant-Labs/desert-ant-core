@@ -17,7 +17,9 @@
 import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { HOST_GLOBAL, MODEL_FILES, MODEL_ID, PACKAGE_NAME } from "./codec.js";
-import { makeRedact } from "./redact.js";
+import { makeRedact, DEFAULT_LABELS, ALL_LABELS } from "./redact.js";
+
+export { DEFAULT_LABELS, ALL_LABELS };
 
 // The wasm core instantiates at import time (top-level await); the model is only
 // wired in Redact.load().

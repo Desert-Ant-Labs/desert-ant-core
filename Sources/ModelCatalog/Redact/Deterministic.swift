@@ -82,6 +82,19 @@ enum Deterministic {
     private static let ibanLen: [String: Int] = [
         "AD":24,"AE":23,"AL":28,"AT":20,"AZ":28,"BA":20,"BE":16,"BG":22,"BH":22,"BR":29,"BY":28,"CH":21,"CR":22,"CY":28,"CZ":24,"DE":22,"DK":18,"DO":28,"EE":20,"EG":29,"ES":24,"FI":18,"FO":18,"FR":27,"GB":22,"GE":22,"GI":23,"GL":18,"GR":27,"GT":28,"HR":21,"HU":28,"IE":22,"IL":23,"IS":26,"IT":27,"JO":30,"KW":30,"KZ":20,"LB":28,"LC":32,"LI":21,"LT":20,"LU":20,"LV":21,"MC":27,"MD":24,"ME":22,"MK":19,"MR":27,"MT":31,"MU":30,"NL":18,"NO":15,"PK":24,"PL":28,"PS":29,"PT":25,"QA":29,"RO":24,"RS":22,"SA":24,"SC":31,"SE":24,"SI":19,"SK":24,"SM":27,"TN":24,"TR":26,"UA":29,"VG":24,"XK":20]
 
+    /// Cut a candidate to its country's IBAN length. `ibanRE` allows a space
+    /// between characters (for grouped IBANs), so it swallows the following
+    /// word and fails mod-97 — leaking every IBAN in running prose.
+    private static func ibanTrim(_ candidate: String) -> String? {
+        guard let want = ibanLen[String(candidate.prefix(2)).uppercased()] else { return nil }
+        var seen = 0
+        for (i, ch) in candidate.enumerated() where ch.isLetter || ch.isNumber {
+            seen += 1
+            if seen == want { return String(candidate.prefix(i + 1)) }
+        }
+        return nil
+    }
+
     private static let ibanShapeRE = rx(#"^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$"#)
     private static func ibanOk(_ value: String) -> Bool {
         let s = stripSpaces(value).uppercased()
@@ -257,7 +270,13 @@ enum Deterministic {
                 add(a, end, "CREDIT_CARD")
             }
         }
-        for m in ibanRE.allMatches(text) { if ibanOk(m.group(0)!) { add(m.start, m.end, "BANK_ACCOUNT") } }
+        for m in ibanRE.allMatches(text) {
+            let raw = m.group(0)!
+            let cand = ibanTrim(raw) ?? raw
+            let end = m.start + cand.count
+            if t.isWordChar(at: end) { continue }   // re-assert the trailing \b
+            if ibanOk(cand) { add(m.start, end, "BANK_ACCOUNT") }
+        }
         for m in bicRE.allMatches(text) { if bicOk(m.group(0)!) && before(bicBefore, t, m.start, 64) { add(m.start, m.end, "BANK_ACCOUNT") } }
         for m in esDniRE.allMatches(text) { if esDniOk(m.group(0)!) && hasContext(govContext, t, m.start, m.end, 56) { add(m.start, m.end, "GOVERNMENT_ID") } }
         for m in natIdRE.allMatches(text) { let d = m.group(0)!; if let vals = natValidators[dl(d).count], vals.contains(where: { $0(d) }), hasContext(natIdContext, t, m.start, m.end, 64) { add(m.start, m.end, "GOVERNMENT_ID", 0.92) } }
