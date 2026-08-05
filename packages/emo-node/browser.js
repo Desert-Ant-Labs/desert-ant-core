@@ -7,6 +7,11 @@
 // XNNPACK-accelerated CPU ("wasm") by default, with optional WebGPU in the
 // browser.
 //
+// The WebAssembly core exposes the same model-agnostic ABI as the native core
+// (create / download / run / destroy, with options and results as FFI payloads),
+// so this file and node.js share `codec.js` and differ only in which core they
+// drive.
+//
 // All node-only code lives behind the `#platform` import, which bundlers resolve
 // at build time by condition (browser -> platform-browser.js, otherwise
 // platform-node.js). That keeps this file free of `node:*` and of any static
@@ -14,13 +19,10 @@
 // target of a multi-target bundler. For a prebuilt native server core (no
 // @litertjs/core, best server throughput), import `@desert-ant-labs/emo/native`.
 import { setupCore, defaultWasmDir, readModelSource, defaultCacheRoot } from "#platform";
-import { installLiteRtHost, loadLiteRt, assertBrowserRuntime } from "@desert-ant-labs/core";
-
-const PACKAGE_NAME = "@desert-ant-labs/emo";
-
-const SKIN_TONES = {
-  default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5,
-};
+import { installLiteRtHost, loadLiteRt, assertBrowserRuntime, FfiReader } from "@desert-ant-labs/core";
+import {
+  PACKAGE_NAME, HOST_GLOBAL, MODEL_FILES, SKIN_TONES, encodeOptions, decodeSuggestions,
+} from "./codec.js";
 
 // The wasm core instantiates at import time (top-level await); the model is
 // only wired in load(). The build-time-selected platform seam owns whatever is
@@ -37,6 +39,9 @@ const core = await setupCore();
  * ```
  */
 export class Emo {
+  #handle;
+  constructor(handle) { this.#handle = handle; }
+
   /**
    * Load the model and return a ready suggester. By default the model is
    * downloaded from the Hugging Face Hub at the pinned revision, verified, and
@@ -64,7 +69,7 @@ export class Emo {
     // manages tensor memory; setModel lets the modelBaseUrl branch feed the same
     // run() closure.
     const { setModel } = installLiteRtHost({
-      hostGlobal: "__EmoHost",
+      hostGlobal: HOST_GLOBAL,
       accelerator,
       loadAndCompile,
       Tensor,
@@ -72,26 +77,36 @@ export class Emo {
     });
 
     const onProgress = typeof resolved.onProgress === "function" ? resolved.onProgress : undefined;
+    let handle;
     if (resolved.modelBaseUrl != null) {
       // Self-hosted files (offline / no runtime CDN): fetch the model + sidecars
-      // from the given base URL, compile the model here, and hand the metadata +
-      // tokenizer to the wasm core, no Hub download. This is the browser's
-      // equivalent of pointing the native SDKs at a directory that already
-      // holds the model: nothing is bundled, nothing is downloaded.
-      const { metaJSON, tokenizerBytes, modelBytes } = await fetchModelFrom(resolved.modelBaseUrl);
+      // from the given base URL, compile the model here, and hand the sidecars
+      // to the wasm core, no Hub download. This is the browser's equivalent of
+      // pointing the native SDKs at a directory that already holds the model:
+      // nothing is bundled, nothing is downloaded.
+      const { sidecars, modelBytes } = await fetchModelFrom(resolved.modelBaseUrl);
       setModel(await loadAndCompile(modelBytes, { accelerator }));
-      await core.loadSelfHosted(metaJSON, tokenizerBytes);
-      onProgress?.(1);
+      handle = core.createSelfHosted(sidecars);
     } else {
-      // Default: the runtime downloads this platform's files from the HF Hub at
-      // the pinned tag (SHA-256 verified), fetched + cached by the JS host, and
+      // Default: the core downloads this platform's files from the HF Hub at the
+      // pinned tag (SHA-256 verified), fetched + cached by the JS host, and
       // wires the session through the installed host. `directory` (node) adopts
-      // a self-hosted folder. Base for the managed nested cache (node): ~/.cache;
-      // empty (in-memory) in the browser.
-      const cacheRoot = await defaultCacheRoot();
-      await core.load(cacheRoot, resolved.directory ?? "", onProgress);
+      // a folder you populated. Base for the managed nested cache (node):
+      // ~/.cache; empty (in-memory) in the browser.
+      handle = core.create(await defaultCacheRoot(), resolved.directory ?? "");
     }
-    return new Emo();
+    if (!handle) throw new Error(`${PACKAGE_NAME}: failed to create suggester`);
+    const emo = new Emo(handle);
+    // Ready the model now (downloading if needed) so the first suggestion is
+    // instant and load() surfaces any download error, as the native build does.
+    try {
+      await core.download(handle, onProgress);
+    } catch (cause) {
+      emo.dispose();
+      throw new Error(`${PACKAGE_NAME}: ${cause}`, { cause });
+    }
+    onProgress?.(1);
+    return emo;
   }
 
   /**
@@ -101,32 +116,58 @@ export class Emo {
    * `options.deviceId` (a string or a zero-arg function returning one)
    * attributes usage to a specific end-user device. It is collected per call
    * and bound to that call, so it is safe for concurrent multi-tenant hosts.
+   * `options.group` (an id from {@link withCallGroup}) bills several calls as
+   * one.
    */
   async suggestions(text, options = {}) {
-    const limit = options.limit ?? 3;
-    const skinTone = SKIN_TONES[options.skinTone ?? "default"] ?? 0;
-    return core.suggest(String(text ?? ""), limit, skinTone, options.deviceId);
+    if (!this.#handle) throw new Error(`${PACKAGE_NAME}: suggester disposed`);
+    const phrase = String(text ?? "");
+    if (phrase.trim() === "") return [];
+    const payload = encodeOptions({
+      limit: options.limit ?? 3,
+      skinTone: SKIN_TONES[options.skinTone ?? "default"] ?? 0,
+    });
+    const group = options.group != null ? String(options.group) : null;
+    const result = await core.run(this.#handle, phrase, payload, group, options.deviceId ?? null);
+    return decodeSuggestions(new FfiReader(result));
   }
 
   /**
-   * Free native resources. No-op in the WebAssembly runtime; present so the same
-   * code works against the native server build (`@desert-ant-labs/emo/native`).
+   * Run `body` with a call group, so every `suggestions({ group })` inside it
+   * bills as a single usage call rather than one per suggestion. The group is
+   * released when `body` settles.
    */
-  dispose() {}
+  async withCallGroup(body) {
+    const id = `emo-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+    try {
+      return await body(id);
+    } finally {
+      core.endCallGroup(id);
+    }
+  }
+
+  /** Release the model. The suggester is unusable afterwards. */
+  dispose() {
+    if (this.#handle) { core.destroy(this.#handle); this.#handle = null; }
+  }
 }
 
 // Fetch self-hosted model files from a base URL (the `modelBaseUrl` opt-out).
-// Accepts absolute URLs and root-relative paths (e.g. "/assets/emo/").
+// Accepts absolute URLs and root-relative paths (e.g. "/assets/emo/"). The
+// sidecars go to the wasm core keyed by their catalog names; the model bytes
+// stay here and are compiled by LiteRT.js.
 async function fetchModelFrom(baseUrl) {
   const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
   const [meta, tokenizer, model] = await Promise.all([
-    fetch(`${base}emo_meta.json`).then((r) => r.text()),
-    fetch(`${base}emo_tokenizer.bin`).then((r) => r.arrayBuffer()),
-    fetch(`${base}emo.tflite`).then((r) => r.arrayBuffer()),
+    fetch(`${base}${MODEL_FILES.meta}`).then((r) => r.text()),
+    fetch(`${base}${MODEL_FILES.tokenizer}`).then((r) => r.arrayBuffer()),
+    fetch(`${base}${MODEL_FILES.model}`).then((r) => r.arrayBuffer()),
   ]);
   return {
-    metaJSON: meta,
-    tokenizerBytes: new Uint8Array(tokenizer),
+    sidecars: {
+      [MODEL_FILES.meta]: meta,
+      [MODEL_FILES.tokenizer]: new Uint8Array(tokenizer),
+    },
     modelBytes: new Uint8Array(model),
   };
 }

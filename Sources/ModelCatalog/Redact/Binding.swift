@@ -6,11 +6,6 @@
 import DesertAnt
 
 extension Redact: BoundModel {
-    /// `download(progress:)`'s defaulted argument does not witness the
-    /// no-argument requirement, so forward explicitly. The host reports progress
-    /// through its own channel, not this call.
-    public func download() async throws { try await download(progress: { _ in }) }
-
     /// Options payload: `f64 minimumConfidence`, then `u32 labelCount` and that
     /// many length-prefixed label names (an empty list means every label). An
     /// empty payload means the SDK defaults.

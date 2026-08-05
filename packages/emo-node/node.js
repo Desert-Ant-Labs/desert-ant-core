@@ -7,46 +7,22 @@
 // The koffi harness (resolve native/<platform>-<arch>, load the LiteRT runtime
 // first, bind the generic `dal_*` C ABI, run blocking calls off the event loop)
 // and the FFI codecs live in @desert-ant-labs/core/node; this file supplies only
-// Emo's options/result payload schemas and the public API.
+// Emo's public API; the payload schemas it shares with the browser entry live
+// in codec.js.
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { loadNative, FfiWriter } from "@desert-ant-labs/core/node";
+import { loadNative } from "@desert-ant-labs/core/node";
+import { MODEL_ID, PACKAGE_NAME, SKIN_TONES, encodeOptions, decodeSuggestions } from "./codec.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-
-/** The catalog id, which is how the model-agnostic C ABI is asked for Emo. */
-const MODEL_ID = "emo";
-
-const SKIN_TONES = { default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5 };
 
 // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
 // this file (built by `mise run node-natives`): the self-contained Swift core
 // (libDesertAntNode, one library for every model) plus the LiteRT runtime it
 // links (libLiteRt). The symbol table is the shared `dal_*` ABI, so it is the
 // loader's default and this call names no symbols.
-const core = loadNative({ here: HERE, packageName: "@desert-ant-labs/emo" });
+const core = loadNative({ here: HERE, packageName: PACKAGE_NAME });
 const { lib, callAsync, decodeResult, withCallGroup } = core;
-
-/** Encode Emo's `dal_run` options payload: `u32 limit`, `u32 skinTone`. Must
- *  match the reader in Sources/ModelCatalog/Emo/Binding.swift. */
-function encodeOptions({ limit, skinTone }) {
-  return new FfiWriter().u32(limit).u32(skinTone).done();
-}
-
-/** Decode the FFI buffer the core returns (via `decodeResult`, positioned at the
- *  payload): a u32 count, then per suggestion a u32-length UTF-8 emoji string
- *  and an IEEE-754 double confidence. Mirrors the writer in
- *  Sources/ModelCatalog/Emo/Binding.swift and the Kotlin FfiReader. */
-function decodeSuggestions(r) {
-  const count = r.u32();
-  const out = [];
-  for (let i = 0; i < count; i++) {
-    const emoji = r.str();
-    const confidence = r.f64();
-    out.push({ emoji, confidence });
-  }
-  return out;
-}
 
 /**
  * On-device multilingual emoji suggestion. Create one with `await Emo.load(...)`
@@ -83,14 +59,14 @@ export class Emo {
     const cacheRoot = options.cacheRoot ?? core.defaultCacheRoot();
     const directory = options.directory ?? null;
     const handle = lib.create(MODEL_ID, cacheRoot, directory);
-    if (!handle) throw new Error("@desert-ant-labs/emo: failed to create suggester");
+    if (!handle) throw new Error(`${PACKAGE_NAME}: failed to create suggester`);
     const emo = new Emo(handle);
     // Ready the model now (download if needed) so the first suggestion is instant
     // and load() surfaces any download error.
     if (lib.isDownloaded(handle) === 0) {
       onProgress?.(0);
       const rc = await callAsync(lib.download, handle);
-      if (rc !== 0) { emo.dispose(); throw new Error("@desert-ant-labs/emo: model download failed"); }
+      if (rc !== 0) { emo.dispose(); throw new Error(`${PACKAGE_NAME}: model download failed`); }
     }
     onProgress?.(1);
     return emo;
@@ -110,7 +86,7 @@ export class Emo {
    * Omit to attribute to the host device.
    */
   async suggestions(text, options = {}) {
-    if (!this.#handle) throw new Error("@desert-ant-labs/emo: suggester disposed");
+    if (!this.#handle) throw new Error(`${PACKAGE_NAME}: suggester disposed`);
     const phrase = String(text ?? "");
     if (phrase.trim() === "") return [];
     const limit = options.limit ?? 3;
@@ -121,7 +97,7 @@ export class Emo {
     const ptr = await callAsync(
       lib.run, this.#handle, phrase, payload, payload.length, group,
       deviceId != null ? String(deviceId) : null);
-    if (!ptr) throw new Error("@desert-ant-labs/emo: suggestion failed");
+    if (!ptr) throw new Error(`${PACKAGE_NAME}: suggestion failed`);
     try {
       return decodeSuggestions(decodeResult(ptr));
     } finally {

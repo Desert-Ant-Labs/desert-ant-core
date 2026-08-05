@@ -10,6 +10,7 @@ export {
   installLiteRtHost,
   fetchModelFrom,
   browserSetup,
+  wasmExports,
   browserWasmDir,
   browserReadModelSource,
   browserCacheRoot,

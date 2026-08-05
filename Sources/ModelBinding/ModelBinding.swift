@@ -21,8 +21,10 @@ public protocol BoundModel: AnyObject {
     /// Whether the model is usable with no network (cached, or files present).
     func isDownloaded() -> Bool
 
-    /// Fetch and verify the model ahead of time. Throws on failure.
-    func download() async throws
+    /// Fetch and verify the model ahead of time, reporting the download
+    /// fraction in `0...1`. Throws on failure. Hosts that cannot report progress
+    /// (the C ABI) pass a closure that ignores it.
+    func download(progress: @Sendable @escaping (Double) -> Void) async throws
 
     /// Run the model. `options` is the model's own payload, written by the host
     /// with the same field order the model reads here; an empty reader means

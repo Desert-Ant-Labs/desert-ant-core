@@ -53,6 +53,7 @@
   },
   "files": [
     "browser.js",
+    "codec.js",
     "node.js",
     "platform-browser.js",
     "platform-node.js",
@@ -64,7 +65,7 @@
   ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
-    "@desert-ant-labs/core": "^0.3.0"
+    "@desert-ant-labs/core": "^0.7.0"
   },
   "optionalDependencies": {
     "koffi": "^2.9.0"

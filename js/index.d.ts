@@ -55,11 +55,33 @@ export function fetchModelFrom(
   files: { meta: string; model: string },
 ): Promise<{ metaJSON: string; modelBytes: Uint8Array }>;
 
+/** The model-agnostic WebAssembly ABI a Desert Ant core installs, the twin of
+ *  the native `dal_*` symbols. Handles are opaque numbers. */
+export interface WasmCore {
+  create(cacheRoot?: string, directory?: string): number;
+  createSelfHosted(files: Record<string, string | Uint8Array>): number;
+  isDownloaded(handle: number): boolean;
+  download(handle: number, onProgress?: (fraction: number) => void): Promise<boolean>;
+  run(
+    handle: number,
+    text: string,
+    options?: Uint8Array | null,
+    group?: string | null,
+    deviceId?: string | (() => string) | null,
+  ): Promise<Uint8Array>;
+  endCallGroup(id: string): void;
+  destroy(handle: number): void;
+  flushTelemetry(): Promise<boolean>;
+}
+
 export function browserSetup(options: {
   hostGlobal: string;
-  exportsGlobal: string;
+  modelId: string;
   init: () => Promise<{ init: (arg: object) => Promise<unknown> }>;
-}): Promise<any>;
+}): Promise<WasmCore>;
+
+/** The registered ABI for `modelId` (`globalThis.__DesertAntExports[modelId]`). */
+export function wasmExports(modelId: string): WasmCore;
 
 export function browserWasmDir(): Promise<string>;
 export function browserReadModelSource(source: any): Promise<any>;

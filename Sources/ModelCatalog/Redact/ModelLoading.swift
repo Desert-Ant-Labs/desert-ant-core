@@ -39,7 +39,7 @@ public struct ModelAssets: Sendable {
             tokenizer: try files.read(RedactModel.tokenizer),
             labelsJSON: try files.readString(RedactModel.labels),
             session: try await files.inferenceSession(
-                model: RedactModel.artifact, hostGlobal: "__RedactHost", sdk: RedactModel.sdkInfo))
+                model: RedactModel.artifact, hostGlobal: RedactModel.hostGlobal, sdk: RedactModel.sdkInfo))
     }
 }
 
