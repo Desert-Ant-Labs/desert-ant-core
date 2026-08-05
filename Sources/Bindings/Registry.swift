@@ -10,10 +10,12 @@
 import DesertAnt
 import Emo
 import Redact
+import Clear
 
 let bindings: [String: any ModelBinding.Type] = [
     EmoBinding.id: EmoBinding.self,
     RedactBinding.id: RedactBinding.self,
+    ClearBinding.id: ClearBinding.self,
 ]
 
 /// The binding for a host-supplied model id, or nil if it is unknown.

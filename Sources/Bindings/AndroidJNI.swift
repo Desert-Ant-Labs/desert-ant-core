@@ -83,4 +83,29 @@ public func DesertAntNative_run(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jcl
     }
     return hostTakeBuffer(env, buf)
 }
+
+/// Run an audio model (clear) over mono samples. The audio crosses as one
+/// FFIBuffer payload - `f32Array samples`, then an `f64` sample rate - so this
+/// reuses the byte-array marshalling every other entry point uses instead of
+/// adding jfloatArray handling to the harness. Options and result are the
+/// model's own payloads, as in `run`.
+@_cdecl("Java_ai_desertant_DesertAntNative_runAudio")
+public func DesertAntNative_runAudio(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
+                                     _ handle: jlong, _ audio: jbyteArray?,
+                                     _ options: jbyteArray?) -> jbyteArray? {
+    installHostBridge(env, cls)
+    guard let bytes = optionalBytes(env, audio) else { return nil }
+    var reader = FFIReader(bytes)
+    let samples = reader.f32Array()
+    let sampleRate = reader.f64()
+    guard !samples.isEmpty, sampleRate > 0 else { return nil }
+    let payload = optionalBytes(env, options) ?? []
+    let buf = samples.withUnsafeBufferPointer { s in
+        payload.withUnsafeBufferPointer { p in
+            dal_run_audio(pointer(handle), s.baseAddress, Int32(s.count), sampleRate,
+                          p.baseAddress, Int32(p.count), nil, nil)
+        }
+    }
+    return hostTakeBuffer(env, buf)
+}
 #endif
