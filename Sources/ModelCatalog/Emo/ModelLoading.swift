@@ -26,29 +26,6 @@ public struct ModelAssets: Sendable {
     /// The platform's ready-to-run session for the model artifact.
     let session: any InferenceSession
 
-    /// Bindings entry point: in-memory model files (e.g. the Android AAR reads
-    /// them from classpath resources). The model bytes must be the LiteRT
-    /// (`.tflite`) export.
-    public init(metaJSON: String, tokenizerBytes: [UInt8], modelBytes: [UInt8]) throws {
-        self.init(
-            metaJSON: metaJSON,
-            tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelBytes: modelBytes, sdk: EmoModel.sdkInfo))
-    }
-
-    /// Bindings entry point: load the artifact from a file path (the Node
-    /// server-side native's bundled path). `inferenceSession(modelPath:)`
-    /// selects Core ML on Apple hosts (from the `.mlmodelc` directory) and
-    /// LiteRT on Linux (from the `.tflite`), so this one call covers both - the
-    /// unified Node bundling primitive. It is also mmap-based, sidestepping the
-    /// from-bytes buffer-ownership pitfall.
-    public init(metaJSON: String, tokenizerBytes: [UInt8], modelPath: String) throws {
-        self.init(
-            metaJSON: metaJSON,
-            tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelPath: modelPath, sdk: EmoModel.sdkInfo))
-    }
-
     /// Bindings entry point: build from an already-constructed session (e.g. the
     /// wasm host's `JSInferenceSession`) plus the sidecars.
     @_spi(EmoBindings)

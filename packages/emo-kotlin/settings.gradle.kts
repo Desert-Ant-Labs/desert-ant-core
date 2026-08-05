@@ -20,4 +20,3 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "emo"
-include(":emo-tflite-resources")

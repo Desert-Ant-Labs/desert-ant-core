@@ -165,7 +165,7 @@ model repo carries no platform conditionals, just per-platform artifact names:
 let files = try await distribution.resolve()                 // ModelStore
 let session = try await files.inferenceSession(
     model: artifactName, hostGlobal: "__MyModelHost")        // CoreML | ORT | JS host
-// Bundled deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
+// Custom deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
 ```
 
 ## PlatformSupport

@@ -23,26 +23,6 @@ public struct ModelAssets: Sendable {
     /// The platform's ready-to-run session for the model artifact.
     let session: any InferenceSession
 
-    /// Bindings entry point: in-memory model files (e.g. the Android AAR reads
-    /// them from classpath resources). The model bytes must be the LiteRT
-    /// (`.tflite`) export.
-    public init(tokenizer: [UInt8], labelsJSON: String, modelBytes: [UInt8]) throws {
-        self.init(
-            tokenizer: tokenizer, labelsJSON: labelsJSON,
-            session: try inferenceSession(modelBytes: modelBytes, sdk: RedactModel.sdkInfo))
-    }
-
-    /// Bindings entry point: load the artifact from a file path (the server-side
-    /// native path). `inferenceSession(modelPath:)` picks Core ML on Apple hosts
-    /// (from the `.mlmodelc` directory) and LiteRT on Linux (from the `.tflite`),
-    /// so one call covers both. It is mmap-based, so a multi-megabyte artifact
-    /// does not get copied through the FFI.
-    public init(tokenizer: [UInt8], labelsJSON: String, modelPath: String) throws {
-        self.init(
-            tokenizer: tokenizer, labelsJSON: labelsJSON,
-            session: try inferenceSession(modelPath: modelPath, sdk: RedactModel.sdkInfo))
-    }
-
     /// Bindings entry point: build from an already-constructed session (e.g. the
     /// wasm host's `JSInferenceSession`) plus the sidecars.
     @_spi(RedactBindings)

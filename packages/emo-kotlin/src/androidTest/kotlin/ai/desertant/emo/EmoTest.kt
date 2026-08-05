@@ -1,6 +1,8 @@
 package ai.desertant.emo
 
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -12,14 +14,17 @@ import org.junit.runner.RunWith
 /**
  * Instrumented tests for the Android binding, exercising the real on-device path
  * via JNI: platform JSON via CHostBridge, LiteRT inference, and the
- * static-stdlib runtime. The bundled model comes from the
- * `emo-tflite-resources` androidTest dependency.
+ * static-stdlib runtime. No model ships with the AAR, so the model is downloaded
+ * into the instrumentation app's cache on the first run and reused afterward.
  */
 @RunWith(AndroidJUnit4::class)
 class EmoTest {
     private lateinit var emo: Emo
 
-    @Before fun setUp() { emo = Emo.bundled() }
+    @Before fun setUp() {
+        emo = Emo(ApplicationProvider.getApplicationContext())
+        runBlocking { emo.download() }   // fetch once up front; cached afterward
+    }
     @After fun tearDown() { emo.close() }
 
     @Test fun suggestsForEnglishPhrase() = runTest {

@@ -1,10 +1,10 @@
 import com.vanniktech.maven.publish.GradlePlugin
 import com.vanniktech.maven.publish.JavadocJar
 
-// Convention plugins for the Desert Ant model SDKs' Android modules
-// (ai.desertant.model-sdk + ai.desertant.model-resources). Published to Maven
-// Central via vanniktech; consumed with the plugins DSL + mavenCentral() in the
-// model repo's settings pluginManagement. Version single-sourced here.
+// Convention plugin for the Desert Ant model SDKs' Android modules
+// (ai.desertant.model-sdk). Published to Maven Central via vanniktech; consumed
+// with the plugins DSL + mavenCentral() in the model repo's settings
+// pluginManagement. Version single-sourced here.
 plugins {
     kotlin("jvm") version "2.1.21"
     `java-gradle-plugin`
@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "ai.desertant"
-version = "0.5.5"
+version = "0.6.0"
 
 dependencies {
     implementation("com.android.tools.build:gradle:8.7.3")
@@ -27,12 +27,6 @@ gradlePlugin {
             implementationClass = "ai.desertant.gradle.ModelSdkPlugin"
             displayName = "Desert Ant model SDK (Android)"
             description = "Android library + publish convention for Desert Ant Labs model SDKs."
-        }
-        create("modelResources") {
-            id = "ai.desertant.model-resources"
-            implementationClass = "ai.desertant.gradle.ModelResourcesPlugin"
-            displayName = "Desert Ant model resources (Android)"
-            description = "Bundled-model resources convention for Desert Ant Labs model SDKs."
         }
     }
 }

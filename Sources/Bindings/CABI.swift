@@ -7,8 +7,7 @@ import DesertAnt
 // ~50 MB Foundation/ICU stack. Instance-based, mirroring the Swift SDK: one
 // handle per loaded model.
 //
-//   dal_create(modelId, cacheRootUTF8, dirUTF8|NULL)          -> handle | NULL
-//   dal_create_from_files(modelId, files,len, modelPath|NULL)  -> handle | NULL
+//   dal_create(modelId, cacheRootUTF8, dirUTF8|NULL)           -> handle | NULL
 //   dal_is_downloaded(handle)                                  -> 0/1
 //   dal_download(handle)                                       -> 0/-1  (blocks)
 //   dal_run(handle, textUTF8, options,len, groupId|NULL, deviceId|NULL)
@@ -59,31 +58,6 @@ public func dal_create(
     return retain(binding.make(cacheRoot: string(cacheRoot), directory: string(directory)))
 }
 
-/// Create a model from files the host already has (Android classpath resources,
-/// an app bundle, a self-hosted directory). `files` is an `FFIWriter` payload:
-/// `u32 count`, then per file a length-prefixed name and a length-prefixed blob,
-/// named as in the catalog manifest. When `modelPath` is non-NULL the runnable
-/// artifact is read from that path instead (mmap, so a multi-megabyte artifact is
-/// not copied through the FFI) and only the sidecars need to be in `files`.
-@_cdecl("dal_create_from_files")
-public func dal_create_from_files(
-    _ modelId: UnsafePointer<CChar>?,
-    _ files: UnsafePointer<UInt8>?, _ filesLen: Int32,
-    _ modelPath: UnsafePointer<CChar>?
-) -> UnsafeMutableRawPointer? {
-    guard let id = string(modelId), let binding = binding(for: id) else { return nil }
-    var reader = FFIReader(files, filesLen)
-    var named: [String: [UInt8]] = [:]
-    for _ in 0..<reader.u32() {
-        let name = reader.string()
-        let blob = reader.blob()
-        guard !name.isEmpty else { return nil }
-        named[name] = blob
-    }
-    guard let model = try? binding.make(files: named, modelPath: string(modelPath)) else { return nil }
-    return retain(model)
-}
-
 /// Whether the model is usable with no network.
 @_cdecl("dal_is_downloaded")
 public func dal_is_downloaded(_ handle: UnsafeMutableRawPointer?) -> Int32 {
@@ -132,7 +106,7 @@ public func dal_run(
     return payload.flatMap(ffiEmit)
 }
 
-/// Release a handle from `dal_create`/`dal_create_from_files`.
+/// Release a handle from `dal_create`.
 @_cdecl("dal_destroy")
 public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
