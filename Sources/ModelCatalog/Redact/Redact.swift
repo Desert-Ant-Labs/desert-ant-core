@@ -46,7 +46,8 @@ public struct Options: Sendable {
     /// Minimum confidence for neural detections. Structured recognizers
     /// (email, cards, IBANs, …) always apply. Default `0.6`.
     public var minimumConfidence: Double
-    /// If set, only these categories are detected/redacted; otherwise all are.
+    /// If set, only these categories are redacted. `nil` means
+    /// ``Label/defaultEnabled`` — every category except ``Label/org``.
     public var labels: Set<Label>?
 
     public init(minimumConfidence: Double = 0.6, labels: Set<Label>? = nil) {
@@ -181,9 +182,9 @@ public final class Redact: @unchecked Sendable {
     }
 
     private func spans(in text: String, options: Options) async throws -> [Span] {
-        let allowed = options.labels.map { Set($0.map(\.rawValue)) }
+        let allowed = Set((options.labels ?? Label.defaultEnabled).map(\.rawValue))
         return try await model.value().detect(text, minScore: options.minimumConfidence)
-            .filter { allowed?.contains($0.label) ?? true }
+            .filter { allowed.contains($0.label) }
             .sorted { $0.start != $1.start ? $0.start < $1.start : $0.end < $1.end }
     }
 }

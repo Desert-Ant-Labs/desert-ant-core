@@ -24,7 +24,69 @@ enum Pipeline {
     private static let usStreetRE = rx(
         #"\b(\d{1,6}[A-Za-z]?)\s+((?:[A-Z][A-Za-z0-9.'’-]*\s+){0,4}(?:Street|Avenue|Boulevard|Road|Lane|Drive|Court|Place|Terrace|Circle|Highway|Parkway|Square|Trail|Crescent|Alley|Loop|Way|St|Ave|Blvd|Rd|Ln|Dr|Ct|Pl|Ter|Cir|Hwy|Pkwy|Sq|Trl|Aly))\b\.?(?=$|[\s,.;:)])"#)
     private static let stateZipRE = rx(#"(?:,\s*|\s)([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\b"#)
-    private static let secAddrRE = rx(#"\b(?:Apartment|Apt|Suite|Ste|Unit|Building|Bldg|Floor|Fl|Room|Rm|Department|Dept|Trailer|Trlr|Space|Spc|Lot)\.?\s*#?\s*(?:\d{1,4}[A-Za-z]?|[A-Za-z]\d{1,4})\b"#, ci: true)
+    /// True when the text is ALL-CAPS.
+    static func isShouting(_ text: String) -> Bool {
+        var letters = 0
+        for ch in text where ch.isLetter {
+            if !ch.isUppercase { return false }
+            letters += 1
+        }
+        return letters > 1
+    }
+
+    /// Title-case `text`, or nil if any character does not map 1:1.
+    /// (`ß` uppercases to `SS`, which would shift every later span.)
+    static func titleCase(_ text: String) -> String? {
+        var out = ""
+        out.reserveCapacity(text.count)
+        var atWordStart = true
+        for ch in text {
+            if ch.isLetter {
+                let mapped = atWordStart ? ch.uppercased() : ch.lowercased()
+                if mapped.count != 1 { return nil }
+                out += mapped
+                atWordStart = false
+            } else {
+                out.append(ch)
+                atWordStart = true
+            }
+        }
+        return out
+    }
+
+    /// Title-case ALL-CAPS input before the model sees it: the trimmed vocab
+    /// shreds uppercase (Cyrillic goes character-by-character), which cost 18pt
+    /// of name recall. Offsets are unchanged, so spans stay valid.
+    static func modelInput(for text: String) -> String {
+        guard isShouting(text), let normalised = titleCase(text),
+              normalised.utf16.count == text.utf16.count else { return text }
+        return normalised
+    }
+
+    /// False when every word is capitalised, so capitalisation cannot mark a
+    /// name. Gates the name-run heuristics: `modelInput(for:)` title-cases
+    /// shouted text and would otherwise manufacture the signal they key on.
+    static func casingIsInformative(_ text: String) -> Bool {
+        var words: [String] = []
+        var current = ""
+        var sawLower = false
+        for ch in text {
+            if ch.isLetter || ch == "'" || ch == "-" || ch == "\u{2019}" {
+                current.append(ch)
+                if ch.isLowercase { sawLower = true }
+            } else {
+                if let f = current.first, f.isLetter { words.append(current) }
+                current = ""
+            }
+        }
+        if let f = current.first, f.isLetter { words.append(current) }
+        if words.count < 3 { return true }
+        if !sawLower { return false }
+        return !words.allSatisfy { $0.first?.isUppercase == true }
+    }
+
+    // The separator is mandatory: without it `unit4` matched as a unit number.
+    private static let secAddrRE = rx(#"\b(?:Apartment|Apt|Suite|Ste|Unit|Building|Bldg|Floor|Fl|Room|Rm|Department|Dept|Trailer|Trlr|Space|Spc|Lot)(?:\.|\s|#)\s*#?\s*(?:\d{1,4}[A-Za-z]?|[A-Za-z]\d{1,4})\b"#, ci: true)
     private static let bnumAfterRE = rx(#"^[\s,]{0,2}(\d{1,5}[a-zA-Z]?(?:[-/]\d{1,4}[a-zA-Z]?)?)\b"#)
     private static let bnumBeforeRE = rx(#"(\d{1,5}[a-zA-Z]?)[\s,]{0,2}$"#)
     private static let nextTokenRE = rx(#"^(\s+)([^\s,.;:!?)\]}"]+)"#)
@@ -149,6 +211,7 @@ enum Pipeline {
     }
 
     static func bridgeNameGaps(_ t: UTF16Text, _ spans: [Span]) -> [Span] {
+        if !casingIsInformative(t.string) { return spans }
         let ordered = spans.sorted { $0.start != $1.start ? $0.start < $1.start : $0.end < $1.end }
         var out: [Span] = []
         for s in ordered {
@@ -163,6 +226,7 @@ enum Pipeline {
     }
 
     static func extendParticleNames(_ t: UTF16Text, _ spans: [Span]) -> [Span] {
+        if !casingIsInformative(t.string) { return spans }
         let ordered = spans.sorted { $0.start != $1.start ? $0.start < $1.start : $0.end < $1.end }
         var out: [Span] = []
         for var sp in ordered {

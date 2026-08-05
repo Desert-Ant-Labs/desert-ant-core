@@ -13,8 +13,8 @@ final class Model: @unchecked Sendable {
     private static let seq = 256
     private static let maxContent = seq - 2      // room for <s> … </s>
     private static let lowScore = 0.3
-    // position_ids baked into the export: arange(pad+1, pad+1+seq).
-    private static let positionIDs: [Int32] = (0..<seq).map { Int32(2 + $0) }
+    // BERT position ids: 0..<seq, matching both exports.
+    private static let positionIDs: [Int32] = (0..<seq).map(Int32.init)
     private static let typeIDs = [Int32](repeating: 0, count: seq)
 
     init(assets: ModelAssets) throws {
@@ -42,7 +42,7 @@ final class Model: @unchecked Sendable {
         let threshold = minScore.isFinite ? min(1, max(0, minScore)) : 0.6
         let det = Deterministic.detect(text, enabled: Deterministic.owned)
         let masked = Pipeline.maskText(text, det)
-        let ml = try await mlSpans(masked, minScore: threshold)
+        let ml = try await mlSpans(Pipeline.modelInput(for: masked), minScore: threshold)
         let corr = Deterministic.detect(text, enabled: ["PHONE"]).filter { !Deterministic.owned.contains($0.label) }
         return Pipeline.cleanSpans(text, Pipeline.relabelByContext(text, Pipeline.resolve(det + corr, ml)))
     }

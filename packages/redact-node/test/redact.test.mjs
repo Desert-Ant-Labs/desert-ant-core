@@ -11,6 +11,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { Redact } from "../node.js";
+// From redact.js, not node.js: pure data, so these assert without a native core.
+import { DEFAULT_LABELS, ALL_LABELS } from "../redact.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const directory = path.join(here, ".model-cache");
@@ -49,4 +51,27 @@ test("restore round-trips exactly", modelOpts, async () => {
 test("label filter", modelOpts, async () => {
   const r = await redact.redaction("Anna at anna@x.com, IBAN DE89370400440532013000.", { labels: ["EMAIL"] });
   assert.deepEqual(new Set(r.items.map((i) => i.label)), new Set(["EMAIL"]));
+});
+
+test("ORG is excluded from the default label set", () => {
+  assert.ok(ALL_LABELS.includes("ORG"), "ORG must be a known label");
+  assert.ok(!DEFAULT_LABELS.includes("ORG"), "ORG must NOT be redacted by default");
+  assert.equal(DEFAULT_LABELS.length, ALL_LABELS.length - 1);
+  for (const label of ALL_LABELS) {
+    if (label !== "ORG") assert.ok(DEFAULT_LABELS.includes(label), `${label} should be on by default`);
+  }
+});
+
+test("label sets are frozen so callers cannot mutate the default", () => {
+  assert.ok(Object.isFrozen(DEFAULT_LABELS));
+  assert.ok(Object.isFrozen(ALL_LABELS));
+});
+
+test("company names survive by default and can be opted into", modelOpts, async () => {
+  const text = "We use Silverfin for invoicing.";
+  const plain = await redact.redaction(text);
+  assert.equal(plain.redactedText, text, "ORG must not be redacted by default");
+
+  const withOrg = await redact.redaction(text, { labels: [...DEFAULT_LABELS, "ORG"] });
+  assert.ok(withOrg.items.some((i) => i.label === "ORG"), "opting in must redact ORG");
 });

@@ -41,12 +41,29 @@ data class Redaction(
     }
 }
 
+/** Label sets for [Options.labels]. */
+object Labels {
+    /** Every label the model can emit, including [ORG]. */
+    val ALL: Set<String> = setOf(
+        "GIVEN_NAME", "SURNAME", "STREET_NAME", "BUILDING_NUMBER", "SECONDARY_ADDRESS",
+        "CITY", "STATE", "ZIP_CODE", "EMAIL", "PHONE", "CREDIT_CARD", "BANK_ACCOUNT",
+        "ROUTING_NUMBER", "IP_ADDRESS", "URL", "GOVERNMENT_ID", "PASSPORT",
+        "DRIVERS_LICENSE", "TAX_ID", "SSN", "IMEI", "ORG",
+    )
+
+    /**
+     * Redacted when [Options.labels] is null: everything except `ORG`, since a
+     * company is not a natural person. Opt in with `Labels.DEFAULT + "ORG"`.
+     */
+    val DEFAULT: Set<String> = ALL - "ORG"
+}
+
 /** Options controlling detection and redaction. */
 data class Options(
     /** Minimum confidence for neural detections. Structured recognizers always
      * apply. Default `0.6`. */
     val minimumConfidence: Double = 0.6,
-    /** If set, only these categories are detected/redacted; otherwise all are. */
+    /** If set, only these categories are redacted; null means [Labels.DEFAULT]. */
     val labels: Set<String>? = null,
 )
 
@@ -106,7 +123,7 @@ class Redact(
         // offsets. Must match Sources/ModelCatalog/Redact/Binding.swift.
         val payload = FfiWriter()
             .double(options.minimumConfidence)
-            .strings(options.labels?.toList() ?: emptyList())
+            .strings((options.labels ?: Labels.DEFAULT).toList())
             .done()
         return model.run(text, payload, failureMessage = "redaction failed") { r ->
             val redactedText = r.string()
