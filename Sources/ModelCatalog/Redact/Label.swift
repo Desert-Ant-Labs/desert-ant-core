@@ -24,6 +24,10 @@ public enum Label: String, Sendable, Hashable, CaseIterable {
     case taxID = "TAX_ID"
     case ssn = "SSN"
     case imei = "IMEI"
+    /// An organisation or company name. **Not redacted by default** — a company
+    /// is not a natural person. Detected so it can be identified rather than
+    /// mislabelled as a `SURNAME`; opt in via ``Options/labels``.
+    case org = "ORG"
 
     /// A short, human-readable name for this category.
     public var displayName: String {
@@ -49,9 +53,13 @@ public enum Label: String, Sendable, Hashable, CaseIterable {
         case .taxID: "Tax ID"
         case .ssn: "SSN"
         case .imei: "IMEI"
+        case .org: "Organisation"
         }
     }
 
     /// Name-family labels (given name / surname).
     static let nameFamilies: Set<String> = ["GIVEN_NAME", "SURNAME"]
+
+    /// The categories redacted when ``Options/labels`` is `nil`: all but ``org``.
+    public static let defaultEnabled: Set<Label> = Set(allCases).subtracting([.org])
 }

@@ -8,10 +8,10 @@ import DesertAnt
 public enum RedactModel: ModelDeclaration {
     public static let id = "redact"
     public static let product = "Redact"
-    public static let revision = "v0.3.0"
+    public static let revision = "v0.4.0"
     /// Matches packages/redact-node/package.json and
     /// packages/redact-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
-    public static let sdkVersion = "0.7.3"
+    public static let sdkVersion = "0.8.0"
     public static let summary = "Multilingual on-device PII detection and redaction."
 
     /// Compact SentencePiece vocab.

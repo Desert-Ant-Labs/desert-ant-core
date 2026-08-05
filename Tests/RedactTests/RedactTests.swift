@@ -121,6 +121,75 @@ struct RedactTests {
 #if !os(WASI)
 @Suite(.serialized, .modelBacked) struct RedactModelTests {
     /// A redactor over the cached model (offline after the fixture's download).
+
+    // MARK: over-redaction remediation
+
+    /// `unit4` is a product name, not an apartment number.
+    @Test func unitDesignatorRequiresSeparator() {
+        for s in ["unit4", "Visma Nova en unit4 geven een foutmelding.",
+                  "We migrated from unit4 to Odoo last year."] {
+            #expect(Pipeline.redactSecondaryAddress(UTF16Text(s), []).isEmpty, "over-redacted \(s)")
+        }
+        for s in ["Apt 4B", "apt 4b", "Suite 300", "Unit 12", "Ste 200", "Apt. 4B", "Suite #300"] {
+            #expect(Pipeline.redactSecondaryAddress(UTF16Text(s), [])
+                .contains { $0.label == "SECONDARY_ADDRESS" }, "\(s) should still match")
+        }
+    }
+
+    /// An IBAN followed by a word must still be caught — this leaked.
+    @Test func ibanInRunningProse() {
+        for s in ["Mijn IBAN NL91ABNA0417164300 klopt niet",
+                  "Please refund to DE89370400440532013000 today",
+                  "Betaal naar BE68539007547034 alstublieft"] {
+            #expect(Deterministic.detect(s).contains { $0.label == "BANK_ACCOUNT" }, "IBAN leaked in \(s)")
+        }
+        let t = UTF16Text("Mijn IBAN NL91ABNA0417164300 klopt niet")
+        let spans = Deterministic.detect("Mijn IBAN NL91ABNA0417164300 klopt niet")
+            .filter { $0.label == "BANK_ACCOUNT" }
+        #expect(spans.count == 1)
+        #expect(t.slice(spans[0].start, spans[0].end) == "NL91ABNA0417164300")
+        // grouped IBANs still match whole
+        let g = UTF16Text("My IBAN is NL91 ABNA 0417 1643 00")
+        let gs = Deterministic.detect("My IBAN is NL91 ABNA 0417 1643 00").filter { $0.label == "BANK_ACCOUNT" }
+        #expect(gs.count == 1)
+        #expect(g.slice(gs[0].start, gs[0].end) == "NL91 ABNA 0417 1643 00")
+        // ... and one running into a word is still not a match
+        #expect(Deterministic.detect("NL91ABNA0417164300graag").filter { $0.label == "BANK_ACCOUNT" }.isEmpty)
+    }
+
+    /// ALL-CAPS is title-cased before the ML pass; offsets must survive.
+    @Test func shoutingNormalisedForModel() {
+        #expect(Pipeline.isShouting("TONI BAN"))
+        #expect(!Pipeline.isShouting("Toni Ban"))
+        #expect(!Pipeline.isShouting("A"))
+        #expect(Pipeline.modelInput(for: "TONI BAN") == "Toni Ban")
+        #expect(Pipeline.modelInput(for: "ТОНЕ ПУЛЕВ") == "Тоне Пулев")
+        #expect(Pipeline.modelInput(for: "JEAN-PIERRE DUPONT") == "Jean-Pierre Dupont")
+        #expect(Pipeline.modelInput(for: "Jan de Vries") == "Jan de Vries")
+        for s in ["TONI BAN", "ТОНЕ ПУЛЕВ", "CTIRAD BENEŠ", "GROSSE STRAßE"] {
+            #expect(Pipeline.modelInput(for: s).utf16.count == s.utf16.count, "offsets shifted for \(s)")
+        }
+    }
+
+    /// Name-run heuristics must stand down when every word is capitalised,
+    /// otherwise title-casing manufactures the signal they key on.
+    @Test func casingInformativeness() {
+        #expect(!Pipeline.casingIsInformative("TONI BAN BELDE OVER DE FACTUUR"))
+        #expect(!Pipeline.casingIsInformative("Toni Ban Belde Over De Factuur"))
+        #expect(Pipeline.casingIsInformative("Jan de Vries belde over de factuur"))
+        #expect(Pipeline.casingIsInformative("TONI BAN"))   // too few words to judge
+    }
+
+    /// ORG is detected but not redacted by default.
+    @Test func orgIsOffByDefault() {
+        #expect(Label.allCases.contains(.org))
+        #expect(!Label.defaultEnabled.contains(.org))
+        #expect(Label.defaultEnabled.count == Label.allCases.count - 1)
+        for l in Label.allCases where l != .org {
+            #expect(Label.defaultEnabled.contains(l), "\(l.rawValue) should be on by default")
+        }
+    }
+
     private func cachedRedact() -> Redact { Redact() }
 
     @Test func tokenizerLoads() async throws {

@@ -1,9 +1,21 @@
-/** The 20 model labels plus the deterministic-only `IMEI` label. */
+/** The model labels, the deterministic-only `IMEI`, and `ORG`. */
 export type RedactLabel =
   | "GIVEN_NAME" | "SURNAME" | "STREET_NAME" | "BUILDING_NUMBER" | "SECONDARY_ADDRESS"
   | "CITY" | "STATE" | "ZIP_CODE" | "EMAIL" | "PHONE" | "CREDIT_CARD" | "BANK_ACCOUNT"
   | "ROUTING_NUMBER" | "IP_ADDRESS" | "URL" | "GOVERNMENT_ID" | "PASSPORT"
-  | "DRIVERS_LICENSE" | "TAX_ID" | "SSN" | "IMEI";
+  | "DRIVERS_LICENSE" | "TAX_ID" | "SSN" | "IMEI" | "ORG";
+
+/**
+ * Redacted when {@link Options.labels} is omitted: every category except `ORG`.
+ *
+ * ```js
+ * await redact.redaction(text, { labels: [...DEFAULT_LABELS, "ORG"] });
+ * ```
+ */
+export declare const DEFAULT_LABELS: readonly RedactLabel[];
+
+/** Every label, including `ORG`. */
+export declare const ALL_LABELS: readonly RedactLabel[];
 
 /** A single redacted entity, with its placeholder and original value. */
 export interface RedactionItem {
@@ -34,8 +46,8 @@ export interface Redaction {
 export interface Options {
   /** Neural confidence threshold, `0..1`. Default `0.6`. Deterministic recognizers always apply. */
   minimumConfidence?: number;
-  /** Restrict detection to these labels. Omit to detect every category. */
-  labels?: Iterable<string>;
+  /** Restrict redaction to these labels. Omit for {@link DEFAULT_LABELS}. */
+  labels?: Iterable<RedactLabel | string>;
   /**
    * Attributes usage to a specific end-user device (multi-tenant hosts serving
    * many users). A string, or a zero-arg function returning one, collected per

@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/redact",
-  "version": "0.7.3",
+  "version": "0.8.0",
   "description": "On-device multilingual PII redaction for JavaScript. Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
