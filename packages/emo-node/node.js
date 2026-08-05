@@ -20,4 +20,5 @@ export const Emo = makeEmo(createNativeSdk({
   here: HERE,
   packageName: PACKAGE_NAME,
   modelId: MODEL_ID,
+  coreName: "EmoNode",
 }));

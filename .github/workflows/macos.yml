@@ -32,8 +32,17 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/Library/Caches/desert-ant-models
-          key: models-${{ runner.os }}-${{ hashFiles('Sources/ModelCatalog/*/Catalog.swift') }}
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
+
+      - name: Verify Emo has no audio or unrelated model dependency
+        run: |
+          swift package clean
+          swift build --target Emo -v 2>&1 | tee /tmp/emo-build.log
+          if grep -Eq 'Sources/(AudioDSP|AudioIO|Clear|Redact)/' /tmp/emo-build.log; then
+            echo "Emo compiled an unrelated target" >&2
+            exit 1
+          fi
 
       # `mise run test-macos` runs the suite with the Xcode toolchain.
       - name: Test

@@ -1,5 +1,9 @@
+#if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
+#endif
 import DesertAnt
+import AudioDSP
+import AudioIO
 
 /// On-device speech enhancement: denoise, dereverb, and loudness-normalize a
 /// noisy recording to a podcast-ready 48 kHz mono file. DeepFilterNet3 under the
@@ -119,7 +123,7 @@ public final class Clear: @unchecked Sendable {
         #if canImport(CoreML) || os(WASI)
         return 1                                          // Apple: fast single session; wasm: LiteRT.js already threaded
         #elseif os(Android)
-        return max(1, min(ProcessInfo.processInfo.activeProcessorCount, 2))   // cap memory on mobile (~2x model size)
+        return 2   // cap memory on mobile (about twice the model size)
         #else
         return max(1, min(ProcessInfo.processInfo.activeProcessorCount, 4))   // Linux/Windows desktop/server
         #endif
@@ -205,7 +209,7 @@ public final class Clear: @unchecked Sendable {
             try await model.download { progress(Progress(phase: .loadingModel, fraction: $0)) }
         }
         let assets = try await model.value()
-        let start = Date()
+        let start = ContinuousClock.now
         progress?(Progress(phase: .analyzing, fraction: 0))
         let input = sampleRate == ClearDSP.sampleRate
             ? samples
@@ -247,8 +251,13 @@ public final class Clear: @unchecked Sendable {
         progress?(Progress(phase: .enhancing, fraction: 1))
         return Result(samples: out, sampleRate: ClearDSP.sampleRate,
                       durationSec: Double(out.count) / ClearDSP.sampleRate,
-                      processingSec: Date().timeIntervalSince(start), measuredLUFS: measured,
+                      processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       modelVariant: assets.variant)
+    }
+
+    private func elapsedSeconds(since start: ContinuousClock.Instant) -> Double {
+        let components = start.duration(to: .now).components
+        return Double(components.seconds) + Double(components.attoseconds) / 1e18
     }
 
     #if canImport(Foundation) && !os(Android) && !os(WASI)

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AudioIO
 import DesertAnt
 import TestSupport
 @testable import Clear

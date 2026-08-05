@@ -1,7 +1,6 @@
 #if os(WASI)
 import DesertAnt
 import WasmBindings
-import Bindings
 @_spi(RedactBindings) import Redact
 
 // Redact's WebAssembly entry point.

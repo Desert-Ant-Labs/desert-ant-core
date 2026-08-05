@@ -10,16 +10,33 @@
 // single-threaded. Apple (fast, single session) and wasm (its LiteRT.js host is
 // already multi-threaded) use one session.
 
-import Foundation
 import DesertAnt
 #if canImport(Accelerate)
 import Accelerate
+#endif
+#if os(Android)
+import Android
+private final class CounterLock {
+    private var mutex = pthread_mutex_t()
+    init() { pthread_mutex_init(&mutex, nil) }
+    deinit { pthread_mutex_destroy(&mutex) }
+    func lock() { pthread_mutex_lock(&mutex) }
+    func unlock() { pthread_mutex_unlock(&mutex) }
+}
+#elseif os(WASI)
+private final class CounterLock {
+    func lock() {}
+    func unlock() {}
+}
+#else
+import Foundation
+private typealias CounterLock = NSLock
 #endif
 
 /// Counts finished chunks across the worker pool and reports the fraction.
 /// A lock rather than an actor so a worker never suspends to report.
 private final class ChunkCounter: @unchecked Sendable {
-    private let lock = NSLock()
+    private let lock = CounterLock()
     private let total: Int
     private let report: (@Sendable (Double) -> Void)?
     private var done = 0

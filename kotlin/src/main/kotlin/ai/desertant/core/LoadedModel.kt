@@ -1,7 +1,6 @@
 package ai.desertant.core
 
 import android.content.Context
-import ai.desertant.DesertAntNative
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -22,7 +21,7 @@ import kotlinx.coroutines.withContext
  *
  * ```kotlin
  * class Emo(context: Context, directory: String? = null) : AutoCloseable {
- *     private val model = LoadedModel(MODEL_ID, "Emo", context, directory, ::EmoException)
+ *     private val model = LoadedModel(MODEL_ID, "Emo", context, directory, ::EmoException, EmoNative)
  *
  *     suspend fun suggestions(text: String, limit: Int = 3): List<EmoSuggestion> {
  *         return model.run(text, FfiWriter().int(limit).done()) { r ->
@@ -44,6 +43,8 @@ import kotlinx.coroutines.withContext
  *   the model is downloaded into it. Null uses the managed cache.
  * @param fail builds the SDK's own exception type, so callers keep catching
  *   `EmoException` / `RedactException` rather than something generic.
+ * @param native the model package's JNI bridge. Each model has its own native
+ *   library, while LiteRT is supplied once by `ai.desertant:core`.
  */
 class LoadedModel internal constructor(
     modelId: String,
@@ -63,7 +64,8 @@ class LoadedModel internal constructor(
         context: Context,
         directory: String? = null,
         fail: (String) -> Exception,
-    ) : this(modelId, name, context.cacheDir.absolutePath, directory, fail, JniModelApi)
+        native: NativeModelApi,
+    ) : this(modelId, name, context.cacheDir.absolutePath, directory, fail, native)
 
     init {
         native.ensureLoaded()
@@ -129,24 +131,13 @@ class LoadedModel internal constructor(
     }
 }
 
-/** The native operations are injectable only so the lifecycle can be tested on
- * the host JVM without loading Android's native libraries. */
-internal interface NativeModelApi {
+/** The native operations supplied by one model SDK. Tests provide a fake, while
+ * production implementations bind that model's uniquely named JNI library. */
+interface NativeModelApi {
     fun ensureLoaded()
     fun create(modelId: ByteArray, cacheRoot: ByteArray?, directory: ByteArray?): Long
     fun destroy(handle: Long)
     fun isDownloaded(handle: Long): Int
     fun download(handle: Long): Int
     fun run(handle: Long, text: ByteArray, options: ByteArray?): ByteArray?
-}
-
-private object JniModelApi : NativeModelApi {
-    override fun ensureLoaded() = DesertAntNative.ensureLoaded()
-    override fun create(modelId: ByteArray, cacheRoot: ByteArray?, directory: ByteArray?) =
-        DesertAntNative.create(modelId, cacheRoot, directory)
-    override fun destroy(handle: Long) = DesertAntNative.destroy(handle)
-    override fun isDownloaded(handle: Long) = DesertAntNative.isDownloaded(handle)
-    override fun download(handle: Long) = DesertAntNative.download(handle)
-    override fun run(handle: Long, text: ByteArray, options: ByteArray?) =
-        DesertAntNative.run(handle, text, options)
 }

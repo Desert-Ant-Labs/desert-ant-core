@@ -7,10 +7,11 @@
 // Browser-safe: no `node:*` imports. The node-only native path lives in
 // node.js.
 
-// @litertjs/core is loaded once per process; its Wasm runtime initializes a
-// single time. `loadLiteRt` memoizes both the module import and the runtime
-// load across every model in the process (LiteRT.js is itself a singleton).
-let liteRtReady;
+// Keep initialization on the global symbol registry rather than in this module.
+// That still gives the page one LiteRT runtime if a package manager installs two
+// physical copies of @desert-ant-labs/core for different model SDKs.
+const liteRtStateKey = Symbol.for("ai.desertant.litert.state");
+const liteRtState = (globalThis[liteRtStateKey] ??= {});
 
 async function importLiteRt(packageName) {
   try {
@@ -45,8 +46,8 @@ async function importLiteRt(packageName) {
  */
 export async function loadLiteRt({ litert, wasmDir, defaultWasmDir, packageName }) {
   const lrt = litert ?? (await importLiteRt(packageName));
-  liteRtReady ??= lrt.loadLiteRt(wasmDir ?? (await defaultWasmDir()));
-  await liteRtReady;
+  liteRtState.ready ??= lrt.loadLiteRt(wasmDir ?? (await defaultWasmDir()));
+  await liteRtState.ready;
   return lrt;
 }
 

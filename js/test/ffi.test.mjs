@@ -84,14 +84,14 @@ test("FfiWriter round-trips through FfiReader", () => {
 });
 
 test("FfiWriter encodes the two model option payloads", () => {
-  // Emo: u32 limit, u32 skinTone (Sources/ModelCatalog/Emo/Binding.swift).
+  // Emo: u32 limit, u32 skinTone (Sources/Emo/Binding.swift).
   const emo = new FfiReader(new FfiWriter().u32(5).u32(3).done());
   assert.equal(emo.u32(), 5);
   assert.equal(emo.u32(), 3);
   assert.equal(emo.remaining, 0);
 
   // Redact: f64 minimumConfidence, then u32 count + names
-  // (Sources/ModelCatalog/Redact/Binding.swift). An empty label set means all.
+  // (Sources/Redact/Binding.swift). An empty label set means the SDK defaults.
   const redact = new FfiReader(new FfiWriter().f64(0.75).strings([]).done());
   assert.equal(redact.f64(), 0.75);
   assert.equal(redact.u32(), 0);

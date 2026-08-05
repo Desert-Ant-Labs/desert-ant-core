@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { decodeWav, mixdownMono, resampleLinear } from "../index.js";
-import { installAudioHost } from "../node.js";
+import { decodeWav, mixdownMono, resampleLinear } from "../audio.js";
+import { installAudioHost } from "../audio-node.js";
 
 // Build a minimal 16-bit PCM WAV in JS (mirror of Swift WAV.encode) so the test
 // needs no fixture file.

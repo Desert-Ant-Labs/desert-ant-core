@@ -3,10 +3,9 @@
 // LiteRT runtime first (so the core's DT_NEEDED resolves in-process), binds the
 // `dal_*` C ABI with koffi, and runs blocking calls on a libuv worker thread.
 //
-// There is one native core (DesertAntNode) and one set of C symbols for every
-// model: the model is a `modelId` string argument, and its options/results cross
-// as FFI payloads it encodes and decodes itself. So a model package supplies no
-// symbols and no library name here - only its codecs.
+// Each package ships a model-specific native library so text models do not pull
+// unrelated models or optional capabilities into their binary. Every library
+// implements the same C symbols and identifies its one model by `modelId`.
 //
 // Node-only (uses node:*, koffi). Browser code never imports this file.
 import { createRequire } from "node:module";
@@ -25,28 +24,25 @@ function koffiModule() {
   return (_koffi ??= require("koffi"));
 }
 
-// The LiteRT runtime and the Swift core are both model-agnostic: every model
-// package loads the same DesertAntNode library (libDesertAntNode.so / .dylib /
-// DesertAntNode.dll) built from the Bindings target.
+// LiteRT is model-agnostic. The Swift native library name is supplied by each
+// model package and all libraries expose the same ABI.
 const RUNTIME = { linux: "libLiteRt.so", darwin: "libLiteRt.dylib", win32: "LiteRt.dll" };
 const coreFile = (name) => ({ linux: `lib${name}.so`, darwin: `lib${name}.dylib`, win32: `${name}.dll` });
 
-/** The default native core: one library for the whole SDK. */
-export const DEFAULT_CORE_NAME = "DesertAntNode";
-
 /**
- * The generic C ABI every model goes through (Sources/Bindings/CABI.swift).
- * `modelId` selects the model, options in and results out are FFI payloads whose
- * schema belongs to the model, so adding a model adds no symbol here.
+ * The C ABI every model-specific native library implements. Everything but the
+ * constructor is generic, since options in and results out are FFI payloads
+ * whose schema belongs to the model. The constructor is named per model
+ * (`emo_create`) so two models can also be linked into one binary.
  */
-export const DAL_SYMBOLS = {
-  create: "void* dal_create(const char*, const char*, const char*)",
+export const dalSymbols = (modelId) => ({
+  create: `void* ${modelId}_create(const char*, const char*, const char*)`,
   isDownloaded: "int dal_is_downloaded(void*)",
   download: "int dal_download(void*)",
   run: "void* dal_run(void*, const char*, const uint8_t*, int, const char*, const char*)",
   destroy: "void dal_destroy(void*)",
   bufferFree: "void dal_buffer_free(void*)",
-};
+});
 
 /**
  * Load and bind the prebuilt native core for this host.
@@ -54,21 +50,19 @@ export const DAL_SYMBOLS = {
  * @param {object} o
  * @param {string} o.here directory of the model's node.js (import.meta dir)
  * @param {string} o.packageName consumer package (for error messages)
- * @param {string} [o.coreName] C core base name; defaults to "DesertAntNode"
+ * @param {string} o.coreName the package's native library base name (e.g. "EmoNode")
+ * @param {string} o.modelId catalog id, which also prefixes the constructor symbol
  * @param {Record<string,string>} [o.symbols] koffi prototypes keyed by a friendly
- *   name; defaults to the generic `dal_*` ABI ({@link DAL_SYMBOLS})
+ *   name; defaults to this model's ABI ({@link dalSymbols})
  * @param {string[]} [o.targets] supported target keys for the error hint
  * @returns {{ lib: Record<string,any>, koffi: any, callAsync: Function,
  *   decodeResult: (ptr:any)=>FfiReader, version: string,
  *   nativeDir: ()=>string, defaultCacheRoot: ()=>string }}
  */
-export function loadNative({
-  here,
-  packageName,
-  coreName = DEFAULT_CORE_NAME,
-  symbols = DAL_SYMBOLS,
-  targets,
-}) {
+export function loadNative({ here, packageName, coreName, modelId, symbols, targets }) {
+  if (!coreName) throw new Error(`${packageName}: loadNative needs the native library's coreName`);
+  if (!symbols && !modelId) throw new Error(`${packageName}: loadNative needs a modelId`);
+  symbols ??= dalSymbols(modelId);
   const version = JSON.parse(fs.readFileSync(path.join(here, "package.json"), "utf8")).version;
   const supported = (targets ?? ["linux-x64", "linux-arm64", "darwin-arm64"]).join(", ");
 
