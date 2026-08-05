@@ -1,10 +1,9 @@
 # Desert Ant Core
 
-On-device AI SDKs for Swift, Kotlin, and JavaScript. Suggest emoji, redact
-personal data, and clean up noisy speech directly on the user's phone, Mac, or
-browser tab. Every model runs locally through Core ML on Apple, LiteRT (formerly
-TensorFlow Lite) on Android, and WebAssembly with LiteRT.js on the web, so text
-and audio never leave the device.
+On-device AI SDKs for Swift, Kotlin, and JavaScript. Small, focused models that
+run directly on the user's phone, Mac, or browser tab, through Core ML on Apple,
+LiteRT (formerly TensorFlow Lite) on Android, and WebAssembly with LiteRT.js on
+the web, so text, audio, and images never leave the device.
 
 ```swift
 import Emo
@@ -38,7 +37,9 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | soon | soon | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
 
 Each model behaves the same on every platform, so you can build a feature once
-and ship it everywhere.
+and ship it everywhere. New models are added regularly; the current set is always
+this table, and the weights live on [Hugging
+Face](https://huggingface.co/desert-ant-labs).
 
 ## Swift
 
@@ -52,8 +53,8 @@ Add the package with Swift Package Manager:
 .package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "0.5.5")
 ```
 
-Then add the products you want to your app target: `Emo`, `Redact`, `Clear`. You
-only pay for what you add, so an Emo-only app carries nothing from the others.
+Then add a product per model you want, named as in the table above. You only pay
+for what you add, so an Emo-only app carries nothing from the other models.
 
 ### Usage
 
@@ -163,6 +164,8 @@ dependencies {
 }
 ```
 
+One dependency per model, using the coordinates from the table above.
+
 ### Usage
 
 `suggestions`, `redaction`, and `download` are suspending functions. A model owns
@@ -200,6 +203,8 @@ val offline = Emo(context, directory = myModelDir)   // adopted as-is, nothing d
 ## JavaScript and TypeScript
 
 ### Install
+
+Each model is its own package, so install the ones you use:
 
 ```bash
 # Browser (WebAssembly + LiteRT.js):
