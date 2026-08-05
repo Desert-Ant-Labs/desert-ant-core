@@ -1,13 +1,12 @@
 import Testing
 @testable import Inference
 
-#if DAL_LITERT
+#if canImport(CLiteRt)
 import Foundation
 
 /// Exercises the LiteRT backend end to end: load a bundled `.tflite`, run it
 /// through the shared `InferenceSession` contract with named tensors, and check
-/// the output. Only compiled when the LiteRT backend is selected
-/// (DAL_INFERENCE_LITERT), and requires linking libLiteRt.so.
+/// the output. Requires linking libLiteRt.so.
 ///
 /// The test model mirrors a shapes-style signature: inputs `features` [1,4,3]
 /// and `mask` [1,4,1] (float32), output `probs` [1,3] = softmax over the
@@ -51,12 +50,12 @@ struct LiteRTSessionTests {
     /// library is bundled, else CPU). It must always load and run and produce a
     /// valid softmax, whichever backend it lands on (GPU kernels differ from CPU
     /// by ~1e-3, so assert loosely).
-    @Test func autoAcceleratorRunsAndFallsBack() throws {
-        let session = try LiteRTSession(modelPath: try modelPath())   // .auto
+    @Test func platformFactoryUsesLiteRT() async throws {
+        let session = try inferenceSession(modelPath: try modelPath())
         let features = [Float](repeating: 0, count: 4 * 3).enumerated().map { i, _ in
             Float([0.25, 0.5, 0.75][i % 3])
         }
-        let outputs = try session.run(
+        let outputs = try await session.run(
             inputs: [
                 "features": Tensor(float32: features, shape: [1, 4, 3]),
                 "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),
@@ -68,10 +67,10 @@ struct LiteRTSessionTests {
         #expect(abs(probs[2] - 0.66524) <= 1e-2)   // largest class, backend-agnostic
     }
 
-    @Test func inMemoryModelBytes() throws {
+    @Test func inMemoryFactoryUsesLiteRT() async throws {
         let bytes = try [UInt8](Data(contentsOf: URL(fileURLWithPath: try modelPath())))
-        let session = try LiteRTSession(modelPath: "", modelBytes: bytes)
-        let outputs = try session.run(
+        let session = try inferenceSession(modelBytes: bytes)
+        let outputs = try await session.run(
             inputs: [
                 "features": Tensor(float32: [Float](repeating: 0, count: 12), shape: [1, 4, 3]),
                 "mask": Tensor(float32: [Float](repeating: 1, count: 4), shape: [1, 4, 1]),

@@ -85,11 +85,11 @@ final class ModelStoreTests {
     }
 
     @Test func downloadVerifyAndOfflineReuse() async throws {
-        let payload = ["redact.onnx": [UInt8](repeating: 0x41, count: 5000),
+        let payload = ["redact.tflite": [UInt8](repeating: 0x41, count: 5000),
                        "redact.mlmodelc/weights/weight.bin": [UInt8](repeating: 0x7, count: 800),
                        "labels.json": Array("{}".utf8)]
         let s = store(MockTransport(payload, lfs: false))  // labels/small files: no LFS hash
-        let m = model(["redact.onnx", "redact.mlmodelc/weights/weight.bin", "labels.json"])
+        let m = model(["redact.tflite", "redact.mlmodelc/weights/weight.bin", "labels.json"])
 
         #expect(!s.isDownloaded(m))
         let last = LockedDouble()
@@ -131,12 +131,12 @@ final class ModelStoreTests {
     }
 
     @Test func modelDistributionSelectsAndInstallsArtifacts() async throws {
-        let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
+        let payload = ["model.tflite": [UInt8](repeating: 3, count: 8),
                        "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example",
             revision: "v1",
-            files: [.current: ["model.onnx", "tokenizer.bin"]]
+            files: [.current: ["model.tflite", "tokenizer.bin"]]
         )
         let fs = FoundationFileSystem()
         let customStore = store(MockTransport(payload), fs)
@@ -147,15 +147,15 @@ final class ModelStoreTests {
             cacheDirectory: tmp
         )
         let files = try await customStore.download(spec)
-        #expect(files.path("model.onnx").hasSuffix("/model.onnx"))
+        #expect(files.path("model.tflite").hasSuffix("/model.tflite"))
         #expect(try files.read("tokenizer.bin") == payload["tokenizer.bin"])
 
         let local = tmp + "/local"
         try fs.makeDirectory(local)
-        try fs.write(local + "/model.onnx", payload["model.onnx"]!)
+        try fs.write(local + "/model.tflite", payload["model.tflite"]!)
         try fs.write(local + "/tokenizer.bin", payload["tokenizer.bin"]!)
         let localFiles = try distribution.load(from: local)
-        #expect(localFiles.path("model.onnx") == local + "/model.onnx")
+        #expect(localFiles.path("model.tflite") == local + "/model.tflite")
 
         fs.remove(local + "/tokenizer.bin")
         do { _ = try distribution.load(from: local); Issue.record("expected missing local file") }
@@ -165,11 +165,11 @@ final class ModelStoreTests {
     }
 
     @Test func resolveAdoptsUserFilesButNotInterruptedDownloads() async throws {
-        let payload = ["model.onnx": [UInt8](repeating: 3, count: 8),
+        let payload = ["model.tflite": [UInt8](repeating: 3, count: 8),
                        "tokenizer.bin": [UInt8](repeating: 4, count: 5)]
         let distribution = ModelDistribution(
             repo: "desert-ant-labs/example", revision: "v1",
-            files: [.current: ["model.onnx", "tokenizer.bin"]]
+            files: [.current: ["model.tflite", "tokenizer.bin"]]
         )
         let fs = FoundationFileSystem()
         let dir = tmp + "/model"
@@ -179,7 +179,7 @@ final class ModelStoreTests {
         // Files you placed (no `.dal-meta`) are adopted offline.
         #expect(distribution.isAvailable(cacheDirectory: dir))
         let files = try await distribution.resolve(cacheDirectory: dir)
-        #expect(try files.read("model.onnx") == payload["model.onnx"])
+        #expect(try files.read("model.tflite") == payload["model.tflite"])
 
         // An interrupted download (a `.dal-meta` marker, no verified manifest)
         // is not adopted as available.
@@ -188,15 +188,15 @@ final class ModelStoreTests {
     }
 
     @Test func failedDownloadIsNotCached() async throws {
-        let s = store(DroppingTransport(["redact.onnx": [UInt8](repeating: 9, count: 4096)]))
-        let m = model(["redact.onnx"])
+        let s = store(DroppingTransport(["redact.tflite": [UInt8](repeating: 9, count: 4096)]))
+        let m = model(["redact.tflite"])
         do { try await s.download(m); Issue.record("expected the dropped download to throw") }
         catch let error as ModelStoreError { if case .io = error {} else { Issue.record("\(error)") } }
 
         // Never treated as downloaded, and no half-written temp or file remains.
         #expect(!s.isDownloaded(m))
-        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
-        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/.dal-meta/redact.onnx.part"))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.tflite"))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/.dal-meta/redact.tflite.part"))
     }
 
     @Test func manifestIsSpecificToRequestedFiles() async throws {
@@ -227,7 +227,7 @@ final class ModelStoreTests {
     }
 
     @Test func missingFileOrFolderThrows() async throws {
-        let t = MockTransport(["redact.onnx": [UInt8](repeating: 1, count: 10)])
+        let t = MockTransport(["redact.tflite": [UInt8](repeating: 1, count: 10)])
         let s = store(t)
         do { try await s.download(model(["nope.bin"])); Issue.record("expected notInRepo") }
         catch let e as ModelStoreError { if case .notInRepo = e {} else { Issue.record("\(e)") } }
@@ -237,13 +237,13 @@ final class ModelStoreTests {
 
     @Test func corruptionIsDetectedAndReDownloaded() async throws {
         let good = [UInt8](repeating: 0x9, count: 4096)
-        let t = MockTransport(["redact.onnx": good])
+        let t = MockTransport(["redact.tflite": good])
         let s = store(t)
-        let m = model(["redact.onnx"])
+        let m = model(["redact.tflite"])
         try await s.download(m)
         #expect(s.isDownloaded(m))
 
-        try FoundationFileSystem().write(s.location(of: m) + "/redact.onnx", [UInt8](repeating: 0xFF, count: 4096))
+        try FoundationFileSystem().write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0xFF, count: 4096))
         #expect(!s.isDownloaded(m))   // always re-hashes
         try await s.download(m)
         #expect(t.downloadCount == 2)  // re-fetched
@@ -251,20 +251,20 @@ final class ModelStoreTests {
     }
 
     @Test func sizeMismatchIsRejected() async throws {
-        let t = MockTransport(["redact.onnx": [UInt8](repeating: 0x3, count: 2048)], sizeOverride: 9999)
+        let t = MockTransport(["redact.tflite": [UInt8](repeating: 0x3, count: 2048)], sizeOverride: 9999)
         let s = store(t)
-        let m = model(["redact.onnx"])
+        let m = model(["redact.tflite"])
         do { try await s.download(m); Issue.record("expected integrity failure") }
         catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { Issue.record("\(e)") } }
         #expect(!s.isDownloaded(m))
-        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.onnx"))
+        #expect(!FileManager.default.fileExists(atPath: s.location(of: m) + "/redact.tflite"))
     }
 
     @Test func hashMismatchIsRejected() async throws {
-        let t = MockTransport(["redact.onnx": [UInt8](repeating: 0x3, count: 2048)],
+        let t = MockTransport(["redact.tflite": [UInt8](repeating: 0x3, count: 2048)],
                               shaOverride: String(repeating: "a", count: 64))
         let s = store(t)
-        let m = model(["redact.onnx"])
+        let m = model(["redact.tflite"])
         do { try await s.download(m); Issue.record("expected integrity failure") }
         catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { Issue.record("\(e)") } }
         #expect(!s.isDownloaded(m))
@@ -272,7 +272,7 @@ final class ModelStoreTests {
 
     @Test func posixFileSystemBackend() async throws {
         // The Android FS backend is raw POSIX, identical on Linux.
-        let payload = ["redact.onnx": [UInt8](repeating: 0x2b, count: 6000),
+        let payload = ["redact.tflite": [UInt8](repeating: 0x2b, count: 6000),
                        "redact.mlmodelc/weights/weight.bin": [UInt8](repeating: 0x11, count: 1234)]
         let posix = POSIXFileSystem(cacheRoot: tmp)
         let s = store(MockTransport(payload), posix)
@@ -282,7 +282,7 @@ final class ModelStoreTests {
         #expect(s.isDownloaded(m))
         #expect(posix.exists(s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
 
-        try posix.write(s.location(of: m) + "/redact.onnx", [UInt8](repeating: 0, count: 6000))
+        try posix.write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0, count: 6000))
         #expect(!s.isDownloaded(m))
     }
 }

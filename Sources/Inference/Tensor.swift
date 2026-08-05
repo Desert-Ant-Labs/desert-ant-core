@@ -1,6 +1,6 @@
 /// A dense tensor crossing an inference boundary, in host byte order.
 ///
-/// One value type shared by every backend (Core ML, ONNX Runtime, a JS host):
+/// One value type shared by every backend (Core ML, LiteRT, a JS host):
 /// model SDKs build named input tensors, run the session, and read named
 /// outputs. Storage is raw bytes so backends move data without caring about
 /// the element type; the typed accessors copy out on demand (memcpy, so large
