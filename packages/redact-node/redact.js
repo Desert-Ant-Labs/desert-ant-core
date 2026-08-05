@@ -5,6 +5,21 @@
 // once per runtime.
 import { decodeRedaction, encodeOptions } from "./codec.js";
 
+/** Every label the model can emit, including `ORG`. */
+export const ALL_LABELS = Object.freeze([
+  "GIVEN_NAME", "SURNAME", "STREET_NAME", "BUILDING_NUMBER", "SECONDARY_ADDRESS",
+  "CITY", "STATE", "ZIP_CODE", "EMAIL", "PHONE", "CREDIT_CARD", "BANK_ACCOUNT",
+  "ROUTING_NUMBER", "IP_ADDRESS", "URL", "GOVERNMENT_ID", "PASSPORT",
+  "DRIVERS_LICENSE", "TAX_ID", "SSN", "IMEI", "ORG",
+]);
+
+/**
+ * Redacted when `options.labels` is omitted: everything except `ORG`, since a
+ * company is not a natural person. Opt in with
+ * `{ labels: [...DEFAULT_LABELS, "ORG"] }`.
+ */
+export const DEFAULT_LABELS = Object.freeze(ALL_LABELS.filter((l) => l !== "ORG"));
+
 /**
  * Build the `Redact` class over a bound SDK (`createWasmSdk` /
  * `createNativeSdk`). The entry points do nothing but call this.
@@ -49,7 +64,7 @@ export function makeRedact(sdk) {
     async redaction(text, options = {}) {
       const payload = encodeOptions({
         minimumConfidence: options.minimumConfidence ?? 0.6,
-        labels: options.labels ? Array.from(options.labels) : undefined,
+        labels: Array.from(options.labels ?? DEFAULT_LABELS),
       });
       return decodeRedaction(await this.#model.run(String(text ?? ""), payload, options));
     }
