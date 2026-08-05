@@ -4,10 +4,24 @@ import Foundation
 
 // Shared package for Desert Ant Labs' on-device model SDKs.
 //
-// JavaScriptKit pulls macros that conflict with Android's static-stdlib link.
-// Android builds therefore omit it; wasm-only sources are already conditional.
+// The wasm backends need JavaScriptKit, which pulls swift-syntax (macros). A
+// package dependency cannot carry a platform condition -- only the *product*
+// dependencies below can -- so declaring it unconditionally makes every consumer
+// (iOS, macOS, Linux, Android) clone JavaScriptKit + swift-syntax and build the
+// host macro plugins, for code that is entirely `#if os(WASI)`. It also breaks
+// Android's static-stdlib link, where host macros conflict with `-resource-dir`.
+//
+// So JavaScriptKit is opt-in: only a build that actually targets wasm sets
+// DAL_WASM_BUILD=1 (mise `test-wasi`, sdk-build `build-web`). Everyone else
+// resolves a graph without it. SWIFT_ANDROID_STATIC_BUILD stays honoured as a
+// hard opt-out so an Android build can never pick it up by accident.
+//
+// `Package.resolved` differs between the two modes (SwiftPM prunes unused pins),
+// which is why it stays gitignored -- switching modes just re-resolves.
 
-let noJavaScriptKit = ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
+let wasmBuild = ProcessInfo.processInfo.environment["DAL_WASM_BUILD"] != nil
+let noJavaScriptKit = !wasmBuild
+    || ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
 let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
     .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
