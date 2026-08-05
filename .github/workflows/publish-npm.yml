@@ -1,16 +1,12 @@
 name: Publish npm
 
-# Publish the @desert-ant-labs/core npm package when a release tag (vX.Y.Z) is
-# pushed, but only if the package actually changed. Pure JS, no build step, so it
-# just runs `mise run publish-npm`. The token comes from the Desert-Ant-Labs
-# organization secrets.
+# Publish the @desert-ant-labs/core npm package on a release tag (vX.Y.Z). Pure
+# JS, no build step, so it just runs `mise run publish-npm`. The token comes from
+# the Desert-Ant-Labs organization secrets.
 #
-# Release model: `mise run set-version X.Y.Z` bumps every artifact's version (so
-# they stay current), you commit and push `vX.Y.Z`, and each publish workflow
-# ships only the artifact whose content changed since the previous tag. A pure
-# version bump does not count as a change, so a blanket set-version that touches
-# nothing but version lines republishes nothing. Published versions may skip
-# (an unchanged artifact keeps its last published version until it next changes).
+# Release model: `mise run set-version X.Y.Z` sets ONE version across every
+# artifact in the repo, you commit and push `vX.Y.Z`, and everything publishes at
+# it. The model packages pin core exactly, so a mismatched pair cannot exist.
 #
 # Organization secret, visibility `all` (set once for the whole org with
 # `gh secret set NPM_TOKEN --org Desert-Ant-Labs --visibility all`), so every SDK
@@ -59,32 +55,9 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
-          if [ -z "$PREV" ]; then
-            echo "no previous tag; publishing ${VERSION}."
-            echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          # Publish only if js/ actually changed since the previous tag, counting
-          # a pure version bump in package.json as no change (so a blanket
-          # set-version that only touches version lines republishes nothing). Any
-          # other changed file - including binaries - counts.
-          files=$(git diff --name-only "$PREV" "$TAG" -- js/)
-          if [ -z "$files" ]; then
-            publish=false
-          elif [ "$files" = "js/package.json" ]; then
-            body=$(git diff "$PREV" "$TAG" -- js/package.json \
-              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]  "version": "' || true)
-            [ -n "$body" ] && publish=true || publish=false
-          else
-            publish=true
-          fi
-
-          if [ "$publish" = true ]; then
-            echo "js/ changed since ${PREV}; publishing ${VERSION}."
-          else
-            echo "js/ unchanged since ${PREV} (only the version bump, if any); skipping."
-          fi
+          # Every artifact in the repo ships one version, and the model packages
+          # pin core exactly, so core has to exist at every released version.
+          publish=true
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   publish:

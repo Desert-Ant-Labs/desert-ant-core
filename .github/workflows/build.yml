@@ -1,9 +1,10 @@
 name: Build
 
-# Verify desert-ant-core's three published artifacts actually build. The Swift
-# package is covered per-platform by macos/ios/wasi/android.yml; these are the
-# non-Swift artifacts, which previously only ever built during a publish - so a
-# break in them stayed invisible until release time.
+# Verify desert-ant-core's three published artifacts actually build, and that
+# every artifact in the repo still carries one version. The Swift package is
+# covered per-platform by macos/ios/wasi/android.yml; these are the non-Swift
+# artifacts, which previously only ever built during a publish - so a break in
+# them stayed invisible until release time. Version drift had the same problem.
 
 on:
   push:
@@ -19,6 +20,17 @@ permissions:
   contents: read
 
 jobs:
+  versions:
+    name: one version everywhere
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      # Drift is only a release-time problem if nothing checks it before then.
+      - run: mise run check-version
+
   kotlin:
     name: ai.desertant:core (Android AAR)
     runs-on: ubuntu-latest

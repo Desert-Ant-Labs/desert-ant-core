@@ -1,0 +1,66 @@
+name: Publish model SDKs
+
+# Publishes every model SDK on a release tag (vX.Y.Z), alongside core's own
+# artifacts. One version covers the whole repo, so one tag releases all of it.
+#
+# Core goes first, and not just for tidiness: a model's Android build resolves
+# the `ai.desertant.model-sdk` convention plugin and `ai.desertant:core` from
+# Maven Central at the version being released, so it cannot even build until
+# core's publish workflows have landed. The tag starts those in parallel with
+# this one, so wait for them here.
+#
+# Add a model to the matrix when it gains npm/Maven packages.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  core-published:
+    name: wait for core
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="${GITHUB_REF_NAME#v}"
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+            || { echo "not a release tag: ${GITHUB_REF_NAME}"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for core ${{ steps.v.outputs.version }} on Maven Central and npm
+        shell: bash
+        env:
+          V: ${{ steps.v.outputs.version }}
+        run: |
+          set -uo pipefail
+          M=https://repo1.maven.org/maven2/ai/desertant
+          urls=(
+            "$M/core/$V/core-$V.pom"
+            "$M/model-sdk-gradle-plugin/$V/model-sdk-gradle-plugin-$V.pom"
+            "https://registry.npmjs.org/@desert-ant-labs/core/$V"
+          )
+          for url in "${urls[@]}"; do
+            echo "waiting for $url"
+            for _ in $(seq 1 80); do   # ~40 min at 30s
+              code=$(curl -sS -o /dev/null -w '%{http_code}' -L "$url" || echo 000)
+              [ "$code" = 200 ] && { echo "  ok"; break; }
+              sleep 30
+            done
+            [ "${code:-000}" = 200 ] || { echo "::error::core $V never appeared at $url"; exit 1; }
+          done
+
+  models:
+    needs: core-published
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [redact, emo]
+    uses: ./.github/workflows/model-sdk-release.yml
+    with:
+      model: ${{ matrix.model }}
+    secrets: inherit
