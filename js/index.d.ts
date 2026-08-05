@@ -21,8 +21,7 @@ export class FfiReader {
 }
 
 /** Builds the FFIBuffer payloads the native core reads (the JS counterpart of
- *  Swift's `FFIReader`): a model's `dal_run` options, or a file manifest for
- *  `dal_create_from_files`. */
+ *  Swift's `FFIReader`): a model's `dal_run` options. */
 export class FfiWriter {
   u32(v: number): this;
   f64(v: number): this;

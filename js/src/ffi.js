@@ -60,9 +60,6 @@ export class FfiReader {
 // counterpart of Swift's `FFIReader` (Sources/FFIBuffer): a model's options cross
 // the generic `dal_run` ABI as a payload the model decodes itself, which is what
 // lets one C symbol serve every model. Same encoding as FfiReader reads.
-//
-// Also used to build the `dal_create_from_files` payload (a u32 count, then
-// name/blob pairs) for hosts that ship their own model files.
 export class FfiWriter {
   constructor() {
     this._parts = [];

@@ -11,7 +11,7 @@ import JavaScriptKit
 //
 //     globalThis.__RedactExports = {
 //       load(cacheRoot, directory?, onProgress?)    -> Promise<boolean>,
-//       loadBundled(labelsJSON, tokenizerBytes)     -> Promise<boolean>,
+//       loadSelfHosted(labelsJSON, tokenizerBytes)  -> Promise<boolean>,
 //       redaction(text, minimumConfidence, labels?) -> Promise<{redactedText, items}>,
 //     }
 //
@@ -88,8 +88,10 @@ let loadFn = JSClosure { args in
     }.jsValue
 }
 
-// loadBundled(labelsJSON, tokenizerBytes): wire self-hosted model files (the JS
-// host's `modelBaseUrl` opt-out). The host has already compiled the model into
+// loadSelfHosted(labelsJSON, tokenizerBytes): wire model files the app serves
+// itself (the JS host's `modelBaseUrl` option, the browser's equivalent of
+// pointing a native SDK at a directory that already holds the model, so nothing
+// is downloaded). The host has already compiled the model into
 // its LiteRT.js session (createSession/loadAndCompile), so only the labels and
 // tokenizer sidecars cross into wasm here; the multi-MB model bytes never do
 // (they stay on the JS side).
@@ -98,7 +100,7 @@ private func typedArrayBytes(_ value: JSValue?) -> [UInt8]? {
     return array.withUnsafeBytes { Array($0) }
 }
 
-let loadBundledFn = JSClosure { args in
+let loadSelfHostedFn = JSClosure { args in
     let labelsJSON = args.first?.string
     let tokenizer = typedArrayBytes(args.count > 1 ? args[1] : nil)
     return JSPromise { resolve in
@@ -121,7 +123,7 @@ let loadBundledFn = JSClosure { args in
 
 let exports = JSObject.global.Object.function!.new()
 exports.load = .object(loadFn)
-exports.loadBundled = .object(loadBundledFn)
+exports.loadSelfHosted = .object(loadSelfHostedFn)
 exports.redaction = .object(redactionFn)
 JSObject.global.__RedactExports = .object(exports)
 #endif

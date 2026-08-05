@@ -11,7 +11,7 @@ import JavaScriptKit
 //
 //     globalThis.__EmoExports = {
 //       load(cacheRoot, directory?, onProgress?)          -> Promise<boolean>,
-//       loadBundled(metaJSON, tokenizerBytes, modelBytes) -> Promise<boolean>,
+//       loadSelfHosted(metaJSON, tokenizerBytes)         -> Promise<boolean>,
 //       suggest(text, limit?, skinTone?, deviceId?)       -> Promise<[{emoji, confidence}]>,
 //     }
 //
@@ -105,8 +105,10 @@ let loadFn = JSClosure { args in
     }.jsValue
 }
 
-// loadBundled(metaJSON, tokenizerBytes): wire self-hosted model files (the JS
-// host's `modelBaseUrl` opt-out). The host has already compiled the model into
+// loadSelfHosted(metaJSON, tokenizerBytes): wire model files the app serves
+// itself (the JS host's `modelBaseUrl` option, the browser's equivalent of
+// pointing a native SDK at a directory that already holds the model, so nothing
+// is downloaded). The host has already compiled the model into
 // its LiteRT.js session (createSession/loadAndCompile), so only the metadata
 // and tokenizer sidecars cross into wasm here; the multi-MB model bytes never
 // do (they stay on the JS side).
@@ -115,7 +117,7 @@ private func typedArrayBytes(_ value: JSValue?) -> [UInt8]? {
     return array.withUnsafeBytes { Array($0) }
 }
 
-let loadBundledFn = JSClosure { args in
+let loadSelfHostedFn = JSClosure { args in
     let metaJSON = args.first?.string
     let tokenizer = typedArrayBytes(args.count > 1 ? args[1] : nil)
     return JSPromise { resolve in
@@ -150,7 +152,7 @@ let flushTelemetryFn = JSClosure { _ in
 
 let exports = JSObject.global.Object.function!.new()
 exports.load = .object(loadFn)
-exports.loadBundled = .object(loadBundledFn)
+exports.loadSelfHosted = .object(loadSelfHostedFn)
 exports.suggest = .object(suggestFn)
 exports.flushTelemetry = .object(flushTelemetryFn)
 JSObject.global.__EmoExports = .object(exports)

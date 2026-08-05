@@ -1,5 +1,5 @@
 // How Emo obtains and shapes its model: the file manifest, the
-// download/adopt/bundle sources, and the `ModelAssets` the pipeline consumes.
+// download/adopt sources, and the `ModelAssets` the pipeline consumes.
 // (Running the model is `Model.swift`.) All platform variation is data here
 // (which artifact ships where); building the platform's session is
 // DesertAnt's `inferenceSession` factory.
@@ -25,29 +25,6 @@ public struct ModelAssets: Sendable {
     public let tokenizer: [UInt8]
     /// The platform's ready-to-run session for the model artifact.
     let session: any InferenceSession
-
-    /// Bindings entry point: in-memory model files (e.g. the Android AAR reads
-    /// them from classpath resources). The model bytes must be the LiteRT
-    /// (`.tflite`) export.
-    public init(metaJSON: String, tokenizerBytes: [UInt8], modelBytes: [UInt8]) throws {
-        self.init(
-            metaJSON: metaJSON,
-            tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelBytes: modelBytes, sdk: EmoModel.sdkInfo))
-    }
-
-    /// Bindings entry point: load the artifact from a file path (the Node
-    /// server-side native's bundled path). `inferenceSession(modelPath:)`
-    /// selects Core ML on Apple hosts (from the `.mlmodelc` directory) and
-    /// LiteRT on Linux (from the `.tflite`), so this one call covers both - the
-    /// unified Node bundling primitive. It is also mmap-based, sidestepping the
-    /// from-bytes buffer-ownership pitfall.
-    public init(metaJSON: String, tokenizerBytes: [UInt8], modelPath: String) throws {
-        self.init(
-            metaJSON: metaJSON,
-            tokenizer: tokenizerBytes,
-            session: try inferenceSession(modelPath: modelPath, sdk: EmoModel.sdkInfo))
-    }
 
     /// Bindings entry point: build from an already-constructed session (e.g. the
     /// wasm host's `JSInferenceSession`) plus the sidecars.
@@ -93,44 +70,12 @@ public extension Emo {
     private static func distribution() -> ModelDistribution { EmoModel.distribution }
 }
 
-// MARK: opt-in app bundling (Apple / Linux)
+// MARK: shipping the model with your app
 
-// This package ships no model artifact, so bundling means model files the app
-// supplies: put this platform's artifact plus the sidecars in a resource bundle
-// of your own and pass it. (Android's equivalent is classpath resources, and wasm
-// always downloads.) This is the one platform conditional in the model code:
-// `Bundle` is a Foundation type, so the initializer only exists where SwiftPM
-// resource bundles do.
-#if canImport(CoreML) || os(Linux)
-import Foundation
-
-public extension Emo {
-    /// Load a model bundled into your app:
-    ///
-    /// ```swift
-    /// let emo = Emo(bundle: myModelBundle)
-    /// ```
-    convenience init(bundle: Bundle) {
-        self.init(
-            resolve: { _ in try ModelAssets.emo(bundle: bundle) },
-            isAvailable: { true }
-        )
-    }
-}
-
-extension ModelAssets {
-    /// Build from a resource bundle: the sidecars plus this platform's session
-    /// for the bundled artifact.
-    static func emo(bundle: Bundle) throws -> ModelAssets {
-        let resources = BundledResources(bundle)
-        do {
-            return ModelAssets(
-                metaJSON: try resources.readString(EmoModel.meta),
-                tokenizer: try resources.read(EmoModel.tokenizer),
-                session: try inferenceSession(modelPath: try resources.path(EmoModel.artifact), sdk: EmoModel.sdkInfo))
-        } catch {
-            throw EmoError.modelNotFound
-        }
-    }
-}
-#endif
+// This package bundles no model artifact and has no resource bundle to load
+// one from. The model is downloaded on demand: to a managed cache location by
+// default, or to the `directory` you pass. Shipping the model with your app is
+// therefore just pointing `directory` at a folder that already holds this
+// platform's artifact plus the sidecars - it is then used offline, with no
+// download. (Android's equivalent is classpath resources, and wasm always
+// downloads.)

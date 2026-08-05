@@ -16,7 +16,10 @@ import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
  * Ant model SDK's `<model>-kotlin` root module. Applies AGP + Kotlin +
  * vanniktech, configures the Android/publish boilerplate, drives the Swift
  * native build (replacing swift-android.gradle.kts), and depends on the shared
- * `ai.desertant:core` host bridge and the model's `:*-tflite-resources` module.
+ * `ai.desertant:core` host bridge.
+ *
+ * No model ships in the AAR: the SDK downloads its model on demand into the app
+ * cache, or into a directory the app names (which may already hold the files).
  *
  * The model id comes from the Gradle root project name; only the marketing
  * `description` is model-specific:
@@ -62,14 +65,13 @@ class ModelSdkPlugin : Plugin<Project> {
         val deps = project.dependencies
         deps.add("implementation", "ai.desertant:core:${ext.coreVersion.get()}")
         deps.add("implementation", "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
-        deps.add("implementation", deps.project(mapOf("path" to ":$model-tflite-resources")))
         deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
         deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 
         // Native build (was swift-android.gradle.kts): `mise run android-natives`
-        // builds libDesertAntAndroid.so per ABI into src/main/jniLibs and stages
-        // the model into the resources module, before the Android package steps.
+        // builds libDesertAntAndroid.so per ABI into src/main/jniLibs before the
+        // Android package steps.
         // One native library serves every model (the model is a `modelId` argument
         // to the shared JNI surface, ai.desertant.DesertAntNative), so the .so name
         // does not vary per SDK.
@@ -84,7 +86,6 @@ class ModelSdkPlugin : Plugin<Project> {
             t.inputs.dir("${project.rootDir}/../../Sources")
             t.inputs.file("${project.rootDir}/../../mise.toml")
             t.outputs.dir("${project.projectDir}/src/main/jniLibs")
-            t.outputs.dir("${project.projectDir}/$model-tflite-resources/src/main/resources")
         }
         project.tasks.named("preBuild").configure { it.dependsOn(buildNatives) }
 
