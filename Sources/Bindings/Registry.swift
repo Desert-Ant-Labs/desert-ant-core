@@ -8,9 +8,6 @@
 // SDK, and the host picks the model at runtime.
 
 import DesertAnt
-import Emo
-import Redact
-import Clear
 
 let bindings: [String: any ModelBinding.Type] = [
     EmoBinding.id: EmoBinding.self,
