@@ -24,7 +24,7 @@ const emo = await Emo.load();
 const suggestions = await emo.suggestions("Pay my bills", { limit: 3 });
 // [{ emoji: "💰", confidence: 0.65 }, ...]
 
-emo.dispose(); // frees native resources in the /native build; no-op otherwise
+emo.dispose(); // release the model (both builds)
 ```
 
 Server-only code that wants the native core imports the same API from the

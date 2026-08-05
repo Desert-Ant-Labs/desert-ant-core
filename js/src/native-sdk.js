@@ -26,16 +26,20 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
   const native = loadNative({ here, packageName, coreName });
   const { lib, callAsync, decodeResult, withCallGroup } = native;
 
+  const isDownloaded = (handle) => lib.isDownloaded(handle) !== 0;
+
+  // Plain closures rather than `this`-dependent methods: the core is handed
+  // around as a value (LoadedModel, readyModel), so it must survive destructuring.
   const core = {
     // Managed nested cache under ~/.cache by default (matching the browser
     // host); an explicit `directory` is adopted when it holds the files, else
     // downloaded into.
     create: (cacheRoot, directory) => lib.create(modelId, cacheRoot, directory || null),
-    isDownloaded: (handle) => lib.isDownloaded(handle) !== 0,
+    isDownloaded,
     async download(handle, onProgress) {
       // The C ABI has no progress channel: report the endpoints so a caller's
       // onProgress behaves the same on both runtimes.
-      if (this.isDownloaded(handle)) return;
+      if (isDownloaded(handle)) return;
       onProgress?.(0);
       const rc = await callAsync(lib.download, handle);
       if (rc !== 0) throw new Error("the native core reported a download failure");
