@@ -48,24 +48,6 @@ public extension Redact {
     static var modelRepo: String { RedactModel.repo }
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { RedactModel.revision }
-
-    /// Resolve the model for `directory` (adopt your files, or download there),
-    /// then build loadable assets. `nil` uses the managed cache.
-    internal static func resolvedAssets(
-        directory: String?,
-        cacheRoot: String? = nil,
-        progress: @Sendable @escaping (Double) -> Void
-    ) async throws -> ModelAssets {
-        let files = try await distribution().resolve(cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction) }
-        return try await .redact(files: files)
-    }
-
-    /// Whether the model is available offline for `directory`.
-    internal static func isModelAvailable(directory: String?, cacheRoot: String? = nil) -> Bool {
-        distribution().isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot)
-    }
-
-    private static func distribution() -> ModelDistribution { RedactModel.distribution }
 }
 
 // MARK: shipping the model with your app

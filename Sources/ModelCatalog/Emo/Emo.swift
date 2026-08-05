@@ -50,12 +50,10 @@ public enum EmoError: MessageError, Sendable {
 /// // "🏃🏽"
 /// ```
 public final class Emo: @unchecked Sendable {
-    /// Resolve the model's assets (downloading/adopting as needed), reporting
-    /// progress `0...1`.
-    typealias ResolveAssets = @Sendable (@escaping @Sendable (Double) -> Void) async throws -> ModelAssets
-
-    private let loader: LazyLoader<Model>
-    private let availability: @Sendable () -> Bool
+    // Resolving the files, loading once, sharing that load, and reporting
+    // availability are the same for every model, so they live in the core's
+    // `LoadedModel`; Emo adds only how a resolved directory becomes its model.
+    private let model: LoadedModel<Model>
 
     /// Creates a suggester. Construction does no work and starts no download;
     /// the model loads on the first ``suggestions(for:limit:skinTone:)`` or
@@ -78,28 +76,22 @@ public final class Emo: @unchecked Sendable {
     /// `~/.cache` on the web). On Apple/Linux FileManager provides it, so the
     /// public `init(directory:)` passes `nil`.
     @_spi(EmoBindings)
-    public convenience init(directory: String?, cacheRoot: String?) {
-        self.init(
-            resolve: { try await Emo.resolvedAssets(directory: directory, cacheRoot: cacheRoot, progress: $0) },
-            isAvailable: { Emo.isModelAvailable(directory: directory, cacheRoot: cacheRoot) }
-        )
+    public init(directory: String?, cacheRoot: String?) {
+        model = LoadedModel(EmoModel.self, directory: directory, cacheRoot: cacheRoot) { files in
+            try Model(assets: await .emo(files: files))
+        }
     }
 
     /// Creates a suggester from explicitly provided assets (used by the
     /// Android/JNI and custom-deployment paths).
     @_spi(EmoBindings)
-    public convenience init(assets: ModelAssets) {
-        self.init(resolve: { _ in assets }, isAvailable: { true })
-    }
-
-    init(resolve: @escaping ResolveAssets, isAvailable: @escaping @Sendable () -> Bool) {
-        loader = LazyLoader { progress in try Model(assets: await resolve(progress)) }
-        availability = isAvailable
+    public init(assets: ModelAssets) {
+        model = LoadedModel { try Model(assets: assets) }
     }
 
     /// Whether the model is available for this suggester with no network:
     /// cached (for the managed location) or already present in `directory`.
-    public func isDownloaded() -> Bool { availability() }
+    public func isDownloaded() -> Bool { model.isDownloaded() }
 
     /// Download and load the model ahead of time, so the first
     /// ``suggestions(for:limit:skinTone:)`` is instant. Reports download
@@ -107,14 +99,14 @@ public final class Emo: @unchecked Sendable {
     /// suggestion, share one download. A no-op once loaded (see
     /// ``isDownloaded()``).
     public func download(progress: @Sendable @escaping (Double) -> Void = { _ in }) async throws {
-        try await loader.run(progress: progress)
+        try await model.download(progress: progress)
     }
 
     /// Await model readiness. The bindings use this to surface load errors
     /// eagerly; apps can just call ``suggestions(for:limit:skinTone:)``.
     @_spi(EmoBindings)
     public func waitUntilLoaded() async throws {
-        _ = try await loader.value()
+        _ = try await model.value()
     }
 
     /// Returns up to `limit` emoji suggestions for `text`, most likely first.
@@ -127,8 +119,7 @@ public final class Emo: @unchecked Sendable {
     public func suggestions(for text: String, limit: Int = 3, skinTone: EmojiSkinTone = .default) async throws -> [EmoSuggestion] {
         let trimmed = text.trimmed
         guard !trimmed.isEmpty else { return [] }
-        let model = try await loader.value()
-        return try await model.suggestions(for: trimmed, limit: limit, skinTone: skinTone)
+        return try await model.value().suggestions(for: trimmed, limit: limit, skinTone: skinTone)
     }
 }
 
