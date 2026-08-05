@@ -2,8 +2,10 @@ import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 // Publishable Android library for `ai.desertant:core`: the reusable Android host
-// side of desert-ant-core's Swift JNI harness (HostBridge.kt). Model SDKs used
-// to vendor this file verbatim; they now depend on this artifact instead.
+// side of desert-ant-core's Swift JNI harness (HostBridge.kt), the JNI surface
+// itself (DesertAntNative.kt), and the shared model shell every SDK wraps
+// (LoadedModel.kt). Model SDKs used to vendor this verbatim; they now depend on
+// this artifact instead.
 //
 // It is pure Kotlin (no native code, no prebuilt .so), so unlike the model SDKs
 // this AAR could build from source anywhere. We still publish it to Maven
@@ -52,6 +54,9 @@ dependencies {
     // HostBridge.kt parses the Hugging Face tree JSON and emits the binary value
     // tree with kotlinx.serialization; the model SDKs already pull the same lib.
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    // LoadedModel uses Dispatchers internally for download and inference.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    testImplementation("junit:junit:4.13.2")
 }
 
 mavenPublishing {
