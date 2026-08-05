@@ -3,8 +3,8 @@ import JavaScriptEventLoop
 import JavaScriptKit
 
 /// WebAssembly inference backend, behind the shared ``InferenceSession`` API.
-/// The JS host owns the model session (onnxruntime-web / onnxruntime-node /
-/// anything tensor-shaped) and exposes one method on a per-model host global:
+/// The JS host owns the LiteRT.js session and exposes one method on a per-model
+/// host global:
 ///
 /// ```js
 /// globalThis.__MyModelHost = {

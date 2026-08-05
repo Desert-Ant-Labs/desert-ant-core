@@ -29,7 +29,7 @@ importable for consumers that want a narrower dependency:
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
-| `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | `CoreMLSession` (Core ML) | `ORTSession` (ONNX Runtime C API) | `JSInferenceSession` (JS host session) |
+| `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | Core ML / `LiteRTSession` | `LiteRTSession` | `JSInferenceSession` (LiteRT.js host) |
 | `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader`, async HTTP client | URLSession | host `java.net` (`CHostBridge`) | JS `fetch` |
 | `Usage` | usage turnstile: build/send `load` events | POST via HTTP client | POST via HTTP client | POST via HTTP client |
 
@@ -197,14 +197,14 @@ let distribution = ModelDistribution(
     revision: "v1",
     files: [
         .apple: ["model.mlmodelc/", "apple_tokenizer.bin"],
-        .linux: ["model.onnx", "tokenizer.bin", "labels.json"],
+        .linux: ["model.tflite", "tokenizer.bin", "labels.json"],
     ]
 )
 let files = try await distribution.install()          // download + cache
 // Or bypass download and caching entirely:
 let local = try distribution.load(from: "/path/to/model-directory")
 let tokenizer = try files.read("tokenizer.bin")
-let modelPath = files.path("model.onnx")
+let modelPath = files.path("model.tflite")
 ```
 
 No model is ever bundled as a package resource: a model is downloaded on demand
@@ -222,7 +222,7 @@ builds its input tensors once and runs them unchanged on all platforms:
 ```swift
 import Inference
 
-let session: InferenceSession = try ORTSession(modelPath: path)   // or CoreMLSession / JSInferenceSession
+let session = try inferenceSession(modelPath: path)
 let logits = try await session.run(
     inputs: [
         "input_ids": Tensor(int64: ids, shape: [1, ids.count]),
@@ -235,12 +235,9 @@ let values = logits.float32Values ?? []
 `Tensor` is raw bytes plus an element type (`int32`/`int64`/`float32`) and
 shape; accessors copy out via memcpy, so large tensors are fine. Multiple
 inputs and outputs are supported, and autoregressive models feed outputs back
-as the next step's inputs. Backends: `CoreMLSession` (Apple, configurable
-`MLModelConfiguration`), `ORTSession` (Android/Linux, path or in-memory bytes;
-the consuming binary links `libonnxruntime.so`), and `JSInferenceSession`
-(wasm; the JS host owns the session and exposes `run(inputs)` on a per-model
-host global). The backends are integration-tested by the model SDKs that use
-them (e.g. redact), since exercising ORT/Core ML needs their runtimes.
+as the next step's inputs. Backends: `CoreMLSession` on Apple,
+`LiteRTSession` on Android/Linux, and `JSInferenceSession` over LiteRT.js on
+wasm. Model SDKs use the public factory rather than naming a backend directly.
 
 Model SDKs normally never name a backend: the session factory picks it, so a
 model repo carries no platform conditionals, just per-platform artifact names:
@@ -248,7 +245,7 @@ model repo carries no platform conditionals, just per-platform artifact names:
 ```swift
 let files = try await distribution.resolve()                 // ModelStore
 let session = try await files.inferenceSession(
-    model: artifactName, hostGlobal: "__MyModelHost")        // CoreML | ORT | JS host
+    model: artifactName, hostGlobal: "__MyModelHost")        // Core ML | LiteRT | JS host
 // Custom deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
 ```
 
