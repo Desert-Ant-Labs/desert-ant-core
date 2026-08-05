@@ -3,6 +3,7 @@ package ai.desertant.emo
 import ai.desertant.DesertAntNative
 import ai.desertant.core.FfiReader
 import ai.desertant.core.FfiWriter
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -35,39 +36,17 @@ class EmoException(message: String) : Exception(message)
  */
 class Emo private constructor(private val handle: Long) : AutoCloseable {
     /**
-     * A suggester using the bundled model by default. When [directory] is
-     * supplied, that directory is treated as the model's home instead (adopt
-     * files there, else download into it). Construction is cheap; the model
-     * loads on the first [suggestions] (or eagerly via [download]).
+     * A suggester that downloads the model into the app cache on first use and
+     * reuses it offline afterward. When [directory] is supplied, that directory
+     * is the model's home instead: files already there are adopted (so an app
+     * that ships the model just points at the folder it unpacked it into),
+     * otherwise the model is downloaded into it. Construction is cheap; the
+     * model loads on the first [suggestions] (or eagerly via [download]).
      */
     constructor(context: android.content.Context, directory: String? = null)
-        : this(if (directory == null) bundledHandleOrNull() ?: createHandle(context.cacheDir.absolutePath, null)
-               else createHandle(context.cacheDir.absolutePath, directory))
+        : this(createHandle(context.cacheDir.absolutePath, directory))
 
     companion object {
-        /**
-         * A suggester using the bundled model (no network). The main Emo AAR
-         * depends on the resources artifact by default because the model is
-         * small; this remains useful for explicit offline construction.
-         */
-        fun bundled(): Emo {
-            val handle = bundledHandleOrNull() ?: throw EmoException(
-                "bundled model unavailable; make sure `ai.desertant:emo-tflite-resources` is present")
-            return Emo(handle)
-        }
-
-        private fun bundledHandleOrNull(): Long? {
-            DesertAntNative.ensureLoaded()
-            // Named as in the catalog manifest (Sources/ModelCatalog/Emo/Catalog.swift),
-            // which is how the native side finds each file in the payload.
-            val files = FfiWriter().int(3)
-            for (name in listOf("emo_meta.json", "emo_tokenizer.bin", "emo.tflite")) {
-                files.string(name).blob(resourceOrNull(name) ?: return null)
-            }
-            val handle = DesertAntNative.createFromFiles(MODEL_ID_BYTES, files.done(), null)
-            return handle.takeIf { it != 0L }
-        }
-
         private fun createHandle(cacheRoot: String, directory: String?): Long {
             DesertAntNative.ensureLoaded()
             val handle = DesertAntNative.create(
@@ -77,9 +56,6 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
             if (handle == 0L) throw EmoException("failed to create Emo")
             return handle
         }
-
-        private fun resourceOrNull(name: String): ByteArray? =
-            Emo::class.java.getResourceAsStream("/$name")?.use { it.readBytes() }
     }
 
     /** Whether the model is available for this suggester with no network. */

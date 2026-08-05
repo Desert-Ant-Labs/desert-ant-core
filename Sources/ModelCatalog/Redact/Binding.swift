@@ -54,18 +54,4 @@ public enum RedactBinding: ModelBinding {
     public static func make(cacheRoot: String?, directory: String?) -> any BoundModel {
         Redact(directory: directory, cacheRoot: cacheRoot)
     }
-
-    public static func make(files: [String: [UInt8]], modelPath: String?) throws -> any BoundModel {
-        guard let tokenizer = files[RedactModel.tokenizer], let labels = files[RedactModel.labels] else {
-            throw RedactError.resourceMissing
-        }
-        let labelsJSON = String(decoding: labels, as: UTF8.self)
-        if let modelPath {
-            return Redact(assets: try ModelAssets(
-                tokenizer: tokenizer, labelsJSON: labelsJSON, modelPath: modelPath))
-        }
-        guard let model = files[RedactModel.tflite] else { throw RedactError.resourceMissing }
-        return Redact(assets: try ModelAssets(
-            tokenizer: tokenizer, labelsJSON: labelsJSON, modelBytes: model))
-    }
 }

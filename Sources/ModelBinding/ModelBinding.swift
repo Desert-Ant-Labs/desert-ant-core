@@ -42,12 +42,7 @@ public protocol ModelBinding {
     /// Lazy construction against the model store: `directory` is an explicit
     /// model home (adopt files there, else download into it), or nil for the
     /// managed layout under `cacheRoot`. No work happens until the first run.
+    /// There is no from-files construction: a host that ships model files with
+    /// its app passes their folder as `directory`, which is adopted as-is.
     static func make(cacheRoot: String?, directory: String?) -> any BoundModel
-
-    /// Construction from model files the host already has, keyed by the file
-    /// names in the catalog manifest (`emo_meta.json`, `emo.tflite`, …). When
-    /// `modelPath` is set, the runnable artifact is read from that path instead
-    /// of `files` - the server-side native path, where mmap beats copying a
-    /// multi-megabyte artifact through the FFI.
-    static func make(files: [String: [UInt8]], modelPath: String?) throws -> any BoundModel
 }

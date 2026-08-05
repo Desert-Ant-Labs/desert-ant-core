@@ -225,8 +225,7 @@ class FfiReader(bytes: ByteArray) {
 
 /**
  * Writes the payloads the native side reads with Swift's `FFIReader`: the
- * per-model options a run takes, and the file manifest for
- * [DesertAntNative.createFromFiles]. Same encoding as [FfiReader] reads.
+ * per-model options a run takes. Same encoding as [FfiReader] reads.
  *
  * This is what lets one JNI surface serve every model: a model's options are a
  * payload it decodes itself rather than a per-model argument list that would

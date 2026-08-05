@@ -22,11 +22,11 @@
 @_exported import PlatformSupport
 @_exported import Usage
 
-// Models: the catalog's declarations, the verified store behind them, bundled
-// resource loading, and the platform's inference sessions.
+// Models: the catalog's declarations, the verified store behind them (models
+// are downloaded on demand, never bundled as package resources), and the
+// platform's inference sessions.
 @_exported import ModelCatalog
 @_exported import ModelStore
-@_exported import ModelResources
 @_exported import Inference
 
 // Cross-language bindings: the length-prefixed FFI buffer, what a model

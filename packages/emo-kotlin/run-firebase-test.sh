@@ -21,8 +21,8 @@ export PATH="$HOME/google-cloud-sdk/bin:$PATH"
 
 # The library's androidTest APK is self-instrumenting (its <instrumentation>
 # targetPackage is its own package), so it is both the app-under-test and the
-# test on Firebase Test Lab. The native libs (jniLibs) and the bundled model
-# (the emo-tflite-resources androidTest dependency) are inside it.
+# test on Firebase Test Lab. The native libs (jniLibs) are inside it; the model
+# itself is downloaded by the test on first run.
 TEST_APK="build/outputs/apk/androidTest/debug/emo-debug-androidTest.apk"
 
 echo "==> Building the instrumented-test APK (native libs already staged in jniLibs)"
