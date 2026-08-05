@@ -50,7 +50,7 @@ Requirements: iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, and Swift 5.9+.
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "0.5.5")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "1.0.0")
 ```
 
 Then add a product per model you want, named as in the table above. You only pay

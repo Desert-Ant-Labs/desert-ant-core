@@ -120,7 +120,7 @@ darwin-arm64 (Core ML). Other platforms fall back to a clear error at `load()`;
 use the default WebAssembly build, the Swift package, or a browser for those.
 
 The same model ships as a Swift package (iOS/macOS) and an Android AAR from the
-same repository: https://github.com/Desert-Ant-Labs/redact
+same repository: https://github.com/Desert-Ant-Labs/desert-ant-core
 
 ## License
 

@@ -2,8 +2,25 @@
 
 `model-sdk.toml` is the shared mise task catalog for the Desert Ant Labs model
 SDKs (shapes, emo, redact, ...). The identical build/publish/version logic lives
-here once; each model repo includes it from a pinned tag and supplies a few
-`[vars]` instead of copying ~500 lines of `mise.toml`.
+here once; a consumer includes it and supplies a few `[vars]` instead of copying
+~500 lines of `mise.toml`.
+
+**In this monorepo**, the catalog is included from `mise.model.toml` behind
+`MISE_ENV=model`, and the model is chosen at run time rather than by `[vars]`:
+
+```sh
+MISE_ENV=model DAL_MODEL=redact DAL_PRODUCT=Redact mise run build
+```
+
+Every build task is scoped to that model: `build-swift` builds its target alone,
+and the rest write only into `packages/<model>-{node,kotlin}`.
+
+Every artifact in the repo ships one version. `mise run set-version X.Y.Z` sets
+it everywhere (core, every model package, each `Catalog.swift`), the model
+packages pin `@desert-ant-labs/core` exactly, and `mise run check-version` fails
+if anything disagrees. One `vX.Y.Z` tag then publishes all of it.
+
+**In a standalone model repo**, `[vars]` names the one model, as below.
 
 ## Using it from a model repo
 
