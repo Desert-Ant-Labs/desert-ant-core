@@ -17,11 +17,11 @@ export const PACKAGE_NAME = "@desert-ant-labs/redact";
  *  (matches `RedactModel.hostGlobal` in the Swift catalog). */
 export const HOST_GLOBAL = "__RedactHost";
 
-/** Sidecars + artifact under a `modelBaseUrl`, named as in the catalog. */
+/** What a `modelBaseUrl` must serve, named as in the catalog: the artifact the
+ *  host compiles itself, and the sidecars that cross into the core. */
 export const MODEL_FILES = {
-  tokenizer: "redact_tokenizer.bin",
-  labels: "labels.json",
   model: "redact.tflite",
+  sidecars: ["redact_tokenizer.bin", "labels.json"],
 };
 
 /** Options payload: `f64 minimumConfidence`, then a `u32` label count and that
