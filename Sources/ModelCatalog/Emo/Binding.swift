@@ -14,7 +14,9 @@ extension Emo: BoundModel {
     /// emoji string and an `f64` confidence.
     public func run(text: String, options: FFIReader) async -> [UInt8]? {
         var options = options
-        let limit = options.isEmpty ? 5 : options.u32()
+        // An empty payload means the SDK defaults, so this must match the default
+        // every SDK declares for `limit` (3), not a number of its own.
+        let limit = options.isEmpty ? 3 : options.u32()
         let tone = EmojiSkinTone(ffiValue: options.u32())
         guard let suggestions = try? await suggestions(for: text, limit: limit, skinTone: tone) else {
             return nil

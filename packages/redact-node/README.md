@@ -41,7 +41,7 @@ r.items;             // detections: label, original, placeholder, confidence, of
 const reply = await llm(r.redactedText);       // the LLM sees only placeholders
 r.restore(reply);    // originals filled back in
 
-redact.dispose();    // frees native resources in the /native build; no-op otherwise
+redact.dispose();    // release the model (both builds)
 ```
 
 Server-only code that wants the native core imports the same API from the

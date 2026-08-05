@@ -35,6 +35,17 @@ class EmoException(message: String) : Exception(message)
  * ```
  */
 class Emo private constructor(private val handle: Long) : AutoCloseable {
+    // The native handle is a retained pointer: releasing it twice over-releases
+    // the model, and using it after release dereferences freed memory. Both are
+    // easy to hit with `use { }` plus a defensive close(), so guard here rather
+    // than crash the app.
+    @Volatile private var closed = false
+
+    private fun handleOrThrow(): Long {
+        if (closed) throw EmoException("this Emo is closed")
+        return handle
+    }
+
     /**
      * A suggester that downloads the model into the app cache on first use and
      * reuses it offline afterward. When [directory] is supplied, that directory
@@ -59,7 +70,7 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
     }
 
     /** Whether the model is available for this suggester with no network. */
-    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handle) != 0
+    fun isDownloaded(): Boolean = DesertAntNative.isDownloaded(handleOrThrow()) != 0
 
     /**
      * Download the model ahead of time so the first [suggestions] is instant. A
@@ -67,7 +78,7 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
      * dispatcher.
      */
     suspend fun download(): Unit = withContext(Dispatchers.IO) {
-        if (DesertAntNative.download(handle) != 0) throw EmoException("model download failed")
+        if (DesertAntNative.download(handleOrThrow()) != 0) throw EmoException("model download failed")
     }
 
     /**
@@ -82,12 +93,17 @@ class Emo private constructor(private val handle: Long) : AutoCloseable {
         // Options payload: u32 limit, u32 skinTone. Must match the reader in
         // Sources/ModelCatalog/Emo/Binding.swift.
         val options = FfiWriter().int(limit).int(skinTone.nativeValue).done()
-        val bytes = DesertAntNative.run(handle, text.toByteArray(Charsets.UTF_8), options)
+        val bytes = DesertAntNative.run(handleOrThrow(), text.toByteArray(Charsets.UTF_8), options)
             ?: throw EmoException("suggestion failed")
         val r = FfiReader(bytes)
         List(r.int()) { EmoSuggestion(r.string(), r.double()) }
     }
 
-    /** Release the native model. The suggester is unusable afterwards. */
-    override fun close() = DesertAntNative.destroy(handle)
+    /** Release the native model. The suggester is unusable afterwards; calling this
+     *  again is a no-op. */
+    @Synchronized override fun close() {
+        if (closed) return
+        closed = true
+        DesertAntNative.destroy(handle)
+    }
 }

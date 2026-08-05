@@ -44,22 +44,29 @@ final class LifecycleObserver {
     }
 
 #elseif os(WASI)
-    private let closure: JSClosure
+    private let hidden: JSClosure
+    private let unload: JSClosure
 
     init(onBackground: @escaping @Sendable () -> Void) {
-        let cb = JSClosure { _ in onBackground(); return .undefined }
-        // visibilitychange (hidden) is the reliable flush point; pagehide covers
-        // actual unload. The transport's beacon path (sendBeacon) survives unload.
-        _ = JSObject.global.document.object?.addEventListener?("visibilitychange", cb.jsValue)
-        _ = JSObject.global.addEventListener?("pagehide", cb.jsValue)
-        self.closure = cb
+        // visibilitychange fires on both directions, so only the hidden edge is a
+        // background event - flushing when the tab comes *back* stamps the idle
+        // clock for no reason. pagehide covers actual unload (the transport's
+        // beacon path survives it).
+        hidden = JSClosure { _ in
+            if JSObject.global.document.object?.visibilityState.string == "hidden" { onBackground() }
+            return .undefined
+        }
+        unload = JSClosure { _ in onBackground(); return .undefined }
+        _ = JSObject.global.document.object?.addEventListener?("visibilitychange", hidden.jsValue)
+        _ = JSObject.global.addEventListener?("pagehide", unload.jsValue)
     }
 
     deinit {
-        _ = JSObject.global.document.object?.removeEventListener?("visibilitychange", closure.jsValue)
-        _ = JSObject.global.removeEventListener?("pagehide", closure.jsValue)
+        _ = JSObject.global.document.object?.removeEventListener?("visibilitychange", hidden.jsValue)
+        _ = JSObject.global.removeEventListener?("pagehide", unload.jsValue)
         #if JAVASCRIPTKIT_WITHOUT_WEAKREFS
-        closure.release()
+        hidden.release()
+        unload.release()
         #endif
     }
 

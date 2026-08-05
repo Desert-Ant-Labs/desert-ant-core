@@ -75,6 +75,25 @@ struct ModelCatalogTests {
         }
     }
 
+    /// The wasm host global and the catalog id are derived here but hard-coded in
+    /// each npm package's `codec.js` (the JS side has no view of the Swift
+    /// catalog). They must agree or the browser build looks up a core that was
+    /// never registered, so cross-check them the way `sdkVersion` is checked.
+    @Test func jsPackagesUseTheDeclaredIdAndHostGlobal() throws {
+        for model in catalog {
+            #expect(
+                model.hostGlobal == "__\(model.product)Host",
+                "\(model.id): host global must derive from the product")
+            guard let codec = try packageFile("packages/\(model.id)-node/codec.js") else { continue }
+            #expect(
+                codec.contains("\"\(model.hostGlobal)\""),
+                "\(model.id): codec.js does not use \(model.hostGlobal)")
+            #expect(
+                codec.contains("MODEL_ID = \"\(model.id)\""),
+                "\(model.id): codec.js does not use the catalog id")
+        }
+    }
+
     @Test func distributionCarriesTheDeclaration() {
         #expect(RedactModel.distribution.repo == "desert-ant-labs/redact")
         #expect(RedactModel.distribution.revision == RedactModel.revision)
@@ -89,13 +108,7 @@ struct ModelCatalogTests {
 /// file is not reachable (a wasm/sandboxed run, or a package pruned from a
 /// checkout) - the invariants above still run, only the cross-check is skipped.
 private func packageVersion(_ model: any ModelDeclaration.Type, _ relativePath: String) throws -> String? {
-    // #filePath is Tests/ModelCatalogTests/<file>, so the repo root is two up.
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let url = root.appendingPathComponent(relativePath)
-    guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+    guard let text = try packageFile(relativePath) else { return nil }
     // Only the module's own version line counts. Anchoring on the start of the
     // line matters: `build.gradle.kts` also carries the convention plugin's
     // version (`id("ai.desertant.model-sdk") version "0.4.2"`), which a looser
@@ -106,6 +119,18 @@ private func packageVersion(_ model: any ModelDeclaration.Type, _ relativePath: 
         if let found = firstSemanticVersion(in: line) { return found }
     }
     return nil
+}
+
+/// A repo file's contents, or nil when it is not reachable (a wasm/sandboxed
+/// run, or a package pruned from a checkout) - the invariants still run, only
+/// the cross-check is skipped.
+private func packageFile(_ relativePath: String) throws -> String? {
+    // #filePath is Tests/ModelCatalogTests/<file>, so the repo root is two up.
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    return try? String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }
 
 /// The first `X.Y.Z` run in `line`. Hand-scanned rather than a regex literal:

@@ -18,6 +18,13 @@ import CHostBridge
 import JavaScriptKit
 #endif
 
+#if os(WASI)
+/// Whether the JS host is Node (rather than a browser or worker).
+func jsHostIsNode() -> Bool {
+    JSObject.global.process.object?.versions.object?.node.string != nil
+}
+#endif
+
 /// A minimal string key/value store the turnstile persists into.
 public protocol UsageStorage {
     func get(_ key: String) -> String?
@@ -72,8 +79,13 @@ public func defaultStorage() -> UsageStorage {
 #elseif os(WASI)
     // Prefer a host-injected store (globalThis.__dalUsageStore, e.g. server-side
     // Node), then the browser's localStorage; otherwise in-memory.
+    //
+    // Node is checked first and never probed for localStorage: Node exposes a
+    // `localStorage` global that is unusable without --localstorage-file, and
+    // merely touching it prints an ExperimentalWarning - which every consumer of
+    // the server-side build would see on load, for a store we cannot use anyway.
     let hasJSStore = JSObject.global.__dalUsageStore.object != nil
-        || JSObject.global.localStorage.object != nil
+        || (!jsHostIsNode() && JSObject.global.localStorage.object != nil)
     return hasJSStore ? JSKeyValueStorage() : InMemoryStorage()
 #else
     return InMemoryStorage()
@@ -127,7 +139,8 @@ public struct JSKeyValueStorage: UsageStorage {
     public init() {}
     // Resolved at access time so a host store installed after init still applies.
     private var storage: JSObject? {
-        JSObject.global.__dalUsageStore.object ?? JSObject.global.localStorage.object
+        if let injected = JSObject.global.__dalUsageStore.object { return injected }
+        return jsHostIsNode() ? nil : JSObject.global.localStorage.object
     }
     public func get(_ key: String) -> String? { storage?.getItem?(key).string }
     public func set(_ key: String, _ value: String) { _ = storage?.setItem?(key, value) }

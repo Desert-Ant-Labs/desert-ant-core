@@ -41,45 +41,67 @@ public final class MemoryFileSystem: FileSystem, @unchecked Sendable {
 /// `globalThis.__DalNodeFS` (a small object of the *Sync methods) - there is no
 /// `require` under the WASI shim - so this is just the platform's file seam; the
 /// download and verification logic stay in the shared Swift ModelStore.
+/// Every node `fs` call can throw a JS exception (a missing path, a read-only
+/// directory, a full disk). A JS exception raised through a non-throwing
+/// JavaScriptKit call is not catchable in Swift: it unwinds into the host and
+/// kills the process. So every call here goes through `throwing` and is turned
+/// into a `ModelStoreError`, matching the POSIX and Foundation backends - a bad
+/// `directory` must fail the load, not the process.
 public struct JSFileSystem: FileSystem {
     private let cacheRoot: String
-    private var fs: JSObject { JSObject.global.__DalNodeFS.object! }
+    private var fs: JSObject? { JSObject.global.__DalNodeFS.object }
 
     public init(cacheRoot: String) { self.cacheRoot = cacheRoot }
     public func defaultCacheRoot() -> String { cacheRoot }
 
-    public func exists(_ path: String) -> Bool { fs.existsSync!(path).boolean ?? false }
+    /// Call a node `fs` method, mapping a JS exception (or a missing seam) to a
+    /// Swift error the store can handle.
+    private func call(_ method: String, _ arguments: ConvertibleToJSValue...) throws -> JSValue {
+        guard let fs, let function = fs[method].function else {
+            throw ModelStoreError.io("\(method): missing from the __DalNodeFS host seam")
+        }
+        do {
+            return try function.throws(this: fs, arguments: arguments)
+        } catch {
+            throw ModelStoreError.io("\(method): \(error)")
+        }
+    }
+
+    public func exists(_ path: String) -> Bool {
+        ((try? call("existsSync", path))?.boolean) ?? false
+    }
 
     public func size(_ path: String) -> Int64? {
-        // statSync throws (a JS exception) on a missing path; guard with exists.
-        guard exists(path), let st = fs.statSync?(path).object, let n = st.size.number else { return nil }
+        // statSync throws on a missing path; both that and a non-file result are
+        // "no size", which is what the store's callers expect.
+        guard let stat = try? call("statSync", path).object, let n = stat.size.number else { return nil }
         return Int64(n)
     }
 
     public func read(_ path: String) throws -> [UInt8] {
-        // readFileSync throws a JS exception on a missing path, which does not
-        // surface as a catchable Swift error; convert it to one so the store's
-        // `try? read(...)` (e.g. the manifest probe) works.
-        guard exists(path) else { throw ModelStoreError.io("read(\(path)) missing") }
-        guard let arr = JSTypedArray<UInt8>(from: fs.readFileSync!(path)) else {
-            throw ModelStoreError.io("readFileSync(\(path))")
+        guard let array = JSTypedArray<UInt8>(from: try call("readFileSync", path)) else {
+            throw ModelStoreError.io("readFileSync(\(path)): not a byte array")
         }
-        return arr.withUnsafeBytes { Array($0) }
+        return array.withUnsafeBytes { Array($0) }
     }
 
     public func write(_ path: String, _ bytes: [UInt8]) throws {
-        _ = fs.writeFileSync!(path, JSTypedArray<UInt8>(bytes).jsValue)
+        _ = try call("writeFileSync", path, JSTypedArray<UInt8>(bytes))
     }
 
     public func makeDirectory(_ path: String) throws {
-        let opts = JSObject.global.Object.function!.new()
-        opts.recursive = true.jsValue
-        _ = fs.mkdirSync!(path, opts.jsValue)
+        let options = JSObject.global.Object.function!.new()
+        options.recursive = true.jsValue
+        _ = try call("mkdirSync", path, options)
     }
 
-    public func move(_ from: String, to: String) throws { _ = fs.renameSync!(from, to) }
-    // unlinkSync throws (a JS exception) on a missing path; only unlink if present.
-    public func remove(_ path: String) { if exists(path) { _ = fs.unlinkSync?(path) } }
+    public func move(_ from: String, to: String) throws {
+        _ = try call("renameSync", from, to)
+    }
+
+    /// Best-effort, like every backend's `remove`: a missing or locked path is
+    /// not an error (unlinkSync throws on both).
+    public func remove(_ path: String) { _ = try? call("unlinkSync", path) }
 }
 
 // Opt-in verbose logging for the WASM model-download transport, enabled from JS

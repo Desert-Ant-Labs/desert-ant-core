@@ -89,6 +89,8 @@ export interface LoadOptions {
  * ```
  */
 export declare class Emo {
+  /** Use Emo.load(); the constructor is internal. */
+  private constructor();
   /**
    * Load the model and return a ready suggester. Downloads from the Hugging Face
    * Hub at the pinned revision and caches by default; pass `directory` (Node) or
