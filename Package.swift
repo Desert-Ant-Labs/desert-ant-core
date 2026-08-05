@@ -2,61 +2,21 @@
 import PackageDescription
 import Foundation
 
-// DesertAnt: reusable, cross-platform Swift building blocks shared by Desert Ant
-// Labs' on-device model SDKs. Each module has one public API and a per-platform
-// backend behind it (Apple/Linux use the OS SDK; Android and wasm call the host
-// through CHostBridge), so consumers write no platform code.
+// Shared package for Desert Ant Labs' on-device model SDKs.
 //
-// An SDK depends on the `DesertAnt` umbrella product and writes one import; the
-// modules below stay individually importable for the core's own targets, tests,
-// and consumers that want a narrower dependency.
-//
-//   DesertAnt    re-exports everything below (`import DesertAnt`)
-//   ModelCatalog every model in the monorepo: coordinates + per-platform files,
-//                plus the `LoadedModel` shell an SDK's public class wraps
-//   Regex        stdlib-`Regex`-shaped matching, type `Pattern`
-//                (NSRegularExpression | java.util.regex | JS RegExp)
-//   JSON         Codable decoding (Foundation.JSONDecoder | host JSON tree | JS JSON.parse)
-//   TextNormalization  String.nfkc via the platform normalizer
-//                (Foundation | Android java.text.Normalizer | JS String.normalize)
-//   ModelStore   verified Hub downloads + platform-neutral StoredModel access
-//   PlatformSupport environment + synchronous FFI/async bridge + HTTP client
-//   Usage        usage turnstile: builds/sends `load` events over the HTTP client
-//   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
-//   WasmBindings model-agnostic wasm export surface (the `dal_*` ABI's twin)
-//   CHostBridge  generic host-callback bridge a runtime shim installs on Android
-//   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
-//                callbacks against a host class (pairs with kotlin/HostBridge.kt)
-//
-// The wasm backends need JavaScriptKit, which pulls swift-syntax macros that
-// conflict with Android's static-stdlib link (`-resource-dir`). Setting
-// SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest so an Android
-// build has no macros in its graph. The wasm backend files are `#if os(WASI)`,
-// so omitting the dependency is harmless off-wasm.
+// JavaScriptKit pulls macros that conflict with Android's static-stdlib link.
+// Android builds therefore omit it; wasm-only sources are already conditional.
 
 let noJavaScriptKit = ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
-// Select the Android/Linux inference backend at build time. Default is ONNX
-// Runtime (COnnxRuntime + ORTSession). Set DAL_INFERENCE_LITERT to use LiteRT
-// (CLiteRt + LiteRTSession) instead: the consumer then vendors libLiteRt.so
-// (and passes -lLiteRt -L...) and ships .tflite artifacts, the same way the ORT
-// path vendors libonnxruntime.so and ships .onnx. Apple always uses Core ML and
-// wasm always uses the JS host session, so this only affects Android/Linux.
+// DAL_INFERENCE_LITERT selects LiteRT instead of ONNX Runtime on native hosts.
 let liteRT = ProcessInfo.processInfo.environment["DAL_INFERENCE_LITERT"] != nil
-
-// The on-device runtime target Inference links on Android/Linux, and the Swift
-// flag that switches ORTSession vs LiteRTSession in the session factory.
-// LiteRT can also back a native server-side build on Apple hosts (the Node
-// SDK's darwin native uses it so it consumes the same .tflite as Linux), so its
-// target is available on macOS too when the LiteRT backend is selected. The
-// default Apple SDK build leaves DAL_INFERENCE_LITERT unset and uses Core ML.
 let inferenceRuntimeDeps: [Target.Dependency] = liteRT
     ? [.target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .macOS]))]
     : [.target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android]))]
 let inferenceSwiftSettings: [SwiftSetting] = liteRT ? [.define("DAL_LITERT")] : []
 
-// The LiteRT backend test suite is only added when that backend is selected, so
-// the default (ORT) `swift test` does not link Inference and need libonnxruntime.
+// Avoid linking the default test run against an unavailable native runtime.
 let liteRTTests: [Target] = liteRT ? [
     .testTarget(
         name: "InferenceTests",
@@ -72,130 +32,99 @@ let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
 let jsWasi: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptKit", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
-// JavaScriptEventLoop provides `try await JSPromise.value` for the wasm ModelStore.
 let jsEventLoop: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptEventLoop", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
-// Installs the JS-backed global executor so `async` tests run under the wasm
-// test harness (needed by any suite that awaits, e.g. the fetch-backed HTTP).
 let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptEventLoopTestSupport", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
 
-// Extracted into explicitly-typed constants so the Swift manifest type-checker
-// handles each array on its own. Inlined into one big Package(...) literal, the
-// many conditional array concatenations (inferenceRuntimeDeps/jsWasi/jsEventLoop
-// + liteRTTests) blow past the type-checker's time budget on some toolchains
-// (e.g. Xcode 26.x): "unable to type-check this expression in reasonable time".
+// This is the only SwiftPM model list. Target-specific differences live here.
+struct ModelPackage {
+    let name: String
+    var dependencies: [Target.Dependency] = []
+    var testResources: [Resource] = []
+}
+
+let models: [ModelPackage] = [
+    .init(name: "Emo"),
+    .init(
+        name: "Redact",
+        dependencies: [.product(name: "RealModule", package: "swift-numerics")],
+        testResources: [.copy("Resources/deterministic_corpus.json")]
+    ),
+]
+let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
+
+// Keep arrays typed separately to avoid manifest type-checker timeouts.
 let products: [Product] = [
-        // The umbrella a model SDK depends on: re-exports every module below, so
-        // an SDK writes `import DesertAnt` and one product dependency. The
-        // individual products stay published for granular consumers.
         .library(name: "DesertAnt", targets: ["DesertAnt"]),
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
-        // What a model implements to be reachable from another language.
         .library(name: "ModelBinding", targets: ["ModelBinding"]),
         .library(name: "Checksum", targets: ["Checksum"]),
         .library(name: "ModelStore", targets: ["ModelStore"]),
-        // Registry of every model SDK in this monorepo (id + published coordinates).
         .library(name: "ModelCatalog", targets: ["ModelCatalog"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
-        // Usage turnstile: builds/sends `load` events over PlatformSupport's HTTP client.
         .library(name: "Usage", targets: ["Usage"]),
-        // Named-tensor inference sessions: Core ML | ONNX Runtime | JS host.
         .library(name: "Inference", targets: ["Inference"]),
-        // Android JNI harness for model SDKs (empty off-Android).
         .library(name: "HostBridge", targets: ["HostBridge"]),
-        // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
-        // The wasm entry-point ABI a model's Web target installs (empty off wasm).
         .library(name: "WasmBindings", targets: ["WasmBindings"]),
-        // Android on-device integration harness, cross-compiled to a JNI .so and
-        // driven by the instrumented test in androidtest/ (empty off-Android).
         .library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
 ]
 
-// The wasm entry points, dropped from an Android build along with JavaScriptKit.
-let modelWasmProducts: [Product] = noJavaScriptKit ? [] : [
-        .executable(name: "EmoWeb", targets: ["EmoWeb"]),
-        .executable(name: "RedactWeb", targets: ["RedactWeb"]),
-]
+let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.map { model in
+    .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
+}
 
-// The model SDKs. Each lives in one folder under Sources/ModelCatalog (its
-// declaration, pipeline, and cross-language entry points), and is its own module
-// so two models can both have a `Model` or `Tokenizer` type. `swift-numerics` is
-// the only non-core dependency any of them needs so far (redact's softmax).
-let modelProducts: [Product] = [
-        .library(name: "Emo", targets: ["Emo"]),
-        .library(name: "Redact", targets: ["Redact"]),
-        // One native library for the whole SDK: the model is a `modelId`
-        // argument to the generic `dal_*` C ABI, so a new model needs no new
-        // symbol, library, or host-side plumbing. Off Android only the C ABI half
-        // compiles (the JNI file is `#if os(Android)`), which is what koffi binds
-        // for the server-side Node build.
-        .library(name: "DesertAntAndroid", type: .dynamic, targets: ["Bindings"]),
-        .library(name: "DesertAntNode", type: .dynamic, targets: ["Bindings"]),
+let modelProducts: [Product] = models.map { model in
+    .library(name: model.name, targets: [model.name])
+} + [
+    .library(name: "DesertAntAndroid", type: .dynamic, targets: ["Bindings"]),
+    .library(name: "DesertAntNode", type: .dynamic, targets: ["Bindings"]),
 ] + modelWasmProducts
 
-let modelWasmTargets: [Target] = noJavaScriptKit ? [] : [
-        .executableTarget(
-            name: "EmoWeb",
-            dependencies: ["Emo", "WasmBindings"] + jsWasi + jsEventLoop,
-            // The wasm hosts bridge JavaScriptKit's non-Sendable JS values across
-            // the event-loop executor; this package's 5.9 tools version means
-            // language mode 5, so those crossings stay warnings.
-            path: "Sources/ModelCatalog/Emo/Web"
-        ),
-        .executableTarget(
-            name: "RedactWeb",
-            dependencies: ["Redact", "WasmBindings"] + jsWasi + jsEventLoop,
-            path: "Sources/ModelCatalog/Redact/Web"
-        ),
-]
+let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.map { model in
+    .executableTarget(
+        name: "\(model.name)Web",
+        dependencies: [
+            .byName(name: model.name),
+            .byName(name: "WasmBindings"),
+        ] + jsWasi + jsEventLoop,
+        path: "Sources/ModelCatalog/\(model.name)/Web"
+    )
+}
 
-let modelTargets: [Target] = [
-        .target(
-            name: "Emo",
-            dependencies: ["DesertAnt"],
-            path: "Sources/ModelCatalog/Emo",
-            exclude: ["Web"]
-        ),
-        .target(
-            name: "Redact",
-            dependencies: [
-                "DesertAnt",
-                // Portable `Double.exp` for the softmax (the stdlib has no
-                // transcendentals; this avoids a per-platform libm import).
-                .product(name: "RealModule", package: "swift-numerics"),
-            ],
-            path: "Sources/ModelCatalog/Redact",
-            exclude: ["Web"]
-        ),
-        // The shared cross-language layer: the `dal_*` C ABI, the JNI entry
-        // points, and the registry naming every model. It depends on the models
-        // (the ABI must be able to construct them), while a model depends only on
-        // the `ModelBinding` protocols in the core.
-        .target(name: "Bindings", dependencies: ["DesertAnt", "Emo", "Redact"]),
+let modelTargets: [Target] = models.map { model in
+    .target(
+        name: model.name,
+        dependencies: [.byName(name: "DesertAnt")] + model.dependencies,
+        path: "Sources/ModelCatalog/\(model.name)",
+        exclude: ["Web"]
+    )
+} + [
+    .target(
+        name: "Bindings",
+        dependencies: [.byName(name: "DesertAnt")] + modelDependencies
+    ),
 ] + modelWasmTargets
 
 let modelTestTargets: [Target] = [
-        // Shared by every model's suite: the memoized model download and the
-        // `.modelBacked` trait that decides where those tests run. A plain target
-        // under Tests/, so it is not a product - test-only code stays out of the
-        // published surface.
-        .target(name: "TestSupport", dependencies: ["DesertAnt"], path: "Tests/TestSupport"),
-        // The suites download the pinned model once instead of loading a
-        // committed copy; no model artifact is in the repo.
-        .testTarget(name: "EmoTests", dependencies: ["Emo", "DesertAnt", "TestSupport"]),
-        .testTarget(
-            name: "RedactTests",
-            dependencies: ["Redact", "DesertAnt", "TestSupport"],
-            resources: [.copy("Resources/deterministic_corpus.json")]
-        ),
-]
+    .target(name: "TestSupport", dependencies: ["DesertAnt"], path: "Tests/TestSupport"),
+] + models.map { model in
+    .testTarget(
+        name: "\(model.name)Tests",
+        dependencies: [
+            .byName(name: model.name),
+            .byName(name: "DesertAnt"),
+            .byName(name: "TestSupport"),
+        ],
+        resources: model.testResources
+    )
+}
 
 let libraryTargets: [Target] = [
         .target(
@@ -207,24 +136,14 @@ let libraryTargets: [Target] = [
                 "FFIBuffer", "ModelBinding", "HostBridge",
             ]
         ),
-        // ONNX Runtime C API (Android/Linux). Vendored header; binaries that
-        // use Inference on these platforms link libonnxruntime.so themselves
-        // (the SDKs vendor it per platform). Compiling needs no library, so
-        // core builds and tests run without it.
+        // Consumers provide the selected native inference library.
         .systemLibrary(name: "COnnxRuntime"),
-        // LiteRT (formerly TensorFlow Lite) C API shim (Android/Linux),
-        // selected instead of COnnxRuntime when DAL_INFERENCE_LITERT is set.
-        // Vendored LiteRT C headers + a small C shim over libLiteRt.so; the
-        // consumer links libLiteRt.so (the SDKs vendor it per platform). Only
-        // built when the LiteRT backend is enabled.
         .target(
             name: "CLiteRt",
             linkerSettings: [.linkedLibrary("LiteRt")]
         ),
         .target(
             name: "Inference",
-            // Depends on Usage so every session the factory builds records usage;
-            // the concrete backends are non-public, so there is no untracked path.
             dependencies: [
                 "ModelStore", "Usage",
             ] + inferenceRuntimeDeps + jsWasi + jsEventLoop,
@@ -265,17 +184,10 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
-        // The catalog's shared half: the ModelDeclaration protocol every model
-        // conforms to. Each model folder beside it is its own target (see
-        // modelTargets), so it is excluded here.
-        // `Usage` is here for the SDK identity each declaration derives (product +
-        // sdkVersion), so a model's telemetry cannot be misattributed or go stale.
-        // `PlatformSupport` is here for `LazyLoader`, which backs the shared
-        // `LoadedModel` shell every model SDK is built on.
         .target(
             name: "ModelCatalog",
             dependencies: ["ModelStore", "Usage", "PlatformSupport"],
-            exclude: ["Emo", "Redact"]
+            exclude: models.map(\.name)
         ),
         .target(
             name: "ModelStore",
@@ -291,10 +203,6 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
         ),
-        // The wasm entry-point ABI: one export surface for every model, so a
-        // model's Web target is its declaration plus the self-hosted-files hook.
-        // Its body is `#if os(WASI)`, so it compiles to nothing (and pulls no
-        // JavaScriptKit) on every other platform.
         .target(
             name: "WasmBindings",
             dependencies: ["DesertAnt"] + jsWasi + jsEventLoop
@@ -312,12 +220,10 @@ let testTargets: [Target] = [
         .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
-        // Models are never bundled as package resources: an SDK downloads on
-        // demand to a default cache path, or to a directory the consumer names
-        // (which may already hold the files, which is how "bundling" is done).
-        // Cross-model invariants, so it owns the registry of every model (the
-        // shared half cannot name the models that depend on it).
-        .testTarget(name: "ModelCatalogTests", dependencies: ["DesertAnt", "Emo", "Redact"]),
+        .testTarget(
+            name: "ModelCatalogTests",
+            dependencies: [.byName(name: "DesertAnt")] + modelDependencies
+        ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),

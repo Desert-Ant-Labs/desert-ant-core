@@ -37,6 +37,19 @@ The design deliberately avoids linking Foundation on Android and wasm (it would
 add a ~40 MB ICU blob); instead it calls the host platform's own regex/JSON,
 which are already loaded. See each module's source header for details.
 
+### SwiftPM model registry
+
+`Package.swift` has one `models: [ModelPackage]` registry. One entry derives the
+model's library product and target, wasm executable and target, test target,
+`Bindings` dependency, `ModelCatalog` exclusion, and cross-model test
+dependency. Most models need only a name; genuine exceptions such as an extra
+package dependency or test resource live on that same entry. Do not add a new
+parallel model list elsewhere in the manifest.
+
+The source-level bindings registry remains `Sources/Bindings/Registry.swift`,
+where the model's concrete `ModelBinding` type is registered with the generic
+ABI.
+
 ## Regex
 
 ```swift
