@@ -1,5 +1,0 @@
-module COnnxRuntime {
-    header "include/onnxruntime_c_api.h"
-    link "onnxruntime"
-    export *
-}

@@ -1,4 +1,4 @@
-#if DAL_LITERT
+#if canImport(CLiteRt)
 import CLiteRt
 #if os(Android)
 import Android
@@ -28,8 +28,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
     // The C shim owns one compiled model plus a single set of fixed-shape host
     // tensor buffers, so a run (and the output reads that follow it, which read
     // those same buffers) is not reentrant. Serialize the whole run+read so
-    // concurrent callers on one session are safe, matching the reentrant
-    // ``InferenceSession`` contract that ORTSession provides for free.
+    // concurrent callers on one session are safe.
     private var lock = pthread_mutex_t()
 
     /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 =

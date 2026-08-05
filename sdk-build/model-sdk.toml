@@ -45,8 +45,8 @@ set -euo pipefail
 LITERT_VER="${usage_litert_version:-2.1.6}"
 LITERT_GPU="${DAL_GPU:-${usage_gpu:-}}"   # non-empty (--gpu or [env] DAL_GPU) also ships the accelerator sibling
 # Apple hosts need no LiteRT: the Swift SDK uses Core ML, and so does the
-# server-side Node native (it loads the bundled .mlmodelc by path). Only
-# Linux/Windows link the vendored libLiteRt.
+# server-side Node native (it loads the bundled .mlmodelc by path). Linux links
+# the vendored libLiteRt.
 if [ "$(uname)" = "Darwin" ]; then exit 0; fi
 # Match the vendored lib to the host arch (linux-x64 or linux-arm64).
 case "$(uname -m)" in
@@ -82,13 +82,11 @@ shell = "bash -c"
 depends = ["litert-libs"]
 run = """
 set -euo pipefail
-# On Apple, Core ML is part of the OS. On Linux the non-Apple backend is LiteRT
-# (DAL_INFERENCE_LITERT flips desert-ant-core to LiteRTSession), so link the
-# vendored libLiteRt.so.
+# On Apple, Core ML is part of the OS. Linux links the vendored LiteRT runtime.
 if [ "$(uname)" = "Darwin" ]; then
     swift build
 else
-    DAL_INFERENCE_LITERT=1 swift build -Xlinker -LVendor/litert/lib/linux-x64
+    swift build -Xlinker -LVendor/litert/lib/linux-x64
 fi
 """
 
@@ -197,7 +195,7 @@ else
         [ -n "$src" ] && ln -sf "$src" "$tmp/$(echo "$so" | sed 's/\\.so.*/.so/')" || true
     done
     LARCH=$([ "$NARCH" = "x64" ] && echo linux-x64 || echo linux-arm64)
-    DAL_INFERENCE_LITERT=1 swift build -c release --product {{ vars.product }}Node $TRAITS -Xswiftc -static-stdlib \\
+    swift build -c release --product {{ vars.product }}Node $TRAITS -Xswiftc -static-stdlib \\
         -Xlinker "-L$tmp" -Xlinker "-LVendor/litert/lib/$LARCH" -Xlinker -rpath -Xlinker '$ORIGIN' \\
         -Xlinker -z -Xlinker nodelete
     cp ".build/release/lib{{ vars.product }}Node.so" "$dest/"
@@ -216,12 +214,11 @@ shell = "bash -c"
 depends = ["litert-libs"]
 run = """
 set -euo pipefail
-# On Apple, Core ML is part of the OS. On Linux the tests run against LiteRT, so
-# select it (DAL_INFERENCE_LITERT) and link/load libLiteRt.so from Vendor/.
+# On Apple, Core ML is part of the OS. Linux links and loads the vendored LiteRT runtime.
 if [ "$(uname)" = "Darwin" ]; then
     swift test
 else
-    DAL_INFERENCE_LITERT=1 LD_LIBRARY_PATH=Vendor/litert/lib/linux-x64 swift test -Xlinker -LVendor/litert/lib/linux-x64
+    LD_LIBRARY_PATH=Vendor/litert/lib/linux-x64 swift test -Xlinker -LVendor/litert/lib/linux-x64
 fi
 """
 
@@ -403,16 +400,13 @@ set -euo pipefail
 # that static linking needs. The wasm/JS code is all #if os(WASI), so it is
 # absent from an Android build anyway.
 #
-# DAL_INFERENCE_LITERT selects the LiteRT backend in desert-ant-core (SwiftPM
-# re-evaluates the core manifest in this process env, so exporting it here is
-# what flips core to LiteRTSession). The litert-android AAR's per-ABI
-# libLiteRt.so must be under Vendor/litert/lib/android-<arch>/. The Swift
-# Android SDK and the NDK it depends on (r27d+) install on demand below.
+# The litert-android AAR's per-ABI libLiteRt.so must be under
+# Vendor/litert/lib/android-<arch>/. The Swift Android SDK and the NDK it depends
+# on (r27d+) install on demand below.
 API="${usage_android_api:-24}"
 KOTLIN=packages/{{ vars.model }}-kotlin/src/main
 NDK_VER=r27d
 export SWIFT_ANDROID_STATIC_BUILD=1
-export DAL_INFERENCE_LITERT=1
 
 # Build against the OFFICIAL Swift Android SDK. The stable release bundles floor
 # at API 28 (Bionic gained posix_spawn there), but the 6.4.x snapshots support

@@ -21,16 +21,15 @@ public enum InferenceError: Error, Sendable {
 /// tensors back (in the order asked). The backends behind it:
 ///
 /// - Apple platforms: ``CoreMLSession`` (Core ML).
-/// - Android / Linux: ``ORTSession`` (ONNX Runtime C API).
-/// - WebAssembly: ``JSInferenceSession`` (the JS host owns the session,
-///   e.g. onnxruntime-web / onnxruntime-node).
+/// - Android / Linux: ``LiteRTSession``.
+/// - WebAssembly: ``JSInferenceSession`` (the JS host owns the LiteRT session).
 ///
 /// Sessions are expensive to create and cheap to run: create one per model and
 /// reuse it. Autoregressive models feed outputs back as the next step's
 /// inputs. `run` is async because the JS backend awaits a Promise; the native
 /// backends satisfy it synchronously. Sessions are `Sendable`: their state is
-/// set once at init, and the underlying runtimes' run calls are thread-safe
-/// (`MLModel.prediction`, `OrtApi.Run`; wasm is single-threaded).
+/// set once at init; Core ML is reentrant, LiteRT runs are serialized around
+/// its fixed buffers, and wasm is single-threaded.
 public protocol InferenceSession: Sendable {
     /// Run the model. `deviceId` attributes usage to a specific end-user device
     /// for multi-tenant hosts (e.g. a server serving many users); `nil` uses the
