@@ -70,7 +70,8 @@ public func dal_is_downloaded(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 public func dal_download(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     guard let model = model(handle) else { return -1 }
     let ok: Bool = blockingValue {
-        do { try await model.download(); return true } catch { return false }
+        // The C ABI has no progress channel; hosts poll or just await the call.
+        do { try await model.download(progress: { _ in }); return true } catch { return false }
     }
     return ok ? 0 : -1
 }

@@ -31,7 +31,7 @@ export interface SuggestOptions {
   /**
    * Bills this call as part of a shared usage call group, so a logical operation
    * made of several suggestions counts once. Get an id from
-   * {@link Emo.withCallGroup}. Native Node build only.
+   * {@link Emo.withCallGroup}.
    */
   group?: string;
 }
@@ -103,10 +103,9 @@ export declare class Emo {
   /**
    * Run `body` with a fresh call-group id, so every `suggestions({ group })`
    * inside it bills as a single usage call. The group is released when `body`
-   * settles. Native Node build only.
+   * settles.
    */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
-  /** Free native resources (the `@desert-ant-labs/emo/native` build). No-op in
-   * the default WebAssembly build. Safe to call in both. */
+  /** Release the model. The suggester is unusable afterwards. Both builds. */
   dispose(): void;
 }

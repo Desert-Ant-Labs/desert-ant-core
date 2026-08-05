@@ -22,6 +22,7 @@ import Foundation
 //   PlatformSupport environment + synchronous FFI/async bridge + HTTP client
 //   Usage        usage turnstile: builds/sends `load` events over the HTTP client
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
+//   WasmBindings model-agnostic wasm export surface (the `dal_*` ABI's twin)
 //   CHostBridge  generic host-callback bridge a runtime shim installs on Android
 //   HostBridge   Android JNI harness: byte marshalling + installs CHostBridge
 //                callbacks against a host class (pairs with kotlin/HostBridge.kt)
@@ -109,6 +110,8 @@ let products: [Product] = [
         .library(name: "HostBridge", targets: ["HostBridge"]),
         // Exposed so an Android runtime's JNI shim can install the callbacks.
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
+        // The wasm entry-point ABI a model's Web target installs (empty off wasm).
+        .library(name: "WasmBindings", targets: ["WasmBindings"]),
         // Android on-device integration harness, cross-compiled to a JNI .so and
         // driven by the instrumented test in androidtest/ (empty off-Android).
         .library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
@@ -139,7 +142,7 @@ let modelProducts: [Product] = [
 let modelWasmTargets: [Target] = noJavaScriptKit ? [] : [
         .executableTarget(
             name: "EmoWeb",
-            dependencies: ["Emo"] + jsWasi + jsEventLoop,
+            dependencies: ["Emo", "WasmBindings"] + jsWasi + jsEventLoop,
             // The wasm hosts bridge JavaScriptKit's non-Sendable JS values across
             // the event-loop executor; this package's 5.9 tools version means
             // language mode 5, so those crossings stay warnings.
@@ -147,7 +150,7 @@ let modelWasmTargets: [Target] = noJavaScriptKit ? [] : [
         ),
         .executableTarget(
             name: "RedactWeb",
-            dependencies: ["Redact"] + jsWasi + jsEventLoop,
+            dependencies: ["Redact", "WasmBindings"] + jsWasi + jsEventLoop,
             path: "Sources/ModelCatalog/Redact/Web"
         ),
 ]
@@ -280,6 +283,14 @@ let libraryTargets: [Target] = [
                 "FFIBuffer",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
+        ),
+        // The wasm entry-point ABI: one export surface for every model, so a
+        // model's Web target is its declaration plus the self-hosted-files hook.
+        // Its body is `#if os(WASI)`, so it compiles to nothing (and pulls no
+        // JavaScriptKit) on every other platform.
+        .target(
+            name: "WasmBindings",
+            dependencies: ["DesertAnt"] + jsWasi + jsEventLoop
         ),
         .target(
             name: "CoreAndroidTests",

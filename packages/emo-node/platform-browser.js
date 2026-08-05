@@ -6,11 +6,12 @@
 // browser target of multi-target bundlers (Next, Remix, SvelteKit, Nuxt). The
 // shared instantiation logic lives in @desert-ant-labs/core.
 import { browserSetup, browserWasmDir, browserReadModelSource, browserCacheRoot } from "@desert-ant-labs/core";
+import { HOST_GLOBAL, MODEL_ID } from "./codec.js";
 
 export function setupCore() {
   return browserSetup({
-    hostGlobal: "__EmoHost",
-    exportsGlobal: "__EmoExports",
+    hostGlobal: HOST_GLOBAL,
+    modelId: MODEL_ID,
     init: () => import("./dist/index.js"),
   });
 }

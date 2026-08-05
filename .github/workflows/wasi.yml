@@ -24,3 +24,8 @@ jobs:
 
       - name: Test (WASI)
         run: mise run test-wasi
+
+      # The model wasm entry points are executables, so the test run above does
+      # not build them; compile them here so a broken one fails the PR.
+      - name: Build the model wasm entry points
+        run: mise run build-wasm-entries
