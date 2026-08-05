@@ -35,6 +35,16 @@ export function loadNative(options: {
   targets?: string[];
 }): NativeCore;
 
+/** The native (server-side Node) half of a model package: bind the prebuilt
+ *  Swift core with koffi and return a bound SDK with the same shape as
+ *  `createWasmSdk`, so a package's public class is written once. */
+export function createNativeSdk(options: {
+  here: string;
+  packageName: string;
+  modelId: string;
+  coreName?: string;
+}): import("./index.js").ModelSdk;
+
 export function nodeSetup(options: {
   hostGlobal: string;
   modelId: string;

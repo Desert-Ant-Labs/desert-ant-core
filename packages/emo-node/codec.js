@@ -16,11 +16,11 @@ export const PACKAGE_NAME = "@desert-ant-labs/emo";
  *  (matches `EmoModel.hostGlobal` in the Swift catalog). */
 export const HOST_GLOBAL = "__EmoHost";
 
-/** Sidecars + artifact under a `modelBaseUrl`, named as in the catalog. */
+/** What a `modelBaseUrl` must serve, named as in the catalog: the artifact the
+ *  host compiles itself, and the sidecars that cross into the core. */
 export const MODEL_FILES = {
-  meta: "emo_meta.json",
-  tokenizer: "emo_tokenizer.bin",
   model: "emo.tflite",
+  sidecars: ["emo_meta.json", "emo_tokenizer.bin"],
 };
 
 export const SKIN_TONES = {

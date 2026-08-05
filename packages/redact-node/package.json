@@ -54,6 +54,7 @@
   "files": [
     "browser.js",
     "codec.js",
+    "redact.js",
     "node.js",
     "platform-browser.js",
     "platform-node.js",

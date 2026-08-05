@@ -147,21 +147,29 @@ export function installLiteRtHost({ hostGlobal, accelerator = "wasm", loadAndCom
 }
 
 /**
- * Fetch self-hosted model files from a base URL (the `modelBaseUrl` opt-out).
- * Accepts absolute URLs and root-relative paths (e.g. "/assets/shapes/").
+ * Fetch model files an app serves itself (the `modelBaseUrl` option). Accepts
+ * absolute URLs and root-relative paths (e.g. "/assets/shapes/").
+ *
+ * The sidecars come back keyed by their catalog file names, which is what the
+ * wasm core's `createSelfHosted` expects; text sidecars stay bytes because the
+ * Swift side decodes them itself. The model bytes stay here, for the caller to
+ * compile in LiteRT.js: the multi-MB artifact never crosses into wasm.
  *
  * @param {string} baseUrl
- * @param {{ meta: string, model: string }} files file names under baseUrl,
- *   e.g. { meta: "shapes_meta.json", model: "shapes.tflite" }
- * @returns {Promise<{ metaJSON: string, modelBytes: Uint8Array }>}
+ * @param {{ model: string, sidecars: string[] }} files names under baseUrl, e.g.
+ *   { model: "shapes.tflite", sidecars: ["shapes_meta.json"] }
+ * @returns {Promise<{ sidecars: Record<string, Uint8Array>, modelBytes: Uint8Array }>}
  */
-export async function fetchModelFrom(baseUrl, files) {
+export async function fetchSelfHostedModel(baseUrl, files) {
   const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
-  const [meta, model] = await Promise.all([
-    fetch(`${base}${files.meta}`).then((r) => r.text()),
-    fetch(`${base}${files.model}`).then((r) => r.arrayBuffer()),
+  const get = async (name) => new Uint8Array(await fetch(`${base}${name}`).then((r) => r.arrayBuffer()));
+  const [modelBytes, ...sidecarBytes] = await Promise.all([
+    get(files.model),
+    ...files.sidecars.map(get),
   ]);
-  return { metaJSON: meta, modelBytes: new Uint8Array(model) };
+  const sidecars = {};
+  files.sidecars.forEach((name, i) => { sidecars[name] = sidecarBytes[i]; });
+  return { sidecars, modelBytes };
 }
 
 // ------------------------------------------------------------- browser seam

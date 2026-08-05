@@ -9,8 +9,12 @@ test("browser-safe entry exports the expected surface", async () => {
     "loadLiteRt",
     "assertBrowserRuntime",
     "installLiteRtHost",
-    "fetchModelFrom",
+    "fetchSelfHostedModel",
+    "createWasmSdk",
+    "readyModel",
+    "wasmCore",
     "browserSetup",
+    "wasmExports",
     "browserWasmDir",
     "browserReadModelSource",
     "browserCacheRoot",
@@ -22,6 +26,7 @@ test("browser-safe entry exports the expected surface", async () => {
 test("node entry exports the native loader + node seam", async () => {
   const node = await import("../node.js");
   for (const name of [
+    "createNativeSdk",
     "loadNative",
     "nodeSetup",
     "nodeWasmDir",
