@@ -2,7 +2,7 @@
 // fixed-window model (via desert-ant-core's InferenceSession, so the same code
 // runs Core ML on Apple, LiteRT on Android/Linux, and the JS host on the web)
 // -> scatter enhanced spectrum -> ISTFT. Ported from clear-swift's Inference
-// chunk loop; tensors are float32 (the LiteRT/ONNX I/O type; Core ML casts fp16).
+// chunk loop; tensors are float32 (LiteRT's I/O type; Core ML casts fp16).
 //
 // The model is a fixed 200-frame window and each chunk is independent, so on
 // native platforms the chunk loop runs across a pool of sessions (one per
@@ -16,6 +16,29 @@ import DesertAnt
 import Accelerate
 #endif
 
+/// Counts finished chunks across the worker pool and reports the fraction.
+/// A lock rather than an actor so a worker never suspends to report.
+private final class ChunkCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private let total: Int
+    private let report: (@Sendable (Double) -> Void)?
+    private var done = 0
+
+    init(total: Int, report: (@Sendable (Double) -> Void)?) {
+        self.total = max(1, total)
+        self.report = report
+    }
+
+    func finishOne() {
+        guard let report else { return }
+        lock.lock()
+        done += 1
+        let fraction = min(1, Double(done) / Double(total))
+        lock.unlock()
+        report(fraction)
+    }
+}
+
 struct ClearEnhancer {
     let sessions: [any InferenceSession]
     let chunkLen: Int
@@ -26,15 +49,25 @@ struct ClearEnhancer {
         self.chunkLen = chunkLen
     }
 
-    func enhance(_ samples: [Float]) async throws -> [Float] {
+    /// - Parameters:
+    ///   - onAnalysis: the front end (STFT then the ERB/DF feature pass),
+    ///     reported as it completes each step.
+    ///   - onChunk: the fraction of model chunks completed. Chunks finish out
+    ///     of order across the session pool, so this counts completions rather
+    ///     than positions - monotonic, but not a position in the file.
+    func enhance(_ samples: [Float],
+                 onAnalysis: (@Sendable (Double) -> Void)? = nil,
+                 onChunk: (@Sendable (Double) -> Void)? = nil) async throws -> [Float] {
         guard !samples.isEmpty, !sessions.isEmpty else { return samples }
         let clean = sanitize(samples)
         let padded = padToWindowMultiple(clean)
         let (real, imag, nFrames) = stft.forward(padded)
         guard nFrames > 0 else { return clean }
+        onAnalysis?(0.5)
 
         let (featErb, featSpecReal, featSpecImag) =
             ClearFeatures.compute(real: real, imag: imag, nFrames: nFrames)
+        onAnalysis?(1)
 
         let count = real.count
         let outRe = UnsafeMutablePointer<Float>.allocate(capacity: count)
@@ -48,6 +81,7 @@ struct ClearEnhancer {
         // Each worker owns one session and a strided set of chunks; output
         // ranges are disjoint per chunk, so the shared buffers need no locking.
         let box = Unchecked((outRe, outIm, sessions, featErb, featSpecReal, featSpecImag, real, imag))
+        let completed = ChunkCounter(total: nChunks, report: onChunk)
         try await withThrowingTaskGroup(of: Void.self) { group in
             for w in 0..<workers {
                 group.addTask {
@@ -59,6 +93,7 @@ struct ClearEnhancer {
                         try await Self.runChunk(session: session, start: start, end: end, nFrames: nFrames, chunkLen: chunkLen,
                                                 featErb: fe, featSpecReal: fsr, featSpecImag: fsi,
                                                 specReal: sr, specImag: si, outRe: outRe, outIm: outIm)
+                        completed.finishOne()
                         c += workers
                     }
                 }
@@ -91,7 +126,7 @@ struct ClearEnhancer {
         if tEnd > tStart {
             let n = tEnd - tStart, src = start + tStart + look
             featErb.withUnsafeBufferPointer { sp in erbBuf.withUnsafeMutableBufferPointer { dp in
-                memcpy(dp.baseAddress! + tStart * nErb, sp.baseAddress! + src * nErb, n * nErb * 4) } }
+                _ = memcpy(dp.baseAddress! + tStart * nErb, sp.baseAddress! + src * nErb, n * nErb * 4) } }
             interleave(featSpecReal, featSpecImag, srcOffset: src * nDf, into: &featSpecBuf, dstOffset: tStart * nDf, count: n * nDf)
         }
         if sEnd > 0 {

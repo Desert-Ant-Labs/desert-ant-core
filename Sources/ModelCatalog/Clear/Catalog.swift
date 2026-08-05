@@ -18,27 +18,24 @@ public enum ClearModel: ModelDeclaration {
     public static let sdkVersion = "0.1.0"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
-    /// The published variant this SDK is built against. The repo also ships a
-    /// `clear-natural` export; switching variants is a file-name change here.
-    public static let variant = "clear-studio"
+    /// The variant this declaration describes: the SDK default. The repo also
+    /// publishes `clear-natural`, which a caller selects per instance
+    /// (`Clear(variant:)`) and which downloads through ``ModelVariant`` rather
+    /// than through this manifest - the catalog entry stays one model's default
+    /// artifact, which is what tooling and the shared test fixture expect.
+    public static let variant = ModelVariant.default
     /// Core ML export (a directory on the Hub): Apple. Already ANE-friendly and
     /// 6-bit palettized, so no per-platform export shaping is needed.
-    public static let coreML = "\(variant).mlmodelc"
+    public static let coreML = variant.coreML
     /// LiteRT export: Android/Linux/Windows, and LiteRT.js on the web.
-    public static let tflite = "\(variant).tflite"
+    public static let tflite = variant.tflite
 
     /// Unlike the text models, clear has no sidecars: the DSP front end
     /// (`DSP.swift`/`Features.swift`) carries the constants that would otherwise
     /// be a metadata file, so a platform ships exactly one artifact.
-    public static let files: [ModelPlatform: [String]] = [
-        .apple: [coreML + "/"],
-        .android: [tflite],
-        .linux: [tflite],
-        .windows: [tflite],
-        .web: [tflite],
-    ]
+    public static let files: [ModelPlatform: [String]] = variant.files
 
     public static func artifact(for platform: ModelPlatform) -> String {
-        platform == .apple ? coreML : tflite
+        variant.artifact(for: platform)
     }
 }

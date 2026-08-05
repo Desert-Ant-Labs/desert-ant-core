@@ -3,11 +3,11 @@ import DesertAnt
 
 /// On-device speech enhancement: denoise, dereverb, and loudness-normalize a
 /// noisy recording to a podcast-ready 48 kHz mono file. DeepFilterNet3 under the
-/// hood, running on Core ML (Apple), ONNX Runtime (Android/Linux), or the JS
+/// hood, running on Core ML (Apple), LiteRT (Android/Linux), or the JS
 /// host (web) through desert-ant-core, with the DSP shared across all platforms.
 ///
 /// ```swift
-/// let clear = try Clear(modelPath: "clear-studio.onnx")   // or download via Clear()
+/// let clear = try Clear(modelPath: "clear-studio.tflite")  // or download via Clear()
 /// let out = try await clear.enhance(path: "in.wav", to: "out.wav")
 /// ```
 public final class Clear: @unchecked Sendable {
@@ -25,19 +25,31 @@ public final class Clear: @unchecked Sendable {
     public struct Options: Sendable {
         /// Enhancement blend. Default full.
         public var strength: Strength
-        /// Integrated loudness target in LUFS (nil disables mastering).
-        public var targetLUFS: Double?
-        /// True-peak ceiling in dBFS for the master.
-        public var peakCeilingDBFS: Double
-        /// Cap on the upward loudness gain in dB.
-        public var maxGainDB: Double
-        public init(strength: Strength = .full, targetLUFS: Double? = -19,
-                    peakCeilingDBFS: Double = -1.0, maxGainDB: Double = 12) {
+        /// Where the output should land loudness-wise. Defaults to the Apple
+        /// Podcasts spec; use a ``Clear/LoudnessPreset``, `.targetLUFS(_:)`, or
+        /// `.bypass` to leave the model's own level alone.
+        public var mastering: Mastering
+
+        public init(strength: Strength = .full, mastering: Mastering = .applePodcasts) {
             self.strength = strength
-            self.targetLUFS = targetLUFS
-            self.peakCeilingDBFS = peakCeilingDBFS
-            self.maxGainDB = maxGainDB
+            self.mastering = mastering
         }
+
+        /// Loudness targets without naming a delivery platform. `targetLUFS` is
+        /// required, so `Options()` still means "full strength, Apple Podcasts".
+        public init(strength: Strength = .full, targetLUFS: Double?,
+                    peakCeilingDBFS: Double = -1.5, maxGainDB: Double = 9) {
+            self.strength = strength
+            self.mastering = Mastering(
+                integratedLUFS: targetLUFS ?? Mastering.applePodcasts.integratedLUFS,
+                truePeakDBTP: peakCeilingDBFS,
+                enabled: targetLUFS != nil,
+                maxLoudnessGainDB: maxGainDB)
+        }
+
+        /// The integrated-LUFS target, or nil when mastering is bypassed.
+        public var targetLUFS: Double? { mastering.enabled ? mastering.integratedLUFS : nil }
+
         public static let `default` = Options()
     }
 
@@ -47,8 +59,53 @@ public final class Clear: @unchecked Sendable {
         public let durationSec: Double
         public let processingSec: Double
         public let measuredLUFS: Double?
+        /// Which published model variant produced this output, or nil when the
+        /// artifact is not a published one (a custom export, or a wasm host
+        /// that compiled the model itself).
+        public let modelVariant: ModelVariant?
         public var realtimeFactor: Double { processingSec > 0 ? durationSec / processingSec : 0 }
     }
+
+    /// Stages reported through ``ProgressHandler``. Each runs to completion
+    /// before the next starts, and `fraction` resets to 0 at every transition,
+    /// so a caller can weight them however its UI needs.
+    ///
+    /// Same cases, and the same order, as the standalone Clear SDK, so progress
+    /// code moves over unchanged. What sits behind them differs: that SDK made
+    /// two streaming passes over the file (analyze into a loudness meter, then
+    /// re-stream applying gain), while this pipeline runs the front end once,
+    /// then the model, then masters the result in memory. The split lands in
+    /// the same place - a quick analysis phase, then the long model phase.
+    public enum Phase: Sendable, Equatable {
+        /// Resolving the model: downloading or adopting the files, then
+        /// building the platform's session. On Apple the first launch also
+        /// pays the Core ML compile, which can take tens of seconds on iPhone;
+        /// it is cached afterwards. Skipped entirely once loaded.
+        case loadingModel
+        /// The DSP front end ahead of the model: resample to 48 kHz, STFT, and
+        /// the ERB/DF feature pass. Fast relative to ``enhancing``.
+        case analyzing
+        /// The model itself, chunk by chunk, plus the strength blend and the
+        /// mastering chain that follow it. The long phase: `fraction` is the
+        /// share of model chunks finished, reaching 1 once mastering is done.
+        case enhancing
+    }
+
+    /// A progress report: which ``Phase`` is running and how far into it.
+    public struct Progress: Sendable, Equatable {
+        public let phase: Phase
+        /// 0...1 within `phase`.
+        public let fraction: Double
+        public init(phase: Phase, fraction: Double) {
+            self.phase = phase
+            self.fraction = fraction
+        }
+    }
+
+    /// Called with each ``Progress`` update. Invoked from whatever context the
+    /// work is on (model chunks run across a task group), so hop to your own
+    /// actor before touching UI state.
+    public typealias ProgressHandler = @Sendable (Progress) -> Void
 
     // Resolving, downloading, single-flighting, and offline availability are
     // `LoadedModel`; Clear adds only how a resolved directory becomes its
@@ -76,9 +133,11 @@ public final class Clear: @unchecked Sendable {
     /// Nothing is bundled with this package. To ship the model with your app,
     /// point `directory` at a folder you populated with the model files: it is
     /// used as-is, offline, and nothing is downloaded.
-    public convenience init(directory: String? = nil, computeUnits: ComputeUnits = .cpuOnly,
+    public convenience init(directory: String? = nil, variant: ModelVariant = .default,
+                            computeUnits: ComputeUnits = .cpuOnly,
                             concurrency: Int = Clear.defaultConcurrency) {
-        self.init(directory: directory, cacheRoot: nil, computeUnits: computeUnits, concurrency: concurrency)
+        self.init(directory: directory, cacheRoot: nil, variant: variant,
+                  computeUnits: computeUnits, concurrency: concurrency)
     }
 
     /// Binding entry point that also supplies the platform base cache root under
@@ -87,10 +146,13 @@ public final class Clear: @unchecked Sendable {
     /// public `init(directory:...)` passes `nil`.
     @_spi(ClearBindings)
     public init(directory: String?, cacheRoot: String?,
+                variant: ModelVariant = .default,
                 computeUnits: ComputeUnits = .cpuOnly,
                 concurrency: Int = Clear.defaultConcurrency) {
-        model = LoadedModel(ClearModel.self, directory: directory, cacheRoot: cacheRoot) { files in
-            try await .clear(files: files, computeUnits: computeUnits, concurrency: concurrency)
+        // A variant is its own slice of the model repo, so the loader resolves
+        // that distribution rather than the catalog entry's default one.
+        model = LoadedModel(variant.distribution, directory: directory, cacheRoot: cacheRoot) { files in
+            try await .clear(files: files, variant: variant, computeUnits: computeUnits, concurrency: concurrency)
         }
     }
 
@@ -106,10 +168,10 @@ public final class Clear: @unchecked Sendable {
     /// deployments; apps point `directory` at their files instead.
     public init(modelPath: String, computeUnits: ComputeUnits = .cpuOnly,
                 concurrency: Int = Clear.defaultConcurrency) throws {
-        let sessions = try (0..<max(1, concurrency)).map { _ in
-            try inferenceSession(modelPath: modelPath, computeUnits: computeUnits, sdk: ClearModel.sdkInfo)
-        }
-        model = LoadedModel { ModelAssets(sessions: sessions) }
+        // Built eagerly (this initializer throws), then handed to the loader so
+        // the rest of the class has one path to its assets.
+        let assets = try ModelAssets(modelPath: modelPath, computeUnits: computeUnits, concurrency: concurrency)
+        model = LoadedModel { assets }
     }
 
     /// Whether the model is available for this enhancer with no network:
@@ -129,15 +191,37 @@ public final class Clear: @unchecked Sendable {
     }
 
     /// Enhance mono/stereo `samples` at `sampleRate`, returning 48 kHz mono.
+    ///
+    /// `progress` reports ``Phase/loadingModel`` (only when the model is not
+    /// loaded yet), then ``Phase/enhancing``, then ``Phase/mastering``.
     public func enhance(samples: [Float], sampleRate: Double,
-                        options: Options = .default) async throws -> Result {
+                        options: Options = .default,
+                        progress: ProgressHandler? = nil) async throws -> Result {
+        // Load with progress, so the first call reports the download/compile
+        // instead of appearing to hang. `download` is a no-op once loaded, and
+        // concurrent callers join the same load.
+        if let progress {
+            progress(Progress(phase: .loadingModel, fraction: 0))
+            try await model.download { progress(Progress(phase: .loadingModel, fraction: $0)) }
+        }
         let assets = try await model.value()
         let start = Date()
+        progress?(Progress(phase: .analyzing, fraction: 0))
         let input = sampleRate == ClearDSP.sampleRate
             ? samples
             : Resample.linear(samples, from: sampleRate, to: ClearDSP.sampleRate)
         let enhancer = ClearEnhancer(sessions: assets.sessions)
-        var out = try await enhancer.enhance(input)
+        // The front end (STFT + features) finishes `analyzing`; the chunk loop
+        // that follows is `enhancing`. The flip is announced when the front end
+        // reports done, so the phase change is not deferred to the first chunk
+        // (which on a long file is seconds later).
+        var out = try await enhancer.enhance(
+            input,
+            onAnalysis: { fraction in
+                progress?(Progress(phase: .analyzing, fraction: fraction))
+                if fraction >= 1 { progress?(Progress(phase: .enhancing, fraction: 0)) }
+            },
+            onChunk: { progress?(Progress(phase: .enhancing, fraction: $0)) })
 
         // Strength blend against the (resampled) input.
         let s = Float(options.strength.value)
@@ -146,17 +230,25 @@ public final class Clear: @unchecked Sendable {
             for i in 0..<n { out[i] = s * out[i] + (1 - s) * input[i] }
         }
 
+        // Mastering: integrated-LUFS normalization with the preset's gain cap
+        // and peak ceiling. `loudnessRangeLU` is not applied (no range stage
+        // yet); see `Mastering`.
         var measured: Double? = nil
-        if let target = options.targetLUFS {
+        let mastering = options.mastering
+        if mastering.enabled {
             let (mastered, lufs) = Loudness.normalize(
-                out, sampleRate: ClearDSP.sampleRate, targetLUFS: target,
-                maxGainDB: options.maxGainDB, peakCeilingDBFS: options.peakCeilingDBFS)
+                out, sampleRate: ClearDSP.sampleRate, targetLUFS: mastering.integratedLUFS,
+                maxGainDB: mastering.maxLoudnessGainDB, peakCeilingDBFS: mastering.truePeakDBTP)
             out = mastered
             measured = lufs
         }
+        // Mastering is the tail of `enhancing`, so the phase ends at 1 only
+        // once the audio is actually final.
+        progress?(Progress(phase: .enhancing, fraction: 1))
         return Result(samples: out, sampleRate: ClearDSP.sampleRate,
                       durationSec: Double(out.count) / ClearDSP.sampleRate,
-                      processingSec: Date().timeIntervalSince(start), measuredLUFS: measured)
+                      processingSec: Date().timeIntervalSince(start), measuredLUFS: measured,
+                      modelVariant: assets.variant)
     }
 
     #if canImport(Foundation) && !os(Android) && !os(WASI)
@@ -164,9 +256,11 @@ public final class Clear: @unchecked Sendable {
     /// Filesystem platforms (Apple/Linux); on Android/web use `enhance(bytes:)`.
     @discardableResult
     public func enhance(path: String, to outputPath: String? = nil,
-                        options: Options = .default) async throws -> Result {
+                        options: Options = .default,
+                        progress: ProgressHandler? = nil) async throws -> Result {
         let samples = try await AudioIO.decode(path: path, sampleRate: ClearDSP.sampleRate)
-        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate, options: options)
+        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate,
+                                       options: options, progress: progress)
         if let outputPath {
             try AudioIO.writeWAV(result.samples, sampleRate: Int(ClearDSP.sampleRate), to: outputPath)
         }
@@ -176,10 +270,12 @@ public final class Clear: @unchecked Sendable {
 
     /// Enhance in-memory audio-file `bytes`, returning enhanced 48 kHz mono
     /// samples and a ready-to-write WAV byte buffer.
-    public func enhance(bytes: [UInt8], options: Options = .default) async throws
+    public func enhance(bytes: [UInt8], options: Options = .default,
+                        progress: ProgressHandler? = nil) async throws
         -> (result: Result, wav: [UInt8]) {
         let samples = try await AudioIO.decode(bytes: bytes, sampleRate: ClearDSP.sampleRate)
-        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate, options: options)
+        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate,
+                                       options: options, progress: progress)
         let wav = AudioIO.encodeWAV(result.samples, sampleRate: Int(ClearDSP.sampleRate))
         return (result, wav)
     }

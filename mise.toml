@@ -161,6 +161,11 @@ tools = { swift = "6.3.3" }
 run = """
 set -euo pipefail
 
+# Adds JavaScriptKit to the manifest, which is what declares the *Web products
+# (see Package.swift). Without it they do not exist and this fails with
+# "no product named 'EmoWeb'"; every wasm-building task must export it.
+export DAL_WASM_BUILD=1
+
 SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]/){print $i; exit}}')
 [ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
 SDK=${WASM_SDK:-swift-$SWIFT_VER-RELEASE_wasm}
@@ -174,7 +179,8 @@ if ! have_bundle "$SDK.artifactbundle"; then
     rm -rf "$tmp"
 fi
 
-swift build --swift-sdk "$SDK" --product EmoWeb --product RedactWeb
+# One --product per model in Package.swift's `models` list.
+swift build --swift-sdk "$SDK" --product EmoWeb --product RedactWeb --product ClearWeb
 """
 
 [tasks.test-wasi]
