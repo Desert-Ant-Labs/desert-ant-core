@@ -45,6 +45,10 @@ struct ModelPackage {
 
 let models: [ModelPackage] = [
     .init(name: "Emo"),
+    // The catalog's audio model, so the only one that pulls AudioIO/AudioDSP -
+    // both of which come with the DesertAnt umbrella, so it needs no extra
+    // dependency either.
+    .init(name: "Clear"),
     .init(
         name: "Redact",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
@@ -134,6 +138,7 @@ let libraryTargets: [Target] = [
                 "Regex", "JSON", "TextNormalization", "Checksum",
                 "PlatformSupport", "Usage",
                 "ModelCatalog", "ModelStore", "Inference",
+                "AudioIO", "AudioDSP",
                 "FFIBuffer", "ModelBinding", "HostBridge",
             ]
         ),
