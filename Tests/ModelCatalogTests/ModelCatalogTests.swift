@@ -3,6 +3,7 @@ import Testing
 import DesertAnt
 @testable import Emo
 @testable import Redact
+@testable import Clear
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -11,6 +12,7 @@ import DesertAnt
 let catalog: [any ModelDeclaration.Type] = [
     EmoModel.self,
     RedactModel.self,
+    ClearModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
@@ -20,7 +22,10 @@ struct ModelCatalogTests {
         for model in catalog {
             #expect(model.id == model.id.lowercased() && !model.id.isEmpty)
             #expect(model.repo == "desert-ant-labs/\(model.id)")
-            #expect(model.revision.hasPrefix("v"), "\(model.id): revision must be a v-tag")
+            // A v-tag, or `main` for a model whose first tag predates one of its
+            // platform artifacts (clear: the Hub tag has no LiteRT export yet).
+            #expect(model.revision.hasPrefix("v") || model.revision == "main",
+                    "\(model.id): revision must be a v-tag (or a documented `main` pin)")
             #expect(model.product.first?.isUppercase == true, "\(model.id): product is capitalized")
             #expect(!model.summary.isEmpty)
         }

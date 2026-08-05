@@ -6,7 +6,20 @@
 [![WASI](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml)
 
 Reusable, cross-platform Swift building blocks shared by Desert Ant Labs'
-on-device model SDKs (redact, emo, shapes, ...).
+on-device model SDKs, plus the model catalog itself.
+
+The models live in this repo under `Sources/ModelCatalog/<Model>/`, one module
+each, all on the same mechanisms (one catalog declaration, the verified model
+store, the platform inference session, one generic C ABI / JNI / wasm entry):
+
+| Model | Product | What it does |
+|---|---|---|
+| `emo` | `Emo` | multilingual emoji suggestion (text in, ranked emoji out) |
+| `redact` | `Redact` | PII detection and redaction (text in, spans out) |
+| `clear` | `Clear` | speech enhancement: denoise, dereverb, loudness-normalize (audio in, 48 kHz mono out) |
+
+Adding a model is a folder there plus one line in the bindings registry; nothing
+shared changes.
 
 A model SDK depends on the single `DesertAnt` product and writes one import:
 

@@ -29,6 +29,11 @@
 @_exported import ModelStore
 @_exported import Inference
 
+// Audio: decode/encode (AudioIO) and the STFT/mel/framing DSP (AudioDSP) an
+// audio model SDK runs its front end on.
+@_exported import AudioIO
+@_exported import AudioDSP
+
 // Cross-language bindings: the length-prefixed FFI buffer, what a model
 // implements to be reachable from another language, and the Android JNI harness
 // (empty off the platforms that use it).

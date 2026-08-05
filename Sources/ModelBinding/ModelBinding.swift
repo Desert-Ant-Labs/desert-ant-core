@@ -33,6 +33,21 @@ public protocol BoundModel: AnyObject {
     ///
     /// Returning `nil` reports failure to the host as a NULL buffer.
     func run(text: String, options: FFIReader) async -> [UInt8]?
+
+    /// Run the model over audio: mono `samples` at `sampleRate`, with the
+    /// model's own `options` payload, returning its own result payload (see
+    /// `run(text:options:)` for both conventions).
+    ///
+    /// A model implements the modality it has - text models (emo, redact) leave
+    /// this alone, audio models (clear) leave `run(text:options:)` alone - and
+    /// the default reports "not this model's input" to the host as a NULL
+    /// buffer, exactly like a failed run.
+    func run(audio: [Float], sampleRate: Double, options: FFIReader) async -> [UInt8]?
+}
+
+public extension BoundModel {
+    func run(text: String, options: FFIReader) async -> [UInt8]? { nil }
+    func run(audio: [Float], sampleRate: Double, options: FFIReader) async -> [UInt8]? { nil }
 }
 
 /// A model's binding: how to construct it. The instance methods live on

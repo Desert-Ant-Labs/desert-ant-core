@@ -12,6 +12,8 @@ import DesertAnt
 //   dal_download(handle)                                       -> 0/-1  (blocks)
 //   dal_run(handle, textUTF8, options,len, groupId|NULL, deviceId|NULL)
 //                                                              -> buffer | NULL
+//   dal_run_audio(handle, samples,count, sampleRate, options,len,
+//                 groupId|NULL, deviceId|NULL)                 -> buffer | NULL
 //   dal_destroy(handle)
 //   dal_buffer_free(ptr)
 //
@@ -107,6 +109,35 @@ public func dal_run(
     return payload.flatMap(ffiEmit)
 }
 
+/// Run the model over mono float `samples` at `sampleRate` - the audio models'
+/// (clear) counterpart to `dal_run`, with the same options/result payload
+/// convention and the same group/device attribution. The samples are read, not
+/// retained; the host keeps owning the buffer. NULL if the run failed or the
+/// model has no audio input.
+@_cdecl("dal_run_audio")
+public func dal_run_audio(
+    _ handle: UnsafeMutableRawPointer?,
+    _ samples: UnsafePointer<Float>?, _ sampleCount: Int32,
+    _ sampleRate: Double,
+    _ options: UnsafePointer<UInt8>?, _ optionsLen: Int32,
+    _ groupId: UnsafePointer<CChar>?,
+    _ deviceId: UnsafePointer<CChar>?
+) -> UnsafeMutablePointer<CChar>? {
+    guard let model = model(handle), let samples, sampleCount > 0 else { return nil }
+    let audio = Array(UnsafeBufferPointer(start: samples, count: Int(sampleCount)))
+    let reader = FFIReader(options, optionsLen)
+    let group = string(groupId)
+    let device = string(deviceId)
+    let payload: [UInt8]? = blockingValue {
+        await InferenceContext.$deviceId.withValue(device) {
+            await InferenceContext.withCallGroup(id: group) {
+                await model.run(audio: audio, sampleRate: sampleRate, options: reader)
+            }
+        }
+    }
+    return payload.flatMap(ffiEmit)
+}
+
 /// Release a handle from `dal_create`.
 @_cdecl("dal_destroy")
 public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
@@ -114,7 +145,7 @@ public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
     Unmanaged<Handle>.fromOpaque(handle).release()
 }
 
-/// Free a buffer returned by `dal_run`.
+/// Free a buffer returned by `dal_run`/`dal_run_audio`.
 @_cdecl("dal_buffer_free")
 public func dal_buffer_free(_ pointer: UnsafeMutablePointer<CChar>?) {
     ffiFree(pointer)
