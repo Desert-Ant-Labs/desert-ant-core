@@ -72,39 +72,15 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
     /**
      * A redactor that downloads the model into the app cache on first use and
      * reuses it offline afterward. When [directory] is supplied, that directory
-     * is the model's home instead (adopt files already there, else download into
-     * it). Construction is cheap; the model loads on the first [redaction] (or
-     * eagerly via [download]).
+     * is the model's home instead: files already there are adopted (so an app
+     * that ships the model just points at the folder it unpacked it into),
+     * otherwise the model is downloaded into it. Construction is cheap; the
+     * model loads on the first [redaction] (or eagerly via [download]).
      */
     constructor(context: android.content.Context, directory: String? = null)
         : this(createHandle(context.cacheDir.absolutePath, directory))
 
     companion object {
-        /**
-         * A redactor over model files your app ships on the classpath
-         * (`redact.tflite`, `redact_tokenizer.bin`, `labels.json` at the resource
-         * root), for a fully offline build. Nothing is published with the model
-         * inside, so supplying these files is up to the app.
-         */
-        fun bundled(): Redact {
-            val handle = bundledHandleOrNull() ?: throw RedactException(
-                "no model on the classpath; ship redact.tflite, redact_tokenizer.bin and " +
-                    "labels.json as resources, or use Redact(context) to download it")
-            return Redact(handle)
-        }
-
-        private fun bundledHandleOrNull(): Long? {
-            DesertAntNative.ensureLoaded()
-            // Named as in the catalog manifest (Sources/ModelCatalog/Redact/Catalog.swift),
-            // which is how the native side finds each file in the payload.
-            val files = FfiWriter().int(3)
-            for (name in listOf("redact_tokenizer.bin", "labels.json", "redact.tflite")) {
-                files.string(name).blob(resourceOrNull(name) ?: return null)
-            }
-            val handle = DesertAntNative.createFromFiles(MODEL_ID_BYTES, files.done(), null)
-            return handle.takeIf { it != 0L }
-        }
-
         private fun createHandle(cacheRoot: String, directory: String?): Long {
             DesertAntNative.ensureLoaded()
             val handle = DesertAntNative.create(
@@ -114,9 +90,6 @@ class Redact private constructor(private val handle: Long) : AutoCloseable {
             if (handle == 0L) throw RedactException("failed to create Redact")
             return handle
         }
-
-        private fun resourceOrNull(name: String): ByteArray? =
-            Redact::class.java.getResourceAsStream("/$name")?.use { it.readBytes() }
     }
 
     /** Whether the model is available for this redactor with no network. */

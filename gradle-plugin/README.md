@@ -1,14 +1,17 @@
-# Desert Ant model-SDK Gradle plugins
+# Desert Ant model-SDK Gradle plugin
 
-Two convention plugins that carry the Android build/publish boilerplate the
+A convention plugin that carries the Android build/publish boilerplate the
 Desert Ant model SDKs' `<model>-kotlin` modules used to each copy (~200 lines of
 `build.gradle.kts` + `swift-android.gradle.kts` per repo):
 
-- **`ai.desertant.model-sdk`** - the main AAR module. Applies AGP + Kotlin +
+- **`ai.desertant.model-sdk`** - the AAR module. Applies AGP + Kotlin +
   vanniktech, configures the Android/publish boilerplate + POM, drives the Swift
   native build (`mise run android-natives`, replacing `swift-android.gradle.kts`),
-  and depends on `ai.desertant:core` and the `:*-tflite-resources` module.
-- **`ai.desertant.model-resources`** - the optional bundled-model module.
+  and depends on `ai.desertant:core`.
+
+No model ships in the AAR. Each SDK downloads its model on demand into the app
+cache, or into a directory the app passes (which may already hold the files), so
+there is no bundled-model module to publish.
 
 Published to Maven Central as `ai.desertant:model-sdk-gradle-plugin`, versioned
 with desert-ant-core's `vX.Y.Z` tags.
@@ -25,22 +28,13 @@ pluginManagement { repositories { mavenCentral(); google(); gradlePluginPortal()
 `packages/<model>-kotlin/build.gradle.kts`:
 
 ```kotlin
-plugins { id("ai.desertant.model-sdk") version "0.4.2" }
+plugins { id("ai.desertant.model-sdk") version "0.6.0" }
 version = "1.2.3"                        // single-sourced for mise set-version/check-version
 desertAntSdk { description = "On-device ... for Android." }
 ```
 
-`packages/<model>-kotlin/<model>-tflite-resources/build.gradle.kts` (no version
-on the plugin - the two ids ship in one jar, already on the classpath):
-
-```kotlin
-plugins { id("ai.desertant.model-resources") }
-version = "1.2.3"
-desertAntResources { tfliteFiles = listOf("emo.tflite", "emo_meta.json", "emo_tokenizer.bin") }
-```
-
 Everything else (namespace, coordinates, POM name/url/license/scm, the core +
-coroutines + resources dependencies, the `buildSwiftNatives` task) is derived
+coroutines dependencies, the `buildSwiftNatives` task) is derived
 from the Gradle root project name (`rootProject.name = "<model>"`). Override the
 core dependency version with `desertAntSdk { coreVersion = "X.Y.Z" }`.
 

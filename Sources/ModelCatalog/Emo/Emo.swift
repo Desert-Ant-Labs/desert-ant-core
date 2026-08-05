@@ -65,6 +65,10 @@ public final class Emo: @unchecked Sendable {
     /// (you pre-downloaded or shipped it there) it is used offline; otherwise the
     /// model is downloaded into it and reused offline afterward. With no
     /// `directory` (the default), a managed cache location is used.
+    ///
+    /// Nothing is bundled with this package. To ship the model with your app,
+    /// point `directory` at a folder you populated with the model files: it is
+    /// used as-is, offline, and nothing is downloaded.
     public convenience init(directory: String? = nil) {
         self.init(directory: directory, cacheRoot: nil)
     }
@@ -94,7 +98,7 @@ public final class Emo: @unchecked Sendable {
     }
 
     /// Whether the model is available for this suggester with no network:
-    /// cached (for the download source), present (for a directory), or bundled.
+    /// cached (for the managed location) or already present in `directory`.
     public func isDownloaded() -> Bool { availability() }
 
     /// Download and load the model ahead of time, so the first

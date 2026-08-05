@@ -93,7 +93,7 @@ Copy the checkboxes into a release issue. Fill in
 > - Non-standard or extra artifacts (multiple heads, a router, per-script tables).
 > - **Variants** and how the SDK selects them (e.g. an English-only build).
 > - Coverage caveats (e.g. a variant that only handles certain languages/scripts).
-> - Offline-bundling resources and their size trade-off.
+> - Model size and the download it implies on first use.
 > - Platforms not yet shipped ("Soon").
 > - Anything unusual about the demo.
 

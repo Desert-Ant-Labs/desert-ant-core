@@ -45,24 +45,6 @@ public func DesertAntNative_create(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: 
     }
 }
 
-/// Create a model from files the app ships (classpath resources). `files` is the
-/// FFI payload described by `dal_create_from_files`: a count, then name/blob
-/// pairs named as in the catalog manifest.
-@_cdecl("Java_ai_desertant_DesertAntNative_createFromFiles")
-public func DesertAntNative_createFromFiles(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
-                                            _ modelId: jbyteArray?, _ files: jbyteArray?,
-                                            _ modelPath: jbyteArray?) -> jlong {
-    installHostBridge(env, cls)
-    guard let payload = optionalBytes(env, files) else { return 0 }
-    return withCText(optionalBytes(env, modelId)) { id in
-        withCText(optionalBytes(env, modelPath)) { path in
-            payload.withUnsafeBufferPointer { p in
-                handle(dal_create_from_files(id, p.baseAddress, Int32(p.count), path))
-            }
-        }
-    }
-}
-
 @_cdecl("Java_ai_desertant_DesertAntNative_destroy")
 public func DesertAntNative_destroy(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?, _ handle: jlong) {
     dal_destroy(pointer(handle))

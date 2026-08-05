@@ -19,7 +19,6 @@ import Foundation
 //   TextNormalization  String.nfkc via the platform normalizer
 //                (Foundation | Android java.text.Normalizer | JS String.normalize)
 //   ModelStore   verified Hub downloads + platform-neutral StoredModel access
-//   ModelResources  SwiftPM bundle resource loading
 //   PlatformSupport environment + synchronous FFI/async bridge + HTTP client
 //   Usage        usage turnstile: builds/sends `load` events over the HTTP client
 //   FFIBuffer    length-prefixed typed C-ABI buffer (no hand-rolled JSON)
@@ -104,7 +103,6 @@ let products: [Product] = [
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
         // Usage turnstile: builds/sends `load` events over PlatformSupport's HTTP client.
         .library(name: "Usage", targets: ["Usage"]),
-        .library(name: "ModelResources", targets: ["ModelResources"]),
         // Named-tensor inference sessions: Core ML | ONNX Runtime | JS host.
         .library(name: "Inference", targets: ["Inference"]),
         // Android JNI harness for model SDKs (empty off-Android).
@@ -201,7 +199,7 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "Regex", "JSON", "TextNormalization", "Checksum",
                 "PlatformSupport", "Usage",
-                "ModelCatalog", "ModelStore", "ModelResources", "Inference",
+                "ModelCatalog", "ModelStore", "Inference",
                 "FFIBuffer", "ModelBinding", "HostBridge",
             ]
         ),
@@ -263,7 +261,6 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
-        .target(name: "ModelResources"),
         // The catalog's shared half: the ModelDeclaration protocol every model
         // conforms to. Each model folder beside it is its own target (see
         // modelTargets), so it is excluded here.
@@ -297,14 +294,12 @@ let testTargets: [Target] = [
         .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
+        // Models are never bundled as package resources: an SDK downloads on
+        // demand to a default cache path, or to a directory the consumer names
+        // (which may already hold the files, which is how "bundling" is done).
         // Cross-model invariants, so it owns the registry of every model (the
         // shared half cannot name the models that depend on it).
         .testTarget(name: "ModelCatalogTests", dependencies: ["DesertAnt", "Emo", "Redact"]),
-        .testTarget(
-            name: "ModelResourcesTests",
-            dependencies: ["ModelResources"],
-            resources: [.copy("Resources/fixture.txt")]
-        ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),

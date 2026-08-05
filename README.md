@@ -28,7 +28,6 @@ importable for consumers that want a narrower dependency:
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
-| `ModelResources` | SwiftPM bundle file loading | Foundation Bundle | - | - |
 | `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | `CoreMLSession` (Core ML) | `ORTSession` (ONNX Runtime C API) | `JSInferenceSession` (JS host session) |
 | `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader`, async HTTP client | URLSession | host `java.net` (`CHostBridge`) | JS `fetch` |
 | `Usage` | usage turnstile: build/send `load` events | POST via HTTP client | POST via HTTP client | POST via HTTP client |
@@ -124,8 +123,10 @@ let tokenizer = try files.read("tokenizer.bin")
 let modelPath = files.path("model.onnx")
 ```
 
-`ModelResources.BundledResources` provides the same bytes, text, and path
-operations for model files shipped in a SwiftPM resource bundle. On wasm,
+No model is ever bundled as a package resource: a model is downloaded on demand
+to a managed cache location, or to a directory the consumer names. An SDK
+consumer "bundles" a model by pointing that directory at a folder that already
+holds the files, which is then adopted as-is and used offline. On wasm,
 `StoredModel.initializeJSSession` also hides the node-path versus browser-bytes
 handoff to a configurable JavaScript session factory.
 
@@ -164,7 +165,7 @@ model repo carries no platform conditionals, just per-platform artifact names:
 let files = try await distribution.resolve()                 // ModelStore
 let session = try await files.inferenceSession(
     model: artifactName, hostGlobal: "__MyModelHost")        // CoreML | ORT | JS host
-// Bundled deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
+// Custom deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
 ```
 
 ## PlatformSupport
