@@ -48,14 +48,6 @@ object DesertAntNative {
      */
     @JvmStatic external fun create(modelId: ByteArray, cacheRoot: ByteArray?, directory: ByteArray?): Long
 
-    /**
-     * Create a model from files the app ships as classpath resources. [files] is
-     * an FFI payload: an int count, then per file a length-prefixed name (as in
-     * the catalog manifest) and a length-prefixed blob. Build it with
-     * [ai.desertant.core.FfiWriter]. Returns 0 on failure.
-     */
-    @JvmStatic external fun createFromFiles(modelId: ByteArray, files: ByteArray, modelPath: ByteArray?): Long
-
     @JvmStatic external fun destroy(handle: Long)
 
     @JvmStatic external fun isDownloaded(handle: Long): Int

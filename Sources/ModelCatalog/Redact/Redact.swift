@@ -104,8 +104,11 @@ public final class Redact: @unchecked Sendable {
     /// ```swift
     /// let redact = Redact()                       // download to the managed cache
     /// let redact = Redact(directory: myModelDir)  // the model lives here (use or download)
-    /// let redact = Redact(bundle: myBundle)       // bundled in your app
     /// ```
+    ///
+    /// Nothing is bundled with this package. To ship the model with your app,
+    /// point `directory` at a folder you populated with the model files: it is
+    /// used as-is, offline, and nothing is downloaded.
     public convenience init(directory: String? = nil) {
         self.init(directory: directory, cacheRoot: nil)
     }
@@ -135,7 +138,7 @@ public final class Redact: @unchecked Sendable {
     }
 
     /// Whether the model is available for this redactor with no network: cached
-    /// (for the download source), present (for a directory), or bundled.
+    /// (for the managed location) or already present in `directory`.
     public func isDownloaded() -> Bool { availability() }
 
     /// Download and load the model ahead of time, so the first

@@ -54,18 +54,4 @@ public enum EmoBinding: ModelBinding {
     public static func make(cacheRoot: String?, directory: String?) -> any BoundModel {
         Emo(directory: directory, cacheRoot: cacheRoot)
     }
-
-    public static func make(files: [String: [UInt8]], modelPath: String?) throws -> any BoundModel {
-        guard let meta = files[EmoModel.meta], let tokenizer = files[EmoModel.tokenizer] else {
-            throw EmoError.modelNotFound
-        }
-        let metaJSON = String(decoding: meta, as: UTF8.self)
-        if let modelPath {
-            return Emo(assets: try ModelAssets(
-                metaJSON: metaJSON, tokenizerBytes: tokenizer, modelPath: modelPath))
-        }
-        guard let model = files[EmoModel.tflite] else { throw EmoError.modelNotFound }
-        return Emo(assets: try ModelAssets(
-            metaJSON: metaJSON, tokenizerBytes: tokenizer, modelBytes: model))
-    }
 }

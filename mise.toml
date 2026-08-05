@@ -391,8 +391,8 @@ echo "published: @desert-ant-labs/core@$(mise run check-version-npm)"
 # ---------------------------------------------------------------- gradle plugin
 #
 # `ai.desertant:model-sdk-gradle-plugin` (gradle-plugin/): the Android
-# convention plugins (ai.desertant.model-sdk + ai.desertant.model-resources) the
-# model SDKs' <model>-kotlin modules apply. Pure JVM (no Android SDK needed to
+# convention plugin (ai.desertant.model-sdk) the model SDKs' <model>-kotlin
+# modules apply. Pure JVM (no Android SDK needed to
 # build); published to Maven Central via vanniktech. Version single-sourced in
 # gradle-plugin/build.gradle.kts (kept aligned by set-version).
 

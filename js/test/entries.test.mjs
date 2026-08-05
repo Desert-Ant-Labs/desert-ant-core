@@ -40,7 +40,6 @@ test("the native loader defaults to the one shared core and its generic ABI", as
   assert.equal(DEFAULT_CORE_NAME, "DesertAntNode");
   for (const name of [
     "create",
-    "createFromFiles",
     "isDownloaded",
     "download",
     "run",

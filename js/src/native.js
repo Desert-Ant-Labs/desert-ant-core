@@ -41,7 +41,6 @@ export const DEFAULT_CORE_NAME = "DesertAntNode";
  */
 export const DAL_SYMBOLS = {
   create: "void* dal_create(const char*, const char*, const char*)",
-  createFromFiles: "void* dal_create_from_files(const char*, const uint8_t*, int, const char*)",
   isDownloaded: "int dal_is_downloaded(void*)",
   download: "int dal_download(void*)",
   run: "void* dal_run(void*, const char*, const uint8_t*, int, const char*, const char*)",

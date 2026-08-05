@@ -70,11 +70,12 @@ export class Redact {
     if (resolved.modelBaseUrl != null) {
       // Self-hosted files (offline / no runtime CDN): fetch the model + sidecars
       // from the given base URL, compile the model here, and hand the labels +
-      // tokenizer to the wasm core, no Hub download. This is the browser opt-out,
-      // e.g. an app that serves the model from its own origin.
+      // tokenizer to the wasm core, no Hub download. This is the browser's
+      // equivalent of pointing the native SDKs at a directory that already
+      // holds the model: nothing is bundled, nothing is downloaded.
       const { labelsJSON, tokenizerBytes, modelBytes } = await fetchModelFrom(resolved.modelBaseUrl);
       setModel(await loadAndCompile(modelBytes, { accelerator }));
-      await core.loadBundled(labelsJSON, tokenizerBytes);
+      await core.loadSelfHosted(labelsJSON, tokenizerBytes);
       onProgress?.(1);
     } else {
       // Default: the runtime downloads this platform's files from the HF Hub at
