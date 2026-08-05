@@ -4,7 +4,7 @@ import {
   installLiteRtHost,
   loadLiteRt,
   assertBrowserRuntime,
-  fetchModelFrom,
+  fetchSelfHostedModel,
 } from "../src/litert.js";
 
 // A fake LiteRT.js: records compiled models and tensor lifecycle so we can
@@ -90,22 +90,29 @@ test("assertBrowserRuntime throws in plain Node, passes with injected litert", (
   assert.doesNotThrow(() => assertBrowserRuntime({ packageName: "@x/y", litert: {} }));
 });
 
-test("fetchModelFrom fetches the configured file names and normalizes the base", async () => {
+test("fetchSelfHostedModel fetches the catalog file names and normalizes the base", async () => {
   const seen = [];
   const orig = globalThis.fetch;
   globalThis.fetch = async (url) => {
     seen.push(url);
-    if (url.endsWith(".json")) return { text: async () => '{"ok":true}' };
-    return { arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
+    const byte = url.endsWith(".tflite") ? 9 : 1;
+    return { arrayBuffer: async () => new Uint8Array([byte, byte, byte]).buffer };
   };
   try {
-    const { metaJSON, modelBytes } = await fetchModelFrom("/assets/shapes", {
-      meta: "shapes_meta.json",
+    const { sidecars, modelBytes } = await fetchSelfHostedModel("/assets/shapes", {
       model: "shapes.tflite",
+      sidecars: ["shapes_meta.json", "shapes_tokenizer.bin"],
     });
-    assert.equal(metaJSON, '{"ok":true}');
-    assert.deepEqual(Array.from(modelBytes), [1, 2, 3]);
-    assert.deepEqual(seen.sort(), ["/assets/shapes/shapes.tflite", "/assets/shapes/shapes_meta.json"]);
+    assert.deepEqual(Array.from(modelBytes), [9, 9, 9]);
+    // Sidecars come back keyed by catalog name, as bytes: the core decodes the
+    // text ones itself, so the caller needs no per-file handling.
+    assert.deepEqual(Object.keys(sidecars).sort(), ["shapes_meta.json", "shapes_tokenizer.bin"]);
+    assert.ok(sidecars["shapes_meta.json"] instanceof Uint8Array);
+    assert.deepEqual(seen.sort(), [
+      "/assets/shapes/shapes.tflite",
+      "/assets/shapes/shapes_meta.json",
+      "/assets/shapes/shapes_tokenizer.bin",
+    ]);
   } finally {
     globalThis.fetch = orig;
   }

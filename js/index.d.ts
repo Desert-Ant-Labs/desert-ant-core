@@ -50,10 +50,99 @@ export function installLiteRtHost(options: {
   readModelSource: (source: any) => Promise<any>;
 }): { setModel: (model: any) => void };
 
-export function fetchModelFrom(
+/** Names a `modelBaseUrl` must serve, as in the model catalog. */
+export interface ModelFileNames {
+  /** The runnable artifact, compiled by the host (never crosses into the core). */
+  model: string;
+  /** Sidecars handed to the core, keyed by these names. */
+  sidecars: string[];
+}
+
+export function fetchSelfHostedModel(
   baseUrl: string,
-  files: { meta: string; model: string },
-): Promise<{ metaJSON: string; modelBytes: Uint8Array }>;
+  files: ModelFileNames,
+): Promise<{ sidecars: Record<string, Uint8Array>; modelBytes: Uint8Array }>;
+
+/** How a call is billed and attributed. */
+export interface CallOptions {
+  /** Bills this call as part of a group from {@link LoadedModel.withCallGroup}. */
+  group?: string;
+  /** Attributes usage to an end-user device; resolved per call. */
+  deviceId?: string | (() => string);
+}
+
+/** A loaded model behind an opaque core handle: what a model package's public
+ *  class delegates to, identical on both runtimes. */
+export class LoadedModel {
+  run(text: string, options: Uint8Array, call?: CallOptions): Promise<FfiReader>;
+  isDownloaded(): boolean;
+  withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  dispose(): void;
+}
+
+/** How a model is loaded, shared by both runtimes. A model package extends this
+ *  with its own inference options. */
+export interface ModelLoadOptions {
+  directory?: string;
+  modelBaseUrl?: string;
+  cacheRoot?: string;
+  onProgress?: (fraction: number) => void;
+  litert?: unknown;
+  litertWasmDir?: string;
+  accelerator?: "wasm" | "webgpu" | "webnn";
+}
+
+/** A bound SDK: `open(options)` resolves the model and returns it ready. */
+export interface ModelSdk {
+  core: NormalizedCore;
+  open(options?: ModelLoadOptions): Promise<LoadedModel>;
+}
+
+/** Either core, normalized to what {@link LoadedModel} drives. */
+export interface NormalizedCore {
+  create(cacheRoot: string, directory: string | null): number;
+  createSelfHosted?(files: Record<string, Uint8Array>): number;
+  isDownloaded(handle: number): boolean;
+  download(handle: number, onProgress?: (fraction: number) => void): Promise<void | boolean>;
+  run(
+    handle: number,
+    text: string,
+    options: Uint8Array | null,
+    group: string | null,
+    deviceId: string | null,
+  ): Promise<FfiReader>;
+  destroy(handle: number): void;
+  withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+}
+
+/** Wrap the WebAssembly ABI in the normalized core shape. */
+export function wasmCore(exports: WasmCore): NormalizedCore;
+
+/** Download/load a fresh handle and wrap it, so `load()` surfaces failures. */
+export function readyModel(options: {
+  core: NormalizedCore;
+  packageName: string;
+  handle: number;
+  onProgress?: (fraction: number) => void;
+}): Promise<LoadedModel>;
+
+/** The browser/WebAssembly half of a model package: instantiate the core through
+ *  the package's `#platform` seam and return a bound SDK. */
+export function createWasmSdk(options: {
+  platform: any;
+  packageName: string;
+  modelId: string;
+  hostGlobal: string;
+  files: ModelFileNames;
+}): Promise<ModelSdk>;
+
+/** Mint a call-group id, run the body, release the group. */
+export function makeCallGroups(endGroup: (id: string) => void): {
+  withCallGroup: <T>(body: (group: string) => Promise<T>) => Promise<T>;
+};
+
+/** The generic C prototype every SDK core exports to release a call group. */
+export const CALL_GROUP_END_SYMBOL: string;
 
 /** The model-agnostic WebAssembly ABI a Desert Ant core installs, the twin of
  *  the native `dal_*` symbols. Handles are opaque numbers. */

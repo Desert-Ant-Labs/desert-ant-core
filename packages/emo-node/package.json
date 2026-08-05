@@ -53,6 +53,7 @@
   "files": [
     "browser.js",
     "codec.js",
+    "emo.js",
     "node.js",
     "platform-browser.js",
     "platform-node.js",
