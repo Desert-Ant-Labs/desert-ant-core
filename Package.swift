@@ -9,23 +9,6 @@ import Foundation
 
 let noJavaScriptKit = ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
-// DAL_INFERENCE_LITERT selects LiteRT instead of ONNX Runtime on native hosts.
-let liteRT = ProcessInfo.processInfo.environment["DAL_INFERENCE_LITERT"] != nil
-let inferenceRuntimeDeps: [Target.Dependency] = liteRT
-    ? [.target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .macOS]))]
-    : [.target(name: "COnnxRuntime", condition: .when(platforms: [.linux, .android]))]
-let inferenceSwiftSettings: [SwiftSetting] = liteRT ? [.define("DAL_LITERT")] : []
-
-// Avoid linking the default test run against an unavailable native runtime.
-let liteRTTests: [Target] = liteRT ? [
-    .testTarget(
-        name: "InferenceTests",
-        dependencies: ["Inference"],
-        resources: [.copy("Resources/testmodel.tflite")],
-        swiftSettings: inferenceSwiftSettings
-    ),
-] : []
-
 let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
     .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
 ]
@@ -136,8 +119,6 @@ let libraryTargets: [Target] = [
                 "FFIBuffer", "ModelBinding", "HostBridge",
             ]
         ),
-        // Consumers provide the selected native inference library.
-        .systemLibrary(name: "COnnxRuntime"),
         .target(
             name: "CLiteRt",
             linkerSettings: [.linkedLibrary("LiteRt")]
@@ -146,8 +127,8 @@ let libraryTargets: [Target] = [
             name: "Inference",
             dependencies: [
                 "ModelStore", "Usage",
-            ] + inferenceRuntimeDeps + jsWasi + jsEventLoop,
-            swiftSettings: inferenceSwiftSettings
+                .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
+            ] + jsWasi + jsEventLoop
         ),
         .target(
             name: "Regex",
@@ -227,7 +208,12 @@ let testTargets: [Target] = [
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
-] + liteRTTests
+        .testTarget(
+            name: "InferenceTests",
+            dependencies: ["Inference"],
+            resources: [.copy("Resources/testmodel.tflite")]
+        ),
+]
 
 let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
 
