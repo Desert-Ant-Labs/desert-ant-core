@@ -20,7 +20,7 @@ importable for consumers that want a narrower dependency:
 
 | Module | API | Apple / Linux | Android | WebAssembly |
 |---|---|---|---|---|
-| `ModelCatalog` | every model in the monorepo: coordinates + per-platform file manifest | same on every platform | | |
+| `ModelCatalog` | every model's coordinates + per-platform file manifest, and the `LoadedModel` shell an SDK wraps | same on every platform | | |
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
 | `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
@@ -97,6 +97,42 @@ strings); the host reads it with its own standard library (see the matching
 `FfiReader` in `kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`, a thin
 `java.nio.ByteBuffer` cursor) and
 frees it with `ffiFree`. The payload *schema* is the model's own concern.
+
+## LoadedModel (the SDK shell)
+
+Resolving a model's files, building it once, sharing that single load with every
+concurrent caller, and answering "is it available offline?" are the same for
+every model, so an SDK does not write them. It wraps a `LoadedModel` and adds
+only its public API and how a resolved directory becomes its runtime:
+
+```swift
+public final class Emo: @unchecked Sendable {
+    private let model: LoadedModel<Model>
+
+    public convenience init(directory: String? = nil) {
+        self.init(directory: directory, cacheRoot: nil)
+    }
+
+    public init(directory: String?, cacheRoot: String?) {
+        model = LoadedModel(EmoModel.self, directory: directory, cacheRoot: cacheRoot) { files in
+            try Model(assets: await .emo(files: files))
+        }
+    }
+
+    public func isDownloaded() -> Bool { model.isDownloaded() }
+    public func download(progress: ...) async throws { try await model.download(progress: progress) }
+    public func suggestions(...) async throws -> [EmoSuggestion] {
+        try await model.value().suggestions(...)
+    }
+}
+```
+
+Construction starts nothing; the first `value()` or `download(progress:)`
+resolves the files (adopting `directory`, else downloading into it or into the
+managed cache) and builds the runtime. A failed load is not cached, so a later
+call retries. `LoadedModel { ... }` wraps a runtime whose inputs the caller
+already has (the cross-language bindings and the wasm host's self-hosted files),
+with nothing to resolve or download.
 
 ## WasmBindings (the wasm ABI)
 
