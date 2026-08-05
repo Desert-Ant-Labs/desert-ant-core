@@ -33,6 +33,14 @@
     "./node": {
       "types": "./node.d.ts",
       "default": "./node.js"
+    },
+    "./audio": {
+      "types": "./audio.d.ts",
+      "default": "./audio.js"
+    },
+    "./audio/node": {
+      "types": "./audio-node.d.ts",
+      "default": "./audio-node.js"
     }
   },
   "files": [
@@ -40,6 +48,10 @@
     "index.d.ts",
     "node.js",
     "node.d.ts",
+    "audio.js",
+    "audio.d.ts",
+    "audio-node.js",
+    "audio-node.d.ts",
     "src",
     "LICENSE.md",
     "README.md"

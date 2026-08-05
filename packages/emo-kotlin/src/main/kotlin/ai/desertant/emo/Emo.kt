@@ -42,7 +42,7 @@ class Emo(
     context: android.content.Context,
     directory: String? = null,
 ) : AutoCloseable {
-    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::EmoException)
+    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::EmoException, EmoNative)
 
     // The old handle factory lived here. Keep the marker so the generated JVM
     // `Emo.Companion` field remains binary-compatible.
@@ -69,7 +69,7 @@ class Emo(
         if (text.isBlank()) return emptyList()
         // Options payload: u32 limit, u32 skinTone; result payload: a count, then
         // per suggestion an emoji string and an f64 confidence. Must match
-        // Sources/ModelCatalog/Emo/Binding.swift.
+        // Sources/Emo/Binding.swift.
         val options = FfiWriter().int(limit).int(skinTone.nativeValue).done()
         return model.run(text, options, failureMessage = "suggestion failed") { r ->
             List(r.int()) { EmoSuggestion(r.string(), r.double()) }

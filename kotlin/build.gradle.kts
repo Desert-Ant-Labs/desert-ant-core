@@ -1,15 +1,17 @@
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.net.URI
+import java.util.zip.ZipFile
 
 // Publishable Android library for `ai.desertant:core`: the reusable Android host
-// side of desert-ant-core's Swift JNI harness (HostBridge.kt), the JNI surface
-// itself (DesertAntNative.kt), and the shared model shell every SDK wraps
+// side of desert-ant-core's Swift JNI harness (HostBridge.kt), its shared host
+// callbacks (DesertAntNative.kt), and the model shell every SDK wraps
 // (LoadedModel.kt). Model SDKs used to vendor this verbatim; they now depend on
 // this artifact instead.
 //
-// It is pure Kotlin (no native code, no prebuilt .so), so unlike the model SDKs
-// this AAR could build from source anywhere. We still publish it to Maven
-// Central for a stable coordinate: `mise run publish-android` runs
+// The AAR also owns the two supported ABI copies of libLiteRt.so. Model AARs
+// contain only their own Swift JNI library, so an app using several models gets
+// one runtime from this Maven coordinate. `mise run publish-android` runs
 // publishToMavenCentral via the vanniktech plugin (Central portal upload,
 // validation, in-memory GPG signing; credentials come from the environment,
 // usually mise.local.toml). The version is single-sourced here and read by the
@@ -34,6 +36,7 @@ android {
         // API 24 matches the model SDKs. NFKC runs via the host
         // java.text.Normalizer (API 1+), so there is no platform libicu floor.
         minSdk = 24
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     buildTypes {
@@ -49,6 +52,34 @@ android {
 kotlin {
     compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
 }
+
+val prepareLiteRt by tasks.registering {
+    val version = "2.1.6"
+    val output = layout.projectDirectory.dir("src/main/jniLibs")
+    inputs.property("litertVersion", version)
+    outputs.files(
+        output.file("arm64-v8a/libLiteRt.so"),
+        output.file("x86_64/libLiteRt.so"),
+    )
+    doLast {
+        val aar = temporaryDir.resolve("litert-$version.aar")
+        if (!aar.isFile) {
+            URI("https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$version/litert-$version.aar")
+                .toURL().openStream().use { input -> aar.outputStream().use(input::copyTo) }
+        }
+        ZipFile(aar).use { zip ->
+            mapOf("arm64-v8a" to "arm64-v8a", "x86_64" to "x86_64").forEach { (source, abi) ->
+                val entry = zip.getEntry("jni/$source/libLiteRt.so")
+                    ?: error("LiteRT $version has no $source runtime")
+                val destination = output.file("$abi/libLiteRt.so").asFile
+                destination.parentFile.mkdirs()
+                zip.getInputStream(entry).use { input -> destination.outputStream().use(input::copyTo) }
+            }
+        }
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn(prepareLiteRt) }
 
 dependencies {
     // HostBridge.kt parses the Hugging Face tree JSON and emits the binary value

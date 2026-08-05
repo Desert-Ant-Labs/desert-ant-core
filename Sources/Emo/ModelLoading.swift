@@ -10,7 +10,7 @@ import DesertAnt
 // package version or be forgotten on a session.
 
 // The model's file names, per-platform manifest, repo and pinned revision live
-// in the monorepo catalog (`ModelCatalog/Emo/Emo.swift`) as `EmoModel`, so
+// in the monorepo catalog (`Sources/Emo/Emo.swift`) as `EmoModel`, so
 // tooling and this SDK read one declaration.
 
 /// Loaded model inputs: the sidecar metadata, the semantic tokenizer bytes, and

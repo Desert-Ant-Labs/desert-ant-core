@@ -2,7 +2,15 @@
 // so every platform gets the same coefficients (an STFT/ISTFT pair only
 // reconstructs cleanly when both ends agree on the window to the last bit).
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
 
 public enum Window {
     /// A Hann window of `count` samples: `0.5 - 0.5 cos(2 pi k / d)` where `d`

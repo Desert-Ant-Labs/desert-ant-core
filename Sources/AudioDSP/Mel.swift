@@ -3,7 +3,15 @@
 // triangular mel filterbank once, applies it to STFT power, and takes the log.
 // HTK mel scale by default, matching whisper/torchaudio's common setting.
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
 
 /// A triangular mel filterbank plus the STFT that feeds it. Configured once and
 /// reused: `logMel(_:)` takes a signal to a `[mels x frames]`-ordered log-mel

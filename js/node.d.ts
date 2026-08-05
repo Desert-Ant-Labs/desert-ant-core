@@ -1,10 +1,6 @@
 // Type declarations for the node-only entry of @desert-ant-labs/core/node.
-import { FfiReader, FfiWriter, AudioHost } from "./index.js";
+import { FfiReader, FfiWriter } from "./index.js";
 export { FfiReader, FfiWriter };
-
-/** Install `globalThis.__DalAudioHost` backed by the pure-JS WAV codec (Node
- *  has no Web Audio). Reads the file at `path` through `node:fs`. */
-export function installAudioHost(): AudioHost;
 
 export interface NativeCore {
   koffi: any;
@@ -24,17 +20,15 @@ export interface NativeCore {
   defaultCacheRoot: () => string;
 }
 
-/** The one native core every model package loads: "DesertAntNode". */
-export const DEFAULT_CORE_NAME: string;
-
-/** The generic `dal_*` C ABI (Sources/Bindings/CABI.swift), keyed by friendly
- *  name. The model is a `modelId` argument, so this is the same for every SDK. */
-export const DAL_SYMBOLS: Record<string, string>;
+/** This model's C ABI, keyed by friendly name: generic `dal_*` calls plus the
+ *  per-model `<modelId>_create` constructor. */
+export function dalSymbols(modelId: string): Record<string, string>;
 
 export function loadNative(options: {
   here: string;
   packageName: string;
-  coreName?: string;
+  coreName: string;
+  modelId: string;
   symbols?: Record<string, string>;
   targets?: string[];
 }): NativeCore;
@@ -46,7 +40,7 @@ export function createNativeSdk(options: {
   here: string;
   packageName: string;
   modelId: string;
-  coreName?: string;
+  coreName: string;
 }): import("./index.js").ModelSdk;
 
 export function nodeSetup(options: {

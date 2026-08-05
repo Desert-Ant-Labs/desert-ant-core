@@ -1,18 +1,9 @@
 // What a model has to provide to be reachable from another language.
 //
-// There is one C ABI and one JNI layer for the whole SDK (Sources/Bindings), not
-// one per model, because the exported symbol names are the only thing that
-// genuinely cannot be shared: `@_cdecl` takes a string literal, and JNI derives
-// its symbol from the Java class name. Everything else - handle boxing, lazy
-// creation, download, the blocking bridge, call groups - is identical for every
-// model, and the parts that do differ (which options a run takes, what a result
-// looks like) cross as `FFIBuffer` payloads that the model decodes and encodes
-// itself.
-//
-// So the model side of a binding is this file's two protocols, and adding a
-// model means conforming to them in that model's folder plus one line in the
-// bindings registry. No new exported symbol, no new native library, no change to
-// the host languages' shared plumbing.
+// A model conforms in its own module and exports its entry points from a small
+// native target, so its artifacts pull in no unrelated model or optional
+// capability. NativeBindings owns the shared handle, download, blocking, and
+// call-group implementation. Options and results cross as FFIBuffer payloads.
 
 import FFIBuffer
 

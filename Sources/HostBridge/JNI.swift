@@ -282,6 +282,13 @@ private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointe
 /// boolean caseInsensitive, byte[] text, boolean firstOnly)`, `static byte[]
 /// jsonParseTree(byte[] json)`, and `static byte[] normalizeNfkc(byte[] text)`
 /// (see the shared HostBridge.kt).
+public func installDesertAntHostBridge(_ env: HostEnv) {
+    if gHostClass != nil { return }
+    let cls = env.pointee!.pointee.FindClass(env, "ai/desertant/DesertAntNative")
+    installHostBridge(env, cls)
+    if let cls { env.pointee!.pointee.DeleteLocalRef(env, cls) }
+}
+
 public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gHostClass != nil { return }
     _ = env.pointee!.pointee.GetJavaVM(env, &gVM)

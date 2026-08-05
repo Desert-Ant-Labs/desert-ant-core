@@ -8,9 +8,9 @@
 Reusable, cross-platform Swift building blocks shared by Desert Ant Labs'
 on-device model SDKs, plus the model catalog itself.
 
-The models live in this repo under `Sources/ModelCatalog/<Model>/`, one module
-each, all on the same mechanisms (one catalog declaration, the verified model
-store, the platform inference session, one generic C ABI / JNI / wasm entry):
+Each model is its own top-level module under `Sources/<Model>/`, all on the same
+mechanisms (one catalog declaration, the verified model
+store, the platform inference session, and a common ABI shape):
 
 | Model | Product | What it does |
 |---|---|---|
@@ -18,22 +18,19 @@ store, the platform inference session, one generic C ABI / JNI / wasm entry):
 | `redact` | `Redact` | PII detection and redaction (text in, spans out) |
 | `clear` | `Clear` | speech enhancement: denoise, dereverb, loudness-normalize (audio in, 48 kHz mono out) |
 
-Adding a model is a folder there plus one line in the bindings registry; nothing
-shared changes.
+Adding a model is one registry entry plus its binding and native entry targets.
 
-A model SDK depends on the single `DesertAnt` product and writes one import:
-
-```swift
-import DesertAnt   // re-exports every module in the table below
-```
+A model target depends on `DesertAnt` for the shared runtime, then names only
+its optional capabilities. For example, Emo needs only `DesertAnt`, while Clear
+also depends on `AudioIO` and `AudioDSP`. This keeps audio code out of Emo while
+still giving model sources one import for the common APIs.
 
 Each module exposes one small public API and picks a per-platform backend behind
-it, so the code that uses it never sees a platform `#if`. They stay individually
-importable for consumers that want a narrower dependency:
+it, so the code that uses it never sees a platform `#if`:
 
 | Module | API | Apple / Linux | Android | WebAssembly |
 |---|---|---|---|---|
-| `ModelCatalog` | every model's coordinates + per-platform file manifest, and the `LoadedModel` shell an SDK wraps | same on every platform | | |
+| `ModelCatalog` | what a model declares (coordinates + per-platform file manifest), what it implements to be callable from another language, and the `LoadedModel` shell an SDK wraps | same on every platform | | |
 | `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
 | `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
 | `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
@@ -43,7 +40,7 @@ importable for consumers that want a narrower dependency:
 | `WasmBindings` | model-agnostic wasm export surface | empty | empty | `globalThis.__DesertAntExports` |
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
-| `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
+| `ModelStore` | SHA-256-verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
 | `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | Core ML / `LiteRTSession` | `LiteRTSession` | `JSInferenceSession` (LiteRT.js host) |
 | `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader`, async HTTP client | URLSession | host `java.net` (`CHostBridge`) | JS `fetch` |
 | `Usage` | usage turnstile: build/send `load` events | POST via HTTP client | POST via HTTP client | POST via HTTP client |
@@ -54,16 +51,20 @@ which are already loaded. See each module's source header for details.
 
 ### SwiftPM model registry
 
-`Package.swift` has one `models: [ModelPackage]` registry. One entry derives the
-model's library product and target, wasm executable and target, test target,
-`Bindings` dependency, `ModelCatalog` exclusion, and cross-model test
-dependency. Most models need only a name; genuine exceptions such as an extra
-package dependency or test resource live on that same entry. Do not add a new
-parallel model list elsewhere in the manifest.
+A model is **one folder and one registry line**. `Sources/<Model>/`
+holds the API, the payload codec (`Binding.swift`), the exported symbols
+(`Native.swift`), and the wasm entry (`Web/main.swift`); the entry in
+`Package.swift`'s `models: [ModelPackage]` derives the library, the Android and
+Node products, the wasm executable, and the test target from it. Optional
+dependencies (Clear names `AudioIO`/`AudioDSP`) and test resources live on that
+same entry, so most models need only a name.
 
-The source-level bindings registry remains `Sources/Bindings/Registry.swift`,
-where the model's concrete `ModelBinding` type is registered with the generic
-ABI.
+The exported symbols are model-scoped (`emo_create`,
+`Java_ai_desertant_emo_EmoNative_*`) rather than generic. `@_cdecl` names are
+global and SwiftPM links every test target into one binary, so a shared
+`dal_create` would collide between two models; scoping it is what lets a model
+stay a single target. Everything behind those names is model-agnostic and lives
+in `NativeBindings`.
 
 ## Regex
 
@@ -164,14 +165,14 @@ with nothing to resolve or download.
 
 ## WasmBindings (the wasm ABI)
 
-One export surface for every model, the WebAssembly twin of the `dal_*` C ABI in
-`Sources/Bindings`: options in and results out are `FFIBuffer` payloads the model
+One export shape for every model, the WebAssembly twin of each model's native
+entry points: options in and results out are `FFIBuffer` payloads the model
 encodes itself, so adding a model adds no export, no plumbing, and no JS glue.
 A model's wasm entry point installs it and says only how the JS host's
 self-hosted files become an instance:
 
 ```swift
-// Sources/ModelCatalog/<Model>/Web/main.swift, in full
+// Sources/<Model>/Web/main.swift, in full
 installWasmExports([
     WasmModel(EmoModel.self, binding: EmoBinding.self) { sidecars, session in
         Emo(assets: ModelAssets(metaJSON: ..., tokenizer: ..., session: session))
@@ -335,13 +336,15 @@ plumbing:
 
 ## HostBridge (Android JNI)
 
-The reusable Swift JNI harness provides byte-array marshalling
-(`hostCopyBytes` / `hostMakeBytes` / `withHostCText` / `hostTakeBuffer`), the
-`GetEnv`-checked thread attach, and `installHostBridge`, which wires the
-`CHostBridge` callbacks to Kotlin. Its Kotlin counterpart ships in the
-`ai.desertant:core` Android artifact alongside the generic `DesertAntNative`
-JNI surface and `LoadedModel` SDK shell, so a model SDK depends on them rather
-than implementing any of that lifecycle itself:
+The reusable Swift JNI harness provides byte-array marshalling, checked thread
+attachment, and host callbacks. `ai.desertant:core` packages that Kotlin host,
+the `LoadedModel` shell, and one `libLiteRt.so` per supported ABI.
+
+Each model AAR depends on core and contains one uniquely named JNI library, such
+as `libEmoAndroid.so`. It implements the common `NativeModelApi` contract with
+model-specific JNI symbols. Its C++ and Swift runtimes are linked statically, so
+two model AARs have no colliding native files and Gradle packages LiteRT once.
+The model AAR otherwise keeps only its public API and payload codec.
 
 ```kotlin
 dependencies {
@@ -349,13 +352,9 @@ dependencies {
 }
 ```
 
-The native ABI takes a catalog `modelId`, so adding a model adds no JNI symbol
-or Kotlin native class. Its Android SDK wraps one `LoadedModel(modelId, name,
-context, directory, exceptionFactory)`, then keeps only its typed API plus the
-options/result payload codec. The shared shell creates the opaque handle,
-checks offline availability, moves download and inference off the main thread,
-preserves each SDK's exception type, guards use after close, and releases the
-handle exactly once.
+The shared shell creates the opaque handle, checks offline availability, moves
+download and inference off the main thread, preserves each SDK's exception
+type, guards use after close, and releases the handle exactly once.
 
 Build and publish the artifact with mise (reproducible; provisions the Android
 SDK on first run): `mise run build-android`, `mise run publish-android`

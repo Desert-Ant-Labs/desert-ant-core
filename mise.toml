@@ -15,8 +15,9 @@
 # `mise run android-sdk` (internal) provisions Google's command-line tools into
 # .android-sdk and writes kotlin/local.properties on first run, so a bare box
 # with no Android Studio can build/publish; set ANDROID_HOME to reuse an existing
-# SDK instead. The artifact is pure Kotlin (no native .so), so it builds from
-# source anywhere. The version is single-sourced in kotlin/build.gradle.kts.
+# SDK instead. The core AAR fetches and packages one libLiteRt.so for each
+# supported ABI; model AARs do not carry their own copy. The version is
+# single-sourced in kotlin/build.gradle.kts.
 #
 # test-android is an instrumented (on-device) test, not the swift-testing suite:
 # on Android the JSON/Regex/TextNormalization backends call the host through
@@ -179,8 +180,23 @@ if ! have_bundle "$SDK.artifactbundle"; then
     rm -rf "$tmp"
 fi
 
-# One --product per model in Package.swift's `models` list.
-swift build --swift-sdk "$SDK" --product EmoWeb --product RedactWeb --product ClearWeb
+# Build separately so each artifact is checked against its own dependency graph
+# and SwiftPM does not plan the union of every model at once.
+for product in EmoWeb RedactWeb ClearWeb; do
+    log=$(mktemp)
+    swift build --swift-sdk "$SDK" --product "$product" 2>&1 | tee "$log"
+    case "$product" in
+      EmoWeb) unwanted='Compiling (AudioDSP|AudioIO|Clear|Redact)' ;;
+      RedactWeb) unwanted='Compiling (AudioDSP|AudioIO|Clear|Emo)' ;;
+      ClearWeb) unwanted='Compiling (Emo|Redact)' ;;
+    esac
+    if grep -Eq "$unwanted" "$log"; then
+        echo "error: $product compiled an unrelated model or capability" >&2
+        grep -E "$unwanted" "$log" >&2
+        exit 1
+    fi
+    rm -f "$log"
+done
 """
 
 [tasks.test-wasi]
@@ -315,7 +331,16 @@ description = "Assemble the ai.desertant:core release AAR (kotlin/)"
 dir = "{{ config_root }}"
 depends = ["android-sdk"]
 tools = { java = "temurin-21" }
-run = "./gradlew -p kotlin assembleRelease"
+shell = "bash -c"
+run = """
+set -euo pipefail
+./gradlew -p kotlin assembleRelease
+aar=kotlin/build/outputs/aar/core-release.aar
+entries=$(unzip -Z1 "$aar" | grep -E '^jni/[^/]+/libLiteRt\\.so$' | sort)
+expected=$(printf '%s\\n' jni/arm64-v8a/libLiteRt.so jni/x86_64/libLiteRt.so)
+[ "$entries" = "$expected" ] || { echo "error: core AAR has the wrong LiteRT payload" >&2; printf '%s\\n' "$entries" >&2; exit 1; }
+! unzip -Z1 "$aar" | grep -q 'Accelerator\\.so$'
+"""
 
 [tasks.publish-android]
 description = "Publish ai.desertant:core to Maven Central"

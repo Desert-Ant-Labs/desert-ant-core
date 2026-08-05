@@ -9,9 +9,9 @@ Desert Ant model SDKs' `<model>-kotlin` modules used to each copy (~200 lines of
   native build (`mise run android-natives`, replacing `swift-android.gradle.kts`),
   and depends on `ai.desertant:core`.
 
-No model ships in the AAR. Each SDK downloads its model on demand into the app
-cache, or into a directory the app passes (which may already hold the files), so
-there is no bundled-model module to publish.
+Each model AAR contains only its model-specific JNI library. The core dependency
+supplies LiteRT once to an app that imports one or several models. Model weights
+remain downloads into the app cache or a directory the app provides.
 
 Published to Maven Central as `ai.desertant:model-sdk-gradle-plugin`, versioned
 with desert-ant-core's `vX.Y.Z` tags.

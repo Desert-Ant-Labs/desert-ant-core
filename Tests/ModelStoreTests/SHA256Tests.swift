@@ -1,8 +1,8 @@
 import Testing
-import Checksum
+@testable import ModelStore
 
 @Suite(.serialized)
-struct ChecksumTests {
+struct SHA256Tests {
     private func bytes(_ s: String) -> [UInt8] { Array(s.utf8) }
 
     @Test func knownVectors() {

@@ -6,17 +6,14 @@
 // an SDK had to name six of them across as many files, and adding a capability
 // meant editing every SDK's manifest as well.
 //
-// `DesertAnt` re-exports the whole public surface, so an SDK writes
-// `import DesertAnt` and depends on one product. The pieces stay importable on
-// their own, which the core's own targets and tests do — nothing here changes
-// how anything is built or linked, since SwiftPM still links only what the
-// platform's conditional dependencies select.
+// `DesertAnt` re-exports the common public surface, so an SDK writes one import.
+// Optional capabilities such as AudioIO and AudioDSP stay separate and are
+// dependencies only of models that use them.
 
 // Text + data primitives.
 @_exported import Regex
 @_exported import JSON
 @_exported import TextNormalization
-@_exported import Checksum
 
 // Environment, HTTP, and the usage turnstile.
 @_exported import PlatformSupport
@@ -29,14 +26,8 @@
 @_exported import ModelStore
 @_exported import Inference
 
-// Audio: decode/encode (AudioIO) and the STFT/mel/framing DSP (AudioDSP) an
-// audio model SDK runs its front end on.
-@_exported import AudioIO
-@_exported import AudioDSP
-
-// Cross-language bindings: the length-prefixed FFI buffer, what a model
-// implements to be reachable from another language, and the Android JNI harness
-// (empty off the platforms that use it).
+// Cross-language bindings: the length-prefixed FFI buffer and the Android JNI
+// harness (empty off the platforms that use it). What a model implements to be
+// reachable from another language comes with ModelCatalog.
 @_exported import FFIBuffer
-@_exported import ModelBinding
 @_exported import HostBridge

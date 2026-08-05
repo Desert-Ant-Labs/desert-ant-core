@@ -4,7 +4,7 @@
 // the platform seam. Importing this pulls in `node:*`, so browser bundles must
 // import from "@desert-ant-labs/core" instead.
 export { createNativeSdk } from "./src/native-sdk.js";
-export { loadNative, DAL_SYMBOLS, DEFAULT_CORE_NAME } from "./src/native.js";
+export { loadNative, dalSymbols } from "./src/native.js";
 export { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./src/callgroup.js";
 export {
   nodeSetup,
@@ -13,4 +13,3 @@ export {
   nodeCacheRoot,
 } from "./src/platform-node.js";
 export { FfiReader, FfiWriter } from "./src/ffi.js";
-export { installAudioHost } from "./src/audio-node.js";

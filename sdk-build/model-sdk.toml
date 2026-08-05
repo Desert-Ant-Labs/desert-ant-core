@@ -13,7 +13,7 @@
 # the core model catalog on first use, so there is nothing to stage or publish.
 #
 #   [env]
-#   DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
+#   DAL_GPU = ""                # non-empty ships Linux LiteRT GPU siblings
 #
 #   [task_config]
 #   includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=v0.4.0"]
@@ -94,7 +94,18 @@ fi
 description = "Build the Android AAR (drives android-natives, then Gradle)"
 dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew -p packages/{{ vars.model }}-kotlin assembleRelease"
+shell = "bash -c"
+run = """
+set -euo pipefail
+module=packages/{{ vars.model }}-kotlin
+./gradlew -p "$module" assembleRelease
+aar=$(find "$module/build/outputs/aar" -name '*-release.aar' | head -1)
+[ -n "$aar" ] || { echo "error: release AAR not found" >&2; exit 1; }
+! unzip -Z1 "$aar" | grep -Eq 'libLiteRt|libc\\+\\+_shared'
+for abi in arm64-v8a x86_64; do
+    unzip -Z1 "$aar" | grep -qx "jni/$abi/lib{{ vars.product }}Android.so"
+done
+"""
 
 ["build-web"]
 description = "Build the WebAssembly core into packages/{{ vars.model }}-node/dist"
@@ -387,17 +398,16 @@ description = "Cross-compile the Android native libs into packages/{{ vars.model
 dir = "{{ config_root }}"
 shell = "bash -c"
 usage = '''
-flag "--gpu" help="Ship the LiteRT GPU accelerator siblings (for GPU models)"
-flag "--litert-version <ver>" help="LiteRT android AAR version to vendor" default="2.1.6"
+flag "--litert-version <ver>" help="LiteRT android AAR version to link" default="2.1.6"
 flag "--android-api <api>" help="Android minSdk/API level to build against" default="24"
 '''
 run = """
 set -euo pipefail
 
 # Uses a static Swift stdlib (-static-stdlib), so the whole Swift runtime is
-# linked into a single dead-stripped lib{{ vars.product }}Android.so instead of shipping the
-# ~10 MB dynamic runtime closure. Only lib{{ vars.product }}Android.so + the NDK's
-# libc++_shared.so are copied per ABI (alongside libLiteRt.so).
+# linked into a dead-stripped model-specific library instead of shipping the
+# ~10 MB dynamic runtime closure. The NDK C++ runtime is linked statically too.
+# ai.desertant:core owns LiteRT, so this AAR carries one model library per ABI.
 #
 # SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest: its
 # swift-syntax macros build for the host and conflict with the -resource-dir
@@ -452,14 +462,9 @@ if [ -z "$BUNDLE" ]; then
 fi
 [ -n "$BUNDLE" ] || { echo "error: Android SDK bundle for $SNAP not found after install" >&2; exit 1; }
 
-# LiteRT android libs (linked per ABI) from the litert-android AAR on Google's
-# Maven. Each jni/<abi>/libLiteRt.so exposes the LiteRT CompiledModel C API the
-# CLiteRt shim needs. Accelerator choice is a packaging decision, not a code
-# one: core's LiteRTSession defaults to .auto (GPU when its accelerator library
-# is bundled, else CPU/XNNPACK). CPU models ship libLiteRt.so only; a GPU model
-# sets DAL_GPU (or --gpu) to also vendor the accelerator sibling(s).
+# LiteRT android libs used only while linking each ABI. ai.desertant:core owns
+# the copies packaged into the app.
 LITERT_VER="${usage_litert_version:-2.1.6}"
-LITERT_GPU="${DAL_GPU:-${usage_gpu:-}}"   # non-empty ships the accelerator sibling(s)
 if [ ! -f "Vendor/litert/lib/android-aarch64/libLiteRt.so" ] || [ ! -f "Vendor/litert/lib/android-x86_64/libLiteRt.so" ]; then
     echo "Fetching LiteRT $LITERT_VER android libs (one-time)..."
     tmp=$(mktemp -d)
@@ -469,11 +474,6 @@ if [ ! -f "Vendor/litert/lib/android-aarch64/libLiteRt.so" ] || [ ! -f "Vendor/l
         abi=${pair%:*}; arch=${pair#*:}
         mkdir -p "Vendor/litert/lib/android-$arch"
         cp "$tmp/jni/$abi/libLiteRt.so" "Vendor/litert/lib/android-$arch/libLiteRt.so"
-        if [ -n "$LITERT_GPU" ]; then
-            for acc in "$tmp/jni/$abi/"libLiteRt*Accelerator.so; do
-                [ -f "$acc" ] && cp "$acc" "Vendor/litert/lib/android-$arch/"
-            done
-        fi
     done
     rm -rf "$tmp"
 fi
@@ -512,7 +512,26 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     # tells the compiler, so SwiftPM still resolved swiftResourcesPath (the
     # dynamic swift-<arch> dir) and the driver could not find
     # android/static-stdlib-args.lnk, which only exists under swift_static-<arch>.
-    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" --static-swift-stdlib -Xlinker -LVendor/litert/lib/android-$arch
+    # Swift's static runtime response file asks for the C++ standard library by
+    # its driver alias. Put the NDK static archive under both possible aliases
+    # so model AARs never collide over libc++_shared.so.
+    cxx_static=$(find -L "$BUNDLE" -path "*$arch-linux-android*" -name libc++_static.a 2>/dev/null | head -1 || true)
+    if [ -z "$cxx_static" ]; then
+        for base in "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
+            cxx_static=$(find -L "$base" -path "*$arch-linux-android*" -name libc++_static.a 2>/dev/null | head -1 || true)
+            [ -n "$cxx_static" ] && break
+        done
+    fi
+    [ -n "$cxx_static" ] || { echo "error: libc++_static.a for $arch not found" >&2; exit 1; }
+    cxx_link=$(mktemp -d)
+    ln -s "$cxx_static" "$cxx_link/libc++.a"
+    ln -s "$cxx_static" "$cxx_link/libc++_shared.a"
+    ln -s "$cxx_static" "$cxx_link/libstdc++.a"
+    ln -s "$cxx_static" "$cxx_link/libstdc++_shared.a"
+
+    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" --static-swift-stdlib \
+        -Xlinker -LVendor/litert/lib/android-$arch -Xlinker "-L$cxx_link"
+    rm -rf "$cxx_link"
 
     dest="$KOTLIN/jniLibs/$abi"
     rm -rf "$dest" && mkdir -p "$dest"
@@ -522,23 +541,6 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     built=$(find .build -type f -name "lib{{ vars.product }}Android.so" -path "*$arch*" 2>/dev/null | head -1)
     [ -n "$built" ] || { echo "error: lib{{ vars.product }}Android.so for $arch not found under .build" >&2; exit 1; }
     cp "$built" "$dest/"
-    cp "Vendor/litert/lib/android-$arch/libLiteRt.so" "$dest/"
-    # GPU models: also ship any vendored accelerator siblings.
-    for acc in "Vendor/litert/lib/android-$arch/"libLiteRt*Accelerator.so; do
-        [ -f "$acc" ] && cp "$acc" "$dest/"
-    done
-    # The app must ship the NDK's libc++_shared.so alongside the native. Prefer
-    # the copy inside the SDK bundle; fall back to an installed NDK, since the
-    # official bundles do not always vendor one.
-    ndk_cxx=$(find -L "$BUNDLE" -path "*$arch-linux-android*" -name libc++_shared.so 2>/dev/null | head -1 || true)
-    if [ -z "$ndk_cxx" ]; then
-        for base in "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
-            ndk_cxx=$(find -L "$base" -path "*$arch-linux-android*" -name libc++_shared.so 2>/dev/null | head -1 || true)
-            [ -n "$ndk_cxx" ] && break
-        done
-    fi
-    [ -n "$ndk_cxx" ] || { echo "error: libc++_shared.so for $arch not found (set ANDROID_NDK_HOME)" >&2; exit 1; }
-    cp "$ndk_cxx" "$dest/"
 
     so="$dest/lib{{ vars.product }}Android.so"
     if [ "$strip_mode" = objcopy ]; then

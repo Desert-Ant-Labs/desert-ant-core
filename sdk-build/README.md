@@ -21,7 +21,7 @@ model        = "emo"        # lowercase: paths + npm/Maven/HF/GitHub coordinates
 product      = "Emo"        # capitalized: Swift products, native lib names
 
 [env]
-DAL_GPU = ""                # non-empty ships the LiteRT GPU accelerator siblings
+DAL_GPU = ""                # non-empty ships Linux LiteRT GPU siblings
 
 [task_config]
 includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=v0.4.0"]

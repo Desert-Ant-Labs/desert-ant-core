@@ -4,7 +4,18 @@
 // elsewhere; the constants and normalization state-init ramps must match the
 // training-time libDF exactly or the model gets out-of-distribution input.
 
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
+#if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
+#endif
 #if canImport(Dispatch)
 import Dispatch
 #endif
@@ -301,7 +312,15 @@ final class ClearSTFT {
     deinit { vDSP_DFT_DestroySetup(fwd); vDSP_DFT_DestroySetup(inv) }
     #else
     // Cap parallel workers; wasm (single-threaded) runs concurrentPerform serially.
-    static var maxWorkers: Int { max(1, min(ProcessInfo.processInfo.activeProcessorCount, 16)) }
+    static var maxWorkers: Int {
+        #if os(WASI)
+        1
+        #elseif os(Android)
+        2
+        #else
+        max(1, min(ProcessInfo.processInfo.activeProcessorCount, 16))
+        #endif
+    }
     private func ensurePool(_ n: Int) { while pool.count < n { pool.append(MixedFFT960()) } }
     /// Split `count` items across `workers` and run `body(worker, lo, hi)` in
     /// parallel (serial when workers <= 1, e.g. on wasm).

@@ -4,7 +4,6 @@
 // Handles PCM (8/16/24/32-bit int) and IEEE float (32/64-bit); other codecs are
 // the host decoder's job.
 
-import Foundation
 
 /// Decoded PCM: interleaved `Float` samples in `[-1, 1]`, with the file's own
 /// sample rate and channel count (mixdown/resample happen separately).

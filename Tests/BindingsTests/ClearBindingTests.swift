@@ -2,12 +2,13 @@ import XCTest
 import Foundation
 import DesertAnt
 import TestSupport
-@_spi(ClearBindings) import Clear
-@testable import Bindings
+@_spi(ClearBindings) @testable import Clear
+import Emo
+import Redact
 
 /// The model-specific half of the cross-language binding: the payload schemas a
-/// host encodes and decodes. The conformances live in `Bindings` (a model module
-/// never references `FFIBuffer`), so their tests live here too.
+/// host encodes and decodes. Each model owns its own adapter, so no model can
+/// reach another's.
 final class ClearBindingTests: XCTestCase {
 #if !os(WASI)
     private func requireModelBacked() throws {
@@ -54,13 +55,10 @@ final class ClearBindingTests: XCTestCase {
         XCTAssertTrue(reader.f64().isNaN)               // measured LUFS: none, mastering off
     }
 
-    /// Every model in the registry is reachable by its catalog id, which is how
-    /// a host asks for one over the C ABI.
-    func testRegistryResolvesEveryModelId() {
-        for id in ["emo", "redact", "clear"] {
-            XCTAssertNotNil(binding(for: id), "no binding registered for '\(id)'")
-        }
-        XCTAssertNil(binding(for: "not-a-model"))
+    func testEachBindingOwnsOnlyItsCatalogId() {
+        XCTAssertEqual(EmoBinding.id, "emo")
+        XCTAssertEqual(RedactBinding.id, "redact")
+        XCTAssertEqual(ClearBinding.id, "clear")
     }
 #endif
 }

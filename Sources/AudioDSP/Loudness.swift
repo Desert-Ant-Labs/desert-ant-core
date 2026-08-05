@@ -4,7 +4,15 @@
 // clips. The post-DSP mastering stage audio-output SDKs apply, kept out of the
 // model. Accelerate-backed (vDSP_biquad) on Apple, plain Swift elsewhere.
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
 #if canImport(Accelerate)
 import Accelerate
 #endif
