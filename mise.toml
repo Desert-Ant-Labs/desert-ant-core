@@ -397,8 +397,9 @@ sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kt
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' gradle-plugin/build.gradle.kts && rm -f gradle-plugin/build.gradle.kts.bak
 # npm package version (npm keeps package.json + any lockfile in sync).
 ( cd js && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
-# The Maven coordinate in the README install snippet, if present.
+# The Maven coordinate and the SwiftPM install snippet in the README.
 sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
+sed -i.bak -E 's|(desert-ant-core\\.git", from: ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' README.md && rm -f README.md.bak
 echo "version set to $VERSION (kotlin/build.gradle.kts, gradle-plugin/build.gradle.kts, js/package.json, README)"
 """
 

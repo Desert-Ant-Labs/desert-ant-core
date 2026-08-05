@@ -1,445 +1,287 @@
-# desert-ant-core
+# Desert Ant Core
 
-[![macOS](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/macos.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/macos.yml)
-[![iOS](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/ios.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/ios.yml)
-[![Android](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/android.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/android.yml)
-[![WASI](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml/badge.svg)](https://github.com/Desert-Ant-Labs/desert-ant-core/actions/workflows/wasi.yml)
-
-Reusable, cross-platform Swift building blocks shared by Desert Ant Labs'
-on-device model SDKs, plus the model catalog itself.
-
-Each model is its own top-level module under `Sources/<Model>/`, all on the same
-mechanisms (one catalog declaration, the verified model
-store, the platform inference session, and a common ABI shape):
-
-| Model | Product | What it does |
-|---|---|---|
-| `emo` | `Emo` | multilingual emoji suggestion (text in, ranked emoji out) |
-| `redact` | `Redact` | PII detection and redaction (text in, spans out) |
-| `clear` | `Clear` | speech enhancement: denoise, dereverb, loudness-normalize (audio in, 48 kHz mono out) |
-
-Adding a model is one registry entry plus its binding and native entry targets.
-
-A model target depends on `DesertAnt` for the shared runtime, then names only
-its optional capabilities. For example, Emo needs only `DesertAnt`, while Clear
-also depends on `AudioIO` and `AudioDSP`. This keeps audio code out of Emo while
-still giving model sources one import for the common APIs.
-
-Each module exposes one small public API and picks a per-platform backend behind
-it, so the code that uses it never sees a platform `#if`:
-
-| Module | API | Apple / Linux | Android | WebAssembly |
-|---|---|---|---|---|
-| `ModelCatalog` | what a model declares (coordinates + per-platform file manifest), what it implements to be callable from another language, and the `LoadedModel` shell an SDK wraps | same on every platform | | |
-| `Regex` (type `Pattern`) | stdlib-`Regex`-shaped matching | `NSRegularExpression` | `java.util.regex` (via `CHostBridge`) | JS `RegExp` |
-| `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
-| `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
-| `AudioIO` | decode to mono `Float` + WAV encode | AVFoundation (Apple) / WAV codec (Linux) | host MediaCodec (via `CHostBridge`) | JS `AudioContext.decodeAudioData` |
-| `AudioDSP` | STFT/ISTFT, mel, windows, framing | Accelerate BLAS/vDSP | pure Swift | pure Swift |
-| `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
-| `WasmBindings` | model-agnostic wasm export surface | empty | empty | `globalThis.__DesertAntExports` |
-| `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
-| `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
-| `ModelStore` | SHA-256-verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
-| `Inference` | named-tensor `InferenceSession` (`Tensor` in/out) | Core ML / `LiteRTSession` | `LiteRTSession` | `JSInferenceSession` (LiteRT.js host) |
-| `PlatformSupport` | env access, blocking FFI bridge, `LazyLoader`, async HTTP client | URLSession | host `java.net` (`CHostBridge`) | JS `fetch` |
-| `Usage` | usage turnstile: build/send `load` events | POST via HTTP client | POST via HTTP client | POST via HTTP client |
-
-The design deliberately avoids linking Foundation on Android and wasm (it would
-add a ~40 MB ICU blob); instead it calls the host platform's own regex/JSON,
-which are already loaded. See each module's source header for details.
-
-### SwiftPM model registry
-
-A model is **one folder and one registry line**. `Sources/<Model>/`
-holds the API, the payload codec (`Binding.swift`), the exported symbols
-(`Native.swift`), and the wasm entry (`Web/main.swift`); the entry in
-`Package.swift`'s `models: [ModelPackage]` derives the library, the Android and
-Node products, the wasm executable, and the test target from it. Optional
-dependencies (Clear names `AudioIO`/`AudioDSP`) and test resources live on that
-same entry, so most models need only a name.
-
-The exported symbols are model-scoped (`emo_create`,
-`Java_ai_desertant_emo_EmoNative_*`) rather than generic. `@_cdecl` names are
-global and SwiftPM links every test target into one binary, so a shared
-`dal_create` would collide between two models; scoping it is what lets a model
-stay a single target. Everything behind those names is model-agnostic and lives
-in `NativeBindings`.
-
-## Regex
+On-device AI SDKs for Swift, Kotlin, and JavaScript. Suggest emoji, redact
+personal data, and clean up noisy speech directly on the user's phone, Mac, or
+browser tab. Every model runs locally through Core ML on Apple, LiteRT (formerly
+TensorFlow Lite) on Android, and WebAssembly with LiteRT.js on the web, so text
+and audio never leave the device.
 
 ```swift
-import Regex
+import Emo
+import Redact
 
-let re = try Pattern(#"(\d{4})-(\d{2})"#)    // or `try regex(...)`; `rx("...")` traps, for constants
-if let m = text.firstMatch(of: re) {        // reads like the standard library
-    text[m.range]        // Range<String.Index>  (whole match)
-    m[1].substring       // Substring?           (capture 1)
+let suggestions = try await Emo().suggestions(for: "Pay my bills")   // 💰 💳 🧾
+let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
+// Email [GIVEN_NAME_1] at [EMAIL_1].
+```
+
+- [Models](#models)
+- [Swift](#swift)
+  - [Install](#install)
+  - [Usage](#usage)
+- [Android](#android)
+  - [Install](#install-1)
+  - [Usage](#usage-1)
+- [JavaScript and TypeScript](#javascript-and-typescript)
+  - [Install](#install-2)
+  - [Usage](#usage-2)
+- [Model downloads and caching](#model-downloads-and-caching)
+- [Platform support](#platform-support)
+- [License](#license)
+
+## Models
+
+| Model | What it does | Swift | Android | Web and Node | Weights |
+|---|---|---|---|---|---|
+| **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
+| **Redact** | PII detection and reversible redaction, 24 EU languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
+| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | soon | soon | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
+
+Each model behaves the same on every platform, so you can build a feature once
+and ship it everywhere.
+
+## Swift
+
+### Install
+
+Requirements: iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, and Swift 5.9+.
+
+Add the package with Swift Package Manager:
+
+```swift
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "0.5.5")
+```
+
+Then add the products you want to your app target: `Emo`, `Redact`, `Clear`. You
+only pay for what you add, so an Emo-only app carries nothing from the others.
+
+### Usage
+
+Create one instance and reuse it. Construction is cheap and non-blocking; the
+model loads on first use, or earlier if you call `download`.
+
+**Emo**
+
+```swift
+import Emo
+
+let emo = Emo()
+let suggestions = try await emo.suggestions(for: "Pay my bills")
+// [EmoSuggestion(emoji: "💰", confidence: ...), ...]
+
+let toned = try await emo.suggestions(for: "go for a run", limit: 1, skinTone: .medium)
+// 🏃🏽
+```
+
+**Redact**
+
+Redaction is reversible. Mask personal data before sending text to an LLM, then
+restore the originals in the reply, on device.
+
+```swift
+import Redact
+
+let redact = Redact()
+let result = try await redact.redaction(of: "Email Anna Kovács at anna@example.hu.")
+
+print(result.redactedText)
+// Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
+
+for item in result.items {
+    print(item.label.displayName, item.original, item.placeholder, item.confidence)
 }
-for m in text.matches(of: re) { ... }
-re.wholeMatch(in:); re.prefixMatch(in:); re.ignoresCase(); re.contains(in:)
+
+let reply = try await myLLM.rewrite(result.redactedText)
+let restored = result.restore(reply)
 ```
 
-The module is `Regex` but the type is `Pattern`: a type named `Regex` would
-clash with the standard library's `Regex` and can't be module-qualified. Use
-`Pattern(_:)` / `regex(_:)` / `rx(_:)` and the `String` matching methods
-(`text.firstMatch(of:)`, `text.matches(of:)`, ...). It does not conform to
-`RegexComponent` (that would force the stdlib engine), so regex literals and
-generic `RegexComponent` contexts don't accept it.
-
-## JSON
+Filter by category, or raise the confidence floor:
 
 ```swift
-import JSON
-
-let user = try JSONDecoder().decode(User.self, from: jsonString)   // or from: [UInt8]
-let json = try JSONEncoder().encodeToString(user)                  // or encode(_) -> [UInt8]
+let options = Options(minimumConfidence: 0.7, labels: [.email, .phone, .creditCard])
+let contactOnly = try await redact.redaction(of: text, options: options)
 ```
 
-Same shape as `Foundation.JSONDecoder`/`JSONEncoder`. On Apple/Linux it wraps
-Foundation's; on Android/wasm it drives standard-library `Codable` over a JSON
-tree (host-parsed for decoding, serialized here for encoding — no Foundation, no
-hand-rolled grammar). Input is `String`/`[UInt8]` because `Data` is Foundation-
-only. Encoded output is compact with object keys sorted, so it is deterministic
-and byte-identical on every platform.
-
-## TextNormalization
+**Clear**
 
 ```swift
-import TextNormalization
+import Clear
 
-let normalized = text.nfkc   // Unicode NFKC, using the platform's own normalizer
+let clear = Clear()
+let result = try await clear.enhance(path: "in.wav", to: "out.wav")
+print(result.realtimeFactor, result.measuredLUFS ?? 0)
 ```
 
-Text models normalize before tokenizing (SentencePiece/XLM-R expect NFKC).
-Each platform already ships a normalizer, so this bundles no ICU where the OS or
-host provides one: Foundation on Apple/Linux, the host's `java.text.Normalizer`
-(delegated through `CHostBridge`, so no `libicu` link and no API 31 floor) on
-Android, `String.prototype.normalize` on wasm.
-
-## FFIBuffer
-
-A model core with a C ABI returns results as a self-describing binary payload
-instead of JSON, so neither side hand-rolls a parser. `FFIWriter` builds a
-big-endian, length-prefixed buffer (`u32`/`u64`/`f64`/length-prefixed UTF-8
-strings); the host reads it with its own standard library (see the matching
-`FfiReader` in `kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`, a thin
-`java.nio.ByteBuffer` cursor) and
-frees it with `ffiFree`. The payload *schema* is the model's own concern.
-
-## LoadedModel (the SDK shell)
-
-Resolving a model's files, building it once, sharing that single load with every
-concurrent caller, and answering "is it available offline?" are the same for
-every model, so an SDK does not write them. It wraps a `LoadedModel` and adds
-only its public API and how a resolved directory becomes its runtime:
+Without a filesystem, enhance in memory and get WAV bytes back:
 
 ```swift
-public final class Emo: @unchecked Sendable {
-    private let model: LoadedModel<Model>
+let (result, wav) = try await clear.enhance(bytes: recording)
+```
 
-    public convenience init(directory: String? = nil) {
-        self.init(directory: directory, cacheRoot: nil)
-    }
+**Download ahead of time**
 
-    public init(directory: String?, cacheRoot: String?) {
-        model = LoadedModel(EmoModel.self, directory: directory, cacheRoot: cacheRoot) { files in
-            try Model(assets: await .emo(files: files))
-        }
-    }
+Any model can be fetched before first use, for example during onboarding:
 
-    public func isDownloaded() -> Bool { model.isDownloaded() }
-    public func download(progress: ...) async throws { try await model.download(progress: progress) }
-    public func suggestions(...) async throws -> [EmoSuggestion] {
-        try await model.value().suggestions(...)
+```swift
+let emo = Emo()
+if !emo.isDownloaded() {
+    try await emo.download { fraction in
+        print("\(Int(fraction * 100))%")
     }
 }
 ```
 
-Construction starts nothing; the first `value()` or `download(progress:)`
-resolves the files (adopting `directory`, else downloading into it or into the
-managed cache) and builds the runtime. A failed load is not cached, so a later
-call retries. `LoadedModel { ... }` wraps a runtime whose inputs the caller
-already has (the cross-language bindings and the wasm host's self-hosted files),
-with nothing to resolve or download.
+**Ship the model with your app**
 
-## WasmBindings (the wasm ABI)
-
-One export shape for every model, the WebAssembly twin of each model's native
-entry points: options in and results out are `FFIBuffer` payloads the model
-encodes itself, so adding a model adds no export, no plumbing, and no JS glue.
-A model's wasm entry point installs it and says only how the JS host's
-self-hosted files become an instance:
+Point a model at a directory you populated and it is used as-is, offline, with
+nothing downloaded:
 
 ```swift
-// Sources/<Model>/Web/main.swift, in full
-installWasmExports([
-    WasmModel(EmoModel.self, binding: EmoBinding.self) { sidecars, session in
-        Emo(assets: ModelAssets(metaJSON: ..., tokenizer: ..., session: session))
-    },
-])
+let emo = Emo(directory: myModelDirectory)
 ```
 
-That installs, keyed by model id so two SDKs on one page cannot clobber each
-other:
+## Android
 
-```js
-globalThis.__DesertAntExports.emo = {
-  create(cacheRoot?, directory?), createSelfHosted(files),   // -> handle
-  isDownloaded(handle), download(handle, onProgress?),
-  run(handle, text, options?, group?, deviceId?),            // -> Uint8Array
-  endCallGroup(id), destroy(handle), flushTelemetry(),
-}
-```
+### Install
 
-The JS side resolves it with `wasmExports(modelId)` (or gets it back from
-`browserSetup`/`nodeSetup`), so a model package supplies only its payload codecs.
-`group` and `deviceId` behave exactly as on the C ABI, so usage attribution and
-call grouping work identically on every runtime.
-
-## AudioIO and AudioDSP
-
-One decode/encode API and one DSP toolbox, so an audio model SDK (clear, uhm)
-ships no per-platform audio code. `AudioIO.decode` always returns mono `Float`
-at the sample rate you ask for, resampling and mixing down for you:
-
-```swift
-import AudioIO
-
-let samples = try await AudioIO.decode(path: file, sampleRate: 16_000)  // or decode(bytes:)
-let wav = AudioIO.encodeWAV(samples, sampleRate: 16_000)                // 16-bit PCM, portable
-```
-
-`decode` is `async` (the wasm backend awaits a JS Promise; native backends
-satisfy it synchronously) and picks the backend per platform: AVFoundation on
-Apple, the pure-Swift WAV codec on Linux, the host decoder through
-`CHostBridge`'s `host_audio_decode` on Android, and
-`AudioContext.decodeAudioData` via the `__DalAudioHost` JS global on wasm.
-Encoding a 16-bit PCM WAV is pure Swift, identical everywhere.
-
-The host decoders ship in core's own runtime artifacts, so a model SDK writes no
-audio glue: `HostBridge.audioDecode` (MediaExtractor/MediaCodec) in the
-published `ai.desertant:core` Android artifact, wired by `installHostBridge`;
-and `installAudioHost()` in the `@desert-ant-labs/core` npm package (Web Audio
-in the browser, the WAV codec under Node), which sets `__DalAudioHost`.
-
-`AudioDSP` is the shared spectral/vector toolbox a speech model runs on both
-sides of inference. Pure Swift, Accelerate-backed on Apple (STFT/mel run as BLAS
-matmuls on the vector units), so every platform gets bit-compatible results:
-
-```swift
-import AudioDSP
-
-let stft = STFT(nFFT: 400, hop: 100)          // periodic Hann, center + reflect pad
-let spec = stft.forward(samples)              // magnitude()/phase() available
-let audio = stft.inverse(spec, length: samples.count)   // windowed COLA overlap-add
-
-let (norm, gain) = VectorOps.energyNormalize(samples)   // undo with scaled(_, by: 1/gain)
-let mel = MelSpectrogram(sampleRate: 16_000, nFFT: 400, hop: 160, mels: 80).logMel(samples)
-
-// Run a fixed-size model over an arbitrary-length signal and stitch outputs:
-for (start, end) in Framing.windows(count: n, window: 30 * sr, hop: 25 * sr) { /* run */ }
-var acc = OverlapAccumulator(length: totalFrames)       // average() or normalized() (COLA)
-```
-
-## ModelStore and model resources
-
-`ModelDistribution` lets model packages declare shared files, Apple and portable
-artifacts, and optional wasm session configuration without platform branches.
-Core selects the artifact, creates the platform store, downloads atomically,
-verifies size and SHA-256, and writes a spec-specific manifest for safe offline
-reuse. Lower-level `ModelStore.download` returns a `StoredModel`, so packages read
-sidecars and obtain runtime artifact paths without selecting a filesystem or
-joining platform paths:
-
-```swift
-let distribution = ModelDistribution(
-    repo: "org/model",
-    revision: "v1",
-    files: [
-        .apple: ["model.mlmodelc/", "apple_tokenizer.bin"],
-        .linux: ["model.tflite", "tokenizer.bin", "labels.json"],
-    ]
-)
-let files = try await distribution.install()          // download + cache
-// Or bypass download and caching entirely:
-let local = try distribution.load(from: "/path/to/model-directory")
-let tokenizer = try files.read("tokenizer.bin")
-let modelPath = files.path("model.tflite")
-```
-
-No model is ever bundled as a package resource: a model is downloaded on demand
-to a managed cache location, or to a directory the consumer names. An SDK
-consumer "bundles" a model by pointing that directory at a folder that already
-holds the files, which is then adopted as-is and used offline. On wasm,
-`StoredModel.initializeJSSession` also hides the node-path versus browser-bytes
-handoff to a configurable JavaScript session factory.
-
-## Inference
-
-One named-tensor session API over every inference runtime, so a model SDK
-builds its input tensors once and runs them unchanged on all platforms:
-
-```swift
-import Inference
-
-let session = try inferenceSession(modelPath: path)
-let logits = try await session.run(
-    inputs: [
-        "input_ids": Tensor(int64: ids, shape: [1, ids.count]),
-        "attention_mask": Tensor(int64: mask, shape: [1, ids.count]),
-    ],
-    outputs: ["logits"])[0]
-let values = logits.float32Values ?? []
-```
-
-`Tensor` is raw bytes plus an element type (`int32`/`int64`/`float32`) and
-shape; accessors copy out via memcpy, so large tensors are fine. Multiple
-inputs and outputs are supported, and autoregressive models feed outputs back
-as the next step's inputs. Backends: `CoreMLSession` on Apple,
-`LiteRTSession` on Android/Linux, and `JSInferenceSession` over LiteRT.js on
-wasm. Model SDKs use the public factory rather than naming a backend directly.
-
-Model SDKs normally never name a backend: the session factory picks it, so a
-model repo carries no platform conditionals, just per-platform artifact names:
-
-```swift
-let files = try await distribution.resolve()                 // ModelStore
-let session = try await files.inferenceSession(
-    model: artifactName, hostGlobal: "__MyModelHost")        // Core ML | LiteRT | JS host
-// Custom deployments: inferenceSession(modelPath:) / inferenceSession(modelBytes:)
-```
-
-## PlatformSupport
-
-Small shared runtime utilities so model code writes no platform or concurrency
-plumbing:
-
-- `environmentVariable(_:)` reads an env var without importing Foundation.
-- `httpGET(_:)` / `httpPOST(_:body:contentType:)` / `httpRequest(...)` are an
-  async HTTP client that delegates to each platform's own networking: URLSession
-  on Apple/Linux, the host (java.net/OkHttp via `CHostBridge`) on Android, and
-  the JS host's `fetch` (JavaScriptKit) on WebAssembly.
-- `MessageError` gives an error type one `message`; it is `LocalizedError`
-  wherever Foundation exists, so SDKs skip the per-platform conformance.
-- `blockingValue(_:)` runs an async operation to completion on a synchronous FFI
-  worker thread (never an app's main thread).
-- `LazyLoader<Value>` loads a value once, on demand, sharing the single in-flight
-  load with every caller and broadcasting its progress (monotonic `0...1`). Model
-  SDKs use it to load/download the model lazily and single-flight:
-
-  ```swift
-  let loader = LazyLoader { progress in try await downloadAndBuildModel(progress) }
-  let model = try await loader.value()      // loads on first use
-  try await loader.run { fraction in … }    // or prefetch with progress
-  ```
-
-## HostBridge (Android JNI)
-
-The reusable Swift JNI harness provides byte-array marshalling, checked thread
-attachment, and host callbacks. `ai.desertant:core` packages that Kotlin host,
-the `LoadedModel` shell, and one `libLiteRt.so` per supported ABI.
-
-Each model AAR depends on core and contains one uniquely named JNI library, such
-as `libEmoAndroid.so`. It implements the common `NativeModelApi` contract with
-model-specific JNI symbols. Its C++ and Swift runtimes are linked statically, so
-two model AARs have no colliding native files and Gradle packages LiteRT once.
-The model AAR otherwise keeps only its public API and payload codec.
+Requirements: Android API 24+, arm64-v8a and x86_64. Adding a second model does
+not double the size it adds to your app.
 
 ```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+// build.gradle.kts
 dependencies {
-    implementation("ai.desertant:core:0.5.5")
+    implementation("ai.desertant:emo:0.10.2")
+    implementation("ai.desertant:redact:0.7.2")
 }
 ```
 
-The shared shell creates the opaque handle, checks offline availability, moves
-download and inference off the main thread, preserves each SDK's exception
-type, guards use after close, and releases the handle exactly once.
+### Usage
 
-Build and publish the artifact with mise (reproducible; provisions the Android
-SDK on first run): `mise run build-android`, `mise run publish-android`
-(Maven Central), or `mise run publish-android-local` (keyless, to `~/.m2`, for
-testing consumers). The version is single-sourced in `kotlin/build.gradle.kts`
-(`mise run set-version X.Y.Z`).
+`suggestions`, `redaction`, and `download` are suspending functions. A model owns
+native resources, so close it when you are done, or let `use { }` do it.
 
-### Releasing
+```kotlin
+import ai.desertant.emo.Emo
+import ai.desertant.emo.EmojiSkinTone
 
-The repo ships two published sibling artifacts alongside the SwiftPM package:
-the `ai.desertant:core` Android library (`kotlin/`) and the
-`@desert-ant-labs/core` npm package (`js/`, the shared JavaScript runtime the
-model node packages build on). Releases are tag-driven and publish only what
-changed.
-
-Bump the version whenever you like (it sets every artifact, so their versions
-stay current and aligned), commit to `main`, then push a matching `vX.Y.Z` tag:
-
-```bash
-mise run set-version 0.3.2   # bumps kotlin/build.gradle.kts, js/package.json, README
-# commit and merge to main
-git tag v0.3.2 && git push origin v0.3.2
+Emo(context).use { emo ->
+    val suggestions = emo.suggestions("Pay my bills")               // List<EmoSuggestion>
+    val toned = emo.suggestions("go for a run", limit = 1, skinTone = EmojiSkinTone.MEDIUM)
+}
 ```
 
-Three workflows react to the tag, each independent, and each publishes its
-artifact only if it actually changed:
+```kotlin
+import ai.desertant.redact.Redact
 
-- `Publish Android` (`.github/workflows/publish-android.yml`) runs
-  `mise run publish-android` when the tag matches the `kotlin/build.gradle.kts`
-  version **and** `kotlin/` changed since the previous tag.
-- `Publish npm` (`.github/workflows/publish-npm.yml`) runs `mise run publish-npm`
-  when the tag matches the `js/package.json` version **and** `js/` changed since
-  the previous tag.
-- `Publish Gradle plugin` (`.github/workflows/publish-gradle-plugin.yml`) runs
-  `mise run publish-plugin` when the tag matches the
-  `gradle-plugin/build.gradle.kts` version **and** `gradle-plugin/` changed since
-  the previous tag.
-
-Credentials are **Desert-Ant-Labs organization secrets**, shared by every SDK
-repo so there is a single place to rotate them: `MAVEN_CENTRAL_USERNAME`,
-`MAVEN_CENTRAL_PASSWORD`, `SIGNING_IN_MEMORY_KEY`,
-`SIGNING_IN_MEMORY_KEY_PASSWORD`, and `NPM_TOKEN`. They use visibility `all`, so
-a **new model SDK repo publishes with no secret setup at all** - it just needs
-the publish workflows:
-
-```bash
-gh secret set MAVEN_CENTRAL_USERNAME --org Desert-Ant-Labs --visibility all
+Redact(context).use { redact ->
+    val result = redact.redaction("Email Anna Kovács at anna@example.hu.")
+    println(result.redactedText)                 // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
+    val restored = result.restore(llmReply)
+}
 ```
 
-Note that GitHub has no "public repositories only" scope (visibility is `all`,
-`private`, or `selected`), so `all` also exposes these to the org's private
-repos. Any workflow in any org repo can therefore read the publish credentials;
-they are not readable from fork pull requests. Rotate via the same command.
+Download before first use, or point at your own directory:
 
-The `maven-central` and `npm` environments hold **no** secrets; they are kept
-only as optional approval gates (add required reviewers to gate a release) and
-for deployment history. Do not add secrets to them - environment secrets shadow
-organization ones.
+```kotlin
+val emo = Emo(context)
+if (!emo.isDownloaded()) emo.download()
 
-A **pure version bump does not count as a change**, so a blanket `set-version`
-that touches nothing but version lines republishes nothing. An artifact that did
-not change is simply skipped and keeps its last published version, so **published
-versions may skip** (e.g. the Android artifact can go from `0.3.0` straight to
-`0.3.3` while the npm package publishes the in-between versions). npm and Maven
-Central versions are immutable, so a given version never republishes. No local
-secrets are needed to cut a release. To publish by hand instead, run
-`mise run publish-android` / `mise run publish-npm` with the credentials
-exported (for example via a gitignored `mise.local.toml`).
+val offline = Emo(context, directory = myModelDir)   // adopted as-is, nothing downloaded
+```
 
-The JavaScript runtime is documented in [`js/README.md`](js/README.md); build
-and test it locally with `mise run test-js`.
+## JavaScript and TypeScript
 
-## Android wiring
+### Install
 
-On Android, `Regex`/`JSON`/`AudioIO` call `host_regex_matches` /
-`host_json_parse` / `host_audio_decode` from `CHostBridge`; `HostBridge`'s
-`installHostBridge` installs the implementations once via
-`host_set_regex_matches` / `host_set_json_parse` / `host_set_audio_decode`,
-wired to the shared `HostBridge.kt` statics (`regexMatches` / `jsonParseTree` /
-`audioDecode`) in the published `ai.desertant:core` artifact, so a model SDK
-vendors none of them. See `Sources/CHostBridge/include/CHostBridge.h` for the
-contract.
+```bash
+# Browser (WebAssembly + LiteRT.js):
+npm i @desert-ant-labs/emo @litertjs/core
+
+# Server-side inference in Node (prebuilt native core, no extra install):
+npm i @desert-ant-labs/emo
+```
+
+The default import is the browser build. It has no native dependencies, so it
+bundles cleanly for every target of a multi-target bundler such as Next.js,
+Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
+frameworks run in Node. For inference in plain Node, import the `/native`
+subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
+
+### Usage
+
+```ts
+import { Emo } from "@desert-ant-labs/emo";           // browser
+// import { Emo } from "@desert-ant-labs/emo/native"; // server-side Node
+
+const emo = await Emo.load();                                // downloads and caches on first use
+const suggestions = await emo.suggestions("Pay my bills");   // [{ emoji, confidence }, ...]
+emo.dispose();
+```
+
+```ts
+import { Redact } from "@desert-ant-labs/redact";
+
+const redact = await Redact.load();
+const result = await redact.redaction("Email Anna Kovács at anna@example.hu.");
+console.log(result.redactedText);   // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
+const restored = result.restore(llmReply);
+redact.dispose();
+```
+
+Self-host the model files or track download progress:
+
+```ts
+const emo = await Emo.load({
+  modelBaseUrl: "/assets/emo/",                        // browser: serve the files yourself
+  directory: "/var/cache/emo",                         // Node: adopt or download here
+  onProgress: (fraction) => console.log(fraction),
+});
+```
+
+Bring your own LiteRT.js module, useful for custom bundler setups:
+
+```ts
+import * as litert from "@litertjs/core";
+
+const emo = await Emo.load({ litert, litertWasmDir: "/path/to/@litertjs/core/wasm/" });
+```
+
+## Model downloads and caching
+
+Weights are published on the [Hugging Face
+Hub](https://huggingface.co/desert-ant-labs). Each SDK version is pinned to one
+model revision, so a model never changes under you, and every download is
+verified before it is used.
+
+- **Managed cache**, the default. Files land in the platform cache directory and
+  are reused across launches.
+- **Your own directory.** Pass `directory` and it becomes the model home. Files
+  already there are adopted as-is, so an app that ships the model offline simply
+  points at the folder it unpacked. Otherwise the model downloads into it.
+- **Self-hosted on the web.** Serve the files yourself and pass `modelBaseUrl`.
+
+`isDownloaded()` answers whether a model is usable with no network, and
+`download()` fetches it ahead of time with progress.
+
+## Platform support
+
+| Platform | Runtime | Requirements |
+|---|---|---|
+| iOS, macOS, tvOS, visionOS | Core ML | iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, Swift 5.9+ |
+| Android | LiteRT | API 24+, arm64-v8a and x86_64 |
+| Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
+| Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
-most apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0).
+Free for most apps; a commercial license is required at scale. Full terms are at
+the link. Licensing: <licensing@desertant.com>.
