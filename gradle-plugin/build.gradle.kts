@@ -12,7 +12,7 @@ plugins {
 }
 
 group = "ai.desertant"
-version = "0.6.0"
+version = "1.0.0"
 
 dependencies {
     implementation("com.android.tools.build:gradle:8.7.3")

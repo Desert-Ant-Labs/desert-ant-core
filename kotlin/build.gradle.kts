@@ -26,7 +26,7 @@ plugins {
 }
 
 group = "ai.desertant"
-version = "0.5.5"
+version = "1.0.0"
 
 android {
     namespace = "ai.desertant.core"

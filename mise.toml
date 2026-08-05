@@ -369,18 +369,47 @@ run = "./gradlew -p kotlin publishToMavenLocal"
 
 # Print the single-sourced artifact version (from kotlin/build.gradle.kts).
 [tasks.check-version]
-hide = true
+description = "Verify every artifact in the repo carries the same version"
 dir = "{{ config_root }}"
 shell = "bash -c"
 run = """
 set -euo pipefail
-v=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' kotlin/build.gradle.kts)
-[ -n "$v" ] || { echo "error: no version in kotlin/build.gradle.kts" >&2; exit 1; }
-echo "$v"
+V=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' kotlin/build.gradle.kts)
+[ -n "$V" ] || { echo "error: no version in kotlin/build.gradle.kts" >&2; exit 1; }
+bad=0
+check() { # <found> <where>
+    [ "$1" = "$V" ] || { echo "  $2: $1 (expected $V)" >&2; bad=1; }
+}
+check "$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' gradle-plugin/build.gradle.kts)" "gradle-plugin/build.gradle.kts"
+check "$(node -p 'require("./js/package.json").version')" "js/package.json"
+for cat in Sources/*/Catalog.swift; do
+    [ -f "$cat" ] || continue
+    product="$(basename "$(dirname "$cat")")"
+    model="$(printf '%s' "$product" | tr '[:upper:]' '[:lower:]')"
+    check "$(sed -n -E 's|.*sdkVersion = "([^"]*)".*|\\1|p' "$cat")" "$cat"
+    dir="packages/$model-node"
+    [ -d "$dir" ] || continue
+    check "$(node -p "require('./$dir/package.json').version")" "$dir/package.json"
+    # The model packages pin core exactly, so a published pair can never mismatch.
+    pin=$(node -p "require('./$dir/package.json').dependencies?.['@desert-ant-labs/core'] ?? ''")
+    [ -z "$pin" ] || check "$pin" "$dir core dependency"
+    kts="packages/$model-kotlin/build.gradle.kts"
+    [ ! -f "$kts" ] || {
+        check "$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$kts")" "$kts"
+        check "$(sed -n -E 's|.*id\\("ai\\.desertant\\.model-sdk"\\) version "([^"]*)".*|\\1|p' "$kts")" "$kts plugin pin"
+        # The AAR declares ai.desertant:core at this version. Unset means the
+        # convention plugin's stale default ships instead.
+        core=$(sed -n -E 's|.*coreVersion = "([^"]*)".*|\\1|p' "$kts")
+        [ -n "$core" ] || { echo "  $kts: coreVersion not set" >&2; bad=1; }
+        [ -z "$core" ] || check "$core" "$kts coreVersion"
+    }
+done
+[ "$bad" = 0 ] || { echo "error: versions disagree" >&2; exit 1; }
+echo "$V"
 """
 
 [tasks.set-version]
-description = "Set the desert-ant-core artifact versions (ai.desertant:core + @desert-ant-labs/core + README)"
+description = "Set THE version: every artifact in this repo ships one number"
 dir = "{{ config_root }}"
 tools = { node = "22" }
 shell = "bash -c"
@@ -391,16 +420,43 @@ run = """
 set -euo pipefail
 VERSION="${usage_version:?version arg required}"
 echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
-# Android artifact version (single-sourced in the Gradle build).
+
+# ---- core -------------------------------------------------------------------
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kts && rm -f kotlin/build.gradle.kts.bak
-# Gradle plugin version (published as ai.desertant:model-sdk-gradle-plugin).
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' gradle-plugin/build.gradle.kts && rm -f gradle-plugin/build.gradle.kts.bak
-# npm package version (npm keeps package.json + any lockfile in sync).
 ( cd js && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
-# The Maven coordinate and the SwiftPM install snippet in the README.
 sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
 sed -i.bak -E 's|(desert-ant-core\\.git", from: ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' README.md && rm -f README.md.bak
-echo "version set to $VERSION (kotlin/build.gradle.kts, gradle-plugin/build.gradle.kts, js/package.json, README)"
+
+# ---- every model SDK --------------------------------------------------------
+# One version for the whole repo, and the model packages pin core exactly, so a
+# model can never resolve against a core it was not built against.
+for cat in Sources/*/Catalog.swift; do
+    [ -f "$cat" ] || continue
+    product="$(basename "$(dirname "$cat")")"
+    model="$(printf '%s' "$product" | tr '[:upper:]' '[:lower:]')"
+    sed -i.bak -E 's|(sdkVersion = ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' "$cat" && rm -f "$cat.bak"
+    dir="packages/$model-node"
+    [ -d "$dir" ] && ( cd "$dir" && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
+    [ -d "$dir" ] && node -e '
+      const fs = require("fs"), f = process.argv[1] + "/package.json";
+      const p = JSON.parse(fs.readFileSync(f, "utf8"));
+      for (const field of ["dependencies", "peerDependencies", "devDependencies"]) {
+        if (p[field] && p[field]["@desert-ant-labs/core"]) p[field]["@desert-ant-labs/core"] = process.argv[2];
+      }
+      fs.writeFileSync(f, JSON.stringify(p, null, 2) + "\\n");
+    ' "$dir" "$VERSION"
+    kts="packages/$model-kotlin/build.gradle.kts"
+    if [ -f "$kts" ]; then
+        sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' "$kts"
+        sed -i.bak -E 's|(id\\("ai\\.desertant\\.model-sdk"\\) version ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' "$kts"
+        sed -i.bak -E 's|(coreVersion = ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' "$kts"
+        rm -f "$kts.bak"
+    fi
+done
+
+mise run check-version >/dev/null
+echo "everything set to $VERSION"
 """
 
 # ---------------------------------------------------------------- npm artifact

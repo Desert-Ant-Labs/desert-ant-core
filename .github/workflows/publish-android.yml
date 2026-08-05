@@ -64,32 +64,8 @@ jobs:
             echo "publish=false" >> "$GITHUB_OUTPUT"; exit 0
           fi
 
-          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
-          if [ -z "$PREV" ]; then
-            echo "no previous tag; publishing ${VERSION}."
-            echo "publish=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-
-          # Publish only if kotlin/ actually changed since the previous tag,
-          # counting a pure version bump in build.gradle.kts as no change (so a
-          # blanket set-version that only touches version lines republishes
-          # nothing). Any other changed file - including binaries - counts.
-          files=$(git diff --name-only "$PREV" "$TAG" -- kotlin/)
-          if [ -z "$files" ]; then
-            publish=false
-          elif [ "$files" = "kotlin/build.gradle.kts" ]; then
-            body=$(git diff "$PREV" "$TAG" -- kotlin/build.gradle.kts \
-              | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE '^[+-]version = "' || true)
-            [ -n "$body" ] && publish=true || publish=false
-          else
-            publish=true
-          fi
-
-          if [ "$publish" = true ]; then
-            echo "kotlin/ changed since ${PREV}; publishing ${VERSION}."
-          else
-            echo "kotlin/ unchanged since ${PREV} (only the version bump, if any); skipping."
-          fi
+          # One version across the repo: every artifact publishes at every tag.
+          publish=true
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
   publish:

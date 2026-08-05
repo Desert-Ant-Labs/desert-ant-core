@@ -18,6 +18,9 @@
 #   [task_config]
 #   includes = ["git::https://github.com/Desert-Ant-Labs/desert-ant-core.git//sdk-build/model-sdk.toml?ref=v0.4.0"]
 #
+# `[vars]` names the model in a single-model repo; the monorepo has several, so
+# the tasks fall back to `DAL_MODEL` / `DAL_PRODUCT`. `[vars]` still wins.
+#
 # The tasks derive every model-specific name from `model`/`product`. Test tasks
 # (test, test-node, test-web, test-android-firebase) stay in the model repo,
 # since their harnesses differ; this catalog owns the identical build, publish,
@@ -82,11 +85,16 @@ shell = "bash -c"
 depends = ["litert-libs"]
 run = """
 set -euo pipefail
+# Just this model's target: the monorepo holds several, and building one SDK
+# should not compile the others. `--target`, not `--product`: the model
+# libraries are automatic products, which SwiftPM refuses to select and then
+# silently builds everything instead.
+TARGET={{ vars.product | default(value=env.DAL_PRODUCT) }}
 # On Apple, Core ML is part of the OS. Linux links the vendored LiteRT runtime.
 if [ "$(uname)" = "Darwin" ]; then
-    swift build
+    swift build --target "$TARGET"
 else
-    swift build -Xlinker -LVendor/litert/lib/linux-x64
+    swift build --target "$TARGET" -Xlinker -LVendor/litert/lib/linux-x64
 fi
 """
 
@@ -97,18 +105,18 @@ tools = { java = "temurin-21" }
 shell = "bash -c"
 run = """
 set -euo pipefail
-module=packages/{{ vars.model }}-kotlin
+module=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin
 ./gradlew -p "$module" assembleRelease
 aar=$(find "$module/build/outputs/aar" -name '*-release.aar' | head -1)
 [ -n "$aar" ] || { echo "error: release AAR not found" >&2; exit 1; }
 ! unzip -Z1 "$aar" | grep -Eq 'libLiteRt|libc\\+\\+_shared'
 for abi in arm64-v8a x86_64; do
-    unzip -Z1 "$aar" | grep -qx "jni/$abi/lib{{ vars.product }}Android.so"
+    unzip -Z1 "$aar" | grep -qx "jni/$abi/lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Android.so"
 done
 """
 
 ["build-web"]
-description = "Build the WebAssembly core into packages/{{ vars.model }}-node/dist"
+description = "Build the WebAssembly core into packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/dist"
 dir = "{{ config_root }}"
 shell = "bash -c"
 tools = { "aqua:WebAssembly/binaryen" = "130" }  # wasm-opt
@@ -119,7 +127,7 @@ set -euo pipefail
 # version). wasm-opt (binaryen) comes from mise [tools]; the check below still
 # degrades gracefully if it is somehow absent (ships ~3x larger).
 OUT=.build/wasm-package
-DIST=packages/{{ vars.model }}-node/dist
+DIST=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/dist
 
 # Match the SDK to the installed toolchain version. Download and install from the
 # local file (no --checksum needed that way), so any Swift version just works.
@@ -142,36 +150,36 @@ fi
 
 # --allow-writing-to-package-directory: the js packaging plugin writes $OUT under
 # .build/, which SwiftPM's plugin sandbox blocks on macOS without this.
-swift package -Xswiftc -Osize --swift-sdk "$SDK" --allow-writing-to-package-directory js --product {{ vars.product }}Web -c release --output "$OUT"
+swift package -Xswiftc -Osize --swift-sdk "$SDK" --allow-writing-to-package-directory js --product {{ vars.product | default(value=env.DAL_PRODUCT) }}Web -c release --output "$OUT"
 
 if command -v wasm-opt >/dev/null; then
-    wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types --strip-debug --strip-producers "$OUT/{{ vars.product }}Web.wasm" -o "$OUT/{{ vars.product }}Web.wasm"
+    wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-reference-types --strip-debug --strip-producers "$OUT/{{ vars.product | default(value=env.DAL_PRODUCT) }}Web.wasm" -o "$OUT/{{ vars.product | default(value=env.DAL_PRODUCT) }}Web.wasm"
 else
     echo "warning: wasm-opt not found; shipping unoptimized wasm (~3x larger)" >&2
 fi
 
 rm -rf "$DIST"
 mkdir -p "$DIST"
-cp "$OUT"/{{ vars.product }}Web.wasm "$OUT"/index.js "$OUT"/index.d.ts "$OUT"/instantiate.js "$OUT"/instantiate.d.ts "$OUT"/runtime.js "$OUT"/runtime.d.ts "$DIST/"
+cp "$OUT"/{{ vars.product | default(value=env.DAL_PRODUCT) }}Web.wasm "$OUT"/index.js "$OUT"/index.d.ts "$OUT"/instantiate.js "$OUT"/instantiate.d.ts "$OUT"/runtime.js "$OUT"/runtime.d.ts "$DIST/"
 cp -r "$OUT"/platforms "$DIST/platforms"
 # The npm tarball must carry the license (package.json: SEE LICENSE IN LICENSE.md).
-cp LICENSE.md packages/{{ vars.model }}-node/LICENSE.md
+cp LICENSE.md packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/LICENSE.md
 
-ls -la "$DIST/{{ vars.product }}Web.wasm"
-echo "done: packages/{{ vars.model }}-node is ready (npm pack in that directory to check the tarball)"
+ls -la "$DIST/{{ vars.product | default(value=env.DAL_PRODUCT) }}Web.wasm"
+echo "done: packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node is ready (npm pack in that directory to check the tarball)"
 """
 
 ["node-natives"]
-description = "Build the native server-side Node core into packages/{{ vars.model }}-node/native/<platform>-<arch> (run per OS)"
+description = "Build the native server-side Node core into packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/native/<platform>-<arch> (run per OS)"
 dir = "{{ config_root }}"
 shell = "bash -c"
 depends = ["litert-libs"]
 run = """
 set -euo pipefail
 # The Node package is isomorphic: browsers get the WebAssembly + LiteRT.js build,
-# Node gets this prebuilt native core (the {{ vars.product }}Node product = the C ABI in
+# Node gets this prebuilt native core (the {{ vars.product | default(value=env.DAL_PRODUCT) }}Node product = the C ABI in
 # CABI.swift; AndroidJNI.swift is #if os(Android), so a host build is just the
-# ABI). koffi in packages/{{ vars.model }}-node binds {{ vars.model }}_* over it. Cross-OS builds
+# ABI). koffi in packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node binds {{ vars.model | default(value=env.DAL_MODEL) }}_* over it. Cross-OS builds
 # aren't possible, so run this on each target OS; publish gathers them.
 #
 # Backend per OS matches the rest of the SDK: Linux uses LiteRT (.tflite, links
@@ -195,11 +203,11 @@ if [ "$(uname)" = "Darwin" ]; then
     # macOS: the Node native uses Core ML (against the OS-provided Swift runtime
     # and system frameworks) and loads the bundled .mlmodelc by path - so it
     # needs no LiteRT and ships no extra runtime.
-    KEY="darwin-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
-    swift build -c release --product {{ vars.product }}Node $TRAITS -Xlinker -rpath -Xlinker @loader_path
-    cp ".build/release/lib{{ vars.product }}Node.dylib" "$dest/"
+    KEY="darwin-$NARCH"; dest="packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
+    swift build -c release --product {{ vars.product | default(value=env.DAL_PRODUCT) }}Node $TRAITS -Xlinker -rpath -Xlinker @loader_path
+    cp ".build/release/lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Node.dylib" "$dest/"
 else
-    KEY="linux-$NARCH"; dest="packages/{{ vars.model }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
+    KEY="linux-$NARCH"; dest="packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/native/$KEY"; rm -rf "$dest" && mkdir -p "$dest"
     # Static Foundation on Linux autolinks -lcurl/-lxml2/-lz; provide dev-name
     # symlinks to the runtime sonames (the recorded DT_NEEDED stays the soname,
     # which is present on any normal Linux).
@@ -210,14 +218,14 @@ else
         [ -n "$src" ] && ln -sf "$src" "$tmp/$(echo "$so" | sed 's/\\.so.*/.so/')" || true
     done
     LARCH=$([ "$NARCH" = "x64" ] && echo linux-x64 || echo linux-arm64)
-    swift build -c release --product {{ vars.product }}Node $TRAITS -Xswiftc -static-stdlib \\
+    swift build -c release --product {{ vars.product | default(value=env.DAL_PRODUCT) }}Node $TRAITS -Xswiftc -static-stdlib \\
         -Xlinker "-L$tmp" -Xlinker "-LVendor/litert/lib/$LARCH" -Xlinker -rpath -Xlinker '$ORIGIN' \\
         -Xlinker -z -Xlinker nodelete
-    cp ".build/release/lib{{ vars.product }}Node.so" "$dest/"
+    cp ".build/release/lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Node.so" "$dest/"
     cp "Vendor/litert/lib/$LARCH/libLiteRt.so" "$dest/"
 fi
 ls -la "$dest"
-echo "done: packages/{{ vars.model }}-node/native/$KEY ready"
+echo "done: packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/native/$KEY ready"
 """
 
 # ---------------------------------------------------------------- test
@@ -241,7 +249,7 @@ fi
 description = "Instrumented AAR test suite on a connected device/emulator"
 dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
-run = "./gradlew -p packages/{{ vars.model }}-kotlin connectedDebugAndroidTest"
+run = "./gradlew -p packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin connectedDebugAndroidTest"
 
 # ---------------------------------------------------------------- publish
 
@@ -259,14 +267,14 @@ VERSION="${usage_version:?version arg required}"
 echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: version must be X.Y.Z, got '$VERSION'" >&2; exit 1; }
 
 # npm keeps package.json and package-lock.json in sync.
-( cd packages/{{ vars.model }}-node && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
+( cd packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
 
 # The Gradle module (project version drives the Maven coordinates).
-kts=packages/{{ vars.model }}-kotlin/build.gradle.kts
+kts=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin/build.gradle.kts
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' "$kts" && rm -f "$kts.bak"
 
 # The SwiftPM install snippet in the README.
-sed -i.bak 's|\\(url: "https://github.com/Desert-Ant-Labs/{{ vars.model }}.git", from: "\\)[^"]*"|\\1'"$VERSION"'"|' README.md && rm -f README.md.bak
+sed -i.bak 's|\\(url: "https://github.com/Desert-Ant-Labs/{{ vars.model | default(value=env.DAL_MODEL) }}.git", from: "\\)[^"]*"|\\1'"$VERSION"'"|' README.md && rm -f README.md.bak
 
 mise run check-version >/dev/null
 echo "version set to $VERSION (package.json + lock, Gradle module, README)"
@@ -281,9 +289,9 @@ dir = "{{ config_root }}"
 shell = "bash -c"
 run = """
 set -euo pipefail
-npm_version=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model }}-node/package.json)
-[ -n "$npm_version" ] || { echo "error: no version in packages/{{ vars.model }}-node/package.json" >&2; exit 1; }
-f=packages/{{ vars.model }}-kotlin/build.gradle.kts
+npm_version=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/package.json)
+[ -n "$npm_version" ] || { echo "error: no version in packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/package.json" >&2; exit 1; }
+f=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin/build.gradle.kts
 gradle_version=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$f")
 [ "$gradle_version" = "$npm_version" ] || { echo "error: $f has version $gradle_version, package.json has $npm_version" >&2; exit 1; }
 echo "$npm_version"
@@ -299,9 +307,9 @@ set -euo pipefail
 # SwiftPM releases are semver tags on the repo; consumers pin
 # .package(url: ..., from: "X.Y.Z"). Tag the pushed main, not local state, then
 # create the GitHub Release object so the release is visible on github.com.
-VERSION=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model }}-node/package.json)
+VERSION=$(sed -n 's/^  "version": "\\([^"]*\\)",$/\\1/p' packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/package.json)
 TAG="v$VERSION"
-REPO="Desert-Ant-Labs/{{ vars.model }}"
+REPO="Desert-Ant-Labs/{{ vars.model | default(value=env.DAL_MODEL) }}"
 
 jj git fetch
 COMMIT=$(jj log -r main@origin --no-graph -T commit_id)
@@ -335,26 +343,26 @@ fi
 notes=$(mktemp)
 trap 'rm -f "$notes"' EXIT
 cat > "$notes" <<EOF
-{{ vars.product }} $VERSION release.
+{{ vars.product | default(value=env.DAL_PRODUCT) }} $VERSION release.
 
 ## Packages
 
-- SwiftPM: https://github.com/Desert-Ant-Labs/{{ vars.model }}.git, from $VERSION
-- Android: ai.desertant:{{ vars.model }}:$VERSION
-- npm: @desert-ant-labs/{{ vars.model }}@$VERSION
+- SwiftPM: https://github.com/Desert-Ant-Labs/{{ vars.model | default(value=env.DAL_MODEL) }}.git, from $VERSION
+- Android: ai.desertant:{{ vars.model | default(value=env.DAL_MODEL) }}:$VERSION
+- npm: @desert-ant-labs/{{ vars.model | default(value=env.DAL_MODEL) }}@$VERSION
 EOF
 
 if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
     echo "release exists: https://github.com/$REPO/releases/tag/$TAG"
 else
-    gh release create "$TAG" --repo "$REPO" --title "{{ vars.product }} $VERSION" --notes-file "$notes"
+    gh release create "$TAG" --repo "$REPO" --title "{{ vars.product | default(value=env.DAL_PRODUCT) }} $VERSION" --notes-file "$notes"
 fi
 
 echo "published: Swift package release $TAG -> $COMMIT"
 """
 
 ["publish-android"]
-description = "Publish ai.desertant:{{ vars.model }} to Maven Central"
+description = "Publish ai.desertant:{{ vars.model | default(value=env.DAL_MODEL) }} to Maven Central"
 dir = "{{ config_root }}"
 depends = ["check-version"]
 tools = { java = "temurin-21" }
@@ -367,12 +375,12 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
-./gradlew -p packages/{{ vars.model }}-kotlin publishAndReleaseToMavenCentral --no-configuration-cache
+./gradlew -p packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin publishAndReleaseToMavenCentral --no-configuration-cache
 """
 
 ["publish-web"]
-description = "Publish @desert-ant-labs/{{ vars.model }} to npm"
-dir = "{{ config_root }}/packages/{{ vars.model }}-node"
+description = "Publish @desert-ant-labs/{{ vars.model | default(value=env.DAL_MODEL) }} to npm"
+dir = "{{ config_root }}/packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node"
 depends = ["check-version", "build-web"]
 tools = { node = "22" }
 shell = "bash -c"
@@ -394,7 +402,7 @@ fi
 # ---------------------------------------------------------------- internal
 
 ["android-natives"]
-description = "Cross-compile the Android native libs into packages/{{ vars.model }}-kotlin/src/main/jniLibs (invoked by the Gradle build)"
+description = "Cross-compile the Android native libs into packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin/src/main/jniLibs (invoked by the Gradle build)"
 dir = "{{ config_root }}"
 shell = "bash -c"
 usage = '''
@@ -418,7 +426,7 @@ set -euo pipefail
 # Vendor/litert/lib/android-<arch>/. The Swift Android SDK and the NDK it depends
 # on (r27d+) install on demand below.
 API="${usage_android_api:-24}"
-KOTLIN=packages/{{ vars.model }}-kotlin/src/main
+KOTLIN=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin/src/main
 NDK_VER=r27d
 export SWIFT_ANDROID_STATIC_BUILD=1
 
@@ -529,7 +537,7 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     ln -s "$cxx_static" "$cxx_link/libstdc++.a"
     ln -s "$cxx_static" "$cxx_link/libstdc++_shared.a"
 
-    SWIFT swift build -c release --product {{ vars.product }}Android --swift-sdk "$arch-unknown-linux-android$API" --static-swift-stdlib \
+    SWIFT swift build -c release --product {{ vars.product | default(value=env.DAL_PRODUCT) }}Android --swift-sdk "$arch-unknown-linux-android$API" --static-swift-stdlib \
         -Xlinker -LVendor/litert/lib/android-$arch -Xlinker "-L$cxx_link"
     rm -rf "$cxx_link"
 
@@ -538,11 +546,11 @@ for pair in "arm64-v8a:aarch64" "x86_64:x86_64"; do
     # Locate the built library rather than hardcoding a layout: Swift 6.4's build
     # system emits .build/out/Products/Release-android-<arch>/, older SwiftPM used
     # .build/<triple>/release/. Both contain the arch, so match on that.
-    built=$(find .build -type f -name "lib{{ vars.product }}Android.so" -path "*$arch*" 2>/dev/null | head -1)
-    [ -n "$built" ] || { echo "error: lib{{ vars.product }}Android.so for $arch not found under .build" >&2; exit 1; }
+    built=$(find .build -type f -name "lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Android.so" -path "*$arch*" 2>/dev/null | head -1)
+    [ -n "$built" ] || { echo "error: lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Android.so for $arch not found under .build" >&2; exit 1; }
     cp "$built" "$dest/"
 
-    so="$dest/lib{{ vars.product }}Android.so"
+    so="$dest/lib{{ vars.product | default(value=env.DAL_PRODUCT) }}Android.so"
     if [ "$strip_mode" = objcopy ]; then
         "$strip_bin" --strip-unneeded "$so" "$so.s" && mv "$so.s" "$so"
     elif [ "$strip_mode" = strip ]; then
@@ -557,5 +565,5 @@ done
 rm -rf "$KOTLIN/resources"
 
 du -sh "$KOTLIN/jniLibs"
-echo "done: {{ vars.model }}-kotlin native libs are ready for the AAR build"
+echo "done: {{ vars.model | default(value=env.DAL_MODEL) }}-kotlin native libs are ready for the AAR build"
 """
