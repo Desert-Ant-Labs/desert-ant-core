@@ -5,9 +5,8 @@
 // `ModelDistribution`, the current platform's runnable artifact, resolve /
 // availability helpers). No model appears here.
 //
-// Each model contributes one folder next to this file — `Redact/Redact.swift`,
-// `Emo/Emo.swift`, … — holding only that model's data. Adding a model is a new
-// folder plus one line in `Catalog.swift`; nothing shared changes.
+// Each model contributes its own module (`Sources/Emo`, `Sources/Redact`, ...)
+// holding only that model's data, so adding a model changes nothing shared.
 
 import ModelStore
 import Usage
