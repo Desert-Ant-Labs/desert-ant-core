@@ -16,14 +16,15 @@ import { readyModel } from "./sdk.js";
  * @param {string} o.here directory of the package's node.js (import.meta dir)
  * @param {string} o.packageName consumer package (for error messages)
  * @param {string} o.modelId catalog id, e.g. "emo"
- * @param {string} [o.coreName] C core base name; defaults to "DesertAntNode"
+ * @param {string} o.coreName the package's native library base name (e.g. "EmoNode")
  */
 export function createNativeSdk({ here, packageName, modelId, coreName }) {
   // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
   // the package's node.js (built by `mise run node-natives`): the self-contained
-  // Swift core (one library for every model) plus the LiteRT runtime it links.
-  // The symbol table is the shared `dal_*` ABI, so no symbol is named here.
-  const native = loadNative({ here, packageName, coreName });
+  // model-specific Swift library plus the LiteRT runtime it links. The ABI is
+  // the same for every model apart from the `<modelId>_create` constructor, so
+  // no symbol is named here.
+  const native = loadNative({ here, packageName, coreName, modelId });
   const { lib, callAsync, decodeResult, withCallGroup } = native;
 
   const isDownloaded = (handle) => lib.isDownloaded(handle) !== 0;

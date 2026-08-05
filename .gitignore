@@ -5,6 +5,7 @@ mise.local.toml
 androidtest/build/
 androidtest/.gradle/
 androidtest/src/main/jniLibs/
+kotlin/src/main/jniLibs/
 kotlin/build/
 kotlin/.gradle/
 kotlin/local.properties

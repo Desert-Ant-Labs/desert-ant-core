@@ -4,7 +4,15 @@
 // (erbState -60..-90 dB, unit-norm s 1e-3..1e-4) are load-bearing for model
 // parity and must NOT be zero-initialized.
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
 #if canImport(Accelerate)
 import Accelerate
 #endif

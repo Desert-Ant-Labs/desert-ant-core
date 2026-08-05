@@ -6,7 +6,7 @@
 import DesertAnt
 
 // The model's file names, per-platform manifest, repo and pinned revision live
-// in the monorepo catalog (`ModelCatalog/Redact/Redact.swift`) as `RedactModel`,
+// in the monorepo catalog (`Sources/Redact/Redact.swift`) as `RedactModel`,
 // so tooling and this SDK read one declaration. The same declaration derives the
 // SDK's usage identity (`RedactModel.sdkInfo`), which every session below is
 // built with so inference attributes to Redact rather than to the core.

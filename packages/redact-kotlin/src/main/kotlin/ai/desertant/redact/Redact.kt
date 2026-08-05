@@ -94,7 +94,7 @@ class Redact(
     context: android.content.Context,
     directory: String? = null,
 ) : AutoCloseable {
-    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::RedactException)
+    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::RedactException, RedactNative)
 
     // The old handle factory lived here. Keep the marker so the generated JVM
     // `Redact.Companion` field remains binary-compatible.
@@ -120,7 +120,7 @@ class Redact(
         // Options payload: f64 minimumConfidence, then a label count and that
         // many names (empty means every label); result payload: the redacted
         // text, an item count, then per item its strings, confidence, and UTF-16
-        // offsets. Must match Sources/ModelCatalog/Redact/Binding.swift.
+        // offsets. Must match Sources/Redact/Binding.swift.
         val payload = FfiWriter()
             .double(options.minimumConfidence)
             .strings((options.labels ?: Labels.DEFAULT).toList())

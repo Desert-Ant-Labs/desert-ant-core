@@ -4,7 +4,15 @@
 // every SDK, matches the training-time `torch.stft`/`istft` (Hann, center,
 // reflect pad) it has to agree with bit-for-bit.
 
-import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Android)
+import Android
+#elseif canImport(WASILibc)
+import WASILibc
+#endif
 
 /// A dense complex spectrogram in frame-major layout: `frames` rows of `bins`
 /// (= `nFFT/2 + 1`) complex bins, real and imaginary parts split into two

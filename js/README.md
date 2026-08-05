@@ -45,15 +45,20 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
 
 Node entry (`@desert-ant-labs/core/node`, uses `node:*` + koffi):
 
-- `createNativeSdk({ here, packageName, modelId })` - the native half of a model
-  package, mirroring `createWasmSdk`: binds the prebuilt core and returns an SDK
-  whose `open(options)` yields the same `LoadedModel`.
-- `loadNative({ here, packageName, coreName, symbols })` - the loader under it:
+- `createNativeSdk({ here, packageName, modelId, coreName })` - the native half of
+  a model package, mirroring `createWasmSdk`: binds the prebuilt core and returns
+  an SDK whose `open(options)` yields the same `LoadedModel`.
+- `loadNative({ here, packageName, coreName, modelId })` - the loader under it:
   resolves the prebuilt Swift core under `native/<platform>-<arch>`, loads the
-  LiteRT runtime first, binds the `dal_*` C ABI with koffi, and returns
-  `callAsync` + `decodeResult` + cache-path helpers.
+  LiteRT runtime first, binds the C ABI with koffi (generic `dal_*` calls plus
+  the model's own `<modelId>_create`), and returns `callAsync` + `decodeResult` +
+  cache-path helpers.
 - `nodeSetup` / `nodeWasmDir` / `nodeReadModelSource` / `nodeCacheRoot` - the
   Node half of the `#platform` seam.
+
+Audio models use the separate `@desert-ant-labs/core/audio` browser entry or
+`@desert-ant-labs/core/audio/node` on Node. Text-model imports never traverse
+the audio host or WAV codec.
 
 `@litertjs/core` and `koffi` are optional peer dependencies: the browser path
 needs `@litertjs/core`, the native Node path needs `koffi`, and neither is

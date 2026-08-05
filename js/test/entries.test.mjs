@@ -18,13 +18,11 @@ test("browser-safe entry exports the expected surface", async () => {
     "browserWasmDir",
     "browserReadModelSource",
     "browserCacheRoot",
-    "installAudioHost",
-    "decodeWav",
-    "mixdownMono",
-    "resampleLinear",
   ]) {
     assert.equal(typeof core[name], "function", `exports ${name}`);
   }
+  assert.equal("installAudioHost" in core, false);
+  assert.equal("decodeWav" in core, false);
 });
 
 test("node entry exports the native loader + node seam", async () => {
@@ -38,29 +36,31 @@ test("node entry exports the native loader + node seam", async () => {
     "nodeCacheRoot",
     "FfiReader",
     "FfiWriter",
-    "installAudioHost",
   ]) {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }
+  assert.equal("installAudioHost" in node, false);
 });
 
-test("the native loader defaults to the one shared core and its generic ABI", async () => {
-  const { DAL_SYMBOLS, DEFAULT_CORE_NAME } = await import("../node.js");
-  // One library for every model: the model is a `modelId` argument, not a symbol.
-  assert.equal(DEFAULT_CORE_NAME, "DesertAntNode");
-  for (const name of [
-    "create",
-    "isDownloaded",
-    "download",
-    "run",
-    "destroy",
-    "bufferFree",
-  ]) {
-    assert.match(DAL_SYMBOLS[name], /\bdal_[a-z_]+\(/, `${name} binds a dal_* symbol`);
+test("optional audio lives outside the text-model entries", async () => {
+  const browser = await import("../audio.js");
+  const node = await import("../audio-node.js");
+  for (const name of ["installAudioHost", "decodeWav", "mixdownMono", "resampleLinear"]) {
+    assert.equal(typeof browser[name], "function", `browser audio exports ${name}`);
+    assert.equal(typeof node[name], "function", `node audio exports ${name}`);
   }
-  // dal_create/dal_run lead with the model id and carry the options payload.
-  assert.equal(DAL_SYMBOLS.create, "void* dal_create(const char*, const char*, const char*)");
-  assert.match(DAL_SYMBOLS.run, /^void\* dal_run\(void\*, const char\*, const uint8_t\*, int,/);
+});
+
+test("a model's ABI is generic apart from its own constructor", async () => {
+  const { dalSymbols } = await import("../node.js");
+  const emo = dalSymbols("emo");
+  for (const name of ["isDownloaded", "download", "run", "destroy", "bufferFree"]) {
+    assert.match(emo[name], /\bdal_[a-z_]+\(/, `${name} binds a generic dal_* symbol`);
+  }
+  assert.match(emo.run, /^void\* dal_run\(void\*, const char\*, const uint8_t\*, int,/);
+  // The constructor is model-scoped, so two models can share one binary.
+  assert.equal(emo.create, "void* emo_create(const char*, const char*, const char*)");
+  assert.equal(dalSymbols("redact").create, "void* redact_create(const char*, const char*, const char*)");
 });
 
 test("loadNative reports a friendly error for an unsupported host", async () => {
@@ -68,6 +68,16 @@ test("loadNative reports a friendly error for an unsupported host", async () => 
   const core = loadNative({
     here: new URL("..", import.meta.url).pathname, // package dir (has package.json, no native/)
     packageName: "@desert-ant-labs/shapes",
+    coreName: "ShapesNode",
+    modelId: "shapes",
   });
   assert.throws(() => core.nativeDir(), /no prebuilt native for .*Supported server-side targets/s);
+});
+
+test("each package must name its own native library", async () => {
+  const { loadNative } = await import("../node.js");
+  assert.throws(
+    () => loadNative({ here: ".", packageName: "@desert-ant-labs/shapes" }),
+    /needs the native library's coreName/,
+  );
 });

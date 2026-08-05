@@ -1,15 +1,9 @@
 // Emo's side of the cross-language binding: construction, plus the two payload
 // schemas that are genuinely model-specific (the options a run takes, and what a
-// result looks like). The exported C ABI and JNI entry points beside it are
-// shared by every model.
-//
-// This lives in `Bindings`, not in the model's own module, so a model module
-// never references `FFIBuffer`. An app that just imports Emo links no FFI
-// layer at all - which also keeps Xcode from having to link a static library
-// whose only use is a conformance the app never calls.
+// result looks like). The generic handle lifecycle and the exported symbols live
+// in NativeBindings and EmoNative, so this file is only the model's adapter.
 
 import DesertAnt
-@_spi(EmoBindings) import Emo
 
 extension Emo: BoundModel {
     /// Options payload: `u32 limit`, `u32 skinTone` (0 default, 1 light,

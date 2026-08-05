@@ -42,15 +42,17 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
 struct ModelPackage {
     let name: String
     var dependencies: [Target.Dependency] = []
+    var testDependencies: [Target.Dependency] = []
     var testResources: [Resource] = []
 }
 
 let models: [ModelPackage] = [
     .init(name: "Emo"),
-    // The catalog's audio model, so the only one that pulls AudioIO/AudioDSP -
-    // both of which come with the DesertAnt umbrella, so it needs no extra
-    // dependency either.
-    .init(name: "Clear"),
+    .init(
+        name: "Clear",
+        dependencies: ["AudioIO", "AudioDSP"],
+        testDependencies: ["AudioIO"]
+    ),
     .init(
         name: "Redact",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
@@ -66,8 +68,6 @@ let products: [Product] = [
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
-        .library(name: "ModelBinding", targets: ["ModelBinding"]),
-        .library(name: "Checksum", targets: ["Checksum"]),
         // Cross-platform audio: decode/encode (AudioIO) and STFT/mel/framing
         // DSP (AudioDSP), so audio model SDKs ship no per-platform audio code.
         .library(name: "AudioIO", targets: ["AudioIO"]),
@@ -87,12 +87,13 @@ let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.map { model in
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
-let modelProducts: [Product] = models.map { model in
-    .library(name: model.name, targets: [model.name])
-} + [
-    .library(name: "DesertAntAndroid", type: .dynamic, targets: ["Bindings"]),
-    .library(name: "DesertAntNode", type: .dynamic, targets: ["Bindings"]),
-] + modelWasmProducts
+let modelProducts: [Product] = models.flatMap { model in
+    [
+        .library(name: model.name, targets: [model.name]),
+        .library(name: "\(model.name)Android", type: .dynamic, targets: [model.name]),
+        .library(name: "\(model.name)Node", type: .dynamic, targets: [model.name]),
+    ]
+} + modelWasmProducts
 
 let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.map { model in
     .executableTarget(
@@ -100,35 +101,20 @@ let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.map { model in
         dependencies: [
             .byName(name: model.name),
             .byName(name: "WasmBindings"),
-            // The model's `ModelBinding` lives in Bindings (a model module
-            // references no FFI), and the wasm ABI is driven by it.
-            .byName(name: "Bindings"),
         ] + jsWasi + jsEventLoop,
-        path: "Sources/ModelCatalog/\(model.name)/Web"
+        path: "Sources/\(model.name)/Web"
     )
 }
 
 let modelTargets: [Target] = models.map { model in
     .target(
         name: model.name,
-        dependencies: [.byName(name: "DesertAnt")] + model.dependencies,
-        path: "Sources/ModelCatalog/\(model.name)",
+        dependencies: [.byName(name: "DesertAnt"), .byName(name: "NativeBindings")]
+            + model.dependencies,
+        path: "Sources/\(model.name)",
         exclude: ["Web"]
     )
-} + [
-    .target(
-        name: "Bindings",
-        // FFIBuffer and ModelBinding are named explicitly even though the
-        // DesertAnt umbrella re-exports both, because this target calls their
-        // API directly: a dependency you use should be one you declare, and it
-        // keeps the graph honest for tools that read it.
-        dependencies: [
-            .byName(name: "DesertAnt"),
-            .byName(name: "FFIBuffer"),
-            .byName(name: "ModelBinding"),
-        ] + modelDependencies
-    ),
-] + modelWasmTargets
+} + modelWasmTargets
 
 let modelTestTargets: [Target] = [
     .target(name: "TestSupport", dependencies: ["DesertAnt"], path: "Tests/TestSupport"),
@@ -139,7 +125,7 @@ let modelTestTargets: [Target] = [
             .byName(name: model.name),
             .byName(name: "DesertAnt"),
             .byName(name: "TestSupport"),
-        ],
+        ] + model.testDependencies,
         resources: model.testResources
     )
 }
@@ -148,11 +134,10 @@ let libraryTargets: [Target] = [
         .target(
             name: "DesertAnt",
             dependencies: [
-                "Regex", "JSON", "TextNormalization", "Checksum",
+                "Regex", "JSON", "TextNormalization",
                 "PlatformSupport", "Usage",
                 "ModelCatalog", "ModelStore", "Inference",
-                "AudioIO", "AudioDSP",
-                "FFIBuffer", "ModelBinding", "HostBridge",
+                "FFIBuffer", "HostBridge",
             ]
         ),
         .target(
@@ -186,8 +171,7 @@ let libraryTargets: [Target] = [
             ] + jsWasi
         ),
         .target(name: "FFIBuffer"),
-        .target(name: "ModelBinding", dependencies: ["FFIBuffer"]),
-        .target(name: "Checksum"),
+        .target(name: "NativeBindings", dependencies: ["DesertAnt"]),
         .target(
             name: "PlatformSupport",
             dependencies: [
@@ -201,10 +185,11 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
+        // Everything a model declares (its catalog entry), how it is loaded, and
+        // what it implements to be reachable from another language.
         .target(
             name: "ModelCatalog",
-            dependencies: ["ModelStore", "Usage", "PlatformSupport"],
-            exclude: models.map(\.name)
+            dependencies: ["ModelStore", "Usage", "PlatformSupport", "FFIBuffer"]
         ),
         // Pure-Swift DSP (STFT/ISTFT, windows, mel, framing, vector ops);
         // Accelerate-backed on Apple via canImport, so no explicit dependency.
@@ -227,7 +212,6 @@ let libraryTargets: [Target] = [
         .target(
             name: "ModelStore",
             dependencies: [
-                "Checksum",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi + jsEventLoop
         ),
@@ -249,18 +233,15 @@ let libraryTargets: [Target] = [
 ]
 
 let testTargets: [Target] = [
-        .testTarget(name: "ChecksumTests", dependencies: ["Checksum"]),
         .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "UsageTests", dependencies: ["Usage"]),
         .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
-        // The FFI payload schemas, which live with the conformances in Bindings
-        // rather than in the model modules (so a model links no FFI layer).
         .testTarget(
             name: "BindingsTests",
-            dependencies: [.byName(name: "Bindings"), .byName(name: "DesertAnt"),
-                           .byName(name: "TestSupport")] + modelDependencies
+            dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport")]
+                + modelDependencies
         ),
         .testTarget(
             name: "ModelCatalogTests",

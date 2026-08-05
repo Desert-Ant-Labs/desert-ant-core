@@ -3,7 +3,7 @@
 // These are the only model-specific part of talking to the core, and both cores
 // speak the same payloads - the native `dal_run` (node.js) and the WebAssembly
 // `run` (browser.js) - so they live here once instead of in each entry point.
-// Mirrors the reader/writer in Sources/ModelCatalog/Emo/Binding.swift.
+// Mirrors the reader/writer in Sources/Emo/Binding.swift.
 import { FfiWriter } from "@desert-ant-labs/core";
 
 /** The catalog id: how both cores are asked for Emo, and the key its

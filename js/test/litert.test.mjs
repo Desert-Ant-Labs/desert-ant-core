@@ -85,6 +85,19 @@ test("loadLiteRt uses the injected module and initializes the runtime once", asy
   assert.equal(loads, 1, "runtime load is memoized across calls");
 });
 
+test("separate core module copies still initialize one LiteRT runtime", async () => {
+  const key = Symbol.for("ai.desertant.litert.state");
+  delete globalThis[key];
+  const first = await import("../src/litert.js?copy=first");
+  const second = await import("../src/litert.js?copy=second");
+  let loads = 0;
+  const lrt = { loadLiteRt: async () => { loads++; } };
+  const options = { litert: lrt, defaultWasmDir: async () => "wasm/", packageName: "@x/y" };
+  await first.loadLiteRt(options);
+  await second.loadLiteRt(options);
+  assert.equal(loads, 1);
+});
+
 test("assertBrowserRuntime throws in plain Node, passes with injected litert", () => {
   assert.throws(() => assertBrowserRuntime({ packageName: "@desert-ant-labs/shapes" }), /native build/);
   assert.doesNotThrow(() => assertBrowserRuntime({ packageName: "@x/y", litert: {} }));

@@ -1,5 +1,5 @@
 // The WebAssembly half of the cross-language bindings: one model-agnostic
-// export surface, the wasm twin of the `dal_*` C ABI in Sources/Bindings.
+// export surface, the wasm twin of a model's native entry points.
 //
 // A model's wasm entry point used to hand-write its own globals (`load`,
 // `loadSelfHosted`, a per-model `suggest`/`redaction`, the promise plumbing, the
@@ -117,7 +117,7 @@ public func installWasmExports(_ wasmModels: [WasmModel]) {
 private func exports(for model: WasmModel) -> JSObject {
     let exports = JSObject.global.Object.function!.new()
 
-    // create(cacheRoot?, directory?): lazy, like `dal_create` - no download and
+    // create(cacheRoot?, directory?): lazy, like the native constructor - no download and
     // no model load until `download`/`run`. `cacheRoot` is the base for the
     // managed nested cache (node `~/.cache`; empty in the browser) and
     // `directory`, when non-empty, is an explicit model directory (adopt the

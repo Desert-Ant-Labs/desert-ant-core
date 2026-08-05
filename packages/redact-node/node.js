@@ -22,4 +22,5 @@ export const Redact = makeRedact(createNativeSdk({
   here: HERE,
   packageName: PACKAGE_NAME,
   modelId: MODEL_ID,
+  coreName: "RedactNode",
 }));
