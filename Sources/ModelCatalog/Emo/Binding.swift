@@ -6,11 +6,6 @@
 import DesertAnt
 
 extension Emo: BoundModel {
-    /// `download(progress:)`'s defaulted argument does not witness the
-    /// no-argument requirement, so forward explicitly. The host reports progress
-    /// through its own channel, not this call.
-    public func download() async throws { try await download(progress: { _ in }) }
-
     /// Options payload: `u32 limit`, `u32 skinTone` (0 default, 1 light,
     /// 2 mediumLight, 3 medium, 4 mediumDark, 5 dark). An empty payload means
     /// the SDK defaults.

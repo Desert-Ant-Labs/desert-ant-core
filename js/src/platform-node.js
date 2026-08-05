@@ -5,22 +5,24 @@
 // around these.
 //
 // Node-only (uses node:*).
+import { wasmExports } from "./litert.js";
 
 /**
- * Instantiate the wasm core under Node (WASI shim) and return its exports.
+ * Instantiate the wasm core under Node (WASI shim) and return the model's entry
+ * in the shared export registry (`globalThis.__DesertAntExports[modelId]`).
  * Gives the Swift ModelStore node's fs through the shared `__DalNodeFS` seam
  * (no `require` under the WASI shim); the download/verify/cache logic stays in
  * Swift.
  *
  * @param {object} o
  * @param {string} o.hostGlobal e.g. "__ShapesHost"
- * @param {string} o.exportsGlobal e.g. "__ShapesExports"
+ * @param {string} o.modelId catalog id, e.g. "shapes"
  * @param {() => Promise<{ instantiate: Function }>} o.instantiate imports the
  *   model's own ./dist/instantiate.js
  * @param {() => Promise<{ defaultNodeSetup: Function }>} o.nodePlatform imports
  *   the model's own ./dist/platforms/node.js
  */
-export async function nodeSetup({ hostGlobal, exportsGlobal, instantiate, nodePlatform }) {
+export async function nodeSetup({ hostGlobal, modelId, instantiate, nodePlatform }) {
   globalThis[hostGlobal] ??= {};
   const { instantiate: inst } = await instantiate();
   const fsmod = await import("node:fs");
@@ -38,7 +40,7 @@ export async function nodeSetup({ hostGlobal, exportsGlobal, instantiate, nodePl
   };
   const { defaultNodeSetup } = await nodePlatform();
   await inst(await defaultNodeSetup({}));
-  return globalThis[exportsGlobal];
+  return wasmExports(modelId);
 }
 
 /**

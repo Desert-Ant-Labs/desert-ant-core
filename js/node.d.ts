@@ -37,10 +37,10 @@ export function loadNative(options: {
 
 export function nodeSetup(options: {
   hostGlobal: string;
-  exportsGlobal: string;
+  modelId: string;
   instantiate: () => Promise<{ instantiate: Function }>;
   nodePlatform: () => Promise<{ defaultNodeSetup: Function }>;
-}): Promise<any>;
+}): Promise<import("./index.js").WasmCore>;
 
 export interface CallGroups {
   withCallGroup: <T>(body: (group: string) => Promise<T>) => Promise<T>;

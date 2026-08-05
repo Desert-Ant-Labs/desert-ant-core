@@ -22,8 +22,16 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
 - `fetchModelFrom(baseUrl, files)` - the self-hosted (`modelBaseUrl`) opt-out.
 - `browserSetup` / `browserWasmDir` / `browserReadModelSource` /
   `browserCacheRoot` - the browser half of a model's `#platform` seam.
-- `FfiReader` - big-endian cursor over the length-prefixed FFIBuffer payload the
-  native core returns (the JS counterpart of Kotlin's `FfiReader`).
+- `wasmExports(modelId)` - the model-agnostic WebAssembly ABI a Swift core
+  installs on `globalThis.__DesertAntExports[modelId]` (`create`,
+  `createSelfHosted`, `isDownloaded`, `download`, `run`, `endCallGroup`,
+  `destroy`, `flushTelemetry`), the twin of the native `dal_*` symbols. Both
+  setups return it, so a model package writes no wasm glue: options and results
+  cross as FFIBuffer payloads it encodes with the codecs it already needs for
+  the native entry.
+- `FfiReader` / `FfiWriter` - big-endian cursor over the length-prefixed
+  FFIBuffer payloads both cores speak (the JS counterpart of Kotlin's
+  `FfiReader`).
 
 Node entry (`@desert-ant-labs/core/node`, uses `node:*` + koffi):
 

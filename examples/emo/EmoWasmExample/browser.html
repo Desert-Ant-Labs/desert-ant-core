@@ -50,8 +50,9 @@
       deviceId: selfProvidedDeviceId,
     });
     // Force the usage telemetry POST out now and await it before continuing.
-    if (globalThis.__EmoExports?.flushTelemetry) {
-      await globalThis.__EmoExports.flushTelemetry();
+    const core = globalThis.__DesertAntExports?.emo;
+    if (core?.flushTelemetry) {
+      await core.flushTelemetry();
     }
     return { suggestions, ms: Math.round(performance.now() - start) };
   }

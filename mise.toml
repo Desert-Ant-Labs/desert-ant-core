@@ -149,6 +149,34 @@ fi
 ./gradlew --no-daemon -p androidtest connectedAndroidTest
 """
 
+[tasks.build-wasm-entries]
+description = "Build every model's WebAssembly entry point (wasm32-unknown-wasi)"
+dir = "{{ config_root }}"
+shell = "bash -c"
+tools = { swift = "6.3.3" }
+# The model Web products are the only targets `test-wasi` does not build (it
+# builds test targets), so a broken wasm entry point used to surface only when a
+# model repo ran `build-web`. They are thin now - the ABI is shared in
+# WasmBindings - but they are still per-model, so keep compiling them here.
+run = """
+set -euo pipefail
+
+SWIFT_VER=$(swift --version 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /^[0-9]/){print $i; exit}}')
+[ -n "$SWIFT_VER" ] || { echo "error: could not determine the Swift version" >&2; exit 1; }
+SDK=${WASM_SDK:-swift-$SWIFT_VER-RELEASE_wasm}
+
+have_bundle() { for d in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do [ -d "$d/$1" ] && return 0; done; return 1; }
+if ! have_bundle "$SDK.artifactbundle"; then
+    echo "Installing the Swift WebAssembly SDK $SWIFT_VER (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/sdk.tar.gz" "https://download.swift.org/swift-$SWIFT_VER-release/wasm-sdk/swift-$SWIFT_VER-RELEASE/$SDK.artifactbundle.tar.gz"
+    swift sdk install "$tmp/sdk.tar.gz"
+    rm -rf "$tmp"
+fi
+
+swift build --swift-sdk "$SDK" --product EmoWeb --product RedactWeb
+"""
+
 [tasks.test-wasi]
 description = "Run the test suite on WebAssembly (wasm32-unknown-wasi) under Node"
 dir = "{{ config_root }}"

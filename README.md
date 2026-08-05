@@ -25,6 +25,7 @@ importable for consumers that want a narrower dependency:
 | `JSON` | `Codable` decode + encode | `Foundation.JSONDecoder`/`Encoder` | host JSON parser (via `CHostBridge`) + tree encoder | JS `JSON.parse` + tree encoder |
 | `TextNormalization` | `String.nfkc` | Foundation `precomposed...` | platform ICU `unorm2` (`libicu`) | JS `String.normalize` |
 | `FFIBuffer` | length-prefixed typed C-ABI buffer | same on every platform | | |
+| `WasmBindings` | model-agnostic wasm export surface | empty | empty | `globalThis.__DesertAntExports` |
 | `HostBridge` | Android JNI harness for model SDKs | empty | JNI marshalling + installs `CHostBridge` | empty |
 | `CHostBridge` | generic host-callback C bridge | - | installed by `HostBridge` | - |
 | `ModelStore` | verified Hub downloads and `StoredModel` access | URLSession + FileManager | host HTTP + POSIX | JS fetch + node fs / memory |
@@ -96,6 +97,40 @@ strings); the host reads it with its own standard library (see the matching
 `FfiReader` in `kotlin/src/main/kotlin/ai/desertant/core/HostBridge.kt`, a thin
 `java.nio.ByteBuffer` cursor) and
 frees it with `ffiFree`. The payload *schema* is the model's own concern.
+
+## WasmBindings (the wasm ABI)
+
+One export surface for every model, the WebAssembly twin of the `dal_*` C ABI in
+`Sources/Bindings`: options in and results out are `FFIBuffer` payloads the model
+encodes itself, so adding a model adds no export, no plumbing, and no JS glue.
+A model's wasm entry point installs it and says only how the JS host's
+self-hosted files become an instance:
+
+```swift
+// Sources/ModelCatalog/<Model>/Web/main.swift, in full
+installWasmExports([
+    WasmModel(EmoModel.self, binding: EmoBinding.self) { sidecars, session in
+        Emo(assets: ModelAssets(metaJSON: ..., tokenizer: ..., session: session))
+    },
+])
+```
+
+That installs, keyed by model id so two SDKs on one page cannot clobber each
+other:
+
+```js
+globalThis.__DesertAntExports.emo = {
+  create(cacheRoot?, directory?), createSelfHosted(files),   // -> handle
+  isDownloaded(handle), download(handle, onProgress?),
+  run(handle, text, options?, group?, deviceId?),            // -> Uint8Array
+  endCallGroup(id), destroy(handle), flushTelemetry(),
+}
+```
+
+The JS side resolves it with `wasmExports(modelId)` (or gets it back from
+`browserSetup`/`nodeSetup`), so a model package supplies only its payload codecs.
+`group` and `deviceId` behave exactly as on the C ABI, so usage attribution and
+call grouping work identically on every runtime.
 
 ## ModelStore and model resources
 

@@ -6,11 +6,12 @@
 // through the non-browser ("default") condition of `#platform`, so the browser
 // bundle never sees `node:*`.
 import { nodeSetup, nodeWasmDir, nodeReadModelSource, nodeCacheRoot } from "@desert-ant-labs/core/node";
+import { HOST_GLOBAL, MODEL_ID } from "./codec.js";
 
 export function setupCore() {
   return nodeSetup({
-    hostGlobal: "__RedactHost",
-    exportsGlobal: "__RedactExports",
+    hostGlobal: HOST_GLOBAL,
+    modelId: MODEL_ID,
     instantiate: () => import("./dist/instantiate.js"),
     nodePlatform: () => import("./dist/platforms/node.js"),
   });
