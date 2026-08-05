@@ -32,10 +32,15 @@ android {
         jvmTarget = "17"
     }
 
-    // Reuse the shared host bridge (regexMatches / jsonParseTree) verbatim.
-    sourceSets["main"].java.srcDir("../kotlin/src/main/kotlin")
     // libCoreAndroidTests.so + libc++_shared.so are staged here by the mise task.
     sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+}
+
+// Reuse HostBridge without compiling unrelated core Kotlin sources.
+kotlin.sourceSets.named("main") {
+    kotlin.srcDir("../kotlin/src/main/kotlin")
+    kotlin.include("ai/desertant/core/HostBridge.kt")
+    kotlin.include("ai/desertant/core/androidtest/**")
 }
 
 dependencies {
