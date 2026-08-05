@@ -1,6 +1,7 @@
 #if os(WASI)
 import DesertAnt
 import WasmBindings
+import Bindings
 @_spi(ClearBindings) import Clear
 
 // Clear's WebAssembly entry point.

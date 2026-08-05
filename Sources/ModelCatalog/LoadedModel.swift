@@ -52,13 +52,26 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     ///     cache dir on Android, `~/.cache` on Node). `nil` on Apple/Linux, where
     ///     the platform provides one.
     ///   - build: turn the resolved files into the runtime.
-    public init<Declaration: ModelDeclaration>(
+    public convenience init<Declaration: ModelDeclaration>(
         _ declaration: Declaration.Type,
         directory: String? = nil,
         cacheRoot: String? = nil,
         build: @escaping @Sendable (StoredModel) async throws -> Runtime
     ) {
-        let distribution = Declaration.distribution
+        self.init(Declaration.distribution, directory: directory, cacheRoot: cacheRoot, build: build)
+    }
+
+    /// Load from an explicit distribution, for a model that publishes more than
+    /// one artifact set under the same catalog entry (clear's studio/natural
+    /// variants): the declaration names the default, and a caller selecting
+    /// another passes that variant's own slice of the repo, so choosing one
+    /// never downloads the other. Otherwise identical to the declaration form.
+    public init(
+        _ distribution: ModelDistribution,
+        directory: String? = nil,
+        cacheRoot: String? = nil,
+        build: @escaping @Sendable (StoredModel) async throws -> Runtime
+    ) {
         loader = LazyLoader { progress in
             let files = try await distribution.resolve(
                 cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction) }

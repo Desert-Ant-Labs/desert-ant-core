@@ -18,24 +18,45 @@ import DesertAnt
 @_spi(ClearBindings)
 public struct ModelAssets: Sendable {
     let sessions: [any InferenceSession]
+    /// Which published variant these sessions run, reported on `Result`. Nil
+    /// when the artifact is not a published variant (a custom export, or a
+    /// wasm host that compiled the model itself).
+    let variant: ModelVariant?
 
-    init(sessions: [any InferenceSession]) { self.sessions = sessions }
+    init(sessions: [any InferenceSession], variant: ModelVariant? = nil) {
+        self.sessions = sessions
+        self.variant = variant
+    }
 
-    /// Bindings entry point: build from already-constructed sessions (e.g. the
-    /// wasm host's `JSInferenceSession`).
+    /// Bindings entry point: build from an already-constructed session (e.g. the
+    /// wasm host's `JSInferenceSession`), whose variant only the host knows.
     @_spi(ClearBindings)
-    public init(session: any InferenceSession) { self.init(sessions: [session]) }
+    public init(session: any InferenceSession, variant: ModelVariant? = nil) {
+        self.init(sessions: [session], variant: variant)
+    }
+
+    /// Sessions over an artifact already on disk. The variant is read off the
+    /// file name, so a pre-downloaded artifact still identifies itself on
+    /// `Result`.
+    init(modelPath: String, computeUnits: ComputeUnits = .cpuOnly, concurrency: Int = 1) throws {
+        self.init(
+            sessions: try (0..<max(1, concurrency)).map { _ in
+                try inferenceSession(modelPath: modelPath, computeUnits: computeUnits, sdk: ClearModel.sdkInfo)
+            },
+            variant: ModelVariant.inferred(fromPath: modelPath))
+    }
 
     /// Build from a resolved model directory: one session per worker over this
     /// platform's artifact.
-    static func clear(files: StoredModel, computeUnits: ComputeUnits, concurrency: Int) async throws -> ModelAssets {
+    static func clear(files: StoredModel, variant: ModelVariant,
+                      computeUnits: ComputeUnits, concurrency: Int) async throws -> ModelAssets {
         var sessions: [any InferenceSession] = []
         for _ in 0..<max(1, concurrency) {
             sessions.append(try await files.inferenceSession(
-                model: ClearModel.artifact, hostGlobal: ClearModel.hostGlobal,
+                model: variant.artifact, hostGlobal: ClearModel.hostGlobal,
                 computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
         }
-        return ModelAssets(sessions: sessions)
+        return ModelAssets(sessions: sessions, variant: variant)
     }
 }
 
