@@ -100,6 +100,33 @@ final class ClearTests: XCTestCase {
         XCTAssertTrue(Clear().isDownloaded())
     }
 
+    /// The file-in/file-out path (Apple/Linux): decode any audio file, enhance,
+    /// and write a 48 kHz WAV. Uses the core's AudioIO for both ends, so this
+    /// also covers the WAV encode the SDK hands users.
+    #if canImport(Foundation) && !os(Android)
+    func testEnhanceFileToFile() async throws {
+        try requireModelBacked()
+        let clear = try await enhancer()
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clear-file-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("in.wav")
+        let output = dir.appendingPathComponent("out.wav")
+        try AudioIO.writeWAV(noisyTone(), sampleRate: 48_000, to: input.path)
+
+        let result = try await clear.enhance(path: input.path, to: output.path)
+        XCTAssertEqual(result.sampleRate, 48_000)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path))
+
+        // The written file decodes back to the enhanced signal.
+        let decoded = try await AudioIO.decode(path: output.path, sampleRate: 48_000)
+        XCTAssertEqual(Double(decoded.count), Double(result.samples.count), accuracy: 480)
+        XCTAssertTrue(decoded.contains { $0 != 0 })
+    }
+    #endif
+
     /// The bindings' audio payload contract (`dal_run_audio`): options in and
     /// samples out, decoded with the same reader a host uses.
     func testBindingAudioPayloadRoundTrip() async throws {
