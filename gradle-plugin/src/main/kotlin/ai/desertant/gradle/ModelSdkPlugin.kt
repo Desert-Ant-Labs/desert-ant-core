@@ -38,7 +38,6 @@ abstract class ModelSdkExtension {
 class ModelSdkPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         val ext = project.extensions.create("desertAntSdk", ModelSdkExtension::class.java)
-        ext.coreVersion.convention("0.3.0")
 
         project.pluginManager.apply("com.android.library")
         project.pluginManager.apply("org.jetbrains.kotlin.android")
@@ -64,8 +63,12 @@ class ModelSdkPlugin : Plugin<Project> {
 
         val deps = project.dependencies
         // Core owns LoadedModel's coroutine runtime, so model modules need no
-        // second direct dependency.
-        deps.add("implementation", "ai.desertant:core:${ext.coreVersion.get()}")
+        // second direct dependency. Read `coreVersion` after the build script
+        // has run: `apply` happens first, so querying it here would always see
+        // the unset value rather than what the module asked for.
+        project.afterEvaluate {
+            deps.add("implementation", "ai.desertant:core:${ext.coreVersion.get()}")
+        }
         deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
         deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
