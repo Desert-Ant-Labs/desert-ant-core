@@ -9,5 +9,5 @@ desertAntSdk {
     // Pinned exactly, like the npm package: one version across the repo.
     coreVersion = "1.0.1"
     description = "On-device multilingual PII redaction for Android: names, addresses, emails, cards, " +
-        "IBANs, national IDs, VAT numbers and more across 24 EU languages."
+        "IBANs, national IDs and VAT numbers, across 24 EU languages and more."
 }
