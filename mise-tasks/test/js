@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+#MISE description="Run the @desert-ant-labs/core JavaScript unit tests"
+#MISE dir="{{config_root}}/js"
+#MISE depends=["npm-install"]
+#MISE tools={node="22"}
+
+node --test test/*.test.mjs

@@ -1,6 +1,6 @@
 # The bundle matrix
 
-`node test/bundle/run.mjs` (or `mise run test-bundles`) builds every model
+`node test/bundle/run.mjs` (or `mise run test:bundles`) builds every model
 package the way our consumers build it, with the real bundlers, and fails if any
 target breaks.
 
@@ -35,7 +35,7 @@ the bundlers.
 3. Runs the scenario matrix, reporting every failure instead of stopping at the
    first.
 
-`dist/` (the wasm core) comes from `mise run build-web`. When it exists the
+`dist/` (the wasm core) comes from `mise run build:wasm`. When it exists the
 matrix uses the real one; otherwise it stages a stub with the same module shape,
 so the matrix also runs on a machine with no Swift toolchain. CI does both: the
 fast JS job runs it with stubs, the wasm job runs it right after `build-web`
@@ -70,7 +70,7 @@ away would pass while testing nothing).
 ## Running it
 
 ```bash
-mise run test-bundles                              # everything
+mise run test:bundles                              # everything
 node test/bundle/run.mjs --list
 node test/bundle/run.mjs --only next-turbopack     # one scenario
 node test/bundle/run.mjs --skip next-webpack --keep  # keep the temp workspace
@@ -78,17 +78,6 @@ node test/bundle/run.mjs --skip next-webpack --keep  # keep the temp workspace
 
 Roughly 45s end to end, most of it the two Next builds. It needs network for the
 one `npm install`.
-
-In a model SDK repo there is no `js/`, so the harness ships in the core tarball
-as a bin:
-
-```bash
-npx --yes --package @desert-ant-labs/core@<version> dal-bundle-matrix
-```
-
-which is what that repo's `mise run test-bundles` does. There, the package's own
-declared `@desert-ant-labs/core` dependency installs from npm, so the matrix
-tests the model package against the core its users actually get.
 
 ## Adding a scenario
 

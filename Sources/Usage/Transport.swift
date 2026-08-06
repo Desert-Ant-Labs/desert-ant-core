@@ -50,7 +50,9 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
     let options = JSObject.global.Object.function!.new()
     options.type = "text/plain;charset=UTF-8".jsValue
     let blob = blobType.new(parts.jsValue, options.jsValue)
-    return sendBeacon(url.jsValue, blob.jsValue).boolean ?? false
+    // `this: navigator` is required: sendBeacon is a Navigator method and throws
+    // "Illegal invocation" when called detached.
+    return sendBeacon(this: navigator, url.jsValue, blob.jsValue).boolean ?? false
 }
 #endif
 

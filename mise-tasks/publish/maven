@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+#MISE description="Publish every Maven artifact in this repo to Maven Central"
+#MISE dir="{{config_root}}"
+#MISE depends=["android-sdk", "check:version"]
+#MISE tools={java="temurin-21"}
+#USAGE flag "--local" help="Publish to ~/.m2 instead (keyless, for testing consumers)"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# The Maven side of a release: the Gradle convention plugin, ai.desertant:core,
+# and one AAR per model. The plugin is an included build and core is a project
+# dependency (settings.gradle.kts), so nothing here waits for anything to appear
+# on Central mid-release the way separate repos had to.
+version=$(dal_version)
+
+if [ -n "${usage_local:-}" ]; then
+    ./gradlew -p gradle-plugin publishToMavenLocal
+    ./gradlew publishToMavenLocal
+    echo "published to ~/.m2: ai.desertant:* $version"
+    exit 0
+fi
+
+# Credentials arrive as Gradle properties through the environment, from CI
+# secrets or mise.local.toml:
+#   ORG_GRADLE_PROJECT_mavenCentralUsername / ...Password  (Central portal token)
+#   ORG_GRADLE_PROJECT_signingInMemoryKey / ...KeyPassword (ASCII-armored GPG key)
+: "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
+: "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+
+# Re-runnable: a tag whose release failed halfway re-runs every job, and Central
+# rejects a duplicate version - which would hide whatever actually failed.
+published() {
+    curl -sfIL "https://repo1.maven.org/maven2/ai/desertant/$1/$version/$1-$version.pom" > /dev/null 2>&1
+}
+
+if published model-sdk-gradle-plugin; then
+    echo "ai.desertant:model-sdk-gradle-plugin:$version is already published"
+else
+    ./gradlew -p gradle-plugin publishAndReleaseToMavenCentral --no-configuration-cache
+fi
+
+# One deployment for the whole Android build, so core and the models land
+# together. Skip the artifacts already on Central; Central rejects a deployment
+# that contains one.
+projects=()
+published core || projects+=(":core:publishAndReleaseToMavenCentral")
+for model in $(dal_models_with kotlin); do
+    published "$model" || projects+=(":$model:publishAndReleaseToMavenCentral")
+done
+
+if [ ${#projects[@]} -eq 0 ]; then
+    echo "every Maven artifact is already published at $version"
+else
+    ./gradlew "${projects[@]}" --no-configuration-cache
+fi
+echo "published: ai.desertant:* $version"

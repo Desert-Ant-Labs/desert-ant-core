@@ -1,6 +1,6 @@
 // Runs where cleartext localhost works and there's a running echo server:
 // macOS/Linux (URLSession) and WASI (Node `fetch`). The tasks (mise run
-// test-macos / test-wasi) build Tools/EchoServer.swift and serve 127.0.0.1:8199.
+// test:swift / test:wasi) build Tools/EchoServer.swift and serve 127.0.0.1:8199.
 // iOS/tvOS block cleartext HTTP (ATS); Android's client is exercised via the
 // instrumented JNI harness instead.
 #if os(macOS) || os(Linux) || os(WASI)
@@ -12,7 +12,7 @@ import Foundation
 
 /// Manages an EchoServer subprocess when the suite runs under Xcode.
 ///
-/// The mise tasks (test-macos / test-wasi) build and start Tools/EchoServer.swift
+/// The mise tasks (test:swift / test:wasi) build and start Tools/EchoServer.swift
 /// themselves. Xcode's test runner doesn't, so when we detect an Xcode-launched
 /// process we compile and start it here, and tear it down when the suite ends.
 final class EchoServerFixture: @unchecked Sendable {

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#MISE description="Run each model's real browser path in headless Chromium (wasm + LiteRT.js inference)"
+#MISE dir="{{config_root}}/js"
+#MISE depends=["npm-install"]
+#MISE tools={node="22"}
+#USAGE arg "<model>" help="Model to run, or 'all'" default="all"
+#USAGE flag "--headed" help="Show the browser instead of running headless"
+
+# The browser is the default entry of every model package, and it was the one
+# shipped platform nothing executed: the bundle matrix proves the package builds
+# for a browser, and test:wasi runs the Swift core under wasm with the
+# model-backed tests compiled out. This loads real weights and runs LiteRT.js in
+# a real engine, which is what a consumer's first page load does.
+#
+# Needs `mise run build:wasm` first (a stub dist cannot infer) and network for
+# the model download. See test/browser/run.mjs.
+set -euo pipefail
+
+# Chromium is ~130 MB and only needed here, so fetch it on demand rather than in
+# every npm install. Idempotent: a no-op once the browser is present.
+#
+# --with-deps also installs the system libraries Chromium needs, which a CI
+# runner does not always have but a desktop does. It needs root, so only ask for
+# it where we can actually get it.
+if [ "$(id -u)" = 0 ] || sudo -n true 2> /dev/null; then
+    npx --yes playwright install --with-deps chromium > /dev/null
+else
+    npx --yes playwright install chromium > /dev/null
+fi
+
+args=()
+[ "${usage_model:-all}" = all ] || args+=(--only "${usage_model}")
+[ -z "${usage_headed:-}" ] || args+=(--headed)
+
+node test/browser/run.mjs "${args[@]}"

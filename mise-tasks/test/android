@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#MISE description="Run the on-device Android tests on a connected emulator or device"
+#MISE dir="{{config_root}}"
+#MISE depends=["android-sdk"]
+#MISE tools={swift="6.3.3", java="temurin-21"}
+#USAGE arg "<model>" help="Also run this model AAR's instrumented tests, or 'all'" default="all"
+#USAGE flag "--core-only" help="Only run the core host-bridge harness, no model AARs"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Android is the one platform `swift test` cannot cover: there the JSON, Regex,
+# and TextNormalization backends call the host through CHostBridge callbacks that
+# a JVM installs, so those paths only execute with a real JVM attached. This
+# cross-compiles the JNI harness (Sources/CoreAndroidTests) into androidtest/ and
+# runs it on a device, then runs each model AAR's own instrumented suite.
+#
+# A pinned swift.org toolchain: the Android cross-compilation SDK only exists for
+# released Swift versions. Own scratch dir so toolchains never share one.
+api="${DAL_ANDROID_API:-31}"
+ndk_version=r27d
+export SWIFT_ANDROID_STATIC_BUILD=1 # drops JavaScriptKit (host macros) from the graph
+
+adb="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/platform-tools/adb"
+[ -x "$adb" ] || adb=adb
+"$adb" devices 2> /dev/null | sed 1d | grep -qw device || {
+    echo "error: no Android device or emulator is connected." >&2
+    echo "       Start one (Android Studio, or 'emulator -avd <name>'); CI uses" >&2
+    echo "       reactivecircus/android-emulator-runner." >&2
+    exit 1
+}
+
+# Match the Android SDK bundle to the toolchain version, installing from the
+# downloaded file so no per-version checksum has to be pinned here.
+swift_version=$(dal_swift_version)
+bundle_name="swift-$swift_version-RELEASE_android.artifactbundle"
+find_bundle() {
+    local dir
+    for dir in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do
+        [ -d "$dir/$bundle_name" ] && { echo "$dir/$bundle_name"; return 0; }
+    done
+    return 1
+}
+bundle=$(find_bundle || true)
+if [ -z "$bundle" ]; then
+    echo "Installing the Swift Android SDK $swift_version (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/sdk.tar.gz" \
+        "https://download.swift.org/swift-$swift_version-release/android-sdk/swift-$swift_version-RELEASE/$bundle_name.tar.gz"
+    swift sdk install "$tmp/sdk.tar.gz"
+    rm -rf "$tmp"
+    bundle=$(find_bundle || true)
+fi
+[ -n "$bundle" ] || { echo "error: the Swift Android SDK was not found after install" >&2; exit 1; }
+
+# The SDK needs an Android NDK (r27d+); install it into the bundle once and run
+# its setup script. Marker: a populated ndk-sysroot. Large one-time download.
+if ! find -L "$bundle/swift-android/ndk-sysroot" -name libc++_shared.so 2> /dev/null | grep -q .; then
+    echo "Installing the Android NDK $ndk_version and configuring the SDK (one-time, large download)..."
+    (
+        cd "$bundle/swift-android"
+        curl -fSL -o ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-$ndk_version-$(uname -s | tr '[:upper:]' '[:lower:]').zip"
+        unzip -qo ndk.zip
+        rm -f ndk.zip
+        ANDROID_NDK_HOME="$PWD/android-ndk-$ndk_version" ./scripts/setup-android-sdk.sh
+    )
+fi
+
+# Cross-compile the JNI harness for both ABIs and stage it (plus the NDK's
+# libc++_shared.so) into the Gradle module's jniLibs. A static stdlib bundles the
+# Swift runtime into the .so, matching how a shipping Android artifact looks.
+jni=androidtest/src/main/jniLibs
+rm -rf "$jni"
+for pair in arm64-v8a:aarch64 x86_64:x86_64; do
+    abi=${pair%%:*} arch=${pair##*:}
+    resources="$bundle/swift-android/swift-resources/usr/lib/swift_static-$arch"
+    swift build --scratch-path .build-android -c release --product CoreAndroidTests \
+        --swift-sdk "$arch-unknown-linux-android$api" \
+        -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
+    mkdir -p "$jni/$abi"
+    cp ".build-android/$arch-unknown-linux-android$api/release/libCoreAndroidTests.so" "$jni/$abi/"
+    cxx=$(find -L "$bundle/swift-android/ndk-sysroot/usr/lib" -path "*$arch*" -name libc++_shared.so 2> /dev/null | head -1)
+    [ -z "$cxx" ] || cp "$cxx" "$jni/$abi/"
+done
+
+./gradlew --no-daemon -p androidtest connectedAndroidTest
+
+# Each model AAR's own instrumented suite, on the same booted device. Gradle
+# builds the model natives first (preBuild -> build:android-natives), so run
+# `mise run build:android` before this if you want the two costs separated.
+[ -n "${usage_core_only:-}" ] && exit 0
+for model in $(dal_select "${usage_model:-all}" kotlin); do
+    ./gradlew --no-daemon ":$model:connectedDebugAndroidTest"
+done

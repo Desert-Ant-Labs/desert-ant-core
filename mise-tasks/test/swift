@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="Run the Swift test suite on this host (Core ML on macOS, LiteRT on Linux)"
+#MISE dir="{{config_root}}"
+#MISE tools={swift={version="6.3.3", os=["linux"]}}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# The whole suite, every model, on the host toolchain. HTTPTests talks to a
+# local echo server (Tools/EchoServer.swift), which this starts and stops.
+dal_vendor_litert
+dal_start_echo_server 8199
+
+# Own scratch dir: the Xcode toolchain's artifacts are incompatible with the
+# swift.org toolchain the wasm tasks use, so they must never share one.
+if [ "$(uname)" = Darwin ]; then
+    swift test --scratch-path .build-host
+else
+    litert=$(dal_litert_dir)
+    LD_LIBRARY_PATH="$litert${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+        swift test --scratch-path .build-host -Xlinker "-L$litert"
+fi

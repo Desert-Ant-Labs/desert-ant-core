@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+#MISE description="Build every npm package with the real bundlers (browser, SSR, Node)"
+#MISE dir="{{config_root}}/js"
+#MISE depends=["npm-install"]
+#MISE tools={node="22"}
+
+# The npm packages are isomorphic - one import, four module graphs (browser,
+# SSR-in-Node, plain Node native, and each bundler's idea of those) - and the
+# seams that keep them apart only exist at bundle time. Every SSR regression we
+# have shipped passed the unit tests and failed in a consumer's `next build`.
+#
+# So this packs core and every packages/<model>-node with `npm pack` and builds
+# the tarballs with esbuild, vite, webpack, and Next (Turbopack + webpack),
+# asserting koffi and `node:*` stay out of the browser and SSR graphs. It picks
+# up every model package by itself. See test/bundle/README.md.
+#
+# Needs network for one npm install. Uses the real wasm dist/ when
+# `mise run build:wasm` has run, and a stub with the same module shape otherwise,
+# so it also runs in the fast JS job.
+node test/bundle/run.mjs "$@"

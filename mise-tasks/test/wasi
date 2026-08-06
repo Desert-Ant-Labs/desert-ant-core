@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Run the Swift test suite on wasm32-unknown-wasi under Node"
+#MISE dir="{{config_root}}"
+#MISE tools={swift="6.3.3", node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# This is the browser platform's correctness check: on wasm the JSON, Regex, and
+# TextNormalization backends call into the JS host (JSON.parse, RegExp,
+# String.normalize) and fetch goes through the host too, so those paths only
+# actually execute here.
+#
+# A pinned swift.org toolchain, because the wasm build needs its clang and a
+# matching cross-compilation SDK, which only exists for released versions.
+export DAL_WASM_BUILD=1
+sdk=$(dal_wasm_sdk)
+
+# Native host binary; the wasm run's fetch reaches it over localhost.
+dal_start_echo_server 8199
+
+#   --disable-sandbox: the js plugin's test harness runs `npm install` to fetch
+#     the WASI shim, and SwiftPM's plugin sandbox (macOS) blocks its network.
+#   --allow-writing-to-package-directory: the plugin writes under .build/.
+# Default scratch path on purpose: the js plugin mislocates products under a
+# custom --scratch-path. test:swift builds into .build-host for the same reason.
+swift package --swift-sdk "$sdk" --disable-sandbox --allow-writing-to-package-directory \
+    js test --environment node

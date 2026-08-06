@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#MISE description="Publish @desert-ant-labs/core and every model package to npm"
+#MISE dir="{{config_root}}"
+#MISE depends=["check:version"]
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Core first: the model packages depend on it at this version, so a model
+# published against a core that does not exist yet is a broken install.
+#
+# Expects `mise run build:wasm` (browser core) and the per-OS
+# `mise run build:node-native` output to already be staged in each package. The
+# release workflow builds the natives on their own runners and gathers them here.
+version=$(dal_version)
+
+# Auth: NPM_TOKEN from CI or mise.local.toml, else an interactive `npm login`.
+# The token goes through a throwaway userconfig, so normal npm commands and
+# checked-in files never carry auth.
+npm_args=(--access public)
+if [ -n "${NPM_TOKEN:-}" ]; then
+    npmrc=$(mktemp)
+    trap 'rm -f "$npmrc"' EXIT
+    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$npmrc"
+    npm_args+=(--userconfig "$npmrc")
+fi
+
+publish_package() { # <directory>
+    local dir="$1" name
+    name=$(node -p "require('./$dir/package.json').name")
+    # Re-runnable: a partly-failed tag re-runs every job, and npm rejects a
+    # duplicate version - which would hide whatever actually failed.
+    if npm view "$name@$version" version > /dev/null 2>&1; then
+        echo "$name@$version is already published"
+        return 0
+    fi
+    # The tarball must carry the license (package.json: SEE LICENSE IN ...).
+    cp LICENSE.md "$dir/LICENSE.md"
+    ( cd "$dir" && npm publish "${npm_args[@]}" )
+    echo "published: $name@$version"
+}
+
+publish_package js
+for model in $(dal_models_with node); do
+    publish_package "packages/$model-node"
+done

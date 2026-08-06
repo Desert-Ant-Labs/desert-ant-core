@@ -1,50 +1,35 @@
 package ai.desertant.gradle
 
 import com.android.build.api.dsl.LibraryExtension
-import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
-import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Exec
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
 /**
- * `ai.desertant.model-sdk`: the Android library (AAR) convention for a Desert
- * Ant model SDK's `<model>-kotlin` root module. Applies AGP + Kotlin +
- * vanniktech, configures the Android/publish boilerplate, drives the Swift
- * native build (replacing swift-android.gradle.kts), and depends on the shared
+ * `ai.desertant.model-sdk`: the Android library (AAR) convention for a model's
+ * `packages/<model>-kotlin` module. Applies AGP + Kotlin + the shared publishing
+ * convention, drives the Swift JNI cross-compile, and depends on the shared
  * `ai.desertant:core` host bridge.
  *
- * No model ships in the AAR: the SDK downloads its model on demand into the app
- * cache, or into a directory the app names (which may already hold the files).
+ * No model ships in the AAR: the SDK downloads its pinned model revision on
+ * first use, into the app cache or a directory the app names.
  *
- * The model id comes from the Gradle root project name; only the marketing
- * `description` is model-specific:
+ * The model id is the Gradle project name, so a module is three lines:
  *
- *     plugins { id("ai.desertant.model-sdk") version "X" }
- *     version = "1.2.3"
+ *     plugins { id("ai.desertant.model-sdk") }
  *     desertAntSdk { description = "On-device ... for Android." }
  */
-abstract class ModelSdkExtension {
-    /** POM description for the main artifact (the one genuinely per-model bit). */
-    abstract val description: Property<String>
-    /** `ai.desertant:core` version to depend on. */
-    abstract val coreVersion: Property<String>
-}
-
 class ModelSdkPlugin : Plugin<Project> {
     override fun apply(project: Project) {
-        val ext = project.extensions.create("desertAntSdk", ModelSdkExtension::class.java)
+        val ext = project.extensions.create("desertAntSdk", DesertAntPublishExtension::class.java)
+        val model = project.dalModel
+        ext.displayName.convention("Desert Ant ${project.dalProduct}")
 
         project.pluginManager.apply("com.android.library")
         project.pluginManager.apply("org.jetbrains.kotlin.android")
-        project.pluginManager.apply("com.vanniktech.maven.publish")
-
-        val model = project.dalModel
-        project.group = "ai.desertant"
 
         project.extensions.configure(LibraryExtension::class.java) { android ->
             android.namespace = "ai.desertant.$model"
@@ -57,46 +42,38 @@ class ModelSdkPlugin : Plugin<Project> {
             android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
         }
 
-        project.tasks.withType(KotlinCompile::class.java).configureEach { t ->
-            t.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
+        project.tasks.withType(KotlinCompile::class.java).configureEach { task ->
+            task.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
         }
 
         val deps = project.dependencies
-        // Core owns LoadedModel's coroutine runtime, so model modules need no
-        // second direct dependency. Read `coreVersion` after the build script
-        // has run: `apply` happens first, so querying it here would always see
-        // the unset value rather than what the module asked for.
-        project.afterEvaluate {
-            deps.add("implementation", "ai.desertant:core:${ext.coreVersion.get()}")
-        }
+        // `:core` is a project in the same build, so a model AAR builds from a
+        // clean checkout with nothing published yet. The generated POM still
+        // carries ai.desertant:core:<version>, because that is core's identity.
+        // Core also owns LoadedModel's coroutine runtime, so there is no second
+        // direct dependency here.
+        deps.add("implementation", project.project(":core"))
         deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
         deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 
-        // Native build (was swift-android.gradle.kts): `mise run android-natives`
-        // builds the model-specific lib<Model>Android.so per ABI into jniLibs
-        // before the Android package steps. ai.desertant:core supplies the one
-        // shared LiteRT runtime when several model AARs are used together.
-        val repoRoot = project.file("${project.rootDir}/../..")
-        val buildNatives = project.tasks.register("buildSwiftNatives", Exec::class.java) { t ->
-            t.group = "build"
-            t.description = "Builds the Android native libraries into jniLibs (mise run android-natives)."
-            t.workingDir = repoRoot
-            t.commandLine("mise", "run", "android-natives")
-            t.environment("MISE_TRUSTED_CONFIG_PATHS", repoRoot.absolutePath)
-            System.getenv("ANDROID_NDK_HOME")?.let { ndk -> t.environment("ANDROID_NDK_HOME", ndk) }
-            t.inputs.dir("${project.rootDir}/../../Sources")
-            t.inputs.file("${project.rootDir}/../../mise.toml")
-            t.outputs.dir("${project.projectDir}/src/main/jniLibs")
+        // The Swift JNI library per ABI, built into src/main/jniLibs before the
+        // Android packaging steps. ai.desertant:core supplies the one shared
+        // LiteRT runtime, so this AAR carries only the model's own library.
+        val repoRoot = project.rootDir
+        val buildNatives = project.tasks.register("buildSwiftNatives", Exec::class.java) { task ->
+            task.group = "build"
+            task.description = "Cross-compiles the Android native libraries into jniLibs."
+            task.workingDir = repoRoot
+            task.commandLine("mise", "run", "build:android-natives", model)
+            task.environment("MISE_TRUSTED_CONFIG_PATHS", repoRoot.absolutePath)
+            System.getenv("ANDROID_NDK_HOME")?.let { task.environment("ANDROID_NDK_HOME", it) }
+            task.inputs.dir(repoRoot.resolve("Sources"))
+            task.inputs.dir(repoRoot.resolve("mise-tasks"))
+            task.outputs.dir(project.projectDir.resolve("src/main/jniLibs"))
         }
         project.tasks.named("preBuild").configure { it.dependsOn(buildNatives) }
 
-        // vanniktech reads the coordinates from project group/name/version, so no
-        // afterEvaluate is needed; the description is wired as a lazy Provider.
-        val mp = project.extensions.getByType(MavenPublishBaseExtension::class.java)
-        mp.publishToMavenCentral()
-        if (project.providers.gradleProperty("signingInMemoryKey").isPresent) mp.signAllPublications()
-        mp.configure(AndroidSingleVariantLibrary(variant = "release", sourcesJar = true, publishJavadocJar = true))
-        mp.pom { pom -> desertAntPom(pom, model, project.dalProduct, ext.description) }
+        project.configureDesertAntPublishing(ext)
     }
 }

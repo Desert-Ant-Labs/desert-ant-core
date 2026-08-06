@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+#MISE description="Build each model's WebAssembly core into packages/<model>-node/dist"
+#MISE dir="{{config_root}}"
+#MISE tools={swift="6.3.3", "aqua:WebAssembly/binaryen"="130"}
+#USAGE arg "<model>" help="Model to build, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# This is the browser artifact: the npm package's default entry loads it. The
+# Swift SDK for WebAssembly installs on demand; wasm-opt comes from mise.
+#
+# DAL_WASM_BUILD adds JavaScriptKit to the manifest, which is what declares the
+# *Web products at all (see Package.swift). It is opt-in so non-wasm consumers
+# never resolve it and build its swift-syntax macros.
+export DAL_WASM_BUILD=1
+sdk=$(dal_wasm_sdk)
+
+# Every model with a Web entry, not just the ones with an npm package: a model
+# can have a working wasm core before it ships a package (Clear does today), and
+# a *Web product that stops compiling should fail here rather than the first time
+# someone packages it.
+for model in $(dal_select "${usage_model:-all}"); do
+    product=$(dal_product "$model")
+    [ -d "Sources/$product/Web" ] || { echo "== $product has no wasm entry, skipping =="; continue; }
+    out=.build/wasm-package/$product
+    echo "== ${product}Web =="
+
+    # The default scratch path on purpose: the js packaging plugin mislocates
+    # its products under a custom --scratch-path.
+    #
+    # --allow-writing-to-package-directory: the plugin writes $out under .build/,
+    # which SwiftPM's plugin sandbox blocks on macOS without it.
+    swift package -Xswiftc -Osize --swift-sdk "$sdk" --allow-writing-to-package-directory \
+        js --product "${product}Web" -c release --output "$out"
+
+    if command -v wasm-opt > /dev/null; then
+        wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
+            --enable-sign-ext --enable-reference-types --strip-debug --strip-producers \
+            "$out/${product}Web.wasm" -o "$out/${product}Web.wasm"
+    else
+        echo "warning: wasm-opt not found; shipping unoptimized wasm (~3x larger)" >&2
+    fi
+
+    # Models without an npm package are a compile check only; there is nowhere
+    # to stage the artifact.
+    dist=packages/$model-node/dist
+    if [ ! -d "packages/$model-node" ]; then
+        ls -la "$out/${product}Web.wasm"
+        echo "($model ships no npm package yet: compiled, not staged)"
+        continue
+    fi
+
+    rm -rf "$dist"
+    mkdir -p "$dist"
+    cp "$out/${product}Web.wasm" "$out"/index.js "$out"/index.d.ts \
+        "$out"/instantiate.js "$out"/instantiate.d.ts "$out"/runtime.js "$out"/runtime.d.ts "$dist/"
+    cp -r "$out"/platforms "$dist/platforms"
+    # The npm tarball must carry the license (package.json: SEE LICENSE IN ...).
+    cp LICENSE.md "packages/$model-node/LICENSE.md"
+
+    ls -la "$dist/${product}Web.wasm"
+done

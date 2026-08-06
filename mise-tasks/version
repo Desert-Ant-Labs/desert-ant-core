@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Print THE version every artifact in this repo ships"
+#MISE dir="{{config_root}}"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+dal_version

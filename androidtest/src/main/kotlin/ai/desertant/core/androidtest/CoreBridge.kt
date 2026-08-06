@@ -2,7 +2,7 @@ package ai.desertant.core.androidtest
 
 /**
  * Loads the cross-compiled Swift JNI library (libCoreAndroidTests.so, staged
- * into jniLibs by `mise run test-android`) and exposes its entry point.
+ * into jniLibs by `mise run test:android`) and exposes its entry point.
  */
 object CoreBridge {
     init { System.loadLibrary("CoreAndroidTests") }
