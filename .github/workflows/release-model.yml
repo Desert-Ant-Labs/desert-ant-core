@@ -17,6 +17,11 @@ on:
       - "v*"
   workflow_dispatch:
 
+# The reusable workflow creates the GitHub Release, and a caller cannot grant a
+# callee more than it has itself.
+permissions:
+  contents: write
+
 jobs:
   core-published:
     name: wait for core
@@ -27,12 +32,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A manual run publishes nothing, so there is nothing to wait for.
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "manual run: skipping the wait"
+            echo "version=" >> "$GITHUB_OUTPUT"; exit 0
+          fi
           V="${GITHUB_REF_NAME#v}"
           echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
             || { echo "not a release tag: ${GITHUB_REF_NAME}"; exit 1; }
           echo "version=$V" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for core ${{ steps.v.outputs.version }} on Maven Central and npm
+      - name: Wait for core on Maven Central and npm
+        if: steps.v.outputs.version != ''
         shell: bash
         env:
           V: ${{ steps.v.outputs.version }}
