@@ -54,8 +54,17 @@ run = "npm test"
 
 `build`, `build-swift`, `build-android`, `build-web`, `node-natives`,
 `litert-libs` (internal), `android-natives` (internal), `test-swift`,
-`test-android`, `set-version`, `check-version`, `publish-swift`,
-`publish-android`, `publish-web`.
+`test-android`, `test-bundles`, `set-version`, `check-version`,
+`publish-swift`, `publish-android`, `publish-web`.
+
+`test-bundles` is the bundle matrix: it packs `packages/<model>-node` with
+`npm pack` and builds it with esbuild, vite, webpack, and Next (Turbopack +
+webpack), covering the browser, SSR-in-Node, and native server graphs. The npm
+package is isomorphic and those graphs only exist inside a bundler, so this is
+the only check that catches an SSR break before a consumer does. The harness
+ships in `@desert-ant-labs/core` as the `dal-bundle-matrix` bin and runs at the
+core version the package depends on. See
+[js/test/bundle/README.md](../js/test/bundle/README.md).
 
 Everything model-specific is derived from `model` / `product`. The catalog
 assumes the standard SDK layout: `packages/<model>-kotlin`, `packages/<model>-node`

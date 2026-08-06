@@ -6,8 +6,8 @@ import JavaScriptKit
 // method on the `__DalAudioHost` global, mirroring the JS inference session.
 // desert-ant-core's own npm package installs it, so a model SDK writes no JS:
 //
-//   import { installAudioHost } from "@desert-ant-labs/core";        // browser: Web Audio
-//   import { installAudioHost } from "@desert-ant-labs/core/node";   // node: WAV codec
+//   import { installAudioHost } from "@desert-ant-labs/core/audio";       // browser: Web Audio
+//   import { installAudioHost } from "@desert-ant-labs/core/audio/node";  // node: WAV codec
 //   installAudioHost();   // sets globalThis.__DalAudioHost.decode(path, bytes, sampleRate)
 //
 // `path` is a string on node, null in the browser; `bytes` is the file's
