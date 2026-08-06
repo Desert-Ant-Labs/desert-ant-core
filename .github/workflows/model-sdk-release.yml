@@ -102,9 +102,9 @@ jobs:
             exit 0
           fi
 
-          # Every artifact ships at every release: the model packages pin core
-          # exactly, so a skipped version would leave a package pinning a core
-          # that was never published.
+          # Every artifact ships at every release: the model packages depend on
+          # core at this version, so a skipped one would leave a package
+          # resolving against a core that was never published.
           { echo "android=true"; echo "npm=true"; } >> "$GITHUB_OUTPUT"
 
   # ------------------------------------------------------------------ Android
