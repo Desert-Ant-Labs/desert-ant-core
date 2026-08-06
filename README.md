@@ -159,8 +159,8 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:0.10.2")
-    implementation("ai.desertant:redact:0.7.2")
+    implementation("ai.desertant:emo:1.0.0")
+    implementation("ai.desertant:redact:1.0.0")
 }
 ```
 

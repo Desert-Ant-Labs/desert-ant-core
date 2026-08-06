@@ -6,7 +6,8 @@ name: Publish npm
 #
 # Release model: `mise run set-version X.Y.Z` sets ONE version across every
 # artifact in the repo, you commit and push `vX.Y.Z`, and everything publishes at
-# it. The model packages pin core exactly, so a mismatched pair cannot exist.
+# it. The model packages track core with a caret on that version, so two of
+# them from different releases still resolve to a single copy of core.
 #
 # Organization secret, visibility `all` (set once for the whole org with
 # `gh secret set NPM_TOKEN --org Desert-Ant-Labs --visibility all`), so every SDK
@@ -56,7 +57,7 @@ jobs:
           fi
 
           # Every artifact in the repo ships one version, and the model packages
-          # pin core exactly, so core has to exist at every released version.
+          # depend on core at it, so core has to exist at every released version.
           publish=true
           echo "publish=$publish" >> "$GITHUB_OUTPUT"
 
