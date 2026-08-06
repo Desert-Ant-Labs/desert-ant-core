@@ -356,6 +356,13 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+V=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' kotlin/build.gradle.kts)
+# Re-runnable: Central rejects a duplicate version, which on a re-run of a
+# partly-failed tag would hide the job that actually failed.
+if curl -sfIL "https://repo1.maven.org/maven2/ai/desertant/core/$V/core-$V.pom" >/dev/null 2>&1; then
+    echo "ai.desertant:core:$V is already published; nothing to do"
+    exit 0
+fi
 ./gradlew -p kotlin publishAndReleaseToMavenCentral --no-configuration-cache
 echo "published: ai.desertant:core:$(mise run check-version)"
 """
@@ -390,9 +397,9 @@ for cat in Sources/*/Catalog.swift; do
     dir="packages/$model-node"
     [ -d "$dir" ] || continue
     check "$(node -p "require('./$dir/package.json').version")" "$dir/package.json"
-    # The model packages pin core exactly, so a published pair can never mismatch.
+    # Caret on this release's core: same train, and npm can dedupe two models.
     pin=$(node -p "require('./$dir/package.json').dependencies?.['@desert-ant-labs/core'] ?? ''")
-    [ -z "$pin" ] || check "$pin" "$dir core dependency"
+    [ -z "$pin" ] || check "${pin#^}" "$dir core dependency"
     kts="packages/$model-kotlin/build.gradle.kts"
     [ ! -f "$kts" ] || {
         check "$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "$kts")" "$kts"
@@ -425,12 +432,13 @@ echo "$VERSION" | grep -Eq '^[0-9]+\\.[0-9]+\\.[0-9]+$' || { echo "error: versio
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' kotlin/build.gradle.kts && rm -f kotlin/build.gradle.kts.bak
 sed -i.bak 's/^version = ".*"$/version = "'"$VERSION"'"/' gradle-plugin/build.gradle.kts && rm -f gradle-plugin/build.gradle.kts.bak
 ( cd js && npm version "$VERSION" --no-git-tag-version --allow-same-version >/dev/null )
-sed -i.bak -E 's|(ai\\.desertant:core:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
+# Every ai.desertant coordinate, not just core: the README installs models too.
+sed -i.bak -E 's|(ai\\.desertant:[a-z0-9-]+:)[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|g' README.md && rm -f README.md.bak
 sed -i.bak -E 's|(desert-ant-core\\.git", from: ")[0-9]+\\.[0-9]+\\.[0-9]+|\\1'"$VERSION"'|' README.md && rm -f README.md.bak
 
 # ---- every model SDK --------------------------------------------------------
-# One version for the whole repo, and the model packages pin core exactly, so a
-# model can never resolve against a core it was not built against.
+# One version for the whole repo. The model packages track core with a caret, so
+# two models from different releases still resolve to a single copy of it.
 for cat in Sources/*/Catalog.swift; do
     [ -f "$cat" ] || continue
     product="$(basename "$(dirname "$cat")")"
@@ -442,7 +450,7 @@ for cat in Sources/*/Catalog.swift; do
       const fs = require("fs"), f = process.argv[1] + "/package.json";
       const p = JSON.parse(fs.readFileSync(f, "utf8"));
       for (const field of ["dependencies", "peerDependencies", "devDependencies"]) {
-        if (p[field] && p[field]["@desert-ant-labs/core"]) p[field]["@desert-ant-labs/core"] = process.argv[2];
+        if (p[field] && p[field]["@desert-ant-labs/core"]) p[field]["@desert-ant-labs/core"] = "^" + process.argv[2];
       }
       fs.writeFileSync(f, JSON.stringify(p, null, 2) + "\\n");
     ' "$dir" "$VERSION"
@@ -492,6 +500,13 @@ tools = { node = "22" }
 shell = "bash -c"
 run = """
 set -euo pipefail
+# Re-runnable: a tag that failed halfway re-runs every publish job, and npm
+# rejects a duplicate version, which would hide the job that actually failed.
+V=$(node -p 'require("./package.json").version')
+if npm view "@desert-ant-labs/core@$V" version >/dev/null 2>&1; then
+    echo "@desert-ant-labs/core@$V is already published; nothing to do"
+    exit 0
+fi
 # The npm tarball must carry the license (package.json: SEE LICENSE IN LICENSE.md).
 cp ../LICENSE.md LICENSE.md
 # Auth: NPM_TOKEN from mise.local.toml (or a CI env), else an interactive
@@ -553,6 +568,13 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
+V=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' gradle-plugin/build.gradle.kts)
+# Re-runnable: Central rejects a duplicate version, which on a re-run of a
+# partly-failed tag would hide the job that actually failed.
+if curl -sfIL "https://repo1.maven.org/maven2/ai/desertant/model-sdk-gradle-plugin/$V/model-sdk-gradle-plugin-$V.pom" >/dev/null 2>&1; then
+    echo "ai.desertant:model-sdk-gradle-plugin:$V is already published; nothing to do"
+    exit 0
+fi
 ./gradlew -p gradle-plugin publishAndReleaseToMavenCentral --no-configuration-cache
 echo "published: ai.desertant model-sdk Gradle plugin $(mise run check-version-plugin)"
 """

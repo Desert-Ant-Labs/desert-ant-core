@@ -375,7 +375,15 @@ set -euo pipefail
 #   ORG_GRADLE_PROJECT_signingInMemoryKey / ORG_GRADLE_PROJECT_signingInMemoryKeyPassword
 : "${ORG_GRADLE_PROJECT_mavenCentralUsername:?set the Central portal token in mise.local.toml}"
 : "${ORG_GRADLE_PROJECT_signingInMemoryKey:?set the in-memory GPG signing key in mise.local.toml}"
-./gradlew -p packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin publishAndReleaseToMavenCentral --no-configuration-cache
+M={{ vars.model | default(value=env.DAL_MODEL) }}
+V=$(sed -n 's/^version = "\\(.*\\)"$/\\1/p' "packages/$M-kotlin/build.gradle.kts")
+# Re-runnable: Central rejects a duplicate version, which on a re-run of a
+# partly-failed tag would hide the job that actually failed.
+if curl -sfIL "https://repo1.maven.org/maven2/ai/desertant/$M/$V/$M-$V.pom" >/dev/null 2>&1; then
+    echo "ai.desertant:$M:$V is already published; nothing to do"
+    exit 0
+fi
+./gradlew -p "packages/$M-kotlin" publishAndReleaseToMavenCentral --no-configuration-cache
 """
 
 ["publish-web"]
@@ -386,6 +394,14 @@ tools = { node = "22" }
 shell = "bash -c"
 run = """
 set -euo pipefail
+# Re-runnable: npm rejects a duplicate version, which on a re-run of a
+# partly-failed tag would hide the job that actually failed.
+PKG=$(node -p 'require("./package.json").name')
+V=$(node -p 'require("./package.json").version')
+if npm view "$PKG@$V" version >/dev/null 2>&1; then
+    echo "$PKG@$V is already published; nothing to do"
+    exit 0
+fi
 # Auth: NPM_TOKEN from mise.local.toml, or `npm login`.
 # The token goes through a throwaway userconfig so normal npm commands and
 # checked-in files never carry auth.

@@ -65,7 +65,7 @@
   ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
-    "@desert-ant-labs/core": "1.0.0",
+    "@desert-ant-labs/core": "^1.0.0",
     "koffi": "^2.9.0"
   },
   "peerDependencies": {
