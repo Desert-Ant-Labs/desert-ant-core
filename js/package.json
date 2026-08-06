@@ -25,6 +25,9 @@
   "main": "./index.js",
   "browser": "./index.js",
   "types": "./index.d.ts",
+  "bin": {
+    "dal-bundle-matrix": "./test/bundle/run.mjs"
+  },
   "exports": {
     ".": {
       "types": "./index.d.ts",
@@ -33,6 +36,10 @@
     "./node": {
       "types": "./node.d.ts",
       "default": "./node.js"
+    },
+    "./platform-node": {
+      "types": "./platform-node.d.ts",
+      "default": "./platform-node.js"
     },
     "./audio": {
       "types": "./audio.d.ts",
@@ -48,16 +55,20 @@
     "index.d.ts",
     "node.js",
     "node.d.ts",
+    "platform-node.js",
+    "platform-node.d.ts",
     "audio.js",
     "audio.d.ts",
     "audio-node.js",
     "audio-node.d.ts",
     "src",
+    "test/bundle",
     "LICENSE.md",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "test:bundles": "node test/bundle/run.mjs"
   },
   "peerDependencies": {
     "@litertjs/core": ">=2.1.0",

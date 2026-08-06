@@ -24,7 +24,8 @@ name: Model SDK build
 #   swift-apple   the Swift package on macOS (Core ML path)
 #   swift-linux   the Swift package on Linux (LiteRT path)
 #   android       the per-ABI Swift JNI natives + the AAR
-#   wasm          the WebAssembly core the browser package embeds
+#   wasm          the WebAssembly core the browser package embeds, then the
+#                 bundle matrix over the package it produces
 #   node-native   the prebuilt server-side core (both host OSes)
 #
 # Build-only: nothing is published and no credentials are used.
@@ -118,6 +119,12 @@ jobs:
             ~/.config/swiftpm/swift-sdks
           key: swift-wasm-sdk-v1
       - run: mise run build-web
+      # The npm package is isomorphic (browser, SSR-in-Node, plain Node native),
+      # and those graphs only exist inside a bundler - which is why every SSR
+      # break we shipped was invisible until a consumer ran `next build`. Runs
+      # here, right after build-web, so the matrix bundles the real wasm dist.
+      - name: bundle matrix (browser / SSR / Node)
+        run: mise run test-bundles
 
   node-native:
     name: node native (${{ matrix.os }})

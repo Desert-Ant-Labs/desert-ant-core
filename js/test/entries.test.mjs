@@ -25,21 +25,33 @@ test("browser-safe entry exports the expected surface", async () => {
   assert.equal("decodeWav" in core, false);
 });
 
-test("node entry exports the native loader + node seam", async () => {
+test("node entry exports the native loader, and only that", async () => {
   const node = await import("../node.js");
   for (const name of [
     "createNativeSdk",
     "loadNative",
-    "nodeSetup",
-    "nodeWasmDir",
-    "nodeReadModelSource",
-    "nodeCacheRoot",
+    "dalSymbols",
+    "makeCallGroups",
     "FfiReader",
     "FfiWriter",
   ]) {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }
   assert.equal("installAudioHost" in node, false);
+  // The `#platform` seam moved to ./platform-node.js: re-exporting it here put
+  // koffi in every SSR bundle (see ssr-graph.test.mjs).
+  for (const name of ["nodeSetup", "nodeWasmDir", "nodeReadModelSource", "nodeCacheRoot"]) {
+    assert.equal(name in node, false, `node entry no longer exports ${name}`);
+  }
+});
+
+test("platform-node entry exports the SSR node seam", async () => {
+  const seam = await import("../platform-node.js");
+  for (const name of ["nodeSetup", "nodeWasmDir", "nodeReadModelSource", "nodeCacheRoot"]) {
+    assert.equal(typeof seam[name], "function", `exports ${name}`);
+  }
+  assert.equal("loadNative" in seam, false);
+  assert.equal("createNativeSdk" in seam, false);
 });
 
 test("optional audio lives outside the text-model entries", async () => {

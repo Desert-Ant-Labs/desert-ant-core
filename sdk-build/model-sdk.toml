@@ -251,6 +251,35 @@ dir = "{{ config_root }}"
 tools = { java = "temurin-21" }
 run = "./gradlew -p packages/{{ vars.model | default(value=env.DAL_MODEL) }}-kotlin connectedDebugAndroidTest"
 
+["test-bundles"]
+description = "Build packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node with the real bundlers (browser, SSR, Node)"
+dir = "{{ config_root }}"
+tools = { node = "22" }
+shell = "bash -c"
+run = """
+set -euo pipefail
+# The npm package is isomorphic - one import, four module graphs (browser,
+# SSR-in-Node, plain Node native, and each bundler's idea of those) - and the
+# seams that keep them apart only exist at bundle time. Every SSR break we have
+# shipped passed the unit tests and failed in a consumer's `next build`, so this
+# packs the package with `npm pack` and builds it with esbuild, vite, webpack,
+# and Next (Turbopack + webpack), asserting koffi and `node:*` stay out of the
+# browser/SSR graphs.
+#
+# The harness lives in @desert-ant-labs/core (js/test/bundle/, published as the
+# `dal-bundle-matrix` bin) so every model repo runs the same matrix, at the core
+# version this package depends on - the one its users install. Docs:
+# https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/js/test/bundle/README.md
+#
+# Run `mise run build-web` first to test the real wasm dist; without it the
+# harness stages a stub with the same module shape and still exercises every
+# bundler.
+PKG=packages/{{ vars.model | default(value=env.DAL_MODEL) }}-node/package.json
+V=$(node -p "require('./$PKG').dependencies?.['@desert-ant-labs/core'] ?? ''")
+[ -n "$V" ] || { echo "error: $PKG does not depend on @desert-ant-labs/core" >&2; exit 1; }
+npx --yes --package "@desert-ant-labs/core@$V" dal-bundle-matrix
+"""
+
 # ---------------------------------------------------------------- publish
 
 ["set-version"]

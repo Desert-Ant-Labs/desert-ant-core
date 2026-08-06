@@ -1,4 +1,6 @@
 // Type declarations for the node-only entry of @desert-ant-labs/core/node.
+// The `#platform` seam (nodeSetup and friends) lives in ./platform-node.d.ts so
+// the SSR graph never reaches koffi.
 import { FfiReader, FfiWriter } from "./index.js";
 export { FfiReader, FfiWriter };
 
@@ -43,13 +45,6 @@ export function createNativeSdk(options: {
   coreName: string;
 }): import("./index.js").ModelSdk;
 
-export function nodeSetup(options: {
-  hostGlobal: string;
-  modelId: string;
-  instantiate: () => Promise<{ instantiate: Function }>;
-  nodePlatform: () => Promise<{ defaultNodeSetup: Function }>;
-}): Promise<import("./index.js").WasmCore>;
-
 export interface CallGroups {
   withCallGroup: <T>(body: (group: string) => Promise<T>) => Promise<T>;
 }
@@ -59,7 +54,3 @@ export const CALL_GROUP_END_SYMBOL: string;
 
 /** Build the call-group API around a native group-release function. */
 export function makeCallGroups(endGroup: (id: string) => void): CallGroups;
-
-export function nodeWasmDir(): Promise<string>;
-export function nodeReadModelSource(source: any): Promise<any>;
-export function nodeCacheRoot(): Promise<string>;
