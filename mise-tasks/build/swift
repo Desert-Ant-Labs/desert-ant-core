@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Build each model's Swift target for this host (Core ML on Apple, LiteRT on Linux)"
+#MISE dir="{{config_root}}"
+#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#USAGE arg "<model>" help="Model to build, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# One model at a time, on purpose: building the package as a whole would not
+# prove that a model compiles against its own dependency graph alone, which is
+# what an app adding a single SDK actually gets. `mise run check:isolation`
+# proves the complementary half - that the graph contains nothing it shouldn't.
+dal_vendor_litert
+litert=$(dal_litert_dir)
+
+for model in $(dal_select "${usage_model:-all}"); do
+    product=$(dal_product "$model")
+    echo "== $product =="
+    # `--target`, not `--product`: the model libraries are automatic products,
+    # which SwiftPM refuses to select and then silently builds everything.
+    if [ "$(uname)" = Darwin ]; then
+        swift build --scratch-path .build-host --target "$product"
+    else
+        swift build --scratch-path .build-host --target "$product" -Xlinker "-L$litert"
+    fi
+done

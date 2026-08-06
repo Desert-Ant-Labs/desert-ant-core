@@ -1,18 +1,21 @@
 import com.vanniktech.maven.publish.GradlePlugin
 import com.vanniktech.maven.publish.JavadocJar
 
-// Convention plugin for the Desert Ant model SDKs' Android modules
-// (ai.desertant.model-sdk). Published to Maven Central via vanniktech; consumed
-// with the plugins DSL + mavenCentral() in the model repo's settings
-// pluginManagement. Version single-sourced here.
+// The Android convention plugins for this repo: `ai.desertant.model-sdk` for a
+// model's AAR module and `ai.desertant.publish` for ai.desertant:core. The root
+// build includes this one (settings.gradle.kts), so the modules here resolve it
+// from the checkout; it is also published to Maven Central for consumers outside
+// this repo.
 plugins {
     kotlin("jvm") version "2.1.21"
     `java-gradle-plugin`
     id("com.vanniktech.maven.publish") version "0.34.0"
 }
 
+// One version for the whole repo, single-sourced in VERSION at the repo root
+// (this is an included build, so rootDir is gradle-plugin/).
 group = "ai.desertant"
-version = "1.0.1"
+version = rootDir.parentFile.resolve("VERSION").readText().trim()
 
 dependencies {
     implementation("com.android.tools.build:gradle:8.7.3")
@@ -27,6 +30,12 @@ gradlePlugin {
             implementationClass = "ai.desertant.gradle.ModelSdkPlugin"
             displayName = "Desert Ant model SDK (Android)"
             description = "Android library + publish convention for Desert Ant Labs model SDKs."
+        }
+        create("publish") {
+            id = "ai.desertant.publish"
+            implementationClass = "ai.desertant.gradle.CoreLibraryPlugin"
+            displayName = "Desert Ant publishing convention"
+            description = "Maven Central publishing convention for Desert Ant Labs Android artifacts."
         }
     }
 }

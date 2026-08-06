@@ -1,13 +1,11 @@
-// Android library (AAR) for Redact. The AGP/Kotlin/publish boilerplate and the
-// Swift native build wiring live in the shared ai.desertant.model-sdk convention
-// plugin (published from desert-ant-core); this file supplies only Redact's
-// version and description. `mise run build-android` -> `mise run android-natives`
-// builds the prebuilt Swift JNI into src/main/jniLibs before packaging.
-plugins { id("ai.desertant.model-sdk") version "1.0.1" }
-version = "1.0.1"
+// Android library (AAR) for Redact: ai.desertant:redact. Everything structural -
+// AGP, Kotlin, publishing, the ai.desertant:core dependency, and the Swift JNI
+// cross-compile - lives in the shared ai.desertant.model-sdk convention plugin
+// (gradle-plugin/). The version comes from VERSION at the repo root, so the only
+// thing left here is what is genuinely Redact's.
+plugins { id("ai.desertant.model-sdk") }
+
 desertAntSdk {
-    // Pinned exactly, like the npm package: one version across the repo.
-    coreVersion = "1.0.1"
     description = "On-device multilingual PII redaction for Android: names, addresses, emails, cards, " +
         "IBANs, national IDs and VAT numbers, across 24 EU languages and more."
 }

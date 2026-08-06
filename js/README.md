@@ -78,8 +78,8 @@ required just to import the package.
 ## Tests
 
 ```bash
-mise run test-js        # unit tests + the SSR module-graph guard (no network)
-mise run test-bundles   # the bundle matrix: real bundlers, real tarballs
+mise run test:js        # unit tests + the SSR module-graph guard (no network)
+mise run test:bundles   # the bundle matrix: real bundlers, real tarballs
 ```
 
 The packages are isomorphic, so most of what can break lives in a bundler rather

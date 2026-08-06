@@ -26,6 +26,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
   - [Usage](#usage-2)
 - [Model downloads and caching](#model-downloads-and-caching)
 - [Platform support](#platform-support)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## Models
@@ -284,6 +285,12 @@ verified before it is used.
 | Android | LiteRT | API 24+, arm64-v8a and x86_64 |
 | Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
+
+## Contributing
+
+Every build, test, and release step is a mise task, so `mise run test` and
+`mise run build` do locally what CI does. See
+[docs/development.md](docs/development.md).
 
 ## License
 

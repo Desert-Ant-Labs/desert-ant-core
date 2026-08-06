@@ -1,0 +1,186 @@
+name: CI
+
+# One workflow, one job per platform we ship, and every job is a `mise run` of
+# the same task you run locally. The question it answers is the only one that
+# matters here: does every model still work on every platform?
+#
+#   apple    Swift on macOS (Core ML) and on an iOS Simulator
+#   linux    Swift on Linux (LiteRT)
+#   js       wasm + native cores, then every npm package: Node, browser, SSR
+#   android  the Swift JNI natives, both AARs, and the on-device suites
+#   checks   version consistency and the core JS unit tests
+#
+# Adding a model adds no CI: every task discovers models from the filesystem.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: checks (versions, JS units)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      # One version across the repo is only a property if something checks it
+      # before release day.
+      - run: mise run check:version
+      - run: mise run test:js
+
+  apple:
+    name: Apple (macOS + iOS Simulator)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 26.6
+      - uses: jdx/mise-action@v2
+
+      # No model artifact is committed, so the model-backed suites download the
+      # pinned revision on a cold cache. Cache the store so that happens once
+      # per revision rather than once per push, which also keeps the run
+      # independent of Hugging Face being reachable. Each model's revision lives
+      # in its Catalog.swift, so those files are the key.
+      - name: Cache downloaded models
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/desert-ant-models
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
+          restore-keys: models-${{ runner.os }}-
+
+      - run: mise run build:swift
+      - run: mise run test:swift
+      - run: mise run test:ios
+
+  linux:
+    name: Linux (Swift + LiteRT)
+    runs-on: ubuntu-22.04 # glibc 2.35, the floor the published natives target
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deps (static Foundation autolinks these)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+      - uses: jdx/mise-action@v2
+      # `mise run` vendors libLiteRt.so out of the ai-edge-litert wheel with uv.
+      - uses: astral-sh/setup-uv@v5
+
+      # An app that adds one SDK must pay for that SDK alone; this reads the
+      # resolved SwiftPM graph, so it needs the toolchain this job already has.
+      - run: mise run check:isolation
+      - run: mise run build:swift
+      - run: mise run test:swift
+
+  js:
+    name: JavaScript (wasm, Node native, browser/SSR bundles)
+    # glibc 2.35, matching the floor the published Linux natives target.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build deps (static Foundation autolinks these)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+      - uses: jdx/mise-action@v2
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+          key: swift-wasm-sdk-6.3.3
+
+      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
+      # actually execute under wasm, so this is the browser correctness check.
+      - run: mise run test:wasi
+
+      # Both halves of every npm package: the browser wasm core and the
+      # server-side native core. The package suites need both - they assert the
+      # native path does inference and the default (browser) entry still imports
+      # cleanly in Node, which is the SSR contract.
+      - run: mise run build:wasm
+      - run: mise run build:node-native
+      - run: mise run test:node
+
+      # The browser is the default entry of every model package, so it gets a
+      # real engine and real weights, not just a bundle that compiles.
+      - run: mise run test:browser
+
+      # Then the packages through the real bundlers, against the real dist.
+      # Every SSR break we ever shipped passed the unit tests and failed in a
+      # consumer's `next build`.
+      - run: mise run test:bundles
+
+  android:
+    name: Android (natives, AARs, on-device)
+    # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
+    # emulator has been flaky on 24.04. build:android-natives fetches the Swift
+    # snapshot tarball built for this Ubuntu release, so the cross-compile and
+    # the emulator can share one job.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The emulator needs ~7.4 GB for userdata, and the Swift Android SDK, NDK,
+      # and snapshot toolchain land on top of that. Drop toolchains we never use
+      # (keep the Android SDK).
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Swift toolchain system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+
+      - name: Enable KVM (hardware acceleration for the emulator)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: jdx/mise-action@v2
+
+      # The snapshot toolchain (~1.2 GB), the Android SDK bundles (~330 MB), and
+      # the NDK install on demand; cache them so only the first run pays.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            Vendor/litert
+          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
+
+      # Cross-compile and package first, outside the emulator's lifetime, so a
+      # long native build does not eat the emulator boot timeout.
+      - run: mise run build:android
+
+      - name: On-device tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: mise run test:android

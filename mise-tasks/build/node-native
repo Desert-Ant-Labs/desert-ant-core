@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#MISE description="Build each model's native Node core into packages/<model>-node/native/<platform>-<arch>"
+#MISE dir="{{config_root}}"
+#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#USAGE arg "<model>" help="Model to build, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# The npm package is isomorphic: browsers get the WebAssembly + LiteRT.js build
+# (build:wasm), Node gets this prebuilt native core - the <Product>Node product,
+# which is the C ABI in CABI.swift. koffi binds <model>_* over it.
+#
+# Cross-OS builds are not possible, so this runs on each target OS and the
+# release gathers the results. Backends match the rest of the SDK: Linux links
+# the vendored LiteRT and a static Swift+Foundation so the .so is
+# self-contained; macOS uses Core ML against the OS-provided runtime.
+#
+# Two Linux distribution rules, learned the hard way:
+#   * build on an old glibc (CI uses ubuntu-22.04 = glibc 2.35) so the published
+#     libs run on Ubuntu 22.04+/Debian 12+, not only on the build host;
+#   * link `-z nodelete` so the process does not dlclose the static Swift
+#     runtime at shutdown, which segfaults on natural exit on some glibc builds.
+dal_vendor_litert
+arch=$(dal_arch)
+
+# --disable-default-traits is rejected on a package that declares no traits, so
+# only pass it when the manifest has some. Models small enough to bundle declare
+# a BundledModel trait, disabled here since the npm package ships no SwiftPM
+# resource bundle.
+traits=()
+grep -q "traits:" Package.swift && traits=(--disable-default-traits)
+
+for model in $(dal_select "${usage_model:-all}" node); do
+    product=$(dal_product "$model")
+    echo "== ${product}Node =="
+
+    if [ "$(uname)" = Darwin ]; then
+        dest="packages/$model-node/native/darwin-$arch"
+        rm -rf "$dest" && mkdir -p "$dest"
+        swift build --scratch-path .build-host -c release --product "${product}Node" "${traits[@]}" \
+            -Xlinker -rpath -Xlinker @loader_path
+        cp ".build-host/release/lib${product}Node.dylib" "$dest/"
+    else
+        dest="packages/$model-node/native/linux-$arch"
+        rm -rf "$dest" && mkdir -p "$dest"
+        # Static Foundation on Linux autolinks -lcurl/-lxml2/-lz; provide
+        # dev-name symlinks to the runtime sonames (the recorded DT_NEEDED stays
+        # the soname, which is present on any normal Linux).
+        stub=$(mktemp -d)
+        ldc=$(command -v ldconfig || echo /sbin/ldconfig)
+        for soname in libcurl.so.4 libxml2.so.2 libz.so.1; do
+            src=$("$ldc" -p 2> /dev/null | awk -v n="$soname" '$1 == n { print $NF; exit }' || true)
+            [ -n "$src" ] && ln -sf "$src" "$stub/${soname%%.so*}.so"
+        done
+        litert=$(dal_litert_dir)
+        swift build --scratch-path .build-host -c release --product "${product}Node" "${traits[@]}" \
+            -Xswiftc -static-stdlib \
+            -Xlinker "-L$stub" -Xlinker "-L$litert" -Xlinker -rpath -Xlinker '$ORIGIN' \
+            -Xlinker -z -Xlinker nodelete
+        rm -rf "$stub"
+        cp ".build-host/release/lib${product}Node.so" "$dest/"
+        cp "$litert/libLiteRt.so" "$dest/"
+    fi
+    ls -la "$dest"
+done

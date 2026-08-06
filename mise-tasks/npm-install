@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+#MISE description="Install the npm workspace (links the local core into every model package)"
+#MISE dir="{{config_root}}"
+#MISE hide=true
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# package.json at the root is a workspace over js/ and packages/*-node, so this
+# symlinks the *local* @desert-ant-labs/core into every model package. That is
+# the point: the model suites must exercise the core in this checkout, not
+# whatever the registry last published.
+if [ -f package-lock.json ]; then npm ci --silent; else npm install --silent; fi

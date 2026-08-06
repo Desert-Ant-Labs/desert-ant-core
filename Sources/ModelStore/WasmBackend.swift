@@ -167,7 +167,12 @@ public struct JSTransport: ModelTransport {
 
     private func fetch(_ url: String, _ opts: JSValue) async throws -> JSObject {
         jsTransportDebugLog("fetch \(url)")
-        guard let promise = JSPromise(from: JSObject.global.fetch.function!(url, opts)) else {
+        // `this: JSObject.global` is required, not cosmetic: a browser's `fetch`
+        // is a Window method and throws "Illegal invocation" when called
+        // detached. Node tolerates a detached call, which is why the Node-hosted
+        // WASI suite never saw this and only a real browser does.
+        guard let fetch = JSObject.global.fetch.function,
+              let promise = JSPromise(from: fetch(this: JSObject.global, url, opts)) else {
             throw ModelStoreError.io("fetch(\(url))")
         }
         let value = try await promise.value

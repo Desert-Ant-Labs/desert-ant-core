@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Run the Swift test suite on an iOS Simulator"
+#MISE dir="{{config_root}}"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# The auto-generated "<package>-Package" scheme builds every target and runs
+# every suite, so this covers every model. -skipMacroValidation avoids the
+# swift-syntax macro fingerprint prompt (pulled in via JavaScriptKit's plugin).
+# Newest available iPhone simulator.
+device=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?( Max)?' | tail -1)
+echo "Using simulator: ${device:?no iPhone simulator is available}"
+xcodebuild test \
+    -scheme DesertAnt-Package \
+    -destination "platform=iOS Simulator,name=$device" \
+    -skipMacroValidation

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#MISE description="Verify every artifact in the repo carries the version in VERSION"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# One tag releases the whole repo, so drift is only ever a release-time surprise
+# if nothing checks for it beforehand. CI runs this on every push.
+version=$(dal_version)
+bad=0
+check() { # <found> <where>
+    [ "$1" = "$version" ] || { echo "  $2: ${1:-<missing>} (expected $version)" >&2; bad=1; }
+}
+
+check "$(node -p 'require("./js/package.json").version')" "js/package.json"
+
+for model in $(dal_models); do
+    product=$(dal_product "$model")
+    check "$(sed -n -E 's|.*sdkVersion = "([^"]*)".*|\1|p' "Sources/$product/Catalog.swift")" \
+        "Sources/$product/Catalog.swift"
+
+    dir="packages/$model-node"
+    [ -d "$dir" ] || continue
+    check "$(node -p "require('./$dir/package.json').version")" "$dir/package.json"
+    pin=$(node -p "require('./$dir/package.json').dependencies?.['@desert-ant-labs/core'] ?? ''")
+    [ -z "$pin" ] || check "${pin#^}" "$dir @desert-ant-labs/core dependency"
+done
+
+# The Gradle artifacts are not checked here because they cannot drift: every
+# Gradle project reads VERSION at configuration time (build.gradle.kts), so no
+# build script carries a version literal to get out of step.
+
+[ "$bad" = 0 ] || { echo "error: versions disagree with VERSION ($version)" >&2; exit 1; }
+echo "$version"

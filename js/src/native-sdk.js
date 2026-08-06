@@ -20,7 +20,7 @@ import { readyModel } from "./sdk.js";
  */
 export function createNativeSdk({ here, packageName, modelId, coreName }) {
   // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
-  // the package's node.js (built by `mise run node-natives`): the self-contained
+  // the package's node.js (built by `mise run build:node-native`): the self-contained
   // model-specific Swift library plus the LiteRT runtime it links. The ABI is
   // the same for every model apart from the `<modelId>_create` constructor, so
   // no symbol is named here.

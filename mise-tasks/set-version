@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#MISE description="Set THE version: every artifact in this repo ships one number"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+#USAGE arg "<version>" help="Release version (X.Y.Z)"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+version="${usage_version:?version argument required}"
+grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$version" \
+    || { echo "error: version must be X.Y.Z, got '$version'" >&2; exit 1; }
+
+# VERSION is the source. Gradle reads it directly (build.gradle.kts), so no
+# build script carries a version literal. Everything below is a format that
+# cannot reference a file and therefore has to be rewritten.
+echo "$version" > VERSION
+
+# npm keeps package.json and its lockfile in sync.
+( cd js && npm version "$version" --no-git-tag-version --allow-same-version > /dev/null )
+
+for model in $(dal_models); do
+    product=$(dal_product "$model")
+
+    # The SDK version each model reports at runtime (usage headers, telemetry).
+    sed -i.bak -E 's|(sdkVersion = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
+        "Sources/$product/Catalog.swift" && rm -f "Sources/$product/Catalog.swift.bak"
+
+    dir="packages/$model-node"
+    [ -d "$dir" ] || continue
+    ( cd "$dir" && npm version "$version" --no-git-tag-version --allow-same-version > /dev/null )
+    # Caret, not an exact pin: two models installed from different releases then
+    # still dedupe to one copy of core.
+    node -e '
+      const fs = require("node:fs");
+      const file = process.argv[1] + "/package.json";
+      const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+      for (const field of ["dependencies", "peerDependencies", "devDependencies"]) {
+        if (pkg[field]?.["@desert-ant-labs/core"]) pkg[field]["@desert-ant-labs/core"] = "^" + process.argv[2];
+      }
+      fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+    ' "$dir" "$version"
+done
+
+# The install snippets in the README (SwiftPM `from:` and every ai.desertant
+# Maven coordinate, models included).
+sed -i.bak -E \
+    -e 's|(ai\.desertant:[a-z0-9-]+:)[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|g' \
+    -e 's|(desert-ant-core\.git", from: ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
+    README.md && rm -f README.md.bak
+
+mise run check:version > /dev/null
+echo "everything set to $version"
