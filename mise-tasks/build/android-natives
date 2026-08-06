@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+#MISE description="Cross-compile a model's Android JNI libraries into packages/<model>-kotlin/src/main/jniLibs"
+#MISE dir="{{config_root}}"
+#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#USAGE arg "<model>" help="Model to cross-compile, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Invoked by the Gradle `preBuild` of each model module (see the
+# ai.desertant.model-sdk convention plugin), so `mise run build:android` is the
+# only entry point you normally need.
+#
+# Uses a static Swift stdlib, so the whole runtime is linked into a
+# dead-stripped, model-specific library instead of shipping the ~10 MB dynamic
+# runtime closure. The NDK C++ runtime is linked statically for the same reason.
+# ai.desertant:core owns LiteRT, so each model AAR carries one library per ABI.
+#
+# SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest: its
+# swift-syntax macros build for the host and conflict with the -resource-dir that
+# static linking needs. The wasm/JS code is all `#if os(WASI)` anyway.
+api="${DAL_ANDROID_API:-24}"
+export SWIFT_ANDROID_STATIC_BUILD=1
+
+# Build against the official Swift Android SDK. Stable releases floor at API 28
+# (Bionic gained posix_spawn there), but the 6.4.x snapshots support API 23+, so
+# this keeps minSdk 24 on first-party tooling. The host toolchain and the SDK
+# must be the SAME snapshot; a mismatch is what produced the old "missing
+# required module 'SwiftAndroid'" failures. Override the trio to move on.
+snapshot="${DAL_SWIFT_ANDROID_SNAPSHOT:-swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a}"
+branch="${DAL_SWIFT_ANDROID_BRANCH:-swift-6.4.x-branch}"
+checksum="${DAL_SWIFT_ANDROID_SDK_CHECKSUM:-54a9c6b9491ea531cd3f5696f1071c2ca055cad89b89a2f408633b73f373c601}"
+sdk_url="https://download.swift.org/$branch/android-sdk/$snapshot/${snapshot}_android.artifactbundle.tar.gz"
+
+# On Linux, fetch the toolchain tarball into a cache dir (no swiftly: it has no
+# packages for every distro, and CI then needs no shell setup). On macOS the
+# snapshot ships as a .pkg, so use swiftly there.
+if [ "$(uname)" = Darwin ]; then
+    command -v swiftly > /dev/null 2>&1 \
+        || { echo "error: swiftly is required on macOS to install the $snapshot toolchain" >&2; exit 1; }
+    swiftly list 2> /dev/null | grep -q "$snapshot" || {
+        echo "Installing $snapshot (one-time)..."
+        swiftly install "$snapshot"
+    }
+    swift_snapshot() { swiftly run "$@" +"$snapshot"; }
+else
+    # Match the tarball to the host's Ubuntu release. The 24.04 build links
+    # GLIBC 2.38 and dies on 22.04 with "version `GLIBC_2.38' not found", so
+    # hardcoding one release silently ties this task to one runner image.
+    ubuntu=$(. /etc/os-release 2> /dev/null && echo "${VERSION_ID:-}")
+    case "$ubuntu" in
+        22.04 | 24.04) ;;
+        *) ubuntu=24.04 ;; # unknown distro: the newest build is the best guess
+    esac
+    toolchain="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/$snapshot-ubuntu$ubuntu"
+    if [ ! -x "$toolchain/usr/bin/swift" ]; then
+        echo "Installing the $snapshot host toolchain for ubuntu$ubuntu (one-time, ~1.2 GB)..."
+        mkdir -p "$toolchain"
+        curl -fSL "https://download.swift.org/$branch/ubuntu${ubuntu/./}/$snapshot/$snapshot-ubuntu$ubuntu.tar.gz" \
+            | tar -xz -C "$toolchain" --strip-components=1
+    fi
+    [ -x "$toolchain/usr/bin/swift" ] \
+        || { echo "error: the $snapshot toolchain is not usable at $toolchain" >&2; exit 1; }
+    swift_snapshot() { "$toolchain/usr/bin/$@"; }
+fi
+
+find_bundle() {
+    local dir bundle
+    for dir in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do
+        bundle=$(ls -dt "$dir"/*"$snapshot"*.artifactbundle 2> /dev/null | head -1 || true)
+        [ -n "$bundle" ] && { echo "$bundle"; return 0; }
+    done
+    return 1
+}
+bundle=$(find_bundle || true)
+if [ -z "$bundle" ]; then
+    echo "Installing the official Android SDK for $snapshot (one-time, ~330 MB)..."
+    swift_snapshot swift sdk install "$sdk_url" --checksum "$checksum"
+    bundle=$(find_bundle || true)
+fi
+[ -n "$bundle" ] || { echo "error: no Android SDK bundle for $snapshot after install" >&2; exit 1; }
+
+# LiteRT android libs, used only while linking each ABI. ai.desertant:core owns
+# the copies that are actually packaged into an app.
+litert_version="${DAL_LITERT_VERSION:-2.1.6}"
+if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
+    || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ]; then
+    echo "Fetching the LiteRT $litert_version android libs (one-time)..."
+    tmp=$(mktemp -d)
+    curl -fSL -o "$tmp/litert.aar" \
+        "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$litert_version/litert-$litert_version.aar"
+    ( cd "$tmp" && unzip -qo litert.aar )
+    for pair in arm64-v8a:aarch64 x86_64:x86_64; do
+        mkdir -p "Vendor/litert/lib/android-${pair#*:}"
+        cp "$tmp/jni/${pair%:*}/libLiteRt.so" "Vendor/litert/lib/android-${pair#*:}/libLiteRt.so"
+    done
+    rm -rf "$tmp"
+fi
+
+# Strip tool: llvm-strip/llvm-objcopy from PATH or the Swift toolchain bin, else
+# the NDK's. Both handle Android ELF from any host.
+strip_bin="" strip_mode=""
+swift_bin=$(dirname "$(command -v swift || echo /nonexistent/swift)")
+for candidate in llvm-strip "$swift_bin/llvm-strip" llvm-objcopy "$swift_bin/llvm-objcopy"; do
+    if command -v "$candidate" > /dev/null 2>&1; then
+        strip_bin=$(command -v "$candidate")
+        case "$candidate" in *objcopy) strip_mode=objcopy ;; *) strip_mode=strip ;; esac
+        break
+    fi
+done
+if [ -z "$strip_bin" ]; then
+    for base in "$bundle" "$HOME"/.swiftpm/swift-sdks/* "${ANDROID_NDK_HOME:-/nonexistent}" \
+        "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
+        candidate=$(find "$base" -name llvm-strip 2> /dev/null | head -1 || true)
+        [ -n "$candidate" ] && { strip_bin=$candidate; strip_mode=strip; break; }
+    done
+fi
+
+for model in $(dal_select "${usage_model:-all}" kotlin); do
+    product=$(dal_product "$model")
+    jni_libs="packages/$model-kotlin/src/main/jniLibs"
+
+    for pair in arm64-v8a:aarch64 x86_64:x86_64; do
+        abi=${pair%:*} arch=${pair#*:}
+        echo "== $product $abi ($arch) =="
+
+        # No -resource-dir override: the SDK descriptor declares sdkRootPath and
+        # swiftStaticResourcesPath per triple and SwiftPM applies the static one.
+        # Overriding it by hand clobbers the sysroot association and breaks the
+        # Android overlay's SwiftAndroid module.
+        #
+        # Swift's static runtime response file asks for the C++ standard library
+        # by driver alias, so the NDK archive goes under every alias a model AAR
+        # could otherwise collide over.
+        cxx=$(find -L "$bundle" -path "*$arch-linux-android*" -name libc++_static.a 2> /dev/null | head -1 || true)
+        if [ -z "$cxx" ]; then
+            for base in "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" \
+                "$HOME/Library/Android/sdk/ndk"; do
+                cxx=$(find -L "$base" -path "*$arch-linux-android*" -name libc++_static.a 2> /dev/null | head -1 || true)
+                [ -n "$cxx" ] && break
+            done
+        fi
+        [ -n "$cxx" ] || { echo "error: libc++_static.a for $arch not found" >&2; exit 1; }
+        cxx_dir=$(mktemp -d)
+        for alias in libc++.a libc++_shared.a libstdc++.a libstdc++_shared.a; do
+            ln -s "$cxx" "$cxx_dir/$alias"
+        done
+        # libc++_static.a is only half of the C++ runtime: the ABI library next
+        # to it defines __cxa_pure_virtual and the rest of the Itanium ABI, and
+        # libunwind backs its exception handling. Leaving them out still links
+        # (a shared object may carry undefined symbols) and then fails at
+        # dlopen on the device, which is exactly how this shipped unnoticed.
+        extra_libs=()
+        for name in libc++abi.a libunwind.a; do
+            found=$(find -L "$(dirname "$cxx")" -maxdepth 1 -name "$name" 2> /dev/null | head -1 || true)
+            [ -n "$found" ] && extra_libs+=(-Xlinker "$found")
+        done
+
+        # --static-swift-stdlib (SwiftPM), not -Xswiftc -static-stdlib: the
+        # latter only tells the compiler, so SwiftPM still resolves the dynamic
+        # swift-<arch> resources dir and the driver cannot find
+        # android/static-stdlib-args.lnk, which only exists under swift_static-.
+        #
+        # --no-undefined turns a missing runtime symbol into a link error here
+        # instead of an UnsatisfiedLinkError on a user's phone.
+        swift_snapshot swift build --scratch-path .build-android -c release \
+            --product "${product}Android" --swift-sdk "$arch-unknown-linux-android$api" \
+            --static-swift-stdlib \
+            -Xlinker "-LVendor/litert/lib/android-$arch" -Xlinker "-L$cxx_dir" \
+            "${extra_libs[@]}" -Xlinker --no-undefined
+        rm -rf "$cxx_dir"
+
+        dest="$jni_libs/$abi"
+        rm -rf "$dest" && mkdir -p "$dest"
+        # Locate the library rather than hardcoding a layout: Swift 6.4 emits
+        # .build/out/Products/Release-android-<arch>/, older SwiftPM used
+        # .build/<triple>/release/. Both spell the arch.
+        built=$(find .build-android -type f -name "lib${product}Android.so" -path "*$arch*" 2> /dev/null | head -1)
+        [ -n "$built" ] \
+            || { echo "error: lib${product}Android.so for $arch not found under .build-android" >&2; exit 1; }
+        cp "$built" "$dest/"
+
+        so="$dest/lib${product}Android.so"
+        case "$strip_mode" in
+            objcopy) "$strip_bin" --strip-unneeded "$so" "$so.stripped" && mv "$so.stripped" "$so" ;;
+            strip) "$strip_bin" --strip-unneeded "$so" ;;
+            *) echo "warning: no LLVM strip tool found; shipping an unstripped library" >&2 ;;
+        esac
+    done
+
+    # The AAR ships no model: it downloads the pinned revision on first use.
+    # Remove anything an older build staged into the AAR's classpath resources.
+    rm -rf "packages/$model-kotlin/src/main/resources"
+    du -sh "$jni_libs"
+done

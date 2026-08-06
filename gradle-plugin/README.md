@@ -1,46 +1,48 @@
-# Desert Ant model-SDK Gradle plugin
+# Desert Ant Android convention plugins
 
-A convention plugin that carries the Android build/publish boilerplate the
-Desert Ant model SDKs' `<model>-kotlin` modules used to each copy (~200 lines of
-`build.gradle.kts` + `swift-android.gradle.kts` per repo):
+Two plugins that carry the Android build/publish boilerplate every
+`packages/<model>-kotlin` module and `kotlin/` (the core AAR) would otherwise
+copy (~200 lines of `build.gradle.kts` + `swift-android.gradle.kts` each):
 
-- **`ai.desertant.model-sdk`** - the AAR module. Applies AGP + Kotlin +
-  vanniktech, configures the Android/publish boilerplate + POM, drives the Swift
-  native build (`mise run android-natives`, replacing `swift-android.gradle.kts`),
-  and depends on `ai.desertant:core`.
+- **`ai.desertant.model-sdk`** - a model's AAR module. Applies AGP + Kotlin,
+  configures the Android boilerplate, wires the Swift JNI cross-compile
+  (`mise run build:android-natives <model>`), depends on `ai.desertant:core`, and
+  applies the publishing convention below.
+- **`ai.desertant.publish`** - the Maven Central publishing convention on its
+  own: Central portal upload, signing when a key is present, one release variant
+  with sources and javadoc, and the shared source-available POM. Used by the core
+  AAR, which is not a model.
 
-Each model AAR contains only its model-specific JNI library. The core dependency
+Each model AAR contains only its model-specific JNI library; the core dependency
 supplies LiteRT once to an app that imports one or several models. Model weights
-remain downloads into the app cache or a directory the app provides.
+stay downloads, into the app cache or a directory the app provides.
 
-Published to Maven Central as `ai.desertant:model-sdk-gradle-plugin`, versioned
-with desert-ant-core's `vX.Y.Z` tags.
+## Using them
 
-## Using it from a model repo
-
-`packages/<model>-kotlin/settings.gradle.kts` must resolve plugins from Maven
-Central:
+This is an **included build** of the repo root (`settings.gradle.kts`), so the
+modules here resolve it from the checkout - no version, and nothing has to be
+published before a model AAR can be built. A module is then:
 
 ```kotlin
-pluginManagement { repositories { mavenCentral(); google(); gradlePluginPortal() } }
-```
+// packages/<model>-kotlin/build.gradle.kts
+plugins { id("ai.desertant.model-sdk") }
 
-`packages/<model>-kotlin/build.gradle.kts`:
-
-```kotlin
-plugins { id("ai.desertant.model-sdk") version "0.6.0" }
-version = "1.2.3"                        // single-sourced for mise set-version/check-version
 desertAntSdk { description = "On-device ... for Android." }
 ```
 
-Everything else (namespace, coordinates, POM name/url/license/scm, the core
-and instrumentation-test dependencies, the `buildSwiftNatives` task) is derived
-from the Gradle root project name (`rootProject.name = "<model>"`). Override the
-core dependency version with `desertAntSdk { coreVersion = "X.Y.Z" }`.
+Everything else is derived: the model id is the Gradle project name (`:emo` from
+`packages/emo-kotlin`), the group and version come from the root build (which
+reads `VERSION`), and the namespace, coordinates, POM, core dependency, and
+instrumentation-test dependencies follow from those.
 
-## Build / publish
+It is also published to Maven Central as
+`ai.desertant:model-sdk-gradle-plugin`, versioned with desert-ant-core's
+`vX.Y.Z` tags, for anything consuming it from outside this repo.
 
-`mise run build-plugin`, `mise run publish-plugin` (Maven Central), or
-`mise run publish-plugin-local` (keyless, to `~/.m2`, for testing consumers).
-The `Publish Gradle plugin` workflow publishes it on a `vX.Y.Z` tag when
-`gradle-plugin/` changed.
+## Build and publish
+
+```bash
+./gradlew -p gradle-plugin build     # compile and test it
+mise run publish:maven               # ships it with everything else on a release
+mise run publish:maven --local       # to ~/.m2, keyless, for testing consumers
+```

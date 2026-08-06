@@ -12,8 +12,8 @@ import Foundation
 // Android's static-stdlib link, where host macros conflict with `-resource-dir`.
 //
 // So JavaScriptKit is opt-in: only a build that actually targets wasm sets
-// DAL_WASM_BUILD=1 - mise `test-wasi` and `build-wasm-entries`, sdk-build
-// `build-web`. A wasm task that forgets it fails with "no product named
+// DAL_WASM_BUILD=1, which is `mise run test:wasi` and `mise run build:wasm`.
+// A wasm task that forgets it fails with "no product named
 // 'EmoWeb'", because the *Web products below are declared with it. Everyone else
 // resolves a graph without it. SWIFT_ANDROID_STATIC_BUILD stays honoured as a
 // hard opt-out so an Android build can never pick it up by accident.

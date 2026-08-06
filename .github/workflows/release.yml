@@ -1,93 +1,191 @@
 name: Release
 
-# Create a GitHub Release for every pushed release tag (vX.Y.Z). The tag is the
-# SwiftPM release (consumers pin `.package(url: ..., from: "X.Y.Z")`), so a
-# Release is always warranted, independent of whether the Android/npm artifacts
-# changed. Runs alongside the publish workflows.
+# Push a tag, release everything.
 #
-# The notes list exactly the artifacts that changed this release (using the same
-# detection the publish workflows gate on: a pure version bump does not count),
-# and GitHub auto-generates the changelog (What's Changed / PRs since the last
-# release) beneath them.
+#   mise run set-version X.Y.Z && jj commit && <push> && <push tag vX.Y.Z>
+#
+# Every artifact in the repo ships one version (VERSION), so there is nothing to
+# decide at release time: no per-artifact change detection, no "did core land on
+# Central yet" wait, no per-model pipeline. The tag names the version, the gate
+# proves the checkout agrees, and the three publish jobs run.
+#
+#   GitHub Release  the tag is the SwiftPM release, so it always gets one
+#   Maven Central   ai.desertant:{model-sdk-gradle-plugin,core,<model>...}
+#   npm             @desert-ant-labs/{core,<model>...}
+#
+# Every publish task is re-runnable: an artifact already live at this version is
+# skipped, so a half-failed tag can simply be re-run.
+#
+# Credentials are Desert-Ant-Labs organization secrets (visibility `all`):
+#   MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD    Central portal token
+#   SIGNING_IN_MEMORY_KEY / SIGNING_IN_MEMORY_KEY_PASSWORD   GPG signing key
+#   NPM_TOKEN                                          npm automation token
+# The `maven-central` and `npm` environments below hold no secrets; they exist
+# only as optional approval gates and for deployment history. Never put a secret
+# in them - environment secrets shadow organization ones.
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
+  workflow_dispatch: # dry run: builds every publishable artifact, publishes none
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: write # create the GitHub Release
 
 jobs:
+  gate:
+    name: does this tag match VERSION?
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.gate.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - id: gate
+        run: |
+          set -euo pipefail
+          version=$(mise run check:version | tail -1)
+          if [ "${GITHUB_REF_TYPE}" != tag ]; then
+            echo "manual run: dry-running the build paths at $version"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          [ "${GITHUB_REF_NAME#v}" = "$version" ] || {
+            echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION ($version)"
+            exit 1
+          }
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
+  maven:
+    name: Maven Central (plugin, core, every model AAR)
+    needs: gate
+    # Same runner as CI's android job, so the toolchain the release uses is the
+    # one CI proves. The snapshot Swift toolchain is per Ubuntu release: the
+    # 24.04 build links GLIBC 2.38 and will not run here (build:android-natives
+    # picks the matching tarball, and the cache key below follows the runner).
+    runs-on: ubuntu-22.04
+    environment: maven-central
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+          sudo docker image prune --all --force || true
+      - name: Swift toolchain system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+      - uses: jdx/mise-action@v2
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            Vendor/litert
+          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
+
+      # Its own step: Gradle's Exec task swallows the underlying mise stderr,
+      # which makes a failure in the cross-compile undiagnosable.
+      - run: mise run build:android-natives
+      - run: mise run build:android
+
+      - name: Publish
+        if: needs.gate.outputs.publish == 'true'
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+        run: mise run publish:maven
+
+  # The npm packages ship a prebuilt native core per server-side target. Cross-OS
+  # builds are not possible, so each is built on its own runner and gathered by
+  # the publish job. Linux builds on 22.04 (glibc 2.35) so the published libs run
+  # on Ubuntu 22.04+/Debian 12+, not only on the build host.
+  natives:
+    name: native ${{ matrix.target }}
+    needs: gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: linux-x64, runner: ubuntu-22.04 }
+          - { target: linux-arm64, runner: ubuntu-22.04-arm }
+          - { target: darwin-arm64, runner: macos-14 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build deps (static Foundation autolinks these)
+        if: startsWith(matrix.target, 'linux')
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            libcurl4-openssl-dev libxml2-dev zlib1g-dev binutils file
+      - uses: jdx/mise-action@v2
+      - uses: astral-sh/setup-uv@v5
+      - run: mise run build:node-native
+      - uses: actions/upload-artifact@v4
+        with:
+          name: natives-${{ matrix.target }}
+          path: packages/*-node/native/${{ matrix.target }}/
+          if-no-files-found: error
+          retention-days: 1
+
+  npm:
+    name: npm (core and every model package)
+    needs: [gate, natives]
+    runs-on: ubuntu-latest
+    environment: npm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: astral-sh/setup-uv@v5
+
+      # Gather every prebuilt native back into its package, so each tarball
+      # carries all three server-side targets.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: natives-*
+          path: /tmp/natives
+          merge-multiple: true
+      - name: Stage the natives
+        run: |
+          set -euo pipefail
+          # upload-artifact roots each artifact at the common ancestor of its
+          # matched files, i.e. packages/, so this is <model>-node/native/... .
+          cp -a /tmp/natives/. packages/
+          find packages/*-node/native -type f | sort
+          for dir in packages/*-node; do
+            for target in linux-x64 linux-arm64 darwin-arm64; do
+              [ -d "$dir/native/$target" ] || { echo "::error::$dir is missing the $target native"; exit 1; }
+            done
+          done
+
+      # The browser half of every package.
+      - run: mise run build:wasm
+
+      - name: Publish
+        if: needs.gate.outputs.publish == 'true'
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: mise run publish:npm
+
   release:
-    name: Create GitHub Release
+    name: GitHub Release
+    needs: [gate, maven, npm]
+    if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # full history + tags, to diff against the previous tag
-
-      - name: Create the release
-        env:
+      - uses: jdx/mise-action@v2
+      - env:
           GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          VER="${TAG#v}"
-
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $TAG already exists; nothing to do."
-            exit 0
-          fi
-
-          PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
-
-          # Same change detection the publish workflows use: a directory counts as
-          # changed if any file other than its manifest changed, or the manifest
-          # changed beyond its version line. No previous tag -> everything counts.
-          changed() {  # $1 dir  $2 manifest  $3 version-line pattern to ignore
-            local files body
-            [ -z "$PREV" ] && { echo yes; return; }
-            files=$(git diff --name-only "$PREV" "$TAG" -- "$1")
-            if [ -z "$files" ]; then echo no; return; fi
-            if [ "$files" = "$2" ]; then
-              body=$(git diff "$PREV" "$TAG" -- "$2" \
-                | grep -E '^[+-]' | grep -vE '^(\+\+\+|---)' | grep -vE "$3" || true)
-              [ -n "$body" ] && echo yes || echo no
-            else
-              echo yes
-            fi
-          }
-          AND=$(changed kotlin/ kotlin/build.gradle.kts '^[+-]version = "')
-          NPM=$(changed js/ js/package.json '^[+-]  "version": "')
-          PLUGIN=$(changed gradle-plugin/ gradle-plugin/build.gradle.kts '^[+-]version = "')
-
-          notes=$(mktemp)
-          {
-            echo "## Packages"
-            echo
-            echo "- SwiftPM: \`.package(url: \"https://github.com/${GITHUB_REPOSITORY}.git\", from: \"${VER}\")\`"
-            [ "$AND" = yes ] && echo "- Android: \`ai.desertant:core:${VER}\` (Maven Central)"
-            [ "$NPM" = yes ] && echo "- npm: \`@desert-ant-labs/core@${VER}\`"
-            [ "$PLUGIN" = yes ] && echo "- Gradle plugin: \`ai.desertant.model-sdk\` ${VER} (Maven Central)"
-            if [ "$AND" != yes ] && [ "$NPM" != yes ] && [ "$PLUGIN" != yes ]; then
-              echo
-              echo "_SwiftPM-only release; the Android, npm, and Gradle-plugin artifacts did not change._"
-            fi
-          } > "$notes"
-
-          # generate_release_notes:true auto-generates the changelog; a provided
-          # body is pre-pended to it (GitHub REST behavior).
-          jq -n \
-            --arg tag "$TAG" \
-            --arg name "desert-ant-core ${VER}" \
-            --rawfile body "$notes" \
-            '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true}' \
-            | gh api "repos/${GITHUB_REPOSITORY}/releases" --input - >/dev/null
-
-          echo "created release $TAG (android-changed=$AND npm-changed=$NPM)"
+        run: mise run publish:github

@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#MISE description="Run each model's npm package test suite against the native core"
+#MISE dir="{{config_root}}"
+#MISE depends=["npm-install"]
+#MISE tools={node="22"}
+#USAGE arg "<model>" help="Model to test, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Both halves of the isomorphic package get exercised here: the suite loads the
+# prebuilt native core through koffi and does real inference, and it asserts the
+# default (browser) entry still imports cleanly in Node, which is the SSR
+# contract every framework's server pass depends on. So both builds must have
+# run first.
+arch=$(dal_arch)
+[ "$(uname)" = Darwin ] && key="darwin-$arch" || key="linux-$arch"
+
+for model in $(dal_select "${usage_model:-all}" node); do
+    dir="packages/$model-node"
+    [ -d "$dir/native/$key" ] || {
+        echo "error: $dir/native/$key is missing; run 'mise run build:node-native $model' first" >&2
+        exit 1
+    }
+    [ -d "$dir/dist" ] || {
+        echo "error: $dir/dist is missing; run 'mise run build:wasm $model' first" >&2
+        exit 1
+    }
+    echo "== $model =="
+    ( cd "$dir" && npm test )
+done

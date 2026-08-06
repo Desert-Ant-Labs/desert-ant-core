@@ -1,7 +1,7 @@
 // Instrumented-test module that runs the Swift core's Android backends on a
 // device/emulator (Tier 2a). It reuses the shared HostBridge.kt (java.util.regex
 // + host JSON parser), loads the cross-compiled libCoreAndroidTests.so, and
-// asserts the JNI checks pass. `mise run test-android` builds the .so into
+// asserts the JNI checks pass. `mise run test:android` builds the .so into
 // jniLibs and runs `connectedAndroidTest`.
 //
 // Plugin/dependency versions are a starting point — align them with the

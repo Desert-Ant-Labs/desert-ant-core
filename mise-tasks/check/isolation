@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+#MISE description="Prove each model's Swift graph carries no other model and no unused capability"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22", swift={version="6.3.3", os=["linux"]}}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# An app that adds one SDK must pay for that SDK only. This reads the resolved
+# SwiftPM graph rather than grepping a build log, so it is exact, instant, and
+# cannot be fooled by an incremental build that printed no "Compiling" lines.
+#
+# The rule per model: its transitive target closure may not contain another
+# model, and may not contain the audio stack unless the model actually imports
+# it. Anything shared (DesertAnt, Inference, ModelStore, ...) is fine by design.
+models=$(dal_models)
+audio_users=""
+for model in $models; do
+    product=$(dal_product "$model")
+    grep -rq '^import Audio' "Sources/$product" && audio_users="$audio_users $product"
+done
+
+swift package describe --type json \
+    | MODELS="$(for m in $models; do dal_product "$m"; done | tr '\n' ' ')" AUDIO_USERS="$audio_users" node -e '
+let raw = "";
+process.stdin.on("data", (d) => (raw += d)).on("end", () => {
+  const pkg = JSON.parse(raw);
+  const targets = new Map(pkg.targets.map((t) => [t.name, t.target_dependencies ?? []]));
+  const models = process.env.MODELS.trim().split(/\s+/);
+  const audioUsers = new Set(process.env.AUDIO_USERS.trim().split(/\s+/).filter(Boolean));
+
+  const closure = (root) => {
+    const seen = new Set();
+    const stack = [root];
+    while (stack.length) {
+      const name = stack.pop();
+      if (seen.has(name)) continue;
+      seen.add(name);
+      for (const dep of targets.get(name) ?? []) stack.push(dep);
+    }
+    seen.delete(root);
+    return seen;
+  };
+
+  let failed = false;
+  for (const model of models) {
+    if (!targets.has(model)) {
+      console.error(`error: no Swift target named ${model}`);
+      failed = true;
+      continue;
+    }
+    const reached = closure(model);
+    const forbidden = models.filter((other) => other !== model && reached.has(other));
+    if (!audioUsers.has(model)) {
+      for (const audio of ["AudioIO", "AudioDSP"]) if (reached.has(audio)) forbidden.push(audio);
+    }
+    if (forbidden.length) {
+      console.error(`error: ${model} depends on ${forbidden.join(", ")}`);
+      failed = true;
+    } else {
+      console.log(`ok: ${model} -> ${[...reached].sort().join(", ")}`);
+    }
+  }
+  process.exit(failed ? 1 : 0);
+});
+'

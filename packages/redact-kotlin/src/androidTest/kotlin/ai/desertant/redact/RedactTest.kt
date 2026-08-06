@@ -23,7 +23,9 @@ class RedactTest {
     @Before fun setUp() {
         redact = Redact(InstrumentationRegistry.getInstrumentation().targetContext)
     }
-    @After fun tearDown() { redact.close() }
+    // Null-safe: if setUp() throws, an unguarded close() replaces the real
+    // failure with UninitializedPropertyAccessException and hides the cause.
+    @After fun tearDown() { if (::redact.isInitialized) redact.close() }
 
     @Test fun redactionEndToEnd() = runTest {
         val r = redact.redaction("Email Anna Kovács at anna@example.hu, IBAN DE89370400440532013000.")

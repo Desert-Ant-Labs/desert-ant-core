@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#MISE description="Provision the Android SDK and point Gradle at it"
+#MISE dir="{{config_root}}"
+#MISE hide=true
+#MISE tools={java="temurin-21"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Reuse a usable SDK already on the machine (Android Studio, a CI runner);
+# otherwise vendor Google's command-line tools into .android-sdk. Either way,
+# write local.properties, which is how Gradle finds the SDK - so no Android task
+# needs ANDROID_HOME in the environment.
+clt="${DAL_ANDROID_CMDLINE_TOOLS:-11076708}"
+existing="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+if [ -n "$existing" ] && [ -d "$existing" ]; then sdk="$existing"; else sdk="$PWD/.android-sdk"; fi
+
+sdkmanager=""
+for candidate in "$sdk/cmdline-tools/latest/bin/sdkmanager" "$sdk/cmdline-tools/bin/sdkmanager" \
+    "$sdk/tools/bin/sdkmanager"; do
+    [ -x "$candidate" ] && { sdkmanager="$candidate"; break; }
+done
+
+# Google ships the tools unpacked under cmdline-tools/, but sdkmanager expects
+# them at cmdline-tools/latest/.
+if [ -z "$sdkmanager" ]; then
+    echo "Provisioning the Android command-line tools $clt into $sdk (one-time)..."
+    mkdir -p "$sdk/cmdline-tools"
+    os=$(uname -s | tr '[:upper:]' '[:lower:]')
+    case "$os" in darwin) os=mac ;; esac
+    tmp=$(mktemp -d)
+    trap 'rm -rf "$tmp"' EXIT
+    curl -fSL -o "$tmp/clt.zip" "https://dl.google.com/android/repository/commandlinetools-$os-${clt}_latest.zip"
+    unzip -qo "$tmp/clt.zip" -d "$tmp"
+    rm -rf "$sdk/cmdline-tools/latest"
+    mv "$tmp/cmdline-tools" "$sdk/cmdline-tools/latest"
+    sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager"
+fi
+
+# Idempotent: sdkmanager no-ops on packages that are already installed.
+export ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk"
+if [ ! -d "$sdk/platforms/android-35" ] || [ ! -d "$sdk/build-tools/35.0.0" ] \
+    || [ ! -d "$sdk/platform-tools" ]; then
+    echo "Installing the Android SDK packages (platform 35, build-tools 35.0.0, platform-tools)..."
+    yes | "$sdkmanager" --sdk_root="$sdk" --licenses > /dev/null 2>&1 || true
+    "$sdkmanager" --sdk_root="$sdk" "platforms;android-35" "build-tools;35.0.0" platform-tools > /dev/null
+fi
+
+echo "sdk.dir=$sdk" > local.properties
+echo "sdk.dir=$sdk" > androidtest/local.properties
+echo "Android SDK ready: $sdk"

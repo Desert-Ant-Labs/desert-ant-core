@@ -1,0 +1,12 @@
+{
+  "name": "desert-ant-core-workspace",
+  "private": true,
+  "description": "npm workspace root. Not published: it exists so `npm install` links the local @desert-ant-labs/core into every packages/<model>-node, which is what the model test suites and the bundle matrix must run against. Publishing happens per package (mise run publish:npm).",
+  "workspaces": [
+    "js",
+    "packages/*-node"
+  ],
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}

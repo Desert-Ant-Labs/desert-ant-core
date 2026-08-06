@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+#MISE description="Create the GitHub Release for the current version (this is the SwiftPM release)"
+#MISE dir="{{config_root}}"
+#MISE depends=["check:version"]
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# The tag is the SwiftPM release - consumers pin
+# `.package(url: ..., from: "X.Y.Z")` - so a Release object always belongs with
+# it. Every other artifact ships at the same version, so the notes are just the
+# coordinates plus GitHub's generated changelog.
+version=$(dal_version)
+tag="v$version"
+repo="${GITHUB_REPOSITORY:-Desert-Ant-Labs/desert-ant-core}"
+
+if gh release view "$tag" --repo "$repo" > /dev/null 2>&1; then
+    echo "release $tag already exists"
+    exit 0
+fi
+
+notes=$(mktemp)
+trap 'rm -f "$notes"' EXIT
+{
+    echo "## Packages"
+    echo
+    echo "- SwiftPM: \`.package(url: \"https://github.com/$repo.git\", from: \"$version\")\`"
+    for model in $(dal_models_with kotlin); do
+        echo "- Android: \`ai.desertant:$model:$version\`"
+    done
+    echo "- Android (shared runtime): \`ai.desertant:core:$version\`"
+    for model in $(dal_models_with node); do
+        echo "- npm: \`@desert-ant-labs/$model@$version\`"
+    done
+    echo "- npm (shared runtime): \`@desert-ant-labs/core@$version\`"
+} > "$notes"
+
+jq -n --arg tag "$tag" --arg name "desert-ant-core $version" --rawfile body "$notes" \
+    '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true}' \
+    | gh api "repos/$repo/releases" --input - > /dev/null
+echo "created release $tag"

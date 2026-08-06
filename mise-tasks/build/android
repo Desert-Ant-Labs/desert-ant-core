@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#MISE description="Assemble the release AARs: ai.desertant:core and every model"
+#MISE dir="{{config_root}}"
+#MISE depends=["android-sdk"]
+#MISE tools={java="temurin-21"}
+#USAGE arg "<model>" help="Model AAR to build, 'core' for just the core AAR, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# One Gradle build owns every publishable Android artifact (settings.gradle.kts),
+# so this is one command. Each model module's `preBuild` runs
+# `mise run build:android-natives <model>`, which cross-compiles the Swift JNI
+# library into its jniLibs, so there is nothing to sequence by hand.
+want="${usage_model:-all}"
+
+if [ "$want" = core ]; then
+    ./gradlew :core:assembleRelease
+    models=""
+else
+    models=$(dal_select "$want" kotlin)
+    projects=(":core:assembleRelease")
+    for model in $models; do projects+=(":$model:assembleRelease"); done
+    ./gradlew "${projects[@]}"
+fi
+
+# The payload split is the whole point of having a shared core artifact: core
+# carries the one LiteRT runtime per ABI, and each model AAR carries only its own
+# Swift library. An app with three models must not get three runtimes.
+aar=kotlin/build/outputs/aar/core-release.aar
+found=$(unzip -Z1 "$aar" | grep -E '^jni/[^/]+/libLiteRt\.so$' | sort)
+expected=$(printf '%s\n' jni/arm64-v8a/libLiteRt.so jni/x86_64/libLiteRt.so)
+[ "$found" = "$expected" ] || {
+    echo "error: the core AAR has the wrong LiteRT payload" >&2
+    printf '%s\n' "$found" >&2
+    exit 1
+}
+unzip -Z1 "$aar" | grep -q 'Accelerator\.so$' && {
+    echo "error: the core AAR ships a LiteRT accelerator sibling" >&2
+    exit 1
+}
+
+for model in $models; do
+    product=$(dal_product "$model")
+    aar=$(find "packages/$model-kotlin/build/outputs/aar" -name '*-release.aar' | head -1)
+    [ -n "$aar" ] || { echo "error: no release AAR for $model" >&2; exit 1; }
+    unzip -Z1 "$aar" | grep -Eq 'libLiteRt|libc\+\+_shared' && {
+        echo "error: the $model AAR duplicates a runtime that ai.desertant:core owns" >&2
+        exit 1
+    }
+    for abi in arm64-v8a x86_64; do
+        unzip -Z1 "$aar" | grep -qx "jni/$abi/lib${product}Android.so" \
+            || { echo "error: the $model AAR is missing jni/$abi/lib${product}Android.so" >&2; exit 1; }
+    done
+    echo "ok: $aar"
+done

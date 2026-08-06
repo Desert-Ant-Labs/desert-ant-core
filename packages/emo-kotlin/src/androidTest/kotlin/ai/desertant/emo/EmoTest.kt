@@ -25,7 +25,9 @@ class EmoTest {
         emo = Emo(ApplicationProvider.getApplicationContext())
         runBlocking { emo.download() }   // fetch once up front; cached afterward
     }
-    @After fun tearDown() { emo.close() }
+    // Null-safe: if setUp() throws, an unguarded close() replaces the real
+    // failure with UninitializedPropertyAccessException and hides the cause.
+    @After fun tearDown() { if (::emo.isInitialized) emo.close() }
 
     @Test fun suggestsForEnglishPhrase() = runTest {
         val suggestions = emo.suggestions("Pay my bills", limit = 5)
