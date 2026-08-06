@@ -53,8 +53,19 @@ Node entry (`@desert-ant-labs/core/node`, uses `node:*` + koffi):
   LiteRT runtime first, binds the C ABI with koffi (generic `dal_*` calls plus
   the model's own `<modelId>_create`), and returns `callAsync` + `decodeResult` +
   cache-path helpers.
+SSR-safe node seam (`@desert-ant-labs/core/platform-node`, uses `node:*`, no
+koffi):
+
 - `nodeSetup` / `nodeWasmDir` / `nodeReadModelSource` / `nodeCacheRoot` - the
-  Node half of the `#platform` seam.
+  Node half of the `#platform` seam, reached when a framework renders the
+  universal wasm entry in Node (Next.js's Client-Component SSR pass).
+
+The two node entries stay apart on purpose. koffi ships native `.node` addons,
+and bundlers statically trace the `require("koffi")` inside the loader even
+though it only runs lazily, so a package's `#platform` seam importing
+`/node` makes an SSR build fail with Turbopack's "non-ecmascript placeable
+asset" (or webpack's equivalent). A model package imports `/node` from its
+`/native` entry only, and `/platform-node` from `platform-node.js`.
 
 Audio models use the separate `@desert-ant-labs/core/audio` browser entry or
 `@desert-ant-labs/core/audio/node` on Node. Text-model imports never traverse
@@ -63,6 +74,24 @@ the audio host or WAV codec.
 `@litertjs/core` and `koffi` are optional peer dependencies: the browser path
 needs `@litertjs/core`, the native Node path needs `koffi`, and neither is
 required just to import the package.
+
+## Tests
+
+```bash
+mise run test-js        # unit tests + the SSR module-graph guard (no network)
+mise run test-bundles   # the bundle matrix: real bundlers, real tarballs
+```
+
+The packages are isomorphic, so most of what can break lives in a bundler rather
+than in a function. Two layers cover it:
+
+- `test/ssr-graph.test.mjs` walks the static import graph the way a bundler does
+  and fails if the browser or SSR seam reaches koffi or a `node:` builtin. Fast,
+  offline, runs on every change.
+- `test/bundle/` packs the core and every model package and builds them with
+  esbuild, vite, webpack, and Next (Turbopack + webpack), plus plain Node imports
+  of both entries. It reproduces consumer build failures exactly; see
+  [js/test/bundle/README.md](test/bundle/README.md).
 
 ## License
 

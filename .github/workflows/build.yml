@@ -51,6 +51,22 @@ jobs:
           install: false
       - run: mise run test-js
 
+  bundles:
+    # The isomorphic npm packages break in bundlers, not in unit tests: every SSR
+    # regression we shipped passed test-js and failed in a consumer's
+    # `next build`. This packs the core and both model packages and builds them
+    # with esbuild, vite, webpack, and Next (Turbopack + webpack).
+    # See js/test/bundle/README.md. The wasm dist/ is stubbed here (no Swift
+    # toolchain); each model SDK repo runs the same matrix against the real one.
+    name: bundle matrix (browser / SSR / Node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        with:
+          install: false
+      - run: mise run test-bundles
+
   gradle-plugin:
     name: model-sdk Gradle plugin
     runs-on: ubuntu-latest
