@@ -15,7 +15,6 @@ function fakeCore() {
     isDownloaded: () => true,
     download: async () => true,
     run: async () => new Uint8Array(),
-    runAudio: async () => new Uint8Array(),
     endCallGroup: () => {},
     destroy: () => {},
     flushTelemetry: async () => true,

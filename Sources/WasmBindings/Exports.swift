@@ -84,27 +84,18 @@ import JavaScriptKit
     try await installedHost().download(handle: handle, onProgress: onProgress)
 }
 
-/// Run the model over `text`. The model decodes `options` and encodes the
-/// result, so this stays model-agnostic. `group` bills several runs as one usage
-/// call (release it with `endCallGroup`); `deviceId` attributes the call to one
-/// end-user device.
+/// Run the model over its own input and options payloads, returning its own
+/// result payload (see `ModelBinding`). What the input bytes mean is the model's
+/// business - text, samples and a rate, video frames - so this one entry serves
+/// every modality and a new kind of model adds nothing here. `group` bills several
+/// runs as one usage call (release it with `endCallGroup`); `deviceId` attributes
+/// the call to one end-user device.
 @JS public func run(
-    handle: Int, text: String, options: JSUint8Array?, group: String?, deviceId: String?
+    handle: Int, input: JSUint8Array, options: JSUint8Array?,
+    group: String?, deviceId: String?
 ) async throws(JSException) -> JSUint8Array {
     try await installedHost().run(
-        handle: handle, text: text, options: options, group: group, deviceId: deviceId)
-}
-
-/// Run a model whose input is audio: mono `samples` at `sampleRate`, with the
-/// model's own options payload. The twin of `run` and of the native
-/// `dal_run_audio`, so a model implements whichever modality it has.
-@JS public func runAudio(
-    handle: Int, samples: JSFloat32Array, sampleRate: Double,
-    options: JSUint8Array?, group: String?, deviceId: String?
-) async throws(JSException) -> JSUint8Array {
-    try await installedHost().runAudio(
-        handle: handle, samples: samples, sampleRate: sampleRate,
-        options: options, group: group, deviceId: deviceId)
+        handle: handle, input: input, options: options, group: group, deviceId: deviceId)
 }
 
 /// Release a call group opened by passing `group` to `run`.

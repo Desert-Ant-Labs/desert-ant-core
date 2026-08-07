@@ -69,7 +69,11 @@ test("a model's ABI is generic apart from its own constructor", async () => {
   for (const name of ["isDownloaded", "download", "run", "destroy", "bufferFree"]) {
     assert.match(emo[name], /\bdal_[a-z_]+\(/, `${name} binds a generic dal_* symbol`);
   }
-  assert.match(emo.run, /^void\* dal_run\(void\*, const char\*, const uint8_t\*, int,/);
+  // One run entry for every modality: the input is a payload like the options.
+  assert.match(
+    emo.run, /^void\* dal_run\(void\*, const uint8_t\*, int, const uint8_t\*, int,/);
+  assert.equal(Object.keys(emo).filter((k) => k.startsWith("run")).length, 1,
+    "no per-modality run symbols");
   // The constructor is model-scoped, so two models can share one binary.
   assert.equal(emo.create, "void* emo_create(const char*, const char*, const char*)");
   assert.equal(dalSymbols("redact").create, "void* redact_create(const char*, const char*, const char*)");

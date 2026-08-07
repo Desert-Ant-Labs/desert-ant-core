@@ -9,5 +9,5 @@ internal object RedactNative : NativeModelApi {
     override external fun destroy(handle: Long)
     override external fun isDownloaded(handle: Long): Int
     override external fun download(handle: Long): Int
-    override external fun run(handle: Long, text: ByteArray, options: ByteArray?): ByteArray?
+    override external fun run(handle: Long, input: ByteArray, options: ByteArray?): ByteArray?
 }

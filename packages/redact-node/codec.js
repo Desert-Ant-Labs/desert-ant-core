@@ -15,6 +15,12 @@ export const PACKAGE_NAME = "@desert-ant-labs/redact";
 
 /** Options payload: `f64 minimumConfidence`, then a `u32` label count and that
  *  many length-prefixed names (an empty list means every label). */
+/** Input payload: the text, length-prefixed UTF-8. Mirrors Redact's
+ *  `run(input:options:)` in Sources/Redact/Binding.swift. */
+export function encodeInput(text) {
+  return new FfiWriter().str(text).done();
+}
+
 export function encodeOptions({ minimumConfidence, labels }) {
   return new FfiWriter().f64(minimumConfidence).strings(labels ?? []).done();
 }

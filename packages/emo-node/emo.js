@@ -3,7 +3,7 @@
 // (node.js). Both expose the same ABI, and @desert-ant-labs/core turns either
 // one into the same `LoadedModel`, so the API is written once here instead of
 // once per runtime.
-import { decodeSuggestions, encodeOptions, SKIN_TONES } from "./codec.js";
+import { decodeSuggestions, encodeInput, encodeOptions, SKIN_TONES } from "./codec.js";
 
 /**
  * Build the `Emo` class over a bound SDK (`createWasmSdk` / `createNativeSdk`).
@@ -51,7 +51,8 @@ export function makeEmo(sdk) {
         limit: options.limit ?? 3,
         skinTone: SKIN_TONES[options.skinTone ?? "default"] ?? 0,
       });
-      return decodeSuggestions(await this.#model.run(phrase, payload, options));
+      return decodeSuggestions(
+        await this.#model.run(encodeInput(phrase), payload, options));
     }
 
     /** Whether the model is usable with no network. */

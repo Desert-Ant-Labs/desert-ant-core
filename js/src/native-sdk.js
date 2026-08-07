@@ -45,10 +45,10 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       const rc = await callAsync(lib.download, handle);
       if (rc !== 0) throw new Error("the native core reported a download failure");
     },
-    async run(handle, text, options, group, deviceId) {
+    async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
       const ptr = await callAsync(
-        lib.run, handle, text, payload, payload.length, group, deviceId);
+        lib.run, handle, input, input.length, payload, payload.length, group, deviceId);
       if (!ptr) throw new Error(`${packageName}: the model failed to run`);
       try {
         return decodeResult(ptr);
