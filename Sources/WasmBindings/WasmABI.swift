@@ -91,6 +91,19 @@ private nonisolated(unsafe) var models: [Int: any BoundModel] = [:]
 private nonisolated(unsafe) var nextHandle = 1
 private nonisolated(unsafe) var retained: [JSClosure] = []
 
+/// Carries a JS value into a `@Sendable` closure on wasm.
+///
+/// `JSObject` is deliberately not `Sendable`: a JS reference belongs to the
+/// thread whose JS context created it. This module is `#if os(WASI)` and that
+/// runtime is single-threaded, so there is no second thread to reach - but the
+/// compiler cannot know that, and the capture is an error in the Swift 6
+/// language mode rather than a warning. This states the reasoning in one place
+/// instead of scattering unchecked captures.
+private struct SingleThreadedJS<Value>: @unchecked Sendable {
+    let value: Value
+    init(_ value: Value) { self.value = value }
+}
+
 private func store(_ model: any BoundModel) -> Int {
     let handle = nextHandle
     nextHandle += 1
@@ -148,9 +161,14 @@ private func exports(for model: WasmModel) -> JSObject {
     // so the first `run` is instant and load errors surface here. A no-op once
     // available. `onProgress`, when a function, gets the fraction in [0, 1].
     exports.download = promise { args in
-        let onProgress: JSFunction? = args.count > 1 ? args[1].function : nil
+        // `download`'s progress closure is @Sendable and JSObject is not
+        // Sendable, which is a warning today and an error in the Swift 6
+        // language mode. wasm here is single-threaded, so there is no other
+        // thread for the callback to reach; say that explicitly rather than
+        // leaning on a diagnostic that is about to become fatal.
+        let onProgress = SingleThreadedJS(args.count > 1 ? args[1].function : nil)
         try await loaded(handle(args, 0)).download { fraction in
-            if let onProgress { _ = onProgress(fraction) }
+            if let callback = onProgress.value { _ = callback(fraction) }
         }
         return .boolean(true)
     }

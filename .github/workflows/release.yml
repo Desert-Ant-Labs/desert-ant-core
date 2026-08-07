@@ -43,8 +43,8 @@ jobs:
     outputs:
       publish: ${{ steps.gate.outputs.publish }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
       - id: gate
         run: |
           set -euo pipefail
@@ -70,7 +70,7 @@ jobs:
     runs-on: ubuntu-22.04
     environment: maven-central
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
@@ -81,9 +81,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             libcurl4-openssl-dev libxml2-dev zlib1g-dev
-      - uses: jdx/mise-action@v2
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/cache@v4
+      - uses: jdx/mise-action@v4
+      # v7 is the newest floating major tag this action publishes (its later
+      # releases ship no vN alias), and it already runs on node24.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/desert-ant/toolchains
@@ -125,17 +132,22 @@ jobs:
           - { target: darwin-arm64, runner: macos-14 }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Linux build deps (static Foundation autolinks these)
         if: startsWith(matrix.target, 'linux')
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             libcurl4-openssl-dev libxml2-dev zlib1g-dev binutils file
-      - uses: jdx/mise-action@v2
-      - uses: astral-sh/setup-uv@v5
+      - uses: jdx/mise-action@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
       - run: mise run build:node-native
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: natives-${{ matrix.target }}
           path: packages/*-node/native/${{ matrix.target }}/
@@ -148,13 +160,18 @@ jobs:
     runs-on: ubuntu-latest
     environment: npm
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
 
       # Gather every prebuilt native back into its package, so each tarball
       # carries all three server-side targets.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: natives-*
           path: /tmp/natives
@@ -187,8 +204,8 @@ jobs:
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
       - env:
           GH_TOKEN: ${{ github.token }}
         run: mise run publish:github
