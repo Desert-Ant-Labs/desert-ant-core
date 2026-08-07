@@ -39,6 +39,35 @@ So a model's wasm entry point is one `installWasmModel` call, its npm package
 restates no file names or host names, and the payload codecs
 (`Binding.swift` <-> `codec.js`) are the only per-model marshalling left.
 
+Both modalities exist on both ABIs: `run` / `runAudio` in the wasm exports mirror
+`dal_run` / `dal_run_audio`, and a model implements the one it has
+(`ModelBinding` defaults the other to "not this model's input"). The native JS
+core binds only the text symbol today; an audio package adds the audio one
+through `loadNative({ symbols })` without touching core.
+
+### What a long-running model will need
+
+A model that processes a whole file (Clear) works through this, but three
+assumptions in the ABI are sized for one short call, and they are the same on the
+C ABI, so changing them is one cross-language decision rather than a wasm patch:
+
+- **No progress channel.** `Clear.Progress(phase:fraction:)` exists in Swift and
+  cannot cross either ABI; the JS native path fakes download progress by
+  reporting the endpoints. wasm could take a closure today (BridgeJS supports
+  one, as `download` does); C and JNI would need a callback argument to match.
+- **No cancellation.** A long run cannot be stopped from the host on any
+  platform.
+- **Whole payloads cross by copy.** `runAudio` takes the entire sample buffer, so
+  a long file is copied into wasm memory and its result copied back, under a
+  32-bit address space. A chunked or streaming entry point (samples in, samples
+  out, per window) is the shape that removes both the copy and the progress
+  problem, and it is worth designing before the second audio model rather than
+  after.
+
+The wasm host contract has a related limit: it holds one compiled model per
+module, so the multi-session concurrency `Clear` uses natively
+(`ModelAssets(sessions:)`) degrades to a single session on the web.
+
 Tasks that act per model take a model argument, defaulting to `all`:
 
 ```bash
