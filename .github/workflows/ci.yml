@@ -31,8 +31,8 @@ jobs:
     name: checks (versions, JS units)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
       # One version across the repo is only a property if something checks it
       # before release day.
       - run: mise run check:version
@@ -42,11 +42,11 @@ jobs:
     name: Apple (macOS + iOS Simulator)
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: 26.6
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
 
       # No model artifact is committed, so the model-backed suites download the
       # pinned revision on a cold cache. Cache the store so that happens once
@@ -54,7 +54,7 @@ jobs:
       # independent of Hugging Face being reachable. Each model's revision lives
       # in its Catalog.swift, so those files are the key.
       - name: Cache downloaded models
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/desert-ant-models
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
@@ -75,24 +75,36 @@ jobs:
     # the empty-array expansion the Linux jobs accept.
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+      # v7 is the newest floating major tag this action publishes (its later
+      # releases ship no vN alias), and it already runs on node24.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
       - run: mise run build:node-native
 
   linux:
     name: Linux (Swift + LiteRT)
     runs-on: ubuntu-22.04 # glibc 2.35, the floor the published natives target
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             libcurl4-openssl-dev libxml2-dev zlib1g-dev
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       # `mise run` vendors libLiteRt.so out of the ai-edge-litert wheel with uv.
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
 
       # An app that adds one SDK must pay for that SDK alone; this reads the
       # resolved SwiftPM graph, so it needs the toolchain this job already has.
@@ -105,15 +117,20 @@ jobs:
     # glibc 2.35, matching the floor the published Linux natives target.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq --no-install-recommends \
             libcurl4-openssl-dev libxml2-dev zlib1g-dev
-      - uses: jdx/mise-action@v2
-      - uses: astral-sh/setup-uv@v5
-      - uses: actions/cache@v4
+      - uses: jdx/mise-action@v4
+      - uses: astral-sh/setup-uv@v7
+        with:
+          # uv only unpacks a wheel here; there is no uv.lock or
+          # requirements.txt to key a cache on, and asking for one warns
+          # that it can never be invalidated.
+          enable-cache: false
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.swiftpm/swift-sdks
@@ -149,7 +166,7 @@ jobs:
     # the emulator can share one job.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The emulator needs ~7.4 GB for userdata, and the Swift Android SDK, NDK,
       # and snapshot toolchain land on top of that. Drop toolchains we never use
@@ -174,11 +191,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
 
       # The snapshot toolchain (~1.2 GB), the Android SDK bundles (~330 MB), and
       # the NDK install on demand; cache them so only the first run pays.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/desert-ant/toolchains
