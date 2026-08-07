@@ -15,7 +15,7 @@ public enum ClearModel: ModelDeclaration {
     /// No published npm/Maven package yet, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with
     /// packages/clear-* when they land.
-    public static let sdkVersion = "1.0.2"
+    public static let sdkVersion = "1.0.3"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
     /// The variant this declaration describes: the SDK default. The repo also

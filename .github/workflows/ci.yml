@@ -4,7 +4,7 @@ name: CI
 # the same task you run locally. The question it answers is the only one that
 # matters here: does every model still work on every platform?
 #
-#   apple    Swift on macOS (Core ML) and on an iOS Simulator
+#   apple    Swift on macOS (Core ML), an iOS Simulator, and the darwin native
 #   linux    Swift on Linux (LiteRT)
 #   js       wasm + native cores, then every npm package: Node, browser, SSR
 #   android  the Swift JNI natives, both AARs, and the on-device suites
@@ -62,6 +62,11 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
+      # The darwin-arm64 native the npm package ships was previously built only
+      # during a release, on a runner nothing else exercised - so a macOS-only
+      # break in it surfaced mid-publish. Build it here every push. (macOS ships
+      # bash 3.2, so this also covers script portability the Linux jobs cannot.)
+      - run: mise run build:node-native
 
   linux:
     name: Linux (Swift + LiteRT)
