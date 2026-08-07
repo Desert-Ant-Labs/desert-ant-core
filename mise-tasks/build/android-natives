@@ -165,7 +165,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
             --product "${product}Android" --swift-sdk "$arch-unknown-linux-android$api" \
             --static-swift-stdlib \
             -Xlinker "-LVendor/litert/lib/android-$arch" -Xlinker "-L$cxx_dir" \
-            "${extra_libs[@]}" -Xlinker --no-undefined
+            ${extra_libs[@]+"${extra_libs[@]}"} -Xlinker --no-undefined
         rm -rf "$cxx_dir"
 
         dest="$jni_libs/$abi"
