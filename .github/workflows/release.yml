@@ -119,6 +119,9 @@ jobs:
         include:
           - { target: linux-x64, runner: ubuntu-22.04 }
           - { target: linux-arm64, runner: ubuntu-22.04-arm }
+          # macos-14 sets the compatibility floor for the published darwin
+          # native. CI's `darwin-native` job uses the same runner, so the
+          # toolchain that ships is the one CI proves.
           - { target: darwin-arm64, runner: macos-14 }
     runs-on: ${{ matrix.runner }}
     steps:
