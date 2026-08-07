@@ -31,7 +31,15 @@ actor TrackedSession: InferenceSession {
     private let debounceNanos: UInt64
     private let maxDevices = 512
 
-    private var clients: [String: UsageClient] = [:]
+    // `nonisolated(unsafe)` so the `deinit` below can flush these. A deinit is
+    // nonisolated and `UsageClient` is deliberately not Sendable (unsynchronized
+    // counters only this actor touches), which the Swift 6 language mode rejects.
+    // `isolated deinit` (SE-0371) is the feature for this but needs macOS 15.4 /
+    // iOS 18.4, far above this package's floor. The unchecked access is sound
+    // rather than asserted: a deinit runs only once the last reference is gone,
+    // and a task executing on an actor holds one, so no actor work can be in
+    // flight to race with it.
+    private nonisolated(unsafe) var clients: [String: UsageClient] = [:]
     private var deviceOrder: [String] = []       // FIFO for eviction
     private var cachedDefaultDevice: String?
     private var pendingFlush: Task<Void, Never>?

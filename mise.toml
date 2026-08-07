@@ -12,6 +12,7 @@
 #   mise run test:browser        each model's browser path in headless Chromium
 #   mise run test:bundles        every npm package through the real bundlers
 #   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
+#   mise run check:swift-floor   the package builds on the Swift the README promises
 #
 #   mise run build:swift [model] Swift targets, one model at a time
 #   mise run build:wasm  [model] the browser core -> packages/<model>-node/dist
@@ -48,6 +49,7 @@ depends = [
     "check:version",
     "check:isolation",
     "check:types",
+    "check:swift-floor",
     "test:swift",
     "test:wasi",
     "test:js",

@@ -46,7 +46,7 @@ Face](https://huggingface.co/desert-ant-labs).
 
 ### Install
 
-Requirements: iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, and Swift 5.9+.
+Requirements: iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, and Swift 6.2+ (Xcode 26).
 
 Add the package with Swift Package Manager:
 
@@ -281,7 +281,7 @@ verified before it is used.
 
 | Platform | Runtime | Requirements |
 |---|---|---|
-| iOS, macOS, tvOS, visionOS | Core ML | iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, Swift 5.9+ |
+| iOS, macOS, tvOS, visionOS | Core ML | iOS 16+, macOS 13+, tvOS 16+, visionOS 1+, Swift 6.2+ |
 | Android | LiteRT | API 24+, arm64-v8a and x86_64 |
 | Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |

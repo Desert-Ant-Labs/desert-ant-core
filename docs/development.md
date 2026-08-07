@@ -137,6 +137,12 @@ Plus two invariants, in the `checks` job:
   audio stack unless it imports one. An app that adds one SDK pays for that SDK
   alone, and this reads the resolved SwiftPM graph, so it cannot be fooled by an
   incremental build.
+- `check:swift-floor` - the package builds on the oldest Swift the README
+  promises (6.2). Nothing checked this before, so the claim drifted twice: it said
+  5.9 while `nonisolated(unsafe)` (5.10) and later typed throws (6.0) were already
+  in code every consumer parses. Parsing covers the Apple-only and Android-only
+  branches too, since Swift parses inactive `#if` blocks; type-checking those needs
+  the `apple` job.
 - `check:types` - the `.d.ts` files that ship to npm compile, and the two
   contracts core restates are identical to the ones BridgeJS generates from
   Swift: `WasmCore` against the exports a core provides
