@@ -342,7 +342,20 @@ final class ClearSTFT {
     func forward(_ audio: [Float]) -> (real: [Float], imag: [Float], nFrames: Int) {
         let prePad = fftSize - hopSize
         var padded = [Float](repeating: 0, count: prePad + audio.count)
-        for i in 0..<audio.count { padded[prePad + i] = audio[i] }
+        padded.withUnsafeMutableBufferPointer { dp in
+            audio.withUnsafeBufferPointer { sp in
+                if let s = sp.baseAddress { dp.baseAddress!.advanced(by: prePad).update(from: s, count: audio.count) }
+            }
+        }
+        return forward(prePadded: padded)
+    }
+
+    /// Same transform over a buffer the caller already laid out with the
+    /// `fftSize - hopSize` analysis prepad in front (and whatever tail padding
+    /// it needs). Lets a long-file pipeline build that buffer once instead of
+    /// paying a second full-signal copy here: at 48 kHz a 33-minute signal is
+    /// 363 MB, so the copy is worth avoiding.
+    func forward(prePadded padded: [Float]) -> (real: [Float], imag: [Float], nFrames: Int) {
         guard padded.count >= fftSize else { return ([], [], 0) }
         let nFrames = (padded.count - fftSize) / hopSize + 1
         var re = [Float](repeating: 0, count: nFrames * nFreq)
@@ -388,6 +401,17 @@ final class ClearSTFT {
     /// (real, imag) spectrogram -> time signal (windowed COLA overlap-add),
     /// dropping the analysis-synthesis prepad.
     func inverse(real: [Float], imag: [Float], nFrames: Int) -> [Float] {
+        real.withUnsafeBufferPointer { rp in
+            imag.withUnsafeBufferPointer { ip in
+                inverse(real: rp.baseAddress!, imag: ip.baseAddress!, nFrames: nFrames)
+            }
+        }
+    }
+
+    /// Pointer form, so a caller holding the spectrum in its own scratch buffers
+    /// can synthesize without first copying them into `Array`s. Two full
+    /// spectrogram planes are 726 MB for a 33-minute file.
+    func inverse(real: UnsafePointer<Float>, imag: UnsafePointer<Float>, nFrames: Int) -> [Float] {
         let prePad = fftSize - hopSize
         guard nFrames > 0 else { return [] }
         let rawLen = (nFrames - 1) * hopSize + fftSize
@@ -399,21 +423,17 @@ final class ClearSTFT {
         var rTime = [Float](repeating: 0, count: n), iTime = [Float](repeating: 0, count: n)
         for t in 0..<nFrames {
             let base = t * f
-            real.withUnsafeBufferPointer { _ = memcpy(&rSpec, $0.baseAddress! + base, f * 4) }
-            imag.withUnsafeBufferPointer { _ = memcpy(&iSpec, $0.baseAddress! + base, f * 4) }
+            _ = memcpy(&rSpec, real + base, f * 4)
+            _ = memcpy(&iSpec, imag + base, f * 4)
             if mirror > 0 {
-                real.withUnsafeBufferPointer { rp in
-                    rSpec.withUnsafeMutableBufferPointer { dp in
-                        memcpy(dp.baseAddress! + f, rp.baseAddress! + base + 1, mirror * 4)
-                        vDSP_vrvrs(dp.baseAddress! + f, 1, vDSP_Length(mirror))
-                    }
+                rSpec.withUnsafeMutableBufferPointer { dp in
+                    memcpy(dp.baseAddress! + f, real + base + 1, mirror * 4)
+                    vDSP_vrvrs(dp.baseAddress! + f, 1, vDSP_Length(mirror))
                 }
-                imag.withUnsafeBufferPointer { ip in
-                    iSpec.withUnsafeMutableBufferPointer { dp in
-                        memcpy(dp.baseAddress! + f, ip.baseAddress! + base + 1, mirror * 4)
-                        vDSP_vrvrs(dp.baseAddress! + f, 1, vDSP_Length(mirror))
-                        vDSP_vneg(dp.baseAddress! + f, 1, dp.baseAddress! + f, 1, vDSP_Length(mirror))
-                    }
+                iSpec.withUnsafeMutableBufferPointer { dp in
+                    memcpy(dp.baseAddress! + f, imag + base + 1, mirror * 4)
+                    vDSP_vrvrs(dp.baseAddress! + f, 1, vDSP_Length(mirror))
+                    vDSP_vneg(dp.baseAddress! + f, 1, dp.baseAddress! + f, 1, vDSP_Length(mirror))
                 }
             }
             vDSP_DFT_Execute(inv, rSpec, iSpec, &rTime, &iTime)
@@ -450,6 +470,9 @@ final class ClearSTFT {
             for t in 0..<nFrames { let off = t * hopSize; for n in 0..<fft { out[off + n] += rcb[t * fft + n] } }
         }
         #endif
-        return rawLen > prePad ? Array(out[prePad..<rawLen]) : out
+        // Dropping the prepad in place: `Array(out[prePad...])` would hold a
+        // second full-length buffer alongside `out`.
+        if rawLen > prePad { out.removeFirst(prePad) }
+        return out
     }
 }

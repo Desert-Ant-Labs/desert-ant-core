@@ -16,6 +16,28 @@ public enum AudioIOError: Error, Sendable {
     case unsupported(String)
 }
 
+/// The output encodings ``AudioIO/write(_:sampleRate:channels:to:)`` can
+/// produce, chosen from the destination's path extension.
+public enum AudioFileFormat: Sendable, Equatable {
+    /// 16-bit PCM WAV. The portable encoding: available on every platform.
+    case wav
+    /// AAC in an MPEG-4 container (`.m4a`, `.mp4`, `.aac`). Apple only.
+    case aac(bitRate: Int)
+    /// Uncompressed PCM in a CAF or AIFF container. Apple only.
+    case pcm
+
+    /// Maps a path extension onto an encoding. Unknown extensions are `nil`, so
+    /// a caller can decide between defaulting and rejecting.
+    public static func inferred(fromPathExtension ext: String) -> AudioFileFormat? {
+        switch ext.lowercased() {
+        case "wav", "wave": .wav
+        case "m4a", "mp4", "aac": .aac(bitRate: 128_000)
+        case "caf", "aif", "aiff": .pcm
+        default: nil
+        }
+    }
+}
+
 public enum AudioIO {
     /// Decode the audio file at `path` to mono `Float` samples at
     /// `sampleRate`, resampling and mixing to mono as needed.
@@ -71,9 +93,56 @@ public extension AudioIO {
     /// Write mono (or interleaved) `samples` as a 16-bit PCM WAV file. Uses the
     /// portable encoder, so the bytes match `encodeWAV`. Available where a
     /// filesystem is (Apple/Linux); on Android/wasm write through the host.
+    /// Streams the file out in fixed-size blocks. Encoding to `[UInt8]` and then
+    /// copying into `Data` held two more full-size buffers (about 362 MB
+    /// combined for 33 minutes of 48 kHz mono) on top of the samples.
     static func writeWAV(_ samples: [Float], sampleRate: Int, channels: Int = 1, to path: String) throws {
-        let bytes = WAV.encode(samples, sampleRate: sampleRate, channels: channels)
-        try Data(bytes).write(to: URL(fileURLWithPath: path))
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.createFile(atPath: path, contents: nil) else {
+            throw AudioIOError.decodeFailed("cannot create \(path)")
+        }
+        let handle = try FileHandle(forWritingTo: url)
+        defer { try? handle.close() }
+
+        try handle.write(contentsOf: WAV.header(sampleCount: samples.count,
+                                                sampleRate: sampleRate, channels: channels))
+        let blockSamples = 1 << 16
+        var block = [UInt8]()
+        block.reserveCapacity(blockSamples * 2)
+        var index = samples.startIndex
+        while index < samples.endIndex {
+            let end = min(index + blockSamples, samples.endIndex)
+            block.removeAll(keepingCapacity: true)
+            WAV.appendPCM16(samples[index..<end], to: &block)
+            try handle.write(contentsOf: block)
+            index = end
+        }
+    }
+}
+
+public extension AudioIO {
+    /// Write `samples` to `path`, choosing the encoding from the path extension
+    /// (`.wav` -> 16-bit PCM, `.m4a`/`.mp4`/`.aac` -> AAC, `.caf`/`.aiff` ->
+    /// PCM). Unrecognized extensions fall back to `defaultFormat`.
+    ///
+    /// Only `.wav` exists off Apple platforms; anything else throws
+    /// `AudioIOError.unsupported` there rather than silently writing WAV bytes
+    /// under a misleading extension.
+    static func write(_ samples: [Float], sampleRate: Int, channels: Int = 1,
+                      to path: String, defaultFormat: AudioFileFormat = .wav) throws {
+        let ext = URL(fileURLWithPath: path).pathExtension
+        let format = AudioFileFormat.inferred(fromPathExtension: ext) ?? defaultFormat
+        switch format {
+        case .wav:
+            try writeWAV(samples, sampleRate: sampleRate, channels: channels, to: path)
+        case .aac, .pcm:
+            #if canImport(AVFoundation)
+            try appleWrite(samples, sampleRate: sampleRate, channels: channels,
+                           to: path, format: format)
+            #else
+            throw AudioIOError.unsupported("\(ext) encoding needs AVFoundation; only WAV is portable")
+            #endif
+        }
     }
 }
 
