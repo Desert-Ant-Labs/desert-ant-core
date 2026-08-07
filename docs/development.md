@@ -60,6 +60,13 @@ Plus two invariants, in the `checks` job:
   audio stack unless it imports one. An app that adds one SDK pays for that SDK
   alone, and this reads the resolved SwiftPM graph, so it cannot be fooled by an
   incremental build.
+- `check:types` - the `.d.ts` files that ship to npm compile, and `WasmCore` in
+  `js/index.d.ts` is identical to the wasm ABI BridgeJS generates from the `@JS`
+  declarations in `Sources/WasmBindings`. Core is model-agnostic so it cannot
+  import a model package's generated `dist/bridge-js.d.ts`, and that restatement
+  is the one type in the repo that can drift from Swift silently. Where a model
+  core has been built (the `js` job, or after `build:wasm`) this also catches a
+  stale `dist`.
 
 CI pins each job to the runner the release publishes from, so the toolchain that
 ships is the one CI proves: `ubuntu-22.04` for the Linux natives (glibc 2.35) and
