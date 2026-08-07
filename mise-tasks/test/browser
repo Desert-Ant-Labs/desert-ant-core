@@ -32,4 +32,4 @@ args=()
 [ "${usage_model:-all}" = all ] || args+=(--only "${usage_model}")
 [ -z "${usage_headed:-}" ] || args+=(--headed)
 
-node test/browser/run.mjs "${args[@]}"
+node test/browser/run.mjs ${args[@]+"${args[@]}"}

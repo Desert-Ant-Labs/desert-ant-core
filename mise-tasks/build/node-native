@@ -26,6 +26,9 @@ arch=$(dal_arch)
 # only pass it when the manifest has some. Models small enough to bundle declare
 # a BundledModel trait, disabled here since the npm package ships no SwiftPM
 # resource bundle.
+#
+# `${arr[@]+"${arr[@]}"}` rather than `"${arr[@]}"`: macOS ships bash 3.2, where
+# expanding an empty array under `set -u` is an "unbound variable" error.
 traits=()
 grep -q "traits:" Package.swift && traits=(--disable-default-traits)
 
@@ -36,7 +39,7 @@ for model in $(dal_select "${usage_model:-all}" node); do
     if [ "$(uname)" = Darwin ]; then
         dest="packages/$model-node/native/darwin-$arch"
         rm -rf "$dest" && mkdir -p "$dest"
-        swift build --scratch-path .build-host -c release --product "${product}Node" "${traits[@]}" \
+        swift build --scratch-path .build-host -c release --product "${product}Node" ${traits[@]+"${traits[@]}"} \
             -Xlinker -rpath -Xlinker @loader_path
         cp ".build-host/release/lib${product}Node.dylib" "$dest/"
     else
@@ -52,7 +55,7 @@ for model in $(dal_select "${usage_model:-all}" node); do
             [ -n "$src" ] && ln -sf "$src" "$stub/${soname%%.so*}.so"
         done
         litert=$(dal_litert_dir)
-        swift build --scratch-path .build-host -c release --product "${product}Node" "${traits[@]}" \
+        swift build --scratch-path .build-host -c release --product "${product}Node" ${traits[@]+"${traits[@]}"} \
             -Xswiftc -static-stdlib \
             -Xlinker "-L$stub" -Xlinker "-L$litert" -Xlinker -rpath -Xlinker '$ORIGIN' \
             -Xlinker -z -Xlinker nodelete
