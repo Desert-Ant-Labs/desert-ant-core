@@ -41,6 +41,9 @@ jobs:
       # the js job runs the same task after build:wasm, where it also proves the
       # declared wasm ABI is the one Swift exports.
       - run: mise run check:types
+      # The README promises a minimum Swift; this builds on exactly that, because
+      # the claim silently drifted twice while nothing checked it.
+      - run: mise run check:swift-floor
       - run: mise run test:js
 
   apple:

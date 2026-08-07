@@ -169,7 +169,7 @@ enum Deterministic {
     private static let fiHetuShapeRE = rx(#"^(\d{6})[-+A-F](\d{3})([0-9A-Y])$"#)
     private static func fiHetuOk(_ v: String) -> Bool { let s = stripSpaces(v).uppercased(); guard let m = fiHetuShapeRE.first(s) else { return false }; let n = Int(m.group(1)! + m.group(2)!)!; return String(Array("0123456789ABCDEFHJKLMNPRSTUVWXY")[n % 31]) == m.group(3)! }
 
-    private static let natValidators: [Int: [(String) -> Bool]] = [
+    private static let natValidators: [Int: [@Sendable (String) -> Bool]] = [
         9: [nlBsnOk, ptNifOk],
         10: [bgEgnOk, czRcOk, huAdoazOk, plNipOk, atSvnrOk],
         11: [plPeselOk, hrOibOk, grAmkaOk, eeIsikukoodOk, lvPkOk, beRrnOk, itPivaOk],
@@ -179,9 +179,9 @@ enum Deterministic {
 
     // VAT: per-country checksum
     private static let vatFmtOnly: Set<String> = ["ES", "LV", "NL"]
-    private static let vat: [String: (String) -> Bool] = {
-        func re(_ p: String) -> Pattern { rx("^" + p + "$") }
-        var m: [String: (String) -> Bool] = [
+    private static let vat: [String: @Sendable (String) -> Bool] = {
+        @Sendable func re(_ p: String) -> Pattern { rx("^" + p + "$") }
+        var m: [String: @Sendable (String) -> Bool] = [
             "AT": { n in guard re(#"U\d{8}"#).test(n) else { return false }; let d = dl(n); var s = 4; for i in 0..<7 { var x = d[i] * (i % 2 == 1 ? 2 : 1); if x > 9 { x -= 9 }; s += x }; return (10 - s % 10) % 10 == d[7] },
             "BE": { n in re(#"0\d{9}"#).test(n) && (97 - Int(n.prefix(8))! % 97) == Int(n.suffix(2))! },
             "BG": { n in if re(#"\d{9}"#).test(n) { let d = dl(n); var s = 0; for i in 0..<8 { s += d[i]*(i+1) }; s %= 11; if s == 10 { s = 0; for i in 0..<8 { s += d[i]*(i+3) }; s %= 11; if s == 10 { s = 0 } }; return s == d[8] }; return re(#"\d{10}"#).test(n) && bgEgnOk(n) },
