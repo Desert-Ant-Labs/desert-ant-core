@@ -13,7 +13,7 @@ on.
 
 Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
 
-- `createWasmSdk({ platform, packageName, modelId, hostGlobal, files })` - the
+- `createWasmSdk({ platform, packageName })` - the
   whole browser/WebAssembly half of a model package: instantiate the core through
   the package's `#platform` seam, set up the LiteRT.js session, then
   `open(options)` either downloads the model from the Hub or adopts the files a
@@ -22,9 +22,13 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
   options, { group, deviceId })` returning an `FfiReader`, plus `isDownloaded`,
   `withCallGroup`, and `dispose`. The same object on both runtimes, so a package
   writes its public class once.
-- `installLiteRtHost(...)` - installs the LiteRT.js host the wasm core drives
-  through `globalThis[hostGlobal]`: named-tensor `createSession` / `run` with the
-  correct dtype marshalling and LiteRT.js manual memory management.
+- `makeModelHostSeam()` / `makeLiteRtHost(...)` - the model host a wasm core is
+  instantiated with (`dalModelHost` in its generated `Imports`, from
+  `Sources/JSHost/Host.swift`) and the LiteRT.js implementation of it:
+  named-tensor `createSessionFrom*` / `run` with the correct dtype marshalling and
+  LiteRT.js manual memory management. The seam is late-bound, so a core can
+  instantiate before its session exists, and nothing is installed on
+  `globalThis`.
 - `loadLiteRt(...)` / `assertBrowserRuntime(...)` - load `@litertjs/core` once
   per process (with an install hint) and guard against running the wasm runtime
   in plain Node.

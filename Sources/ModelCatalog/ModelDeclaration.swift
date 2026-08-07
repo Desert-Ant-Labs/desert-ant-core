@@ -47,11 +47,6 @@ public extension ModelDeclaration {
     /// bills its inference to the default identity) or let the version go stale.
     static var sdkInfo: SDKInfo { SDKInfo(name: product, version: sdkVersion) }
 
-    /// The JavaScript global the wasm build drives its inference session
-    /// through (`__EmoHost`, `__RedactHost`, …). Derived, so the Swift side and
-    /// the JS package cannot disagree about the name.
-    static var hostGlobal: String { "__\(product)Host" }
-
     /// This model's Hub declaration: repo, pinned revision, per-platform files.
     /// The single value an SDK needs to download, adopt, or verify its model.
     static var distribution: ModelDistribution {

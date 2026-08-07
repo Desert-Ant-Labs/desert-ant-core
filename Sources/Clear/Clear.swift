@@ -328,10 +328,11 @@ public enum ClearError: MessageError, Sendable {
 #if os(WASI)
 public extension Clear {
     /// Build from a JS host inference session (the wasm entry point). The host
-    /// (`__ClearHost`, a LiteRT.js session) must be installed first.
+    /// (a LiteRT.js session, supplied to the module at instantiation) must have
+    /// compiled the model first.
     @_spi(ClearBindings)
-    convenience init(hostGlobal: String = ClearModel.hostGlobal) throws {
-        self.init(assets: ModelAssets(session: try inferenceSession(hostGlobal: hostGlobal, sdk: ClearModel.sdkInfo)))
+    convenience init() throws {
+        self.init(assets: ModelAssets(session: try inferenceSession(sdk: ClearModel.sdkInfo)))
     }
 }
 #endif

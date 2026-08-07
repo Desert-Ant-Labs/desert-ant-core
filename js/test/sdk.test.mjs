@@ -133,9 +133,9 @@ test("wasmCore adapts the wasm ABI to the shared core shape", async () => {
 });
 
 // The wasm SDK's two load paths, with a fake `#platform` seam and LiteRT.js.
-function fakePlatform(exports) {
+function fakePlatform(exports, onInstall = () => {}) {
   return {
-    setupCore: async () => exports,
+    setupCore: async () => ({ exports, installHost: onInstall }),
     defaultWasmDir: async () => "/wasm/",
     readModelSource: async (s) => s,
     defaultCacheRoot: async () => "/home/.cache",
@@ -144,7 +144,9 @@ function fakePlatform(exports) {
 
 function fakeExports() {
   return {
-    create: (cacheRoot, directory) => (cacheRoot === "/home/.cache" && directory === "" ? 11 : 12),
+    // The catalog facts come from the core itself, not from the package.
+    modelInfo: () => ({ id: "y", sdkVersion: "1.0.0", artifact: "y.tflite", sidecars: ["y.json"] }),
+    create: (cacheRoot, directory) => (cacheRoot === "/home/.cache" && directory === null ? 11 : 12),
     createSelfHosted: () => 13,
     isDownloaded: () => false,
     download: async () => true,
@@ -161,14 +163,15 @@ const litert = {
 };
 
 test("createWasmSdk downloads by default and adopts a directory when given one", async () => {
+  let installed;
   const sdk = await createWasmSdk({
-    platform: fakePlatform(fakeExports()), packageName: "@x/y",
-    modelId: "y", hostGlobal: "__YHost", files: { model: "y.tflite", sidecars: ["y.json"] },
+    platform: fakePlatform(fakeExports(), (host) => { installed = host; }),
+    packageName: "@x/y",
   });
   const model = await sdk.open({ litert, litertWasmDir: "/wasm/" });
   assert.equal(model.isDownloaded(), false);
-  // The LiteRT.js host is installed for the core to drive.
-  assert.equal(typeof globalThis.__YHost?.run, "function");
+  // The LiteRT.js host is installed into the core's own import seam.
+  assert.equal(typeof installed?.run, "function");
   const withDirectory = await sdk.open({ litert, litertWasmDir: "/wasm/", directory: "/models/y" });
   assert.ok(withDirectory instanceof LoadedModel);
 });
@@ -181,10 +184,7 @@ test("createWasmSdk's modelBaseUrl path compiles the model and passes only sidec
   const orig = globalThis.fetch;
   globalThis.fetch = async () => ({ arrayBuffer: async () => new Uint8Array([1]).buffer });
   try {
-    const sdk = await createWasmSdk({
-      platform: fakePlatform(exports), packageName: "@x/y",
-      modelId: "y", hostGlobal: "__YHost", files: { model: "y.tflite", sidecars: ["y.json"] },
-    });
+    const sdk = await createWasmSdk({ platform: fakePlatform(exports), packageName: "@x/y" });
     await sdk.open({
       litert: { ...litert, loadAndCompile: async () => { compiled += 1; return { run: async () => ({}) }; } },
       litertWasmDir: "/wasm/",

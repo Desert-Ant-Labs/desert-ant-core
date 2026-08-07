@@ -4,10 +4,9 @@
 /** Instantiate the wasm core under Node (WASI shim) and return its exports (the
  *  BridgeJS-generated wasm ABI). */
 export function nodeSetup(options: {
-  hostGlobal: string;
   instantiate: () => Promise<{ instantiate: Function }>;
   nodePlatform: () => Promise<{ defaultNodeSetup: Function }>;
-}): Promise<import("./index.js").WasmCore>;
+}): Promise<import("./index.js").InstantiatedCore>;
 
 export function nodeWasmDir(): Promise<string>;
 export function nodeReadModelSource(source: any): Promise<any>;

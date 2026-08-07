@@ -10,7 +10,8 @@ export { createWasmSdk, LoadedModel, readyModel, wasmCore } from "./src/sdk.js";
 export {
   loadLiteRt,
   assertBrowserRuntime,
-  installLiteRtHost,
+  makeLiteRtHost,
+  makeModelHostSeam,
   fetchSelfHostedModel,
   browserSetup,
   browserWasmDir,

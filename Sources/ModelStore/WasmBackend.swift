@@ -4,6 +4,7 @@
 // its own backend; the browser HTTP cache covers refetch for now). The download
 // and SHA-256 verification are the shared Swift ModelStore on every platform.
 #if os(WASI)
+import JSHost
 import JavaScriptKit
 import JavaScriptEventLoop
 
@@ -196,22 +197,19 @@ public extension StoredModel {
     /// Hand a model file to a JavaScript host session factory. Node receives
     /// the cached path (avoiding a large copy across the wasm boundary);
     /// browsers receive bytes because their store is in memory.
-    func createJavaScriptSession(
-        modelFile: String,
-        hostGlobal: String,
-        method: String = "createSession"
-    ) async throws {
-        guard let host = JSObject.global[hostGlobal].object,
-              let createSession = host[method].object else {
-            throw ModelStoreError.io("missing \(hostGlobal).\(method)")
+    /// Hand the model to the JS host so it can compile it: the cached path under
+    /// node, the bytes in the browser (where there is no filesystem to point at).
+    /// The host's typed contract lives in `Sources/JSHost/Host.swift`.
+    func createJavaScriptSession(modelFile: String) async throws {
+        do {
+            if jsIsNode() {
+                try await dalModelHost.createSessionFromPath(path(modelFile))
+            } else {
+                try await dalModelHost.createSessionFromBytes(JSUint8Array(try read(modelFile)))
+            }
+        } catch let error as JSException {
+            throw ModelStoreError.io("the host could not compile the model: \(error)")
         }
-        let argument: JSValue = jsIsNode()
-            ? .string(path(modelFile))
-            : JSTypedArray<UInt8>(try read(modelFile)).jsValue
-        guard let promise = createSession(argument).object.flatMap(JSPromise.init) else {
-            throw ModelStoreError.io("\(hostGlobal).\(method) did not return a promise")
-        }
-        _ = try await promise.value
     }
 }
 

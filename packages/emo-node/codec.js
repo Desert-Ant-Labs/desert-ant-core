@@ -12,17 +12,6 @@ export const MODEL_ID = "emo";
 
 export const PACKAGE_NAME = "@desert-ant-labs/emo";
 
-/** The host global the WebAssembly core drives its LiteRT.js session through
- *  (matches `EmoModel.hostGlobal` in the Swift catalog). */
-export const HOST_GLOBAL = "__EmoHost";
-
-/** What a `modelBaseUrl` must serve, named as in the catalog: the artifact the
- *  host compiles itself, and the sidecars that cross into the core. */
-export const MODEL_FILES = {
-  model: "emo.tflite",
-  sidecars: ["emo_meta.json", "emo_tokenizer.bin"],
-};
-
 export const SKIN_TONES = {
   default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5,
 };
