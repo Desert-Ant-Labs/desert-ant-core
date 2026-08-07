@@ -41,6 +41,11 @@ jobs:
       # the js job runs the same task after build:wasm, where it also proves the
       # declared wasm ABI is the one Swift exports.
       - run: mise run check:types
+      # check:swift-floor links the dynamic products, so it vendors LiteRT, which
+      # is fetched with uv exactly as the linux and js jobs do.
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: false
       # The README promises a minimum Swift; this builds on exactly that, because
       # the claim silently drifted twice while nothing checked it.
       - run: mise run check:swift-floor
@@ -74,14 +79,20 @@ jobs:
 
   darwin-native:
     name: darwin native (npm)
-    # macos-14 on purpose: this is the runner release.yml publishes the
-    # darwin-arm64 native from, and it carries an older Swift than the `apple`
-    # job's macos-26. Building it anywhere else proves the wrong thing - a
-    # concurrency diagnostic that only the older compiler emits shipped a broken
-    # release exactly this way. Same reasoning as ubuntu-22.04 for the Linux
-    # floor. macOS also ships bash 3.2, so this is the task set's only cover for
-    # the empty-array expansion the Linux jobs accept.
-    runs-on: macos-14
+    # The runner release.yml publishes the darwin-arm64 native from, so the
+    # toolchain that ships is the one CI proves. It was macos-14 to keep the
+    # shipped native on the oldest compiler, but macos-14 carries Swift 5.10 and
+    # the package now requires 6.2, so it cannot build this at all.
+    #
+    # Nothing is lost by moving. The artifact's compatibility floor comes from the
+    # manifest's `platforms`, not the runner: built here it still reports
+    # `minos 13.0` (verified with otool), the same as before. And "does it build on
+    # the oldest compiler we promise" is now a job of its own, check:swift-floor,
+    # which is a stricter version of what the old runner pin was reaching for - a
+    # broken release once shipped through exactly that gap. macOS still ships bash
+    # 3.2, so this remains the task set's only cover for the empty-array expansion
+    # the Linux jobs accept.
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
