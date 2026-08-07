@@ -4,7 +4,8 @@ name: CI
 # the same task you run locally. The question it answers is the only one that
 # matters here: does every model still work on every platform?
 #
-#   apple    Swift on macOS (Core ML), an iOS Simulator, and the darwin native
+#   apple    Swift on macOS (Core ML) and on an iOS Simulator
+#   darwin-native  the prebuilt native the npm package ships, on the release runner
 #   linux    Swift on Linux (LiteRT)
 #   js       wasm + native cores, then every npm package: Node, browser, SSR
 #   android  the Swift JNI natives, both AARs, and the on-device suites
@@ -62,10 +63,21 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
-      # The darwin-arm64 native the npm package ships was previously built only
-      # during a release, on a runner nothing else exercised - so a macOS-only
-      # break in it surfaced mid-publish. Build it here every push. (macOS ships
-      # bash 3.2, so this also covers script portability the Linux jobs cannot.)
+
+  darwin-native:
+    name: darwin native (npm)
+    # macos-14 on purpose: this is the runner release.yml publishes the
+    # darwin-arm64 native from, and it carries an older Swift than the `apple`
+    # job's macos-26. Building it anywhere else proves the wrong thing - a
+    # concurrency diagnostic that only the older compiler emits shipped a broken
+    # release exactly this way. Same reasoning as ubuntu-22.04 for the Linux
+    # floor. macOS also ships bash 3.2, so this is the task set's only cover for
+    # the empty-array expansion the Linux jobs accept.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+      - uses: astral-sh/setup-uv@v5
       - run: mise run build:node-native
 
   linux:

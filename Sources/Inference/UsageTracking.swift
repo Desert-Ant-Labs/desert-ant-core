@@ -135,8 +135,14 @@ actor TrackedSession: InferenceSession {
     private func startIfNeeded() {
         guard !started else { return }
         started = true
+        // Bind `self` before the Task rather than writing `self?.suspend()`
+        // inside it: the weak capture is a var, and referencing a captured var
+        // from concurrently-executing code is an error on the Swift versions we
+        // build the published darwin native with. Holding it for the duration of
+        // the suspend is also what we want - the flush should finish.
         lifecycle = LifecycleObserver(onBackground: { [weak self] in
-            Task { await self?.suspend() }
+            guard let self else { return }
+            Task { await self.suspend() }
         })
     }
 
