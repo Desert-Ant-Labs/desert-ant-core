@@ -42,7 +42,7 @@ The point of CI is one question: does every model still work on every platform?
 | Linux | LiteRT | `test:swift` | `linux` |
 | Browser | WebAssembly + LiteRT.js | `test:wasi`, `build:wasm`, `test:browser`, `test:bundles` | `js` |
 | SSR (framework server pass) | none - must import cleanly | `test:node`, `test:bundles` | `js` |
-| Node (server-side inference) | prebuilt native core | `build:node-native`, `test:node` | `js` |
+| Node (server-side inference) | prebuilt native core | `build:node-native`, `test:node` | `js`, `darwin-native` |
 | Android | LiteRT | `build:android`, `test:android` | `android` |
 
 Every model with an npm package runs real inference in a real browser
@@ -60,6 +60,12 @@ Plus two invariants, in the `checks` job:
   audio stack unless it imports one. An app that adds one SDK pays for that SDK
   alone, and this reads the resolved SwiftPM graph, so it cannot be fooled by an
   incremental build.
+
+CI pins each job to the runner the release publishes from, so the toolchain that
+ships is the one CI proves: `ubuntu-22.04` for the Linux natives (glibc 2.35) and
+`macos-14` for the darwin native (an older Swift than the `apple` job's
+`macos-26`, and bash 3.2 rather than 5.x). Building a shipped artifact on a
+newer image than the release uses proves the wrong thing.
 
 ## Toolchains
 
