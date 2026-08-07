@@ -76,7 +76,7 @@ public enum RedactError: MessageError, Sendable {
 /// On-device, multilingual PII redaction.
 ///
 /// `Redact` finds names, addresses, emails, phone numbers, cards, IBANs,
-/// national IDs and more across 24 EU languages and more, fully on device.
+/// national IDs and more across 27 languages, fully on device.
 /// Create one once and reuse it.
 ///
 /// ```swift
