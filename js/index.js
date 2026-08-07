@@ -13,7 +13,6 @@ export {
   installLiteRtHost,
   fetchSelfHostedModel,
   browserSetup,
-  wasmExports,
   browserWasmDir,
   browserReadModelSource,
   browserCacheRoot,

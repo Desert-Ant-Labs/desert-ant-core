@@ -16,7 +16,7 @@
 // builds cleanly for every target of a multi-target bundler.
 import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
-import { HOST_GLOBAL, MODEL_FILES, MODEL_ID, PACKAGE_NAME } from "./codec.js";
+import { HOST_GLOBAL, MODEL_FILES, PACKAGE_NAME } from "./codec.js";
 import { makeEmo } from "./emo.js";
 
 // The wasm core instantiates at import time (top-level await); the model is only
@@ -24,7 +24,6 @@ import { makeEmo } from "./emo.js";
 export const Emo = makeEmo(await createWasmSdk({
   platform,
   packageName: PACKAGE_NAME,
-  modelId: MODEL_ID,
   hostGlobal: HOST_GLOBAL,
   files: MODEL_FILES,
 }));

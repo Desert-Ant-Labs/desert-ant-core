@@ -14,7 +14,6 @@ test("browser-safe entry exports the expected surface", async () => {
     "readyModel",
     "wasmCore",
     "browserSetup",
-    "wasmExports",
     "browserWasmDir",
     "browserReadModelSource",
     "browserCacheRoot",
