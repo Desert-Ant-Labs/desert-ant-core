@@ -158,6 +158,7 @@ export const exports = {
   isDownloaded: () => false,
   download: async () => true,
   run: async () => new Uint8Array([0, 0, 0, 0]),
+  runAudio: async () => new Uint8Array([0, 0, 0, 0]),
   endCallGroup: () => {},
   destroy: () => {},
   flushTelemetry: async () => true,

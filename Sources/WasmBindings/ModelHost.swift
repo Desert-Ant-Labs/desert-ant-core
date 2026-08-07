@@ -168,6 +168,30 @@ public final class ModelHost {
         return JSUint8Array(payload)
     }
 
+    /// The audio twin of `run`, for models whose input is samples rather than
+    /// text: mono `samples` at `sampleRate`, the model's own options payload in,
+    /// its own result payload out. This mirrors `dal_run_audio`, which every
+    /// native core exports, so both ABIs offer both modalities and a model
+    /// implements the one it has (`ModelBinding` defaults the other to "not this
+    /// model's input").
+    func runAudio(
+        handle: Int, samples: JSFloat32Array, sampleRate: Double,
+        options: JSUint8Array?, group: String?, deviceId: String?
+    ) async throws(JSException) -> JSUint8Array {
+        let instance = try loaded(handle)
+        let floats = samples.withUnsafeBytes { Array($0) }
+        let payload = await InferenceContext.$deviceId.withValue(present(deviceId)) {
+            await InferenceContext.withCallGroup(id: present(group)) {
+                await instance.run(
+                    audio: floats, sampleRate: sampleRate, options: FFIReader(bytes(options)))
+            }
+        }
+        guard let payload else {
+            throw failure("the model failed to run, or does not take audio input")
+        }
+        return JSUint8Array(payload)
+    }
+
     /// Release a call group opened by passing `group` to `run`.
     func endCallGroup(id: String?) {
         if let id = present(id) { InferenceContext.endCallGroup(id) }

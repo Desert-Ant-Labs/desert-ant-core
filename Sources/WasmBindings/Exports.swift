@@ -95,6 +95,18 @@ import JavaScriptKit
         handle: handle, text: text, options: options, group: group, deviceId: deviceId)
 }
 
+/// Run a model whose input is audio: mono `samples` at `sampleRate`, with the
+/// model's own options payload. The twin of `run` and of the native
+/// `dal_run_audio`, so a model implements whichever modality it has.
+@JS public func runAudio(
+    handle: Int, samples: JSFloat32Array, sampleRate: Double,
+    options: JSUint8Array?, group: String?, deviceId: String?
+) async throws(JSException) -> JSUint8Array {
+    try await installedHost().runAudio(
+        handle: handle, samples: samples, sampleRate: sampleRate,
+        options: options, group: group, deviceId: deviceId)
+}
+
 /// Release a call group opened by passing `group` to `run`.
 @JS public func endCallGroup(id: String?) {
     installedModelHost?.endCallGroup(id: id)
