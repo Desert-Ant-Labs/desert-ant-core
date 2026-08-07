@@ -34,7 +34,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | Model | What it does | Swift | Android | Web and Node | Weights |
 |---|---|---|---|---|---|
 | **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
-| **Redact** | PII detection and reversible redaction, 24 EU languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
+| **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
 | **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | soon | soon | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
 
 Each model behaves the same on every platform, so you can build a feature once

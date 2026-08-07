@@ -7,5 +7,5 @@ plugins { id("ai.desertant.model-sdk") }
 
 desertAntSdk {
     description = "On-device multilingual PII redaction for Android: names, addresses, emails, cards, " +
-        "IBANs, national IDs and VAT numbers, across 24 EU languages and more."
+        "IBANs, national IDs and VAT numbers, across 27 languages."
 }

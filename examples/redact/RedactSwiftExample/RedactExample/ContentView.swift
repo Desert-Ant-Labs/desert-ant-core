@@ -66,7 +66,7 @@ struct ContentView: View {
             Text("On-device PII redaction")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(.tint)
-            Text("Names, addresses, emails, phones, cards, IBANs and IDs, masked on device, across all 24 EU languages. Your text never leaves the phone.")
+            Text("Names, addresses, emails, phones, cards, IBANs and IDs, masked on device, across 27 languages. Your text never leaves the phone.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }
