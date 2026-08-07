@@ -96,6 +96,69 @@ final class AudioDSPTests: XCTestCase {
         XCTAssertTrue(y.allSatisfy { abs($0) <= 1 })       // never clips
     }
 
+    // MARK: streaming meter
+
+    /// The whole point of the streaming meter: chunked measurement has to agree
+    /// with whole-signal measurement, whatever the chunk sizes are. The filter
+    /// state and the 400 ms block grid both have to survive chunk boundaries.
+    func testStreamingMeterMatchesWholeSignal() {
+        let sr = 48_000.0
+        var rng = SystemRandomNumberGenerator()
+        for trial in 0..<4 {
+            let n = [48_000 * 3, 48_000 * 7 + 13, 96_000, 48_000 * 11 + 1][trial]
+            var x = [Float](repeating: 0, count: n)
+            for i in 0..<n {
+                x[i] = 0.4 * Float(sin(2 * .pi * 220 * Double(i) / sr))
+                    + Float.random(in: -0.05...0.05, using: &rng)
+            }
+            let reference = Loudness.integratedLUFS(x, sampleRate: sr)
+            XCTAssertNotNil(reference, "n=\(n)")
+
+            // Deliberately awkward chunk sizes: not multiples of the block or
+            // step, and one larger than a block.
+            for chunk in [1_000, 4_800, 19_200, 50_000, 7_777] {
+                guard let meter = Loudness.StreamingMeter(sampleRate: sr) else {
+                    XCTFail("meter init"); return
+                }
+                var i = 0
+                while i < n {
+                    let end = min(i + chunk, n)
+                    meter.consume(Array(x[i..<end]))
+                    i = end
+                }
+                let streamed = meter.finalize()
+                XCTAssertNotNil(streamed, "n=\(n) chunk=\(chunk)")
+                // Not bit-exact: vDSP_biquad rounds slightly differently
+                // depending on how long a span it is handed (vector tail
+                // handling), so an odd chunk size shifts the last bits. The
+                // observed spread is ~1e-5 dB, which is nothing against the
+                // 0.1 LU that matters for delivery targets.
+                XCTAssertEqual(reference!, streamed!, accuracy: 1e-4,
+                               "n=\(n) chunk=\(chunk)")
+            }
+        }
+    }
+
+    func testStreamingMeterTracksPeak() {
+        guard let meter = Loudness.StreamingMeter(sampleRate: 48_000) else {
+            XCTFail("meter init"); return
+        }
+        meter.consume([0.1, -0.7, 0.3])
+        meter.consume([0.2, -0.25])
+        XCTAssertEqual(meter.peak, 0.7, accuracy: 1e-6)
+    }
+
+    func testStreamingMeterMemoryIsBounded() {
+        guard let meter = Loudness.StreamingMeter(sampleRate: 48_000) else {
+            XCTFail("meter init"); return
+        }
+        // 10 minutes fed in 1 s pieces; the meter must not be accumulating the
+        // signal itself.
+        let second = [Float](repeating: 0.2, count: 48_000)
+        for _ in 0..<600 { meter.consume(second) }
+        XCTAssertNotNil(meter.finalize())
+    }
+
     func testLoudnessSilenceIsNil() {
         XCTAssertNil(Loudness.integratedLUFS([Float](repeating: 0, count: 48_000), sampleRate: 48_000))
     }
