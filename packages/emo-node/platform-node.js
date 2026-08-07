@@ -10,12 +10,11 @@
 // loader behind "/node" drags koffi's native addons into the SSR chunk, which
 // bundlers cannot place in ESM output.
 import { nodeSetup, nodeWasmDir, nodeReadModelSource, nodeCacheRoot } from "@desert-ant-labs/core/platform-node";
-import { HOST_GLOBAL, MODEL_ID } from "./codec.js";
+import { HOST_GLOBAL } from "./codec.js";
 
 export function setupCore() {
   return nodeSetup({
     hostGlobal: HOST_GLOBAL,
-    modelId: MODEL_ID,
     instantiate: () => import("./dist/instantiate.js"),
     nodePlatform: () => import("./dist/platforms/node.js"),
   });

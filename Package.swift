@@ -222,9 +222,18 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
         ),
+        // `Exports.swift` declares the module's exported JS surface with
+        // BridgeJS (`@JS`), which needs the `Extern` feature (the generated glue
+        // uses `@_extern(wasm)`) and the plugin that generates that glue plus the
+        // `.d.ts` every model package ships. Both are wasm-only: the target's
+        // sources are `#if os(WASI)`, and a build without JavaScriptKit has no
+        // plugin to apply.
         .target(
             name: "WasmBindings",
-            dependencies: ["DesertAnt"] + jsWasi + jsEventLoop
+            dependencies: ["DesertAnt"] + jsWasi + jsEventLoop,
+            swiftSettings: noJavaScriptKit ? [] : [.enableExperimentalFeature("Extern")],
+            plugins: noJavaScriptKit
+                ? [] : [.plugin(name: "BridgeJS", package: "JavaScriptKit")]
         ),
         .target(
             name: "CoreAndroidTests",
