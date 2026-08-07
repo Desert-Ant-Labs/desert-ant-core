@@ -22,6 +22,19 @@
 /// regex literals and generic `RegexComponent` contexts still won't accept it.
 /// Patterns are the common ICU/JS/Java subset (no inline `(?i)` flags or
 /// possessive quantifiers; `\p{...}` is fine).
+// `@unchecked Sendable` because a pattern is shared as a `static let` by every
+// deterministic recognizer, and the Swift 6 language mode needs that to be safe.
+// The claim holds per engine, for a different reason each time:
+//
+//   - Apple and Linux hold an `NSRegularExpression`, which Foundation documents as
+//     immutable and thread-safe for matching.
+//   - Android holds only the pattern string and its case flag, a value type; each
+//     match crosses to the host's java.util.regex on its own.
+//   - wasm holds a JS `RegExp` and does reset `lastIndex` while iterating, so the
+//     claim there rests on that runtime being single-threaded - the same basis as
+//     every other wasm-only unchecked conformance in this package.
+extension Pattern: @unchecked Sendable {}
+
 public struct Pattern {
     private let pattern: String
     private let caseInsensitive: Bool

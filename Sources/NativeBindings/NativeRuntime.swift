@@ -32,7 +32,7 @@ public func nativeIsDownloaded(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 
 public func nativeDownload(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     guard let model = model(handle) else { return -1 }
-    let ok: Bool = blockingValue {
+    let ok: Bool = blockingValue(with: model) { model in
         do {
             try await model.download(progress: { _ in })
             return true
@@ -58,7 +58,7 @@ public func nativeRun(
     let optionsReader = FFIReader(options, optionsLen)
     let group = string(groupId)
     let device = string(deviceId)
-    let payload: [UInt8]? = blockingValue {
+    let payload: [UInt8]? = blockingValue(with: model) { model in
         await InferenceContext.$deviceId.withValue(device) {
             await InferenceContext.withCallGroup(id: group) {
                 await model.run(input: inputReader, options: optionsReader)

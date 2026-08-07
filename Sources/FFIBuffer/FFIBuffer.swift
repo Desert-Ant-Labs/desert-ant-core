@@ -23,7 +23,10 @@ import WASILibc
 
 /// Accumulates a typed payload, then emits it as a length-prefixed C buffer the
 /// host reads and frees with `ffiFree`.
-public struct FFIWriter {
+// `Sendable` because both are plain value types over `[UInt8]` (a public struct
+// gets no implicit conformance across module boundaries, so it has to be said).
+// That is what lets a payload cross into the task an FFI entry point blocks on.
+public struct FFIWriter: Sendable {
     /// The payload built so far (without the outer length prefix).
     public private(set) var bytes: [UInt8] = []
 
@@ -115,7 +118,7 @@ public func ffiFree(_ ptr: UnsafeMutablePointer<CChar>?) { free(ptr) }
 /// This is what lets one generic C ABI serve every model: a model's options are
 /// a payload it decodes itself, instead of a per-model argument list that would
 /// need its own exported symbol.
-public struct FFIReader {
+public struct FFIReader: Sendable {
     private let bytes: [UInt8]
     private var offset = 0
 

@@ -1,5 +1,10 @@
 #if canImport(AVFoundation)
-import AVFoundation
+// `@preconcurrency`: AVAudioConverter's input block is documented to run
+// synchronously, before `convert(to:error:)` returns, but AVFAudio predates
+// concurrency annotations and the block is typed `@Sendable`. Without this the
+// Swift 6 language mode flags the buffer it hands back and the "already fed" flag
+// it flips, neither of which ever leaves this call.
+@preconcurrency import AVFoundation
 import Foundation
 
 // Apple decode backend: AVFoundation reads any supported container/codec, and
@@ -40,7 +45,10 @@ extension AudioIO {
             guard let outBuffer = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: capacity) else {
                 throw AudioIOError.decodeFailed("cannot build output buffer")
             }
-            var fed = false
+            // `nonisolated(unsafe)` for the same reason as `@preconcurrency` above:
+            // the block that flips this runs synchronously inside `convert`, on this
+            // thread, so there is no concurrency for the flag to be unsafe across.
+            nonisolated(unsafe) var fed = false
             var error: NSError?
             converter.convert(to: outBuffer, error: &error) { _, status in
                 if fed { status.pointee = .endOfStream; return nil }
