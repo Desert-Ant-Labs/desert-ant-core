@@ -154,6 +154,15 @@ export interface NormalizedCore {
     group: string | null,
     deviceId: string | null,
   ): Promise<FfiReader>;
+  /** Audio models: samples in, the model's own payload out. */
+  runAudio?(
+    handle: number,
+    samples: Float32Array,
+    sampleRate: number,
+    options: Uint8Array | null,
+    group: string | null,
+    deviceId: string | null,
+  ): Promise<FfiReader>;
   destroy(handle: number): void;
   /** wasm only: force the usage POST out and await it (debug). */
   flushTelemetry?(): Promise<boolean>;
@@ -202,6 +211,14 @@ export interface WasmCore {
   run(
     handle: number,
     text: string,
+    options: Uint8Array | null,
+    group: string | null,
+    deviceId: string | null,
+  ): Promise<Uint8Array>;
+  runAudio(
+    handle: number,
+    samples: Float32Array,
+    sampleRate: number,
     options: Uint8Array | null,
     group: string | null,
     deviceId: string | null,

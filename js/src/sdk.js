@@ -110,6 +110,11 @@ export function wasmCore(exports) {
     run: async (handle, text, options, group, deviceId) =>
       new FfiReader(
         await exports.run(handle, text, options ?? null, group ?? null, deviceId ?? null)),
+    // Audio models take samples instead of text; the native core's twin is
+    // `dal_run_audio` (bind it through `loadNative({ symbols })`).
+    runAudio: async (handle, samples, sampleRate, options, group, deviceId) =>
+      new FfiReader(await exports.runAudio(
+        handle, samples, sampleRate, options ?? null, group ?? null, deviceId ?? null)),
     destroy: (handle) => exports.destroy(handle),
     flushTelemetry: () => exports.flushTelemetry(),
     ...makeCallGroups((id) => exports.endCallGroup(id)),

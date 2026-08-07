@@ -122,14 +122,18 @@ test("wasmCore adapts the wasm ABI to the shared core shape", async () => {
     isDownloaded: () => true,
     download: async () => true,
     run: async (...a) => { seen.push(["run", ...a]); return payload; },
+    runAudio: async (...a) => { seen.push(["runAudio", ...a]); return payload; },
     endCallGroup: (id) => seen.push(["endCallGroup", id]),
     destroy: (h) => seen.push(["destroy", h]),
   });
   core.create("/cache", "");
   const reader = await core.run(5, "hi", null, null, null);
   assert.equal(reader.str(), "hi", "run yields a reader over the payload");
+  // Audio models go through the same shape, with samples instead of text.
+  const audio = await core.runAudio(5, new Float32Array([0, 1]), 48000, null, null, null);
+  assert.equal(audio.str(), "hi", "runAudio yields a reader too");
   await core.withCallGroup(async () => {});
-  assert.deepEqual(seen.map((c) => c[0]), ["create", "run", "endCallGroup"]);
+  assert.deepEqual(seen.map((c) => c[0]), ["create", "run", "runAudio", "endCallGroup"]);
 });
 
 // The wasm SDK's two load paths, with a fake `#platform` seam and LiteRT.js.
