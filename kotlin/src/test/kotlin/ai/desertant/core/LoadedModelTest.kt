@@ -32,11 +32,14 @@ class LoadedModelTest {
         assertTrue(model.isDownloaded())
         model.download()
         val options = byteArrayOf(1, 2, 3)
-        val result = model.run("hello", options) { it.int() }
+        // The input is the model's own payload, like the options and the result,
+        // so nothing here knows the model takes text.
+        val input = FfiWriter().string("hello").done()
+        val result = model.run(input, options) { it.int() }
 
         assertEquals(42, result)
         assertEquals(listOf(73L, 73L, 73L), native.usedHandles)
-        assertEquals("hello", native.text.decodeToString())
+        assertArrayEquals(input, native.input)
         assertArrayEquals(options, native.options)
     }
 
@@ -54,7 +57,8 @@ class LoadedModelTest {
         val runNative = FakeNative().apply { result = null }
         val run = assertThrows(TestModelException::class.java) {
             runBlocking {
-                model(runNative).run("hello", failureMessage = "suggestion failed") { it.int() }
+                model(runNative)
+                    .run(FfiWriter().string("hello").done(), failureMessage = "suggestion failed") { it.int() }
             }
         }
         assertEquals("suggestion failed", run.message)
@@ -72,7 +76,7 @@ class LoadedModelTest {
         assertEquals("this Emo is closed", availability.message)
         assertThrows(TestModelException::class.java) { runBlocking { model.download() } }
         assertThrows(TestModelException::class.java) {
-            runBlocking { model.run("hello") { it.int() } }
+            runBlocking { model.run(FfiWriter().string("hello").done()) { it.int() } }
         }
         assertFalse(native.usedHandles.isNotEmpty())
     }
@@ -100,7 +104,7 @@ private class FakeNative : NativeModelApi {
     var downloads = 0
     var downloadResult = 0
     var runs = 0
-    var text = byteArrayOf()
+    var input = byteArrayOf()
     var options: ByteArray? = null
     var result: ByteArray? = byteArrayOf()
     val usedHandles = mutableListOf<Long>()
@@ -133,10 +137,10 @@ private class FakeNative : NativeModelApi {
         return downloadResult
     }
 
-    override fun run(handle: Long, text: ByteArray, options: ByteArray?): ByteArray? {
+    override fun run(handle: Long, input: ByteArray, options: ByteArray?): ByteArray? {
         usedHandles += handle
         runs += 1
-        this.text = text
+        this.input = input
         this.options = options
         return result
     }

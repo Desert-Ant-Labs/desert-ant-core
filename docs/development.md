@@ -39,11 +39,42 @@ So a model's wasm entry point is one `installWasmModel` call, its npm package
 restates no file names or host names, and the payload codecs
 (`Binding.swift` <-> `codec.js`) are the only per-model marshalling left.
 
-Both modalities exist on both ABIs: `run` / `runAudio` in the wasm exports mirror
-`dal_run` / `dal_run_audio`, and a model implements the one it has
-(`ModelBinding` defaults the other to "not this model's input"). The native JS
-core binds only the text symbol today; an audio package adds the audio one
-through `loadNative({ symbols })` without touching core.
+### Modality is a payload, not an entry point
+
+There is one run entry on every ABI:
+
+```swift
+func run(input: FFIReader, options: FFIReader) async -> [UInt8]?
+```
+
+`input` is the model's own payload, exactly as `options` and the result already
+were. Text is `string text`; Clear's audio is `f32Array samples, f64 sampleRate`;
+a video model is whatever it says it is. Nothing about the modality reaches
+`dal_run`, the wasm exports, the JNI entry, `NativeModelApi`, or the JS core, so a
+new kind of input adds no symbol in any language - it is a schema in the model's
+`Binding.swift` and its host codec, which every model writes anyway for its
+options and its result.
+
+That is what replaced `run(text:)` plus `run(audio:sampleRate:)`, and with them
+`dal_run_audio`, `runAudio` in the wasm exports, Clear's second JNI entry, and the
+two defaulted protocol witnesses that reported "not this model's input". The
+Android path had already made the argument: it encoded audio as a payload, decoded
+it in Swift, and handed the pieces to a typed entry the model then re-read.
+
+### Adding a model
+
+The Swift pipeline, plus per host a wrapper that knows only this model's payload
+schemas and its public API:
+
+| Where | What | Emo today |
+|---|---|---|
+| Swift | the pipeline, `Catalog.swift`, `Binding.swift` (3 payload schemas), `Native.swift` (symbol names), `Web/main.swift` (one call) | 183 lines outside the pipeline |
+| JS | `codec.js` (the same 3 schemas), the public class, its types, four wiring files of ~5 real lines each | 274 lines |
+| Kotlin | the public class, its `*Native` object (5 `external fun` declarations) | 111 lines |
+
+No host restates the model's id beyond `MODEL_ID` (the native ABI takes it as an
+argument), its file names, its host global, or its ABI: those come from
+`modelInfo()`, the generated `Imports`, and the generated `bridge-js.d.ts`.
 
 ### What a long-running model will need
 
@@ -57,7 +88,7 @@ C ABI, so changing them is one cross-language decision rather than a wasm patch:
   one, as `download` does); C and JNI would need a callback argument to match.
 - **No cancellation.** A long run cannot be stopped from the host on any
   platform.
-- **Whole payloads cross by copy.** `runAudio` takes the entire sample buffer, so
+- **Whole payloads cross by copy.** The input payload carries the whole buffer, so
   a long file is copied into wasm memory and its result copied back, under a
   32-bit address space. A chunked or streaming entry point (samples in, samples
   out, per window) is the shape that removes both the copy and the progress

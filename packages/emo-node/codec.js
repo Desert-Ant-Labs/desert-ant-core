@@ -16,6 +16,12 @@ export const SKIN_TONES = {
   default: 0, light: 1, mediumLight: 2, medium: 3, mediumDark: 4, dark: 5,
 };
 
+/** Input payload: the phrase, length-prefixed UTF-8. Mirrors Emo's
+ *  `run(input:options:)` in Sources/Emo/Binding.swift. */
+export function encodeInput(text) {
+  return new FfiWriter().str(text).done();
+}
+
 /** Options payload: `u32 limit`, `u32 skinTone`. */
 export function encodeOptions({ limit, skinTone }) {
   return new FfiWriter().u32(limit).u32(skinTone).done();

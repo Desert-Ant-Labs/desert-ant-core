@@ -47,49 +47,30 @@ public func androidDownload(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?
     return jint(nativeDownload(androidPointer(handle)))
 }
 
+/// Run the model over the input and options payloads Kotlin wrote. Both cross as
+/// byte arrays, so this is one entry for every modality: the audio path used to
+/// decode samples here only to hand them to a typed `nativeRunAudio`, which the
+/// model then re-read - the payload now goes straight through.
 public func androidRun(
     _ env: UnsafeMutablePointer<JNIEnv?>,
     _ cls: jclass?,
     _ handle: jlong,
-    _ text: jbyteArray?,
+    _ input: jbyteArray?,
     _ options: jbyteArray?
 ) -> jbyteArray? {
     installDesertAntHostBridge(env)
-    guard let bytes = hostCopyBytes(env, text) else { return nil }
-    let payload = androidOptionalBytes(env, options) ?? []
-    let buffer = withHostCText(bytes) { text in
-        payload.withUnsafeBufferPointer { options in
+    guard let inputBytes = androidOptionalBytes(env, input) else { return nil }
+    let optionsBytes = androidOptionalBytes(env, options) ?? []
+    let buffer = inputBytes.withUnsafeBufferPointer { input in
+        optionsBytes.withUnsafeBufferPointer { options in
             nativeRun(
-                androidPointer(handle), text: text, options: options.baseAddress,
-                optionsLen: Int32(options.count), groupId: nil, deviceId: nil)
-        }
-    }
-    return hostTakeBuffer(env, buffer)
-}
-
-public func androidRunAudio(
-    _ env: UnsafeMutablePointer<JNIEnv?>,
-    _ cls: jclass?,
-    _ handle: jlong,
-    _ audio: jbyteArray?,
-    _ options: jbyteArray?
-) -> jbyteArray? {
-    installDesertAntHostBridge(env)
-    guard let bytes = androidOptionalBytes(env, audio) else { return nil }
-    var reader = FFIReader(bytes)
-    let samples = reader.f32Array()
-    let sampleRate = reader.f64()
-    guard !samples.isEmpty, sampleRate > 0 else { return nil }
-    let payload = androidOptionalBytes(env, options) ?? []
-    let buffer = samples.withUnsafeBufferPointer { samples in
-        payload.withUnsafeBufferPointer { options in
-            nativeRunAudio(
-                androidPointer(handle), samples: samples.baseAddress,
-                sampleCount: Int32(samples.count), sampleRate: sampleRate,
+                androidPointer(handle),
+                input: input.baseAddress, inputLen: Int32(input.count),
                 options: options.baseAddress, optionsLen: Int32(options.count),
                 groupId: nil, deviceId: nil)
         }
     }
     return hostTakeBuffer(env, buffer)
 }
+
 #endif

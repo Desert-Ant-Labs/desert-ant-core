@@ -70,8 +70,12 @@ class Emo(
         // Options payload: u32 limit, u32 skinTone; result payload: a count, then
         // per suggestion an emoji string and an f64 confidence. Must match
         // Sources/Emo/Binding.swift.
+        // Input payload: the phrase. Options payload: u32 limit, u32 skinTone.
+        // Result payload: a count, then per suggestion an emoji string and an f64
+        // confidence. All three must match Sources/Emo/Binding.swift.
+        val input = FfiWriter().string(text).done()
         val options = FfiWriter().int(limit).int(skinTone.nativeValue).done()
-        return model.run(text, options, failureMessage = "suggestion failed") { r ->
+        return model.run(input, options, failureMessage = "suggestion failed") { r ->
             List(r.int()) { EmoSuggestion(r.string(), r.double()) }
         }
     }

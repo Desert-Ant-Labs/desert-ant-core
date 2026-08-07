@@ -10,11 +10,15 @@ extension Redact: BoundModel {
     /// many length-prefixed label names (an empty list means every label). An
     /// empty payload means the SDK defaults.
     ///
+    /// Input payload: `string text`.
+    ///
     /// Result payload: the length-prefixed redacted text, `u32 itemCount`, then
     /// per item the label, original, and placeholder strings, an `f64`
     /// confidence, and the UTF-16 start/end offsets as `u32`s.
-    public func run(text: String, options: FFIReader) async -> [UInt8]? {
+    public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
+        var input = input
         var options = options
+        let text = input.string()
         let resolved: Options
         if options.isEmpty {
             resolved = Options()

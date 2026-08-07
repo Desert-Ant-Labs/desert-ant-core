@@ -52,9 +52,9 @@ public func androidDownloadRedact(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: j
 
 @_cdecl("Java_ai_desertant_redact_RedactNative_run")
 public func androidRunRedact(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
-                              _ handle: jlong, _ text: jbyteArray?,
+                              _ handle: jlong, _ input: jbyteArray?,
                               _ options: jbyteArray?) -> jbyteArray? {
-    androidRun(env, cls, handle, text, options)
+    androidRun(env, cls, handle, input, options)
 }
 #endif
 #endif

@@ -153,42 +153,20 @@ public final class ModelHost {
         return true
     }
 
-    /// The model decodes `options` and encodes the result, so this stays
-    /// model-agnostic.
+    /// The model decodes `input` and `options` and encodes the result, so this
+    /// stays model-agnostic - and modality-agnostic with it.
     func run(
-        handle: Int, text: String, options: JSUint8Array?, group: String?, deviceId: String?
+        handle: Int, input: JSUint8Array, options: JSUint8Array?,
+        group: String?, deviceId: String?
     ) async throws(JSException) -> JSUint8Array {
         let instance = try loaded(handle)
-        let payload = await InferenceContext.$deviceId.withValue(present(deviceId)) {
-            await InferenceContext.withCallGroup(id: present(group)) {
-                await instance.run(text: text, options: FFIReader(bytes(options)))
-            }
-        }
-        guard let payload else { throw failure("the model failed to run") }
-        return JSUint8Array(payload)
-    }
-
-    /// The audio twin of `run`, for models whose input is samples rather than
-    /// text: mono `samples` at `sampleRate`, the model's own options payload in,
-    /// its own result payload out. This mirrors `dal_run_audio`, which every
-    /// native core exports, so both ABIs offer both modalities and a model
-    /// implements the one it has (`ModelBinding` defaults the other to "not this
-    /// model's input").
-    func runAudio(
-        handle: Int, samples: JSFloat32Array, sampleRate: Double,
-        options: JSUint8Array?, group: String?, deviceId: String?
-    ) async throws(JSException) -> JSUint8Array {
-        let instance = try loaded(handle)
-        let floats = samples.withUnsafeBytes { Array($0) }
         let payload = await InferenceContext.$deviceId.withValue(present(deviceId)) {
             await InferenceContext.withCallGroup(id: present(group)) {
                 await instance.run(
-                    audio: floats, sampleRate: sampleRate, options: FFIReader(bytes(options)))
+                    input: FFIReader(bytes(input)), options: FFIReader(bytes(options)))
             }
         }
-        guard let payload else {
-            throw failure("the model failed to run, or does not take audio input")
-        }
+        guard let payload else { throw failure("the model failed to run") }
         return JSUint8Array(payload)
     }
 

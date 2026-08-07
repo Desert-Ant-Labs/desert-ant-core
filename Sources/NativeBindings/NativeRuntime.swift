@@ -41,47 +41,27 @@ public func nativeDownload(_ handle: UnsafeMutableRawPointer?) -> Int32 {
     return ok ? 0 : -1
 }
 
+/// Run the model over its own input and options payloads (see `ModelBinding`),
+/// returning its own result payload. One entry for every modality: what the input
+/// bytes mean is the model's business, so a new kind of model adds no symbol here.
 public func nativeRun(
     _ handle: UnsafeMutableRawPointer?,
-    text: UnsafePointer<CChar>?,
+    input: UnsafePointer<UInt8>?,
+    inputLen: Int32,
     options: UnsafePointer<UInt8>?,
     optionsLen: Int32,
     groupId: UnsafePointer<CChar>?,
     deviceId: UnsafePointer<CChar>?
 ) -> UnsafeMutablePointer<CChar>? {
-    guard let model = model(handle), let text = string(text) else { return nil }
-    let reader = FFIReader(options, optionsLen)
+    guard let model = model(handle) else { return nil }
+    let inputReader = FFIReader(input, inputLen)
+    let optionsReader = FFIReader(options, optionsLen)
     let group = string(groupId)
     let device = string(deviceId)
     let payload: [UInt8]? = blockingValue {
         await InferenceContext.$deviceId.withValue(device) {
             await InferenceContext.withCallGroup(id: group) {
-                await model.run(text: text, options: reader)
-            }
-        }
-    }
-    return payload.flatMap(ffiEmit)
-}
-
-public func nativeRunAudio(
-    _ handle: UnsafeMutableRawPointer?,
-    samples: UnsafePointer<Float>?,
-    sampleCount: Int32,
-    sampleRate: Double,
-    options: UnsafePointer<UInt8>?,
-    optionsLen: Int32,
-    groupId: UnsafePointer<CChar>?,
-    deviceId: UnsafePointer<CChar>?
-) -> UnsafeMutablePointer<CChar>? {
-    guard let model = model(handle), let samples, sampleCount > 0 else { return nil }
-    let audio = Array(UnsafeBufferPointer(start: samples, count: Int(sampleCount)))
-    let reader = FFIReader(options, optionsLen)
-    let group = string(groupId)
-    let device = string(deviceId)
-    let payload: [UInt8]? = blockingValue {
-        await InferenceContext.$deviceId.withValue(device) {
-            await InferenceContext.withCallGroup(id: group) {
-                await model.run(audio: audio, sampleRate: sampleRate, options: reader)
+                await model.run(input: inputReader, options: optionsReader)
             }
         }
     }

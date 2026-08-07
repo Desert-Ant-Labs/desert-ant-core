@@ -178,7 +178,9 @@ let libraryTargets: [Target] = [
         .target(
             name: "JSHost",
             dependencies: jsWasi,
-            exclude: ["bridge-js.config.json"],
+            exclude: noJavaScriptKit
+                ? ["bridge-js.config.json", "Host.swift"]
+                : ["bridge-js.config.json", "Empty.swift"],
             // `Host.swift` is body-less `@JSFunction`/`@JSGetter` declarations,
             // which only parse where the BridgeJS macros exist. Swift parses
             // inactive `#if` branches for syntax, so `#if os(WASI)` does not save
