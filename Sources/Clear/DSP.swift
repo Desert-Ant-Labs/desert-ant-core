@@ -399,8 +399,8 @@ final class ClearSTFT {
         var rTime = [Float](repeating: 0, count: n), iTime = [Float](repeating: 0, count: n)
         for t in 0..<nFrames {
             let base = t * f
-            real.withUnsafeBufferPointer { memcpy(&rSpec, $0.baseAddress! + base, f * 4) }
-            imag.withUnsafeBufferPointer { memcpy(&iSpec, $0.baseAddress! + base, f * 4) }
+            real.withUnsafeBufferPointer { _ = memcpy(&rSpec, $0.baseAddress! + base, f * 4) }
+            imag.withUnsafeBufferPointer { _ = memcpy(&iSpec, $0.baseAddress! + base, f * 4) }
             if mirror > 0 {
                 real.withUnsafeBufferPointer { rp in
                     rSpec.withUnsafeMutableBufferPointer { dp in

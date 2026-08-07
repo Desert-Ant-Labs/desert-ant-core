@@ -114,7 +114,15 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                                       width: vImagePixelCount(count), rowBytes: count * 2)
                 vImageConvert_PlanarFtoPlanar16F(&s, &d, 0)
             } else {
-                array.dataPointer.copyMemory(from: raw.baseAddress!, byteCount: count * array.dataType.byteWidth)
+                // Copy exactly the source bytes. Only .int32 and .float32 reach
+                // here (see dataType(for:)) and both are 4 bytes per element, so
+                // this is the same size the destination was allocated for.
+                //
+                // Deliberately not derived from array.dataType: switching on
+                // MLMultiArrayDataType means guessing a width for whatever case
+                // a future SDK adds, and guessing too wide overruns the array's
+                // buffer. Core ML added .int8 (1 byte) exactly that way.
+                array.dataPointer.copyMemory(from: raw.baseAddress!, byteCount: raw.count)
             }
         }
     }
@@ -167,14 +175,4 @@ extension ComputeUnits {
     }
 }
 
-private extension MLMultiArrayDataType {
-    var byteWidth: Int {
-        switch self {
-        case .float16: return 2
-        case .int32, .float32: return 4
-        case .double: return 8
-        @unknown default: return 4
-        }
-    }
-}
 #endif
