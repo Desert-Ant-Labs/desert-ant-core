@@ -90,10 +90,12 @@ C ABI, so changing them is one cross-language decision rather than a wasm patch:
   platform.
 - **Whole payloads cross by copy.** The input payload carries the whole buffer, so
   a long file is copied into wasm memory and its result copied back, under a
-  32-bit address space. A chunked or streaming entry point (samples in, samples
-  out, per window) is the shape that removes both the copy and the progress
-  problem, and it is worth designing before the second audio model rather than
-  after.
+  32-bit address space. Note the asymmetry this creates: `Clear.enhanceStreaming`
+  already processes a file window by window with bounded memory *inside* Swift, and
+  reports `Progress` while it does, so the ABI is now the only thing forcing a
+  whole file through memory at once. A chunked entry point (a window in, a window
+  out) would let a host reuse the streaming path that already exists, and would
+  answer the progress and cancellation points above at the same time.
 
 The wasm host contract has a related limit: it holds one compiled model per
 module, so the multi-session concurrency `Clear` uses natively
