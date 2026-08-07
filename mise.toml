@@ -11,6 +11,7 @@
 #   mise run test:node           each model's npm package against its native core
 #   mise run test:browser        each model's browser path in headless Chromium
 #   mise run test:bundles        every npm package through the real bundlers
+#   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
 #
 #   mise run build:swift [model] Swift targets, one model at a time
 #   mise run build:wasm  [model] the browser core -> packages/<model>-node/dist
@@ -46,6 +47,7 @@ description = "Run every check and test suite that needs no device or simulator"
 depends = [
     "check:version",
     "check:isolation",
+    "check:types",
     "test:swift",
     "test:wasi",
     "test:js",

@@ -36,6 +36,11 @@ jobs:
       # One version across the repo is only a property if something checks it
       # before release day.
       - run: mise run check:version
+      # The .d.ts files are the API every TypeScript consumer sees, and they are
+      # hand-written. This job has no built core, so it checks that they compile;
+      # the js job runs the same task after build:wasm, where it also proves the
+      # declared wasm ABI is the one Swift exports.
+      - run: mise run check:types
       - run: mise run test:js
 
   apple:
@@ -146,6 +151,13 @@ jobs:
       # native path does inference and the default (browser) entry still imports
       # cleanly in Node, which is the SSR contract.
       - run: mise run build:wasm
+
+      # check:types runs in the checks job too, but only this job has a built
+      # core, which is what makes the same task prove WasmCore in js/index.d.ts is
+      # identical to the ABI BridgeJS generated from the Swift @JS declarations,
+      # and that no package's dist is stale.
+      - run: mise run check:types
+
       - run: mise run build:node-native
       - run: mise run test:node
 
