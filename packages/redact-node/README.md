@@ -1,8 +1,9 @@
 # @desert-ant-labs/redact
 
 On-device multilingual PII redaction for JavaScript. Finds names, addresses,
-emails, phone numbers, cards, IBANs, national IDs and more across the 24 official
-EU languages, fully locally.
+emails, phone numbers, cards, IBANs, national IDs and more across 27 languages,
+fully locally.
+[Full language list](https://huggingface.co/desert-ant-labs/redact#languages).
 
 Two entries share one `Redact` API:
 
