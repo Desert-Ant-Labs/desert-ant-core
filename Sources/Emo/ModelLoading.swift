@@ -41,7 +41,7 @@ public struct ModelAssets: Sendable {
         ModelAssets(
             metaJSON: try files.readString(EmoModel.meta),
             tokenizer: try files.read(EmoModel.tokenizer),
-            session: try await files.inferenceSession(model: EmoModel.artifact, hostGlobal: EmoModel.hostGlobal, sdk: EmoModel.sdkInfo))
+            session: try await files.inferenceSession(model: EmoModel.artifact, sdk: EmoModel.sdkInfo))
     }
 }
 

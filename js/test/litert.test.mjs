@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  installLiteRtHost,
+  makeLiteRtHost,
+  makeModelHostSeam,
   loadLiteRt,
   assertBrowserRuntime,
   fetchSelfHostedModel,
@@ -36,17 +37,15 @@ function fakeLiteRt() {
   return { Tensor, loadAndCompile, deleted, loadLiteRt: async () => {} };
 }
 
-test("installLiteRtHost creates a session and marshals + frees tensors", async () => {
+test("makeLiteRtHost creates a session and marshals + frees tensors", async () => {
   const lrt = fakeLiteRt();
-  installLiteRtHost({
-    hostGlobal: "__TestHost",
+  const { host } = makeLiteRtHost({
     accelerator: "wasm",
     loadAndCompile: lrt.loadAndCompile,
     Tensor: lrt.Tensor,
     readModelSource: async (s) => s, // bytes already
   });
-  const host = globalThis.__TestHost;
-  await host.createSession(new Uint8Array([1, 2, 3]));
+  await host.createSessionFromBytes(new Uint8Array([1, 2, 3]));
 
   const input = { features: { data: new Uint8Array(new Float32Array([1, 2]).buffer), dims: [1, 2], type: "float32" } };
   const out = await host.run(input);
@@ -57,23 +56,37 @@ test("installLiteRtHost creates a session and marshals + frees tensors", async (
   // Every tensor made (input) and produced (output) must be deleted.
   assert.ok(lrt.deleted.length >= 2, `all tensors freed (got ${lrt.deleted.length})`);
   assert.ok(lrt.deleted.every((t) => t.deleted), "each freed tensor marked deleted");
-  delete globalThis.__TestHost;
 });
 
-test("installLiteRtHost setModel lets the modelBaseUrl path share run()", async () => {
+test("makeLiteRtHost setModel lets the modelBaseUrl path share run()", async () => {
   const lrt = fakeLiteRt();
-  const { setModel } = installLiteRtHost({
-    hostGlobal: "__TestHost2",
+  const { host, setModel } = makeLiteRtHost({
     loadAndCompile: lrt.loadAndCompile,
     Tensor: lrt.Tensor,
     readModelSource: async (s) => s,
   });
   setModel(await lrt.loadAndCompile(new Uint8Array([9])));
-  const out = await globalThis.__TestHost2.run({
+  const out = await host.run({
     x: { data: new Uint8Array(new Float32Array([1]).buffer), dims: [1], type: "float32" },
   });
   assert.ok(out.probs);
-  delete globalThis.__TestHost2;
+});
+
+test("the host seam is late-bound, so a core can instantiate before LiteRT exists", async () => {
+  const { imports, install } = makeModelHostSeam();
+  await assert.rejects(
+    () => imports.dalModelHost.run({}), /not installed yet/,
+    "calling before install fails loudly rather than silently doing nothing");
+  const lrt = fakeLiteRt();
+  const { host } = makeLiteRtHost({
+    loadAndCompile: lrt.loadAndCompile, Tensor: lrt.Tensor, readModelSource: async (s) => s,
+  });
+  install(host);
+  await imports.dalModelHost.createSessionFromBytes(new Uint8Array([1]));
+  const out = await imports.dalModelHost.run({
+    x: { data: new Uint8Array(new Float32Array([1]).buffer), dims: [1], type: "float32" },
+  });
+  assert.ok(out.probs, "and forwards to the installed host afterwards");
 });
 
 test("loadLiteRt uses the injected module and initializes the runtime once", async () => {

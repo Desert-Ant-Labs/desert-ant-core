@@ -17,7 +17,7 @@ import { FfiReader } from "./ffi.js";
 import {
   assertBrowserRuntime,
   fetchSelfHostedModel,
-  installLiteRtHost,
+  makeLiteRtHost,
   loadLiteRt,
 } from "./litert.js";
 
@@ -128,17 +128,20 @@ export function wasmCore(exports) {
  * equivalent of pointing a native SDK at a directory that already holds the
  * model.
  *
+ * What a `modelBaseUrl` must serve is not passed in: the core reports it through
+ * `modelInfo()`, generated from the model's Swift catalog declaration, so a model
+ * package restates none of it.
+ *
  * @param {object} o
  * @param {any} o.platform the package's `#platform` module
  * @param {string} o.packageName consumer package (for error messages)
- * @param {string} o.hostGlobal e.g. "__EmoHost"
- * @param {{ model: string, sidecars: string[] }} o.files names under a
- *   `modelBaseUrl`, as in the model catalog
  */
-export async function createWasmSdk({ platform, packageName, hostGlobal, files }) {
+export async function createWasmSdk({ platform, packageName }) {
   // The core instantiates at import time (the package's entry top-level awaits
   // this); the model is only wired in open().
-  const core = wasmCore(await platform.setupCore());
+  const { exports, installHost } = await platform.setupCore();
+  const core = wasmCore(exports);
+  const { artifact, sidecars } = exports.modelInfo();
 
   // Debug-only hook for forcing the usage POST out and awaiting it (the browser
   // example and the browser suite do this before asserting). The core's exports
@@ -160,23 +163,24 @@ export async function createWasmSdk({ platform, packageName, hostGlobal, files }
         packageName,
       });
       const accelerator = options.accelerator ?? "wasm";
-      // Generic tensor I/O with the wasm core (JSInferenceSession): the core
-      // installs the host and manages tensor memory; setModel lets the
-      // modelBaseUrl branch feed the same run() closure.
-      const { setModel } = installLiteRtHost({
-        hostGlobal,
+      // Generic tensor I/O with the wasm core (JSInferenceSession): the host
+      // owns the LiteRT session and tensor memory, and `setModel` lets the
+      // modelBaseUrl branch feed the same run() implementation.
+      const { host, setModel } = makeLiteRtHost({
         accelerator,
         loadAndCompile: lrt.loadAndCompile,
         Tensor: lrt.Tensor,
         readModelSource: platform.readModelSource,
       });
+      installHost(host);
 
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
       let handle;
       if (options.modelBaseUrl != null) {
-        const { sidecars, modelBytes } = await fetchSelfHostedModel(options.modelBaseUrl, files);
+        const { sidecars: fetched, modelBytes } =
+          await fetchSelfHostedModel(options.modelBaseUrl, { model: artifact, sidecars });
         setModel(await lrt.loadAndCompile(modelBytes, { accelerator }));
-        handle = core.createSelfHosted(sidecars);
+        handle = core.createSelfHosted(fetched);
       } else {
         // `directory` (node) adopts a folder you populated. Base for the managed
         // nested cache (node): ~/.cache; empty (in-memory) in the browser.

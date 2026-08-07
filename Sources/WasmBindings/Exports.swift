@@ -20,6 +20,36 @@
 #if os(WASI)
 import JavaScriptKit
 
+/// What this module's model is, for the JS SDK that wraps it.
+///
+/// `artifact` and `sidecars` are what a `modelBaseUrl` has to serve: the file the
+/// host compiles itself, and the files that cross into wasm. They used to be
+/// restated in each npm package's `codec.js` as `MODEL_FILES`, mirroring
+/// `Catalog.swift` with nothing checking the two agreed - so renaming an artifact
+/// broke the self-hosted path for consumers and nothing caught it.
+@JS public struct ModelInfo {
+    public var id: String
+    public var sdkVersion: String
+    public var artifact: String
+    public var sidecars: [String]
+
+    // Explicit and public: the generated bridge builds this from a
+    // `@_transparent` function, which cannot see an internal memberwise init.
+    public init(id: String, sdkVersion: String, artifact: String, sidecars: [String]) {
+        self.id = id
+        self.sdkVersion = sdkVersion
+        self.artifact = artifact
+        self.sidecars = sidecars
+    }
+}
+
+@JS public func modelInfo() throws(JSException) -> ModelInfo {
+    let model = try installedHost().declaration
+    return ModelInfo(
+        id: model.id, sdkVersion: model.sdkVersion,
+        artifact: model.artifact, sidecars: model.sidecars)
+}
+
 /// Create a model instance, lazily: no download and no model load until
 /// `download`/`run`, like the native constructor. `cacheRoot` is the base of the
 /// managed nested cache (node `~/.cache`; empty in the browser) and `directory`,
