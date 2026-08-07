@@ -1,3 +1,8 @@
+// The bounded-memory file path is Apple-only (AVFoundation-backed streaming
+// reader/writer), and so is the footprint probe below, which reads
+// task_vm_info. Gate the whole file on the same condition as the feature so
+// the Linux and WASI test runs skip it rather than failing to import Darwin.
+#if canImport(AVFoundation)
 import Foundation
 import Darwin
 import Testing
@@ -166,3 +171,4 @@ struct ClearStreamingTests {
                 "peak grew from \(peaks[0]) MB to \(peaks[1]) MB with 4x the audio")
     }
 }
+#endif
