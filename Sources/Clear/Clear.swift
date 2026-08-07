@@ -114,7 +114,9 @@ public final class Clear: @unchecked Sendable {
     // Resolving, downloading, single-flighting, and offline availability are
     // `LoadedModel`; Clear adds only how a resolved directory becomes its
     // session pool.
-    private let model: LoadedModel<ModelAssets>
+    // `internal` so the Apple streaming path (Streaming.swift) can drive the
+    // same loader.
+    let model: LoadedModel<ModelAssets>
 
     /// Default model sessions to run chunks in parallel over. Native LiteRT is
     /// single-threaded per run, so a pool uses multiple cores; Apple (fast) and
@@ -240,11 +242,11 @@ public final class Clear: @unchecked Sendable {
         var measured: Double? = nil
         let mastering = options.mastering
         if mastering.enabled {
-            let (mastered, lufs) = Loudness.normalize(
-                out, sampleRate: ClearDSP.sampleRate, targetLUFS: mastering.integratedLUFS,
+            // In place: a returned master would sit alongside `out`, and both
+            // are full length.
+            measured = Loudness.normalizeInPlace(
+                &out, sampleRate: ClearDSP.sampleRate, targetLUFS: mastering.integratedLUFS,
                 maxGainDB: mastering.maxLoudnessGainDB, peakCeilingDBFS: mastering.truePeakDBTP)
-            out = mastered
-            measured = lufs
         }
         // Mastering is the tail of `enhancing`, so the phase ends at 1 only
         // once the audio is actually final.
@@ -255,23 +257,39 @@ public final class Clear: @unchecked Sendable {
                       modelVariant: assets.variant)
     }
 
-    private func elapsedSeconds(since start: ContinuousClock.Instant) -> Double {
+    func elapsedSeconds(since start: ContinuousClock.Instant) -> Double {
         let components = start.duration(to: .now).components
         return Double(components.seconds) + Double(components.attoseconds) / 1e18
     }
 
     #if canImport(Foundation) && !os(Android) && !os(WASI)
-    /// Decode any audio file, enhance it, and (optionally) write a 48 kHz WAV.
+    /// Decode any audio file, enhance it, and (optionally) write the result at
+    /// 48 kHz mono. The output encoding follows `outputPath`'s extension:
+    /// `.wav` gives 16-bit PCM, `.m4a`/`.mp4`/`.aac` gives AAC, `.caf`/`.aiff`
+    /// gives PCM. An unrecognized extension writes WAV.
+    ///
+    /// AAC and CAF/AIFF need AVFoundation, so off Apple platforms anything but
+    /// `.wav` throws rather than writing WAV bytes under a misleading name.
     /// Filesystem platforms (Apple/Linux); on Android/web use `enhance(bytes:)`.
     @discardableResult
     public func enhance(path: String, to outputPath: String? = nil,
                         options: Options = .default,
                         progress: ProgressHandler? = nil) async throws -> Result {
+        #if canImport(AVFoundation)
+        // Bounded-memory path: peak stays flat instead of growing with the
+        // file. Only when writing a file - a caller that wants the samples back
+        // is asking for the whole signal by definition. `Result.samples` is
+        // empty here; `durationSec` carries the length.
+        if let outputPath {
+            return try await enhanceStreaming(path: path, to: outputPath,
+                                              options: options, progress: progress)
+        }
+        #endif
         let samples = try await AudioIO.decode(path: path, sampleRate: ClearDSP.sampleRate)
         let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate,
                                        options: options, progress: progress)
         if let outputPath {
-            try AudioIO.writeWAV(result.samples, sampleRate: Int(ClearDSP.sampleRate), to: outputPath)
+            try AudioIO.write(result.samples, sampleRate: Int(ClearDSP.sampleRate), to: outputPath)
         }
         return result
     }

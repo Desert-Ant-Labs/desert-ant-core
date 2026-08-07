@@ -52,6 +52,70 @@ final class AudioIOTests: XCTestCase {
     }
     #endif
 
+    // MARK: extension-driven encoding
+
+    func testFormatInferredFromExtension() {
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "wav"), .wav)
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "WAV"), .wav)
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "m4a"), .aac(bitRate: 128_000))
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "mp4"), .aac(bitRate: 128_000))
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "caf"), .pcm)
+        XCTAssertEqual(AudioFileFormat.inferred(fromPathExtension: "aiff"), .pcm)
+        XCTAssertNil(AudioFileFormat.inferred(fromPathExtension: "opus"))
+    }
+
+    #if !os(WASI)
+    /// `.wav` must still produce a RIFF file byte-for-byte compatible with the
+    /// portable encoder.
+    func testWriteWAVExtensionStaysRIFF() throws {
+        let x = tone(2000)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dal-fmt-\(UUID().uuidString).wav")
+        try AudioIO.write(x, sampleRate: 16000, to: url.path)
+        defer { try? FileManager.default.removeItem(at: url) }
+        let head = try [UInt8](Data(contentsOf: url).prefix(12))
+        XCTAssertEqual(Array(head[0..<4]), Array("RIFF".utf8))
+        XCTAssertEqual(Array(head[8..<12]), Array("WAVE".utf8))
+    }
+
+    #if canImport(AVFoundation)
+    /// The regression this whole change is about: an `.m4a` destination used to
+    /// receive RIFF/WAVE bytes. It must now be a real MPEG-4 AAC file that
+    /// decodes back to the same audio, and be far smaller than the PCM.
+    func testM4AExtensionProducesAAC() async throws {
+        // 48 kHz mono is what Clear emits, and the rate the explicit AAC bit
+        // rate applies at.
+        let sr = 48_000
+        let x = tone(sr * 3, freq: 440, sr: Double(sr))
+        let dir = FileManager.default.temporaryDirectory
+        let m4a = dir.appendingPathComponent("dal-fmt-\(UUID().uuidString).m4a")
+        let wav = dir.appendingPathComponent("dal-fmt-\(UUID().uuidString).wav")
+        try AudioIO.write(x, sampleRate: sr, to: m4a.path)
+        try AudioIO.write(x, sampleRate: sr, to: wav.path)
+        defer {
+            try? FileManager.default.removeItem(at: m4a)
+            try? FileManager.default.removeItem(at: wav)
+        }
+
+        // Not a RIFF container: the old behaviour would have written one.
+        let head = try [UInt8](Data(contentsOf: m4a).prefix(12))
+        XCTAssertNotEqual(Array(head[0..<4]), Array("RIFF".utf8))
+        XCTAssertEqual(Array(head[4..<8]), Array("ftyp".utf8), "expected an MPEG-4 box")
+
+        // Lossy, so well under the 16-bit PCM. The requested bit rate is only a
+        // hint to AVAudioFile, so this checks the order of magnitude rather than
+        // an exact size.
+        let aacSize = try FileManager.default.attributesOfItem(atPath: m4a.path)[.size] as! Int
+        let wavSize = try FileManager.default.attributesOfItem(atPath: wav.path)[.size] as! Int
+        XCTAssertLessThan(aacSize, wavSize / 2)
+
+        // And it is real audio: decodes back to about the same duration.
+        let decoded = try await AudioIO.decode(path: m4a.path, sampleRate: Double(sr))
+        XCTAssertEqual(Double(decoded.count), Double(x.count), accuracy: 4096)
+    }
+    #endif
+    #endif
+
     func testStereoMixdown() throws {
         // Interleaved L/R: L = +0.5, R = -0.5 -> mono averages to 0.
         let interleaved = [Float](repeating: 0, count: 200).enumerated().map { i, _ in

@@ -76,10 +76,12 @@ struct ClearEnhancer {
                  onAnalysis: (@Sendable (Double) -> Void)? = nil,
                  onChunk: (@Sendable (Double) -> Void)? = nil) async throws -> [Float] {
         guard !samples.isEmpty, !sessions.isEmpty else { return samples }
-        let clean = sanitize(samples)
-        let padded = padToWindowMultiple(clean)
-        let (real, imag, nFrames) = stft.forward(padded)
-        guard nFrames > 0 else { return clean }
+        // Sanitize, tail-pad, and lay in the STFT prepad in a single buffer.
+        // Doing these as three passes cost three full-signal copies, and at
+        // 48 kHz mono each one is 363 MB for a 33-minute file.
+        let padded = Self.prepareInput(samples)
+        let (real, imag, nFrames) = stft.forward(prePadded: padded)
+        guard nFrames > 0 else { return sanitize(samples) }
         onAnalysis?(0.5)
 
         let (featErb, featSpecReal, featSpecImag) =
@@ -118,10 +120,12 @@ struct ClearEnhancer {
             try await group.waitForAll()
         }
 
-        let outReal = Array(UnsafeBufferPointer(start: outRe, count: count))
-        let outImag = Array(UnsafeBufferPointer(start: outIm, count: count))
-        let enhanced = stft.inverse(real: outReal, imag: outImag, nFrames: nFrames)
-        return Array(enhanced.prefix(samples.count))
+        // Synthesize straight from the scratch buffers. Copying them into
+        // `Array`s first held a second pair of spectrogram planes (726 MB at 33
+        // minutes) while the originals were still live until the `defer`.
+        var enhanced = stft.inverse(real: outRe, imag: outIm, nFrames: nFrames)
+        if enhanced.count > samples.count { enhanced.removeLast(enhanced.count - samples.count) }
+        return enhanced
     }
 
     private static func runChunk(session: any InferenceSession, start: Int, end: Int, nFrames: Int, chunkLen: Int,
@@ -219,10 +223,23 @@ struct ClearEnhancer {
         return out
     }
 
-    private func padToWindowMultiple(_ samples: [Float]) -> [Float] {
+    /// One allocation carrying, in order: the `fftSize - hopSize` analysis
+    /// prepad, the sanitized signal, and enough tail zeros to reach a whole
+    /// number of windows. Same layout the old
+    /// `stft.forward(padToWindowMultiple(sanitize(x)))` chain produced, without
+    /// the intermediate copies.
+    private static func prepareInput(_ samples: [Float]) -> [Float] {
         let hop = ClearDSP.hopSize, fft = ClearDSP.fftSize
-        let needed = max(fft, ((samples.count + hop - 1) / hop) * hop + fft)
-        if samples.count >= needed { return samples }
-        return samples + [Float](repeating: 0, count: needed - samples.count)
+        let prePad = fft - hop
+        let windowed = max(fft, ((samples.count + hop - 1) / hop) * hop + fft)
+        var padded = [Float](repeating: 0, count: prePad + max(windowed, samples.count))
+        padded.withUnsafeMutableBufferPointer { dp in
+            let body = dp.baseAddress! + prePad
+            samples.withUnsafeBufferPointer { sp in
+                if let s = sp.baseAddress { body.update(from: s, count: samples.count) }
+            }
+            for i in 0..<samples.count where !body[i].isFinite { body[i] = 0 }
+        }
+        return padded
     }
 }

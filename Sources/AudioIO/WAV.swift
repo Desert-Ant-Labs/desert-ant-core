@@ -120,25 +120,40 @@ public enum WAV {
 
     // MARK: Encode
 
-    /// Encode interleaved `samples` (in `[-1, 1]`) as a 16-bit PCM WAV buffer.
-    public static func encode(_ samples: [Float], sampleRate: Int, channels: Int = 1) -> [UInt8] {
+    /// The 44-byte canonical PCM header for `sampleCount` frames-worth of
+    /// 16-bit samples. Split out so a file writer can emit the header and then
+    /// stream the body without building the whole file in memory.
+    static func header(sampleCount: Int, sampleRate: Int, channels: Int = 1) -> [UInt8] {
         var out = [UInt8]()
-        out.reserveCapacity(44 + samples.count * 2)
+        out.reserveCapacity(44)
         func u16(_ v: Int) { out.append(UInt8(v & 0xFF)); out.append(UInt8((v >> 8) & 0xFF)) }
         func u32(_ v: Int) { for s in 0..<4 { out.append(UInt8((v >> (8 * s)) & 0xFF)) } }
         func tag(_ s: String) { out.append(contentsOf: s.utf8) }
 
-        let dataSize = samples.count * 2
+        let dataSize = sampleCount * 2
         let byteRate = sampleRate * channels * 2
         tag("RIFF"); u32(36 + dataSize); tag("WAVE")
         tag("fmt "); u32(16); u16(1); u16(channels); u32(sampleRate)
         u32(byteRate); u16(channels * 2); u16(16)
         tag("data"); u32(dataSize)
+        return out
+    }
+
+    /// Append `samples` to `out` as little-endian 16-bit PCM.
+    static func appendPCM16(_ samples: ArraySlice<Float>, to out: inout [UInt8]) {
         for v in samples {
             let clamped = max(-1, min(1, v))
             let s = Int16((clamped * 32767).rounded())
-            u16(Int(UInt16(bitPattern: s)))
+            let u = UInt16(bitPattern: s)
+            out.append(UInt8(u & 0xFF)); out.append(UInt8((u >> 8) & 0xFF))
         }
+    }
+
+    /// Encode interleaved `samples` (in `[-1, 1]`) as a 16-bit PCM WAV buffer.
+    public static func encode(_ samples: [Float], sampleRate: Int, channels: Int = 1) -> [UInt8] {
+        var out = header(sampleCount: samples.count, sampleRate: sampleRate, channels: channels)
+        out.reserveCapacity(44 + samples.count * 2)
+        appendPCM16(samples[...], to: &out)
         return out
     }
 }

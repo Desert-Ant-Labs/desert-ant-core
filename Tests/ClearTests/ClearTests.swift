@@ -227,9 +227,13 @@ struct ClearTests {
         #expect(result.sampleRate == 48_000)
         #expect(FileManager.default.fileExists(atPath: output.path))
 
-        // The written file decodes back to the enhanced signal.
+        // The written file decodes back to the enhanced signal. Length comes
+        // from `durationSec`, not `samples`: writing to a file takes the
+        // bounded-memory path, which never materializes the signal, so
+        // `samples` is empty by design.
         let decoded = try await AudioIO.decode(path: output.path, sampleRate: 48_000)
-        #expect(abs(decoded.count - result.samples.count) <= 480)
+        let expected = Int(result.durationSec * 48_000)
+        #expect(abs(decoded.count - expected) <= 480)
         #expect(decoded.contains { $0 != 0 })
     }
 
