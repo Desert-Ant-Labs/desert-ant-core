@@ -3,7 +3,7 @@
 // (node.js). Both expose the same ABI, and @desert-ant-labs/core turns either
 // one into the same `LoadedModel`, so the API is written once here instead of
 // once per runtime.
-import { decodeRedaction, encodeOptions } from "./codec.js";
+import { decodeRedaction, encodeInput, encodeOptions } from "./codec.js";
 
 /** Every label the model can emit, including `ORG`. */
 export const ALL_LABELS = Object.freeze([
@@ -66,7 +66,8 @@ export function makeRedact(sdk) {
         minimumConfidence: options.minimumConfidence ?? 0.6,
         labels: Array.from(options.labels ?? DEFAULT_LABELS),
       });
-      return decodeRedaction(await this.#model.run(String(text ?? ""), payload, options));
+      return decodeRedaction(
+        await this.#model.run(encodeInput(String(text ?? "")), payload, options));
     }
 
     /** Whether the model is usable with no network. */

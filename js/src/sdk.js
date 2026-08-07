@@ -38,19 +38,22 @@ export class LoadedModel {
   }
 
   /**
-   * Run the model over `text` with the model's own options payload, returning an
-   * `FfiReader` over its result payload for the caller's decoder.
+   * Run the model over its own input payload with its own options payload,
+   * returning an `FfiReader` over its result payload for the caller's decoder.
    *
-   * @param {string} text
+   * Both payloads are the model's: text, audio samples, video frames - the shape
+   * is the model's codec's business and nothing about it reaches this layer.
+   *
+   * @param {Uint8Array} input the model's encoded input
    * @param {Uint8Array} options the model's encoded options
    * @param {{ group?: string, deviceId?: string | (() => string) }} [call]
    */
-  async run(text, options, call = {}) {
+  async run(input, options, call = {}) {
     if (this.#handle == null) throw new Error(`${this.#packageName}: model disposed`);
     const group = call.group != null ? String(call.group) : null;
     const deviceId = typeof call.deviceId === "function" ? call.deviceId() : call.deviceId;
     return this.#core.run(
-      this.#handle, text, options, group, deviceId != null ? String(deviceId) : null);
+      this.#handle, input, options, group, deviceId != null ? String(deviceId) : null);
   }
 
   /** Whether the model is usable with no network. */
@@ -107,14 +110,9 @@ export function wasmCore(exports) {
     createSelfHosted: (files) => exports.createSelfHosted(files),
     isDownloaded: (handle) => exports.isDownloaded(handle),
     download: (handle, onProgress) => exports.download(handle, onProgress ?? (() => {})),
-    run: async (handle, text, options, group, deviceId) =>
+    run: async (handle, input, options, group, deviceId) =>
       new FfiReader(
-        await exports.run(handle, text, options ?? null, group ?? null, deviceId ?? null)),
-    // Audio models take samples instead of text; the native core's twin is
-    // `dal_run_audio` (bind it through `loadNative({ symbols })`).
-    runAudio: async (handle, samples, sampleRate, options, group, deviceId) =>
-      new FfiReader(await exports.runAudio(
-        handle, samples, sampleRate, options ?? null, group ?? null, deviceId ?? null)),
+        await exports.run(handle, input, options ?? null, group ?? null, deviceId ?? null)),
     destroy: (handle) => exports.destroy(handle),
     flushTelemetry: () => exports.flushTelemetry(),
     ...makeCallGroups((id) => exports.endCallGroup(id)),

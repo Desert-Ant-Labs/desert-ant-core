@@ -52,16 +52,10 @@ public func androidDownloadClear(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jc
 
 @_cdecl("Java_ai_desertant_clear_ClearNative_run")
 public func androidRunClear(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
-                              _ handle: jlong, _ text: jbyteArray?,
+                              _ handle: jlong, _ input: jbyteArray?,
                               _ options: jbyteArray?) -> jbyteArray? {
-    androidRun(env, cls, handle, text, options)
+    androidRun(env, cls, handle, input, options)
 }
 
-@_cdecl("Java_ai_desertant_clear_ClearNative_runAudio")
-public func androidRunAudioClear(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
-                                   _ handle: jlong, _ audio: jbyteArray?,
-                                   _ options: jbyteArray?) -> jbyteArray? {
-    androidRunAudio(env, cls, handle, audio, options)
-}
 #endif
 #endif

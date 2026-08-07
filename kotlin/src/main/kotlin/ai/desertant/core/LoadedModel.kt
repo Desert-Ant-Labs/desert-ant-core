@@ -102,18 +102,22 @@ class LoadedModel internal constructor(
     }
 
     /**
-     * Run the model over [text] with the model's own [options] payload (null for
-     * its defaults), then [decode] the model's result payload. Both inference
-     * and decoding run on the default dispatcher.
+     * Run the model over its own [input] payload with its own [options] payload
+     * (null for its defaults), then [decode] the model's result payload. Both
+     * inference and decoding run on the default dispatcher.
+     *
+     * All three payloads are the model's own, so nothing here knows what kind of
+     * input the model takes: an SDK writes text, audio samples, or video frames
+     * with [FfiWriter] the same way it already writes its options.
      */
     suspend fun <Result> run(
-        text: String,
+        input: ByteArray,
         options: ByteArray? = null,
         failureMessage: String = "model run failed",
         decode: (FfiReader) -> Result,
     ): Result = withContext(Dispatchers.Default) {
         val bytes = withHandle {
-            native.run(it, text.toByteArray(Charsets.UTF_8), options)
+            native.run(it, input, options)
         } ?: throw fail(failureMessage)
         // Decode here too, rather than returning to a possibly-main caller with
         // the model's binary result still to process.
@@ -139,5 +143,5 @@ interface NativeModelApi {
     fun destroy(handle: Long)
     fun isDownloaded(handle: Long): Int
     fun download(handle: Long): Int
-    fun run(handle: Long, text: ByteArray, options: ByteArray?): ByteArray?
+    fun run(handle: Long, input: ByteArray, options: ByteArray?): ByteArray?
 }

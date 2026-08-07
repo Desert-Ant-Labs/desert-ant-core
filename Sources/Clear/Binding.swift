@@ -9,6 +9,8 @@ extension Clear: BoundModel {
     // `isDownloaded()` and `download(progress:)` are Clear's own public API and
     // witness the protocol as they stand.
 
+    /// Input payload: `f32Array samples` (mono), then `f64 sampleRate`.
+    ///
     /// Options payload: `f64 strength` (0...1), then the mastering chain as
     /// `f64 integratedLUFS` (NaN bypasses mastering), `f64 truePeakDBTP`,
     /// `f64 maxLoudnessGainDB`. An empty payload means the SDK defaults (full
@@ -19,8 +21,12 @@ extension Clear: BoundModel {
     /// Result payload: `f32Array samples` (48 kHz mono), then `f64 sampleRate`,
     /// `f64 durationSec`, `f64 processingSec`, and `f64 measuredLUFS` (NaN when
     /// mastering was disabled).
-    public func run(audio: [Float], sampleRate: Double, options: FFIReader) async -> [UInt8]? {
+    public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
+        var input = input
         var options = options
+        let audio = input.f32Array()
+        let sampleRate = input.f64()
+        guard !audio.isEmpty, sampleRate > 0 else { return nil }
         var opts = Options.default
         if !options.isEmpty {
             opts.strength = Strength(options.f64())

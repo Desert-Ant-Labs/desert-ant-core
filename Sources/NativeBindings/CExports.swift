@@ -13,31 +13,15 @@ public func dal_download(_ handle: UnsafeMutableRawPointer?) -> Int32 {
 @_cdecl("dal_run")
 public func dal_run(
     _ handle: UnsafeMutableRawPointer?,
-    _ text: UnsafePointer<CChar>?,
+    _ input: UnsafePointer<UInt8>?,
+    _ inputLen: Int32,
     _ options: UnsafePointer<UInt8>?,
     _ optionsLen: Int32,
     _ groupId: UnsafePointer<CChar>?,
     _ deviceId: UnsafePointer<CChar>?
 ) -> UnsafeMutablePointer<CChar>? {
     nativeRun(
-        handle, text: text, options: options, optionsLen: optionsLen,
-        groupId: groupId, deviceId: deviceId)
-}
-
-@_cdecl("dal_run_audio")
-public func dal_run_audio(
-    _ handle: UnsafeMutableRawPointer?,
-    _ samples: UnsafePointer<Float>?,
-    _ sampleCount: Int32,
-    _ sampleRate: Double,
-    _ options: UnsafePointer<UInt8>?,
-    _ optionsLen: Int32,
-    _ groupId: UnsafePointer<CChar>?,
-    _ deviceId: UnsafePointer<CChar>?
-) -> UnsafeMutablePointer<CChar>? {
-    nativeRunAudio(
-        handle, samples: samples, sampleCount: sampleCount,
-        sampleRate: sampleRate, options: options, optionsLen: optionsLen,
+        handle, input: input, inputLen: inputLen, options: options, optionsLen: optionsLen,
         groupId: groupId, deviceId: deviceId)
 }
 

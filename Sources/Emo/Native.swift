@@ -52,9 +52,9 @@ public func androidDownloadEmo(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jcla
 
 @_cdecl("Java_ai_desertant_emo_EmoNative_run")
 public func androidRunEmo(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
-                              _ handle: jlong, _ text: jbyteArray?,
+                              _ handle: jlong, _ input: jbyteArray?,
                               _ options: jbyteArray?) -> jbyteArray? {
-    androidRun(env, cls, handle, text, options)
+    androidRun(env, cls, handle, input, options)
 }
 #endif
 #endif

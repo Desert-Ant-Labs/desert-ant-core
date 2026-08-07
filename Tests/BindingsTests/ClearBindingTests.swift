@@ -32,17 +32,21 @@ final class ClearBindingTests: XCTestCase {
         return x
     }
 
-    /// The audio payload contract (`dal_run_audio`): options in and samples out,
-    /// decoded with the same reader a host uses.
+    /// The audio payload contract: audio in through the generic `run(input:options:)`
+    /// entry, samples out, decoded with the same reader a host uses. There is no
+    /// audio-specific symbol anywhere - the modality is entirely this payload.
     func testAudioPayloadRoundTrip() async throws {
         try requireModelBacked()
         let clear = try await enhancer()
+        var input = FFIWriter()
+        input.f32Array(noisyTone())
+        input.f64(48_000)
         var options = FFIWriter()
         options.f64(1.0)        // strength
         options.f64(.nan)       // integratedLUFS: mastering bypassed
         options.f64(-1.5)       // true-peak ceiling
         options.f64(9)          // max loudness gain
-        guard let payload = await clear.run(audio: noisyTone(), sampleRate: 48_000,
+        guard let payload = await clear.run(input: FFIReader(input.bytes),
                                             options: FFIReader(options.bytes)) else {
             return XCTFail("the audio binding returned no payload")
         }

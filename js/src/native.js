@@ -39,7 +39,9 @@ export const dalSymbols = (modelId) => ({
   create: `void* ${modelId}_create(const char*, const char*, const char*)`,
   isDownloaded: "int dal_is_downloaded(void*)",
   download: "int dal_download(void*)",
-  run: "void* dal_run(void*, const char*, const uint8_t*, int, const char*, const char*)",
+  // One entry for every modality: the input is the model's own payload, like the
+  // options and the result. A video model needs no new symbol here.
+  run: "void* dal_run(void*, const uint8_t*, int, const uint8_t*, int, const char*, const char*)",
   destroy: "void dal_destroy(void*)",
   bufferFree: "void dal_buffer_free(void*)",
 });

@@ -117,15 +117,17 @@ class Redact(
      * lazily on first call.
      */
     suspend fun redaction(text: String, options: Options = Options()): Redaction {
-        // Options payload: f64 minimumConfidence, then a label count and that
-        // many names (empty means every label); result payload: the redacted
-        // text, an item count, then per item its strings, confidence, and UTF-16
-        // offsets. Must match Sources/Redact/Binding.swift.
+        // Input payload: the text. Options payload: f64 minimumConfidence, then a
+        // label count and that many names (empty means every label). Result
+        // payload: the redacted text, an item count, then per item its strings,
+        // confidence, and UTF-16 offsets. All three must match
+        // Sources/Redact/Binding.swift.
+        val input = FfiWriter().string(text).done()
         val payload = FfiWriter()
             .double(options.minimumConfidence)
             .strings((options.labels ?: Labels.DEFAULT).toList())
             .done()
-        return model.run(text, payload, failureMessage = "redaction failed") { r ->
+        return model.run(input, payload, failureMessage = "redaction failed") { r ->
             val redactedText = r.string()
             val items = List(r.int()) {
                 RedactionItem(

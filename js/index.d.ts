@@ -117,7 +117,9 @@ export interface CallOptions {
 /** A loaded model behind an opaque core handle: what a model package's public
  *  class delegates to, identical on both runtimes. */
 export class LoadedModel {
-  run(text: string, options: Uint8Array, call?: CallOptions): Promise<FfiReader>;
+  /** The model's own input payload in, its own result payload out: one shape for
+   *  every modality. */
+  run(input: Uint8Array, options: Uint8Array, call?: CallOptions): Promise<FfiReader>;
   isDownloaded(): boolean;
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
   dispose(): void;
@@ -149,16 +151,7 @@ export interface NormalizedCore {
   download(handle: number, onProgress?: (fraction: number) => void): Promise<void | boolean>;
   run(
     handle: number,
-    text: string,
-    options: Uint8Array | null,
-    group: string | null,
-    deviceId: string | null,
-  ): Promise<FfiReader>;
-  /** Audio models: samples in, the model's own payload out. */
-  runAudio?(
-    handle: number,
-    samples: Float32Array,
-    sampleRate: number,
+    input: Uint8Array,
     options: Uint8Array | null,
     group: string | null,
     deviceId: string | null,
@@ -210,15 +203,7 @@ export interface WasmCore {
   download(handle: number, onProgress: (fraction: number) => void): Promise<boolean>;
   run(
     handle: number,
-    text: string,
-    options: Uint8Array | null,
-    group: string | null,
-    deviceId: string | null,
-  ): Promise<Uint8Array>;
-  runAudio(
-    handle: number,
-    samples: Float32Array,
-    sampleRate: number,
+    input: Uint8Array,
     options: Uint8Array | null,
     group: string | null,
     deviceId: string | null,

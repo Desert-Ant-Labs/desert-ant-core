@@ -17,28 +17,27 @@ public protocol BoundModel: AnyObject {
     /// (the C ABI) pass a closure that ignores it.
     func download(progress: @Sendable @escaping (Double) -> Void) async throws
 
-    /// Run the model. `options` is the model's own payload, written by the host
-    /// with the same field order the model reads here; an empty reader means
-    /// "all defaults". The return value is an `FFIWriter` payload (no outer
-    /// length prefix) that the host decodes with its own reader.
+    /// Run the model.
+    ///
+    /// Both arguments are this model's own payloads, written by the host with the
+    /// same field order the model reads here, and the return value is another one
+    /// (an `FFIWriter` payload, no outer length prefix) that the host decodes with
+    /// its own reader.
+    ///
+    /// `input` is whatever this model takes: a string for a text model, samples
+    /// and a rate for an audio model, frames or a container for a video model.
+    /// Nothing about the modality reaches the ABI, so a new kind of input is a
+    /// new payload schema in this file's model and its host codec - not a new
+    /// entry point in every language.
+    ///
+    /// `options` is separate because an empty payload means "all defaults", which
+    /// is a contract every SDK relies on; the input is always written.
     ///
     /// Returning `nil` reports failure to the host as a NULL buffer.
-    func run(text: String, options: FFIReader) async -> [UInt8]?
-
-    /// Run the model over audio: mono `samples` at `sampleRate`, with the
-    /// model's own `options` payload, returning its own result payload (see
-    /// `run(text:options:)` for both conventions).
-    ///
-    /// A model implements the modality it has - text models (emo, redact) leave
-    /// this alone, audio models (clear) leave `run(text:options:)` alone - and
-    /// the default reports "not this model's input" to the host as a NULL
-    /// buffer, exactly like a failed run.
-    func run(audio: [Float], sampleRate: Double, options: FFIReader) async -> [UInt8]?
+    func run(input: FFIReader, options: FFIReader) async -> [UInt8]?
 }
 
 public extension BoundModel {
-    func run(text: String, options: FFIReader) async -> [UInt8]? { nil }
-    func run(audio: [Float], sampleRate: Double, options: FFIReader) async -> [UInt8]? { nil }
 }
 
 /// A model's binding: how to construct it. The instance methods live on
