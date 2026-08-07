@@ -14,29 +14,48 @@ import JavaScriptKit
 /// instance. Everything else is derived from the model's declaration.
 public struct WasmModel {
     let id: String
-    let hostGlobal: String
     let sdk: SDKInfo
+    /// The catalog facts the JS SDK reads back through `modelInfo()`, so a model
+    /// package restates none of them.
+    let declaration: Declaration
     let binding: any ModelBinding.Type
     let selfHosted: ([String: [UInt8]], any InferenceSession) throws -> any BoundModel
 
     /// - Parameters:
-    ///   - declaration: the model's catalog entry; supplies the id, the JS host
-    ///     global, and the usage identity every session is tracked under.
+    ///   - declaration: the model's catalog entry; supplies the id and the usage
+    ///     identity every session is tracked under.
     ///   - binding: the model's `ModelBinding`, as used by the C ABI.
     ///   - selfHosted: build the model from the sidecar files the host fetched
     ///     (keyed by their catalog file names) and a session backed by the host's
     ///     already-compiled model.
-    public init<Declaration: ModelDeclaration>(
-        _ declaration: Declaration.Type,
+    public init<Model: ModelDeclaration>(
+        _ declaration: Model.Type,
         binding: any ModelBinding.Type,
         selfHosted: @escaping ([String: [UInt8]], any InferenceSession) throws -> any BoundModel
     ) {
-        self.id = Declaration.id
-        self.hostGlobal = Declaration.hostGlobal
-        self.sdk = Declaration.sdkInfo
+        self.id = Model.id
+        self.sdk = Model.sdkInfo
+        self.declaration = Declaration(
+            id: Model.id, sdkVersion: Model.sdkVersion,
+            artifact: Model.artifact,
+            sidecars: Model.files[.web]?.filter { $0 != Model.artifact } ?? [])
         self.binding = binding
         self.selfHosted = selfHosted
     }
+}
+
+/// The catalog facts a model's JS package needs, flattened out of the generic
+/// declaration so `ModelHost` stays non-generic.
+struct Declaration {
+    let id: String
+    let sdkVersion: String
+    let artifact: String
+    let sidecars: [String]
+}
+
+extension ModelHost {
+    /// What `modelInfo()` reports.
+    var declaration: Declaration { model.declaration }
 }
 
 /// Install the model this wasm module exposes. A model's `Web/main.swift` is this
@@ -99,7 +118,7 @@ public final class ModelHost {
     /// does).
     func createSelfHosted(files: [String: JSUint8Array]) throws(JSException) -> Int {
         do {
-            let session = try inferenceSession(hostGlobal: model.hostGlobal, sdk: model.sdk)
+            let session = try inferenceSession(sdk: model.sdk)
             return store(try model.selfHosted(files.mapValues(bytes), session))
         } catch {
             throw failure("could not build the model from the supplied files: \(error)")

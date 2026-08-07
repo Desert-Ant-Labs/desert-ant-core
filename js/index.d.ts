@@ -42,13 +42,56 @@ export function loadLiteRt(options: {
 
 export function assertBrowserRuntime(options: { packageName: string; litert?: any }): void;
 
-export function installLiteRtHost(options: {
-  hostGlobal: string;
+/** A tensor crossing to or from the JS host, mirroring `HostTensor` in
+ *  Sources/JSHost/Host.swift. */
+export interface HostTensor {
+  data: Uint8Array;
+  dims: number[];
+  type: string;
+}
+
+/** The model host a wasm core is instantiated with: the JS half of the contract
+ *  BridgeJS generates from Sources/JSHost/Host.swift, whose generated form is a
+ *  package's own `dist/bridge-js.d.ts` (`Imports`). `mise run check:types` proves
+ *  this matches it. */
+export interface ModelHost {
+  createSessionFromPath(path: string): Promise<void>;
+  createSessionFromBytes(bytes: Uint8Array): Promise<void>;
+  run(inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
+}
+
+/** The import object a core is instantiated with. */
+export interface HostImports {
+  readonly dalModelHost: ModelHost;
+}
+
+/** A stable import object whose methods forward to whatever host is installed:
+ *  a core instantiates at import time, its LiteRT session exists only after
+ *  `load()`. */
+export function makeModelHostSeam(): {
+  imports: HostImports;
+  install: (host: ModelHost) => void;
+};
+
+/** The LiteRT.js implementation of that contract, plus the `setModel` hook the
+ *  `modelBaseUrl` path uses to supply a model the page compiled itself. */
+export function makeLiteRtHost(options: {
   accelerator?: "wasm" | "webgpu" | string;
   loadAndCompile: (data: Uint8Array, opts: { accelerator: string }) => Promise<any>;
   Tensor: new (data: any, dims: number[]) => any;
   readModelSource: (source: any) => Promise<any>;
-}): { setModel: (model: any) => void };
+}): { host: ModelHost; setModel: (model: any) => void };
+
+/** What a core reports about its model, from the Swift catalog declaration.
+ *  Mirrors `ModelInfo` in Sources/WasmBindings/Exports.swift. */
+export interface ModelInfo {
+  id: string;
+  sdkVersion: string;
+  /** The runnable artifact, compiled by the host (never crosses into the core). */
+  artifact: string;
+  /** Sidecars handed to the core, keyed by these names. */
+  sidecars: string[];
+}
 
 /** Names a `modelBaseUrl` must serve, as in the model catalog. */
 export interface ModelFileNames {
@@ -133,8 +176,6 @@ export function readyModel(options: {
 export function createWasmSdk(options: {
   platform: any;
   packageName: string;
-  hostGlobal: string;
-  files: ModelFileNames;
 }): Promise<ModelSdk>;
 
 /** Mint a call-group id, run the body, release the group. */
@@ -153,6 +194,7 @@ export const CALL_GROUP_END_SYMBOL: string;
  *  opaque numbers.
  */
 export interface WasmCore {
+  modelInfo(): ModelInfo;
   create(cacheRoot: string | null, directory: string | null): number;
   createSelfHosted(files: Record<string, Uint8Array>): number;
   isDownloaded(handle: number): boolean;
@@ -169,10 +211,16 @@ export interface WasmCore {
   flushTelemetry(): Promise<boolean>;
 }
 
+/** An instantiated core: its exports, and the hook that installs the model host
+ *  it was instantiated with. */
+export interface InstantiatedCore {
+  exports: WasmCore;
+  installHost: (host: ModelHost) => void;
+}
+
 export function browserSetup(options: {
-  hostGlobal: string;
   init: () => Promise<{ init: (arg: object) => Promise<{ exports: WasmCore }> }>;
-}): Promise<WasmCore>;
+}): Promise<InstantiatedCore>;
 
 export function browserWasmDir(): Promise<string>;
 export function browserReadModelSource(source: any): Promise<any>;

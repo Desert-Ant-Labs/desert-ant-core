@@ -80,22 +80,19 @@ struct ModelCatalogTests {
         }
     }
 
-    /// The wasm host global and the catalog id are derived here but hard-coded in
-    /// each npm package's `codec.js` (the JS side has no view of the Swift
-    /// catalog). They must agree or the browser build looks up a core that was
-    /// never registered, so cross-check them the way `sdkVersion` is checked.
-    @Test func jsPackagesUseTheDeclaredIdAndHostGlobal() throws {
+    /// The catalog id is the last fact an npm package still restates: the native
+    /// `dal_*` ABI takes it as an argument, so the JS side has to know it. (The
+    /// wasm side no longer does - a core reports its own `modelInfo()`, and the
+    /// host it drives arrives as an import rather than a named global.)
+    @Test func jsPackagesUseTheDeclaredId() throws {
         for model in catalog {
-            #expect(
-                model.hostGlobal == "__\(model.product)Host",
-                "\(model.id): host global must derive from the product")
             guard let codec = try packageFile("packages/\(model.id)-node/codec.js") else { continue }
-            #expect(
-                codec.contains("\"\(model.hostGlobal)\""),
-                "\(model.id): codec.js does not use \(model.hostGlobal)")
             #expect(
                 codec.contains("MODEL_ID = \"\(model.id)\""),
                 "\(model.id): codec.js does not use the catalog id")
+            #expect(
+                !codec.contains("MODEL_FILES"),
+                "\(model.id): codec.js restates file names the core reports itself")
         }
     }
 

@@ -16,7 +16,7 @@
 // builds cleanly for every target of a multi-target bundler.
 import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
-import { HOST_GLOBAL, MODEL_FILES, PACKAGE_NAME } from "./codec.js";
+import { PACKAGE_NAME } from "./codec.js";
 import { makeRedact, DEFAULT_LABELS, ALL_LABELS } from "./redact.js";
 
 export { DEFAULT_LABELS, ALL_LABELS };
@@ -26,6 +26,4 @@ export { DEFAULT_LABELS, ALL_LABELS };
 export const Redact = makeRedact(await createWasmSdk({
   platform,
   packageName: PACKAGE_NAME,
-  hostGlobal: HOST_GLOBAL,
-  files: MODEL_FILES,
 }));

@@ -75,6 +75,7 @@ let products: [Product] = [
         .library(name: "ModelStore", targets: ["ModelStore"]),
         .library(name: "ModelCatalog", targets: ["ModelCatalog"]),
         .library(name: "PlatformSupport", targets: ["PlatformSupport"]),
+        .library(name: "JSHost", targets: ["JSHost"]),
         .library(name: "Usage", targets: ["Usage"]),
         .library(name: "Inference", targets: ["Inference"]),
         .library(name: "HostBridge", targets: ["HostBridge"]),
@@ -149,6 +150,12 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "ModelStore", "Usage",
                 .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
+                // Unconditional even though JSHost is empty off wasm: PackageToJS
+                // walks target dependencies to collect the BridgeJS skeletons it
+                // must generate glue from, and a platform-conditional edge is
+                // invisible to that walk, so the module would import "JSHost"
+                // functions the JS side was never told to supply.
+                "JSHost",
             ] + jsWasi + jsEventLoop
         ),
         .target(
@@ -164,6 +171,18 @@ let libraryTargets: [Target] = [
             ] + jsWasi
         ),
         .target(name: "CHostBridge"),
+        // The typed contract with the JavaScript host on wasm (see the file).
+        // BridgeJS generates the call glue and the TypeScript type the JS side
+        // must satisfy, so both settings are wasm-only exactly as for
+        // WasmBindings.
+        .target(
+            name: "JSHost",
+            dependencies: jsWasi,
+            exclude: ["bridge-js.config.json"],
+            swiftSettings: noJavaScriptKit ? [] : [.enableExperimentalFeature("Extern")],
+            plugins: noJavaScriptKit
+                ? [] : [.plugin(name: "BridgeJS", package: "JavaScriptKit")]
+        ),
         .target(
             name: "TextNormalization",
             dependencies: [
@@ -213,6 +232,7 @@ let libraryTargets: [Target] = [
             name: "ModelStore",
             dependencies: [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+                "JSHost",  // unconditional: see Inference
             ] + jsWasi + jsEventLoop
         ),
         .target(

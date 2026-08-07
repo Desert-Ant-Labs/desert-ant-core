@@ -24,6 +24,21 @@ No task, workflow, or build script names the models. They are discovered:
 
 So adding a model is adding directories. CI picks it up with no edit.
 
+## What a model writes by hand
+
+The Swift pipeline, and as little else as possible. Everything that crosses a
+language boundary is generated from a Swift declaration:
+
+| Crossing | Written | Generated |
+|---|---|---|
+| wasm -> JS (the ABI) | `Sources/WasmBindings/Exports.swift`, once for all models | `dist/bridge-js.{js,d.ts}` per package |
+| JS -> wasm (the host) | `Sources/JSHost/Host.swift`, once for all models | the `Imports` type the JS seam satisfies |
+| The model's own facts | `Sources/<Product>/Catalog.swift` | `modelInfo()`, which the JS SDK reads at load |
+
+So a model's wasm entry point is one `installWasmModel` call, its npm package
+restates no file names or host names, and the payload codecs
+(`Binding.swift` <-> `codec.js`) are the only per-model marshalling left.
+
 Tasks that act per model take a model argument, defaulting to `all`:
 
 ```bash
@@ -60,13 +75,15 @@ Plus two invariants, in the `checks` job:
   audio stack unless it imports one. An app that adds one SDK pays for that SDK
   alone, and this reads the resolved SwiftPM graph, so it cannot be fooled by an
   incremental build.
-- `check:types` - the `.d.ts` files that ship to npm compile, and `WasmCore` in
-  `js/index.d.ts` is identical to the wasm ABI BridgeJS generates from the `@JS`
-  declarations in `Sources/WasmBindings`. Core is model-agnostic so it cannot
-  import a model package's generated `dist/bridge-js.d.ts`, and that restatement
-  is the one type in the repo that can drift from Swift silently. Where a model
-  core has been built (the `js` job, or after `build:wasm`) this also catches a
-  stale `dist`.
+- `check:types` - the `.d.ts` files that ship to npm compile, and the two
+  contracts core restates are identical to the ones BridgeJS generates from
+  Swift: `WasmCore` against the exports a core provides
+  (`Sources/WasmBindings/Exports.swift`) and `HostImports` against the host it is
+  instantiated with (`Sources/JSHost/Host.swift`). Core is model-agnostic so it
+  cannot import a model package's generated `dist/bridge-js.d.ts`, and those
+  restatements are the types here that can drift from Swift silently. Where a
+  model core has been built (the `js` job, or after `build:wasm`) this also
+  catches a stale `dist`.
 
 CI pins each job to the runner the release publishes from, so the toolchain that
 ships is the one CI proves: `ubuntu-22.04` for the Linux natives (glibc 2.35) and

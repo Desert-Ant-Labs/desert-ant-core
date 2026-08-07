@@ -2,7 +2,8 @@
 // the @litertjs/core (LiteRT.js) session behind the generic tensor contract the
 // wasm core (JSInferenceSession) calls, loads LiteRT.js once per process, and
 // carries the browser half of the platform seam. A model package supplies only
-// its host-global name, its dist entry points, and its self-hosted file names.
+// its dist entry points; everything else about the model comes from the core's
+// own `modelInfo()`.
 //
 // Browser-safe: no `node:*` imports. The node-only native path lives in
 // node.js.
@@ -74,23 +75,47 @@ export function assertBrowserRuntime({ packageName, litert }) {
 }
 
 /**
- * Install the LiteRT.js host the wasm core (JSInferenceSession) drives through
- * `globalThis[hostGlobal]`. Both sides exchange named tensors as
- * `{ name: { data: Uint8Array, dims: number[], type } }`; LiteRT.js infers each
- * dtype from the typed array. Uses LiteRT.js manual memory management: results
- * and any GPU->wasm copies are deleted along with the input tensors made here.
+ * The model host a wasm core is instantiated with: `dalModelHost` in the core's
+ * generated `Imports` (see `dist/bridge-js.d.ts`, generated from
+ * `Sources/JSHost/Host.swift`). The core compiles its model through
+ * `createSessionFrom*` and runs it through `run`.
  *
- * Returns `{ setModel }` so the caller's `modelBaseUrl` opt-out can compile the
- * model directly and hand it to the same `run` closure.
+ * It is created before LiteRT.js exists, because a core instantiates at import
+ * time and its session only exists once the app calls `load()`. So `imports` is
+ * stable and its methods forward to whatever `install` last set - the same late
+ * binding a named global used to provide, minus the global.
  *
- * @param {object} o
- * @param {string} o.hostGlobal e.g. "__ShapesHost"
- * @param {string} o.accelerator "wasm" (default) or "webgpu"
- * @param {(data: Uint8Array, opts: object) => Promise<any>} o.loadAndCompile
- * @param {new (data: any, dims: number[]) => any} o.Tensor
- * @param {(source: any) => Promise<any>} o.readModelSource path (node) -> bytes
+ * @returns {{ imports: object, install: (host: object) => void }}
  */
-export function installLiteRtHost({ hostGlobal, accelerator = "wasm", loadAndCompile, Tensor, readModelSource }) {
+export function makeModelHostSeam() {
+  let host = null;
+  const live = () => {
+    if (!host) throw new Error("the model host is not installed yet");
+    return host;
+  };
+  return {
+    imports: {
+      dalModelHost: {
+        // `async` on purpose: the Swift side declares these as `async throws`, so
+        // "no host installed" has to arrive as a rejected promise rather than a
+        // synchronous throw across the bridge.
+        createSessionFromPath: async (path) => live().createSessionFromPath(path),
+        createSessionFromBytes: async (bytes) => live().createSessionFromBytes(bytes),
+        run: async (inputs) => live().run(inputs),
+      },
+    },
+    install: (implementation) => {
+      host = implementation;
+    },
+  };
+}
+
+/**
+ * The LiteRT.js implementation of that contract. `setModel` lets the
+ * `modelBaseUrl` path hand over a model the page compiled itself, instead of one
+ * of the `createSessionFrom*` calls.
+ */
+export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, readModelSource }) {
   let model;
 
   const typedArray = (t) => {
@@ -107,40 +132,42 @@ export function installLiteRtHost({ hostGlobal, accelerator = "wasm", loadAndCom
     }
   };
 
-  globalThis[hostGlobal] = {
-    // modelSource is the cached file path (node) or the model bytes (browser).
-    createSession: async (modelSource) => {
-      const modelData = await readModelSource(modelSource);
-      model = await loadAndCompile(modelData, { accelerator });
-    },
-    run: async (inputs) => {
-      const feeds = {};
-      const made = [];
-      for (const [name, t] of Object.entries(inputs)) {
-        const tensor = new Tensor(typedArray(t), Array.from(t.dims));
-        feeds[name] = tensor;
-        made.push(tensor);
-      }
-      const results = await model.run(feeds);
-      const outputs = {};
-      const toDelete = [...made];
-      for (const [name, out] of Object.entries(results)) {
-        const host = accelerator === "wasm" ? out : await out.moveTo("wasm");
-        const arr = host.toTypedArray();
-        outputs[name] = {
-          data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
-          dims: Array.from(host.type.layout.dimensions),
-          type: host.type.dtype,
-        };
-        toDelete.push(out);
-        if (host !== out) toDelete.push(host);
-      }
-      for (const t of toDelete) t.delete();
-      return outputs;
-    },
-  };
-
   return {
+    host: {
+      // node hands over the cached path, the browser the bytes it fetched: two
+      // methods rather than one union, as the typed contract requires.
+      createSessionFromPath: async (path) => {
+        model = await loadAndCompile(await readModelSource(path), { accelerator });
+      },
+      createSessionFromBytes: async (bytes) => {
+        model = await loadAndCompile(await readModelSource(bytes), { accelerator });
+      },
+      run: async (inputs) => {
+        const feeds = {};
+        const made = [];
+        for (const [name, t] of Object.entries(inputs)) {
+          const tensor = new Tensor(typedArray(t), Array.from(t.dims));
+          feeds[name] = tensor;
+          made.push(tensor);
+        }
+        const results = await model.run(feeds);
+        const outputs = {};
+        const toDelete = [...made];
+        for (const [name, out] of Object.entries(results)) {
+          const host = accelerator === "wasm" ? out : await out.moveTo("wasm");
+          const arr = host.toTypedArray();
+          outputs[name] = {
+            data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
+            dims: Array.from(host.type.layout.dimensions),
+            type: host.type.dtype,
+          };
+          toDelete.push(out);
+          if (host !== out) toDelete.push(host);
+        }
+        for (const t of toDelete) t.delete();
+        return outputs;
+      },
+    },
     setModel: (m) => {
       model = m;
     },
@@ -179,20 +206,21 @@ export async function fetchSelfHostedModel(baseUrl, files) {
 // platform-browser.js is a thin wrapper around these.
 
 /**
- * Instantiate the wasm core and return its exports: the model-agnostic wasm ABI
- * (the twin of the native `dal_*` symbols), which BridgeJS generates from the
- * `@JS` declarations in the model's `Web/main.swift` and hands back from
- * `init()`. `init` imports the model's own ./dist/index.js.
+ * Instantiate the wasm core: its exports (the model-agnostic wasm ABI, the twin
+ * of the native `dal_*` symbols) plus the hook that installs the model host it
+ * was instantiated with. Both halves are generated from Swift - the exports from
+ * `Sources/WasmBindings/Exports.swift`, the host contract from
+ * `Sources/JSHost/Host.swift` - and `init` imports the model's own
+ * ./dist/index.js.
  *
- * The exports belong to this instance, so two SDKs on one page cannot clobber
- * each other and nothing is installed on `globalThis` (the host global below is
- * a separate seam: it is how the Swift session reaches LiteRT.js).
+ * Everything belongs to this instance, so two SDKs on one page cannot collide and
+ * nothing touches `globalThis`.
  */
-export async function browserSetup({ hostGlobal, init }) {
-  globalThis[hostGlobal] ??= {};
+export async function browserSetup({ init }) {
+  const seam = makeModelHostSeam();
   const { init: initCore } = await init();
-  const { exports } = await initCore({});
-  return exports;
+  const { exports } = await initCore({ getImports: () => seam.imports });
+  return { exports, installHost: seam.install };
 }
 
 /** Where LiteRT.js loads its Wasm runtime from in the browser: the jsDelivr

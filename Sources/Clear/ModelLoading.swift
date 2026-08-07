@@ -53,7 +53,7 @@ public struct ModelAssets: Sendable {
         var sessions: [any InferenceSession] = []
         for _ in 0..<max(1, concurrency) {
             sessions.append(try await files.inferenceSession(
-                model: variant.artifact, hostGlobal: ClearModel.hostGlobal,
+                model: variant.artifact,
                 computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
         }
         return ModelAssets(sessions: sessions, variant: variant)

@@ -1,3 +1,8 @@
+// The model-specific half of this package's types. Everything that is the same
+// for every model - how a model is loaded, how a call is billed and attributed -
+// comes from @desert-ant-labs/core, so it is documented in one place.
+import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
+
 /** The model labels, the deterministic-only `IMEI`, and `ORG`. */
 export type RedactLabel =
   | "GIVEN_NAME" | "SURNAME" | "STREET_NAME" | "BUILDING_NUMBER" | "SECONDARY_ADDRESS"
@@ -43,59 +48,20 @@ export interface Redaction {
 }
 
 /** Detection options. */
-export interface Options {
+export interface Options extends CallOptions {
   /** Neural confidence threshold, `0..1`. Default `0.6`. Deterministic recognizers always apply. */
   minimumConfidence?: number;
   /** Restrict redaction to these labels. Omit for {@link DEFAULT_LABELS}. */
   labels?: Iterable<RedactLabel | string>;
-  /**
-   * Attributes usage to a specific end-user device (multi-tenant hosts serving
-   * many users). A string, or a zero-arg function returning one, collected per
-   * call and bound to that call so it is safe under concurrency. Omit to use the
-   * default device. Honored by both the WebAssembly and native Node builds.
-   */
-  deviceId?: string | (() => string);
-  /**
-   * Bills this call as part of a shared usage call group, so a logical operation
-   * made of several redactions counts once. Get an id from
-   * {@link Redact.withCallGroup}.
-   */
-  group?: string;
 }
 
 /**
- * How the model is loaded. The repo and revision are pinned to the SDK. By
- * default the model is downloaded from the Hugging Face Hub at the pinned tag
- * and cached (nothing is bundled in the npm package); use `directory` (Node) or
- * `modelBaseUrl` (browser) to self-host / run offline.
+ * How the model is loaded, from `@desert-ant-labs/core`: `directory` (Node) or
+ * `modelBaseUrl` (browser) adopt self-hosted files, `onProgress` reports the
+ * download, and the `litert*` / `accelerator` options tune the browser runtime.
+ * Model-agnostic, so it is declared once in core rather than restated per model.
  */
-export interface LoadOptions {
-  /**
-   * An explicit directory that is this model's home (Node): if it already holds
-   * the files they are used offline, otherwise the model is downloaded into it.
-   * Omit to download from the Hub into the managed cache
-   * (`~/.cache/desert-ant-models/...`).
-   */
-  directory?: string;
-  /**
-   * Base URL of self-hosted model files, e.g. `"/assets/redact/"` or
-   * `"https://cdn.example.com/redact/"` (browser). When set, the files load
-   * from there instead of the Hugging Face Hub. Browser only.
-   */
-  modelBaseUrl?: string;
-  /** Download progress in `[0, 1]`, called during {@link Redact.load}. */
-  onProgress?: (fraction: number) => void;
-  /** Base directory for the managed cache (Node, server-side). Defaults to
-   * `~/.cache`. Ignored in the browser. */
-  cacheRoot?: string;
-  /** Bring-your-own LiteRT.js module (the `@litertjs/core` namespace). Browser only. */
-  litert?: unknown;
-  /** URL/path to the LiteRT.js Wasm directory (defaults: installed package in
-   * node, jsDelivr CDN in the browser). */
-  litertWasmDir?: string;
-  /** LiteRT.js accelerator: `"wasm"` (XNNPACK CPU, default), `"webgpu"`, or `"webnn"`. */
-  accelerator?: "wasm" | "webgpu" | "webnn";
-}
+export type LoadOptions = ModelLoadOptions;
 
 /**
  * On-device multilingual PII redaction for JavaScript. The default

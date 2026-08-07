@@ -1,7 +1,7 @@
-// The wasm seam: the JS half of the model-agnostic WebAssembly ABI that BridgeJS
-// generates from the `@JS` entry points in a model's `Web/main.swift`. The Swift
-// half is covered by the wasm build; here we pin the seam every model package
-// resolves its core through.
+// The wasm seam: the JS half of the two generated contracts - the exports a core
+// provides (`Sources/WasmBindings/Exports.swift`) and the host it is instantiated
+// with (`Sources/JSHost/Host.swift`). The Swift halves are covered by the wasm
+// build; here we pin the seam every model package resolves its core through.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { browserSetup } from "../src/litert.js";
@@ -9,6 +9,7 @@ import { browserSetup } from "../src/litert.js";
 /** Stand-in for what a Swift core exports (see dist/bridge-js.d.ts). */
 function fakeCore() {
   return {
+    modelInfo: () => ({ id: "shapes", sdkVersion: "1.0.0", artifact: "shapes.tflite", sidecars: [] }),
     create: () => 1,
     createSelfHosted: () => 2,
     isDownloaded: () => true,
@@ -20,40 +21,41 @@ function fakeCore() {
   };
 }
 
-test("browserSetup seeds the host global, instantiates, and returns the exports", async () => {
-  delete globalThis.__ShapesHost;
+test("browserSetup instantiates with the host imports and returns both halves", async () => {
   const exports = fakeCore();
-  let initialized = 0;
+  let supplied;
   const init = async () => ({
-    init: async () => {
-      initialized += 1;
-      // The host object must exist before the core starts: the wasm session
-      // looks it up through this global.
-      assert.equal(typeof globalThis.__ShapesHost, "object");
+    init: async (options) => {
+      // The core is instantiated with the host contract it declared, before any
+      // LiteRT session exists.
+      supplied = options.getImports();
       return { exports };
     },
   });
-  const core = await browserSetup({ hostGlobal: "__ShapesHost", init });
-  assert.equal(initialized, 1);
-  assert.equal(core, exports);
-  assert.equal(typeof core.run, "function");
+  const core = await browserSetup({ init });
+  assert.equal(core.exports, exports);
+  assert.equal(typeof core.installHost, "function");
+  assert.equal(typeof supplied.dalModelHost.run, "function");
+  assert.equal(typeof supplied.dalModelHost.createSessionFromPath, "function");
+  assert.equal(typeof supplied.dalModelHost.createSessionFromBytes, "function");
 });
 
-test("two cores on one page keep their own exports", async () => {
+test("two cores on one page keep their own exports and their own host", async () => {
   const emo = fakeCore();
   const redact = fakeCore();
-  const setup = (hostGlobal, exports) =>
-    browserSetup({ hostGlobal, init: async () => ({ init: async () => ({ exports }) }) });
-  assert.equal(await setup("__EmoHost", emo), emo);
-  assert.equal(await setup("__RedactHost", redact), redact);
+  const setup = (exports) =>
+    browserSetup({ init: async () => ({ init: async () => ({ exports }) }) });
+  const a = await setup(emo);
+  const b = await setup(redact);
+  assert.equal(a.exports, emo);
+  assert.equal(b.exports, redact);
+  // Nothing is keyed by name, so there is nothing for a second SDK to clobber.
+  assert.notEqual(a.installHost, b.installHost);
 });
 
-test("an existing host global is kept, not replaced", async () => {
-  globalThis.__KeepHost = { marker: 1 };
-  const exports = fakeCore();
-  await browserSetup({
-    hostGlobal: "__KeepHost",
-    init: async () => ({ init: async () => ({ exports }) }),
-  });
-  assert.equal(globalThis.__KeepHost.marker, 1);
+test("nothing is installed on globalThis", async () => {
+  const before = Object.keys(globalThis).filter((k) => k.startsWith("__Dal") || k.endsWith("Host"));
+  await browserSetup({ init: async () => ({ init: async () => ({ exports: fakeCore() }) }) });
+  const after = Object.keys(globalThis).filter((k) => k.startsWith("__Dal") || k.endsWith("Host"));
+  assert.deepEqual(after, before);
 });

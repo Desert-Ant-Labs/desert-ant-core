@@ -5,22 +5,21 @@
 // around these.
 //
 // Node-only (uses node:*).
+import { makeModelHostSeam } from "./litert.js";
 
 /**
- * Instantiate the wasm core under Node (WASI shim) and return its exports (the
- * BridgeJS-generated wasm ABI; see `browserSetup`). Gives the Swift ModelStore
+ * Instantiate the wasm core under Node (WASI shim): its exports plus the hook
+ * that installs the model host (see `browserSetup`). Gives the Swift ModelStore
  * node's fs through the shared `__DalNodeFS` seam (no `require` under the WASI
  * shim); the download/verify/cache logic stays in Swift.
  *
  * @param {object} o
- * @param {string} o.hostGlobal e.g. "__ShapesHost"
  * @param {() => Promise<{ instantiate: Function }>} o.instantiate imports the
  *   model's own ./dist/instantiate.js
  * @param {() => Promise<{ defaultNodeSetup: Function }>} o.nodePlatform imports
  *   the model's own ./dist/platforms/node.js
  */
-export async function nodeSetup({ hostGlobal, instantiate, nodePlatform }) {
-  globalThis[hostGlobal] ??= {};
+export async function nodeSetup({ instantiate, nodePlatform }) {
   const { instantiate: inst } = await instantiate();
   const fsmod = await import("node:fs");
   globalThis.__DalNodeFS = {
@@ -36,8 +35,12 @@ export async function nodeSetup({ hostGlobal, instantiate, nodePlatform }) {
     unlinkSync: fsmod.unlinkSync,
   };
   const { defaultNodeSetup } = await nodePlatform();
-  const { exports } = await inst(await defaultNodeSetup({}));
-  return exports;
+  const seam = makeModelHostSeam();
+  const { exports } = await inst({
+    ...(await defaultNodeSetup({})),
+    getImports: () => seam.imports,
+  });
+  return { exports, installHost: seam.install };
 }
 
 /**
