@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Build each model's WebAssembly core into packages/<model>-node/dist"
 #MISE dir="{{config_root}}"
-#MISE tools={swift="6.3.3", "aqua:WebAssembly/binaryen"="130"}
+#MISE tools={swift="6.3.3", "aqua:WebAssembly/binaryen"="130", node="22"}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
@@ -11,6 +11,10 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # DAL_WASM_BUILD adds JavaScriptKit to the manifest, which is what declares the
 # *Web products at all (see Package.swift). It is opt-in so non-wasm consumers
 # never resolve it and build its swift-syntax macros.
+#
+# node is a build-time tool here, not just a test tool: the BridgeJS plugin that
+# generates the JS glue and .d.ts for a model's `@JS` entry points shells out to
+# it, and fails the build with a config hint if it is not on PATH.
 export DAL_WASM_BUILD=1
 sdk=$(dal_wasm_sdk)
 
@@ -51,8 +55,12 @@ for model in $(dal_select "${usage_model:-all}"); do
 
     rm -rf "$dist"
     mkdir -p "$dist"
+    # bridge-js.{js,d.ts} are the BridgeJS-generated glue and types for the
+    # model's `@JS` surface; instantiate.js imports the former, and the latter is
+    # what makes that surface typed for a TypeScript consumer.
     cp "$out/${product}Web.wasm" "$out"/index.js "$out"/index.d.ts \
-        "$out"/instantiate.js "$out"/instantiate.d.ts "$out"/runtime.js "$out"/runtime.d.ts "$dist/"
+        "$out"/instantiate.js "$out"/instantiate.d.ts "$out"/runtime.js "$out"/runtime.d.ts \
+        "$out"/bridge-js.js "$out"/bridge-js.d.ts "$dist/"
     cp -r "$out"/platforms "$dist/platforms"
     # The npm tarball must carry the license (package.json: SEE LICENSE IN ...).
     cp LICENSE.md "packages/$model-node/LICENSE.md"

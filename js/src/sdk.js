@@ -1,8 +1,9 @@
 // The shared model-SDK runtime: one implementation of "load a model, run it,
 // dispose it" for both cores a Desert Ant package ships.
 //
-// The two cores now expose the same surface - the WebAssembly ABI installed by
-// Swift's WasmBindings and the native `dal_*` C ABI bound with koffi - so the
+// The two cores now expose the same surface - the WebAssembly ABI BridgeJS
+// generates from Swift's `@JS` entry points and the native `dal_*` C ABI bound
+// with koffi - so the
 // only difference between a package's browser entry and its native entry is
 // which core it binds and, for the browser, the LiteRT.js session it has to set
 // up first. Everything after that (create or adopt, download with progress,
@@ -93,19 +94,24 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
 }
 
 /**
- * Normalize the WebAssembly ABI (`globalThis.__DesertAntExports[modelId]`) to
- * the core shape `LoadedModel` uses: a run that yields an `FfiReader`, plus the
- * call-group helper.
+ * Normalize the WebAssembly ABI (the module's BridgeJS exports) to the core shape
+ * `LoadedModel` uses: a run that yields an `FfiReader`, plus the call-group
+ * helper.
+ *
+ * `download` always passes a progress function: BridgeJS does not accept an
+ * optional closure parameter, so "no callback" is a no-op rather than `null`.
  */
 export function wasmCore(exports) {
   return {
-    create: (cacheRoot, directory) => exports.create(cacheRoot, directory),
+    create: (cacheRoot, directory) => exports.create(cacheRoot ?? null, directory ?? null),
     createSelfHosted: (files) => exports.createSelfHosted(files),
     isDownloaded: (handle) => exports.isDownloaded(handle),
-    download: (handle, onProgress) => exports.download(handle, onProgress),
+    download: (handle, onProgress) => exports.download(handle, onProgress ?? (() => {})),
     run: async (handle, text, options, group, deviceId) =>
-      new FfiReader(await exports.run(handle, text, options ?? null, group, deviceId)),
+      new FfiReader(
+        await exports.run(handle, text, options ?? null, group ?? null, deviceId ?? null)),
     destroy: (handle) => exports.destroy(handle),
+    flushTelemetry: () => exports.flushTelemetry(),
     ...makeCallGroups((id) => exports.endCallGroup(id)),
   };
 }
@@ -125,15 +131,23 @@ export function wasmCore(exports) {
  * @param {object} o
  * @param {any} o.platform the package's `#platform` module
  * @param {string} o.packageName consumer package (for error messages)
- * @param {string} o.modelId catalog id, e.g. "emo"
  * @param {string} o.hostGlobal e.g. "__EmoHost"
  * @param {{ model: string, sidecars: string[] }} o.files names under a
  *   `modelBaseUrl`, as in the model catalog
  */
-export async function createWasmSdk({ platform, packageName, modelId, hostGlobal, files }) {
+export async function createWasmSdk({ platform, packageName, hostGlobal, files }) {
   // The core instantiates at import time (the package's entry top-level awaits
   // this); the model is only wired in open().
   const core = wasmCore(await platform.setupCore());
+
+  // Debug-only hook for forcing the usage POST out and awaiting it (the browser
+  // example and the browser suite do this before asserting). The core's exports
+  // belong to this module instance rather than a global registry, so this is how
+  // a page reaches them; it exists only under the same flag the telemetry log
+  // itself needs.
+  if (globalThis.__dalHttpDebug) {
+    globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
+  }
 
   return {
     core,
@@ -167,7 +181,7 @@ export async function createWasmSdk({ platform, packageName, modelId, hostGlobal
         // `directory` (node) adopts a folder you populated. Base for the managed
         // nested cache (node): ~/.cache; empty (in-memory) in the browser.
         const cacheRoot = options.cacheRoot ?? (await platform.defaultCacheRoot());
-        handle = core.create(cacheRoot, options.directory ?? "");
+        handle = core.create(cacheRoot, options.directory ?? null);
       }
       return readyModel({ core, packageName, handle, onProgress });
     },

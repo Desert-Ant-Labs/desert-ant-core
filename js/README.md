@@ -32,13 +32,13 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
   serves: sidecars keyed by catalog name, artifact bytes for the host to compile.
 - `browserSetup` / `browserWasmDir` / `browserReadModelSource` /
   `browserCacheRoot` - the browser half of a model's `#platform` seam.
-- `wasmExports(modelId)` - the model-agnostic WebAssembly ABI a Swift core
-  installs on `globalThis.__DesertAntExports[modelId]` (`create`,
-  `createSelfHosted`, `isDownloaded`, `download`, `run`, `endCallGroup`,
-  `destroy`, `flushTelemetry`), the twin of the native `dal_*` symbols. Both
-  setups return it, so a model package writes no wasm glue: options and results
-  cross as FFIBuffer payloads it encodes with the codecs it already needs for
-  the native entry.
+- The wasm ABI itself (`create`, `createSelfHosted`, `isDownloaded`, `download`,
+  `run`, `endCallGroup`, `destroy`, `flushTelemetry`), the twin of the native
+  `dal_*` symbols, is what BridgeJS generates from the `@JS` entry points in the
+  model's `Web/main.swift`; its types live in the package's own generated
+  `dist/bridge-js.d.ts`. Both setups return it, so a model package writes no wasm
+  glue: options and results cross as FFIBuffer payloads it encodes with the
+  codecs it already needs for the native entry.
 - `FfiReader` / `FfiWriter` - big-endian cursor over the length-prefixed
   FFIBuffer payloads both cores speak (the JS counterpart of Kotlin's
   `FfiReader`).

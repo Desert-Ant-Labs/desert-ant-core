@@ -49,11 +49,10 @@
       limit: 3,
       deviceId: selfProvidedDeviceId,
     });
-    // Force the usage telemetry POST out now and await it before continuing.
-    const core = globalThis.__DesertAntExports?.emo;
-    if (core?.flushTelemetry) {
-      await core.flushTelemetry();
-    }
+    // Force the usage telemetry POST out now and await it before continuing
+    // (the debug-only hook @desert-ant-labs/core installs under
+    // `__dalHttpDebug`).
+    await globalThis.__dalFlushTelemetry?.();
     return { suggestions, ms: Math.round(performance.now() - start) };
   }
 

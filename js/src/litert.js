@@ -178,30 +178,20 @@ export async function fetchSelfHostedModel(baseUrl, files) {
 // The browser half of a model package's `#platform` import. A model's
 // platform-browser.js is a thin wrapper around these.
 
-/** Instantiate the wasm core and return the model's entry in the shared export
- *  registry (`globalThis.__DesertAntExports[modelId]`, installed by Swift's
- *  WasmBindings). `init` imports the model's own ./dist/index.js. */
-export async function browserSetup({ hostGlobal, modelId, init }) {
+/**
+ * Instantiate the wasm core and return its exports: the model-agnostic wasm ABI
+ * (the twin of the native `dal_*` symbols), which BridgeJS generates from the
+ * `@JS` declarations in the model's `Web/main.swift` and hands back from
+ * `init()`. `init` imports the model's own ./dist/index.js.
+ *
+ * The exports belong to this instance, so two SDKs on one page cannot clobber
+ * each other and nothing is installed on `globalThis` (the host global below is
+ * a separate seam: it is how the Swift session reaches LiteRT.js).
+ */
+export async function browserSetup({ hostGlobal, init }) {
   globalThis[hostGlobal] ??= {};
   const { init: initCore } = await init();
-  await initCore({});
-  return wasmExports(modelId);
-}
-
-/**
- * The model-agnostic wasm ABI a Desert Ant core installs for `modelId` (the
- * twin of the native `dal_*` symbols): `create`, `createSelfHosted`,
- * `isDownloaded`, `download`, `run`, `endCallGroup`, `destroy`,
- * `flushTelemetry`. Keyed by model id so two SDKs on one page never clobber
- * each other's exports.
- */
-export function wasmExports(modelId) {
-  const exports = globalThis.__DesertAntExports?.[modelId];
-  if (!exports) {
-    throw new Error(
-      `the WebAssembly core did not register "${modelId}" on globalThis.__DesertAntExports`,
-    );
-  }
+  const { exports } = await initCore({});
   return exports;
 }
 
