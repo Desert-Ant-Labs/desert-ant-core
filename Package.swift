@@ -179,6 +179,13 @@ let libraryTargets: [Target] = [
             name: "JSHost",
             dependencies: jsWasi,
             exclude: ["bridge-js.config.json"],
+            // `Host.swift` is body-less `@JSFunction`/`@JSGetter` declarations,
+            // which only parse where the BridgeJS macros exist. Swift parses
+            // inactive `#if` branches for syntax, so `#if os(WASI)` does not save
+            // an Apple or Android build on an older toolchain (this package
+            // supports 5.9+). A non-wasm build therefore gets an empty source
+            // file, and nothing off wasm imports this module.
+            sources: noJavaScriptKit ? ["Empty.swift"] : ["Host.swift"],
             swiftSettings: noJavaScriptKit ? [] : [.enableExperimentalFeature("Extern")],
             plugins: noJavaScriptKit
                 ? [] : [.plugin(name: "BridgeJS", package: "JavaScriptKit")]
