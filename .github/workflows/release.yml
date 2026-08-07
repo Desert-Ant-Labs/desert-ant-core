@@ -126,10 +126,12 @@ jobs:
         include:
           - { target: linux-x64, runner: ubuntu-22.04 }
           - { target: linux-arm64, runner: ubuntu-22.04-arm }
-          # macos-14 sets the compatibility floor for the published darwin
-          # native. CI's `darwin-native` job uses the same runner, so the
-          # toolchain that ships is the one CI proves.
-          - { target: darwin-arm64, runner: macos-14 }
+          # CI's `darwin-native` job uses the same runner, so the toolchain that
+          # ships is the one CI proves. The published native's compatibility floor
+          # comes from the manifest's `platforms` (macOS 13), not from the runner;
+          # macos-14 is no longer usable because its Swift 5.10 predates the
+          # package's 6.2 requirement.
+          - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
