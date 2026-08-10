@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Build each model's native Node core into packages/<model>-node/native/<platform>-<arch>"
 #MISE dir="{{config_root}}"
-#MISE tools={swift={version="6.3.3", os=["linux"]}}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
@@ -15,8 +14,11 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # self-contained; macOS uses Core ML against the OS-provided runtime.
 #
 # Two Linux distribution rules, learned the hard way:
-#   * build on an old glibc (CI uses ubuntu-22.04 = glibc 2.35) so the published
-#     libs run on Ubuntu 22.04+/Debian 12+, not only on the build host;
+#   * build against glibc <= 2.34: AWS Lambda's managed Node runtimes (Amazon
+#     Linux 2023) ship glibc 2.34, and glibc is only forward-compatible. CI runs
+#     this inside a swift:*-rhel-ubi9 container (glibc 2.34, which also supplies
+#     the Swift toolchain - hence no mise swift pin above); ubuntu-22.04 is
+#     already too new (2.35). Guarded by the ceiling check below;
 #   * link `-z nodelete` so the process does not dlclose the static Swift
 #     runtime at shutdown, which segfaults on natural exit on some glibc builds.
 dal_vendor_litert
@@ -42,6 +44,9 @@ for model in $(dal_select "${usage_model:-all}" node); do
         swift build --scratch-path .build-host -c release --product "${product}Node" ${traits[@]+"${traits[@]}"} \
             -Xlinker -rpath -Xlinker @loader_path
         cp ".build-host/release/lib${product}Node.dylib" "$dest/"
+        # -x drops local symbols; the exported <model>_* C ABI koffi binds
+        # lives in the export table, which strip never touches.
+        strip -x "$dest/lib${product}Node.dylib"
     else
         dest="packages/$model-node/native/linux-$arch"
         rm -rf "$dest" && mkdir -p "$dest"
@@ -62,6 +67,22 @@ for model in $(dal_select "${usage_model:-all}" node); do
         rm -rf "$stub"
         cp ".build-host/release/lib${product}Node.so" "$dest/"
         cp "$litert/libLiteRt.so" "$dest/"
+        # The npm package needs no .debug_info/.symtab; koffi resolves the
+        # <model>_* C ABI through .dynsym, which stripping keeps.
+        strip --strip-unneeded "$dest/lib${product}Node.so"
+        # Distribution floor guard: fail loudly if any shipped lib picked up a
+        # glibc symbol newer than Amazon Linux 2023 (AWS Lambda) provides.
+        # DAL_GLIBC_CEILING loosens it for builds that are never published
+        # (ci.yml's test-only natives build on newer hosts); the release
+        # workflow builds in a glibc-2.34 container and keeps the default.
+        ceiling=${DAL_GLIBC_CEILING:-2.34}
+        for lib in "$dest"/*.so; do
+            max=$(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            if [ -n "$max" ] && [ "$(printf '%s\n' "$max" "$ceiling" | sort -V | tail -1)" != "$ceiling" ]; then
+                echo "error: $(basename "$lib") requires GLIBC_$max > $ceiling; build on an older glibc" >&2
+                exit 1
+            fi
+        done
     fi
     ls -la "$dest"
 done
