@@ -15,7 +15,7 @@ extension Redact: BoundModel {
     /// Result payload: the length-prefixed redacted text, `u32 itemCount`, then
     /// per item the label, original, and placeholder strings, an `f64`
     /// confidence, and the UTF-16 start/end offsets as `u32`s.
-    public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
+    public func run(input: FFIReader, options: FFIReader) async throws -> [UInt8] {
         var input = input
         var options = options
         let text = input.string()
@@ -29,7 +29,7 @@ extension Redact: BoundModel {
                 minimumConfidence: minimumConfidence,
                 labels: names.isEmpty ? nil : Set(names.compactMap(Label.init(rawValue:))))
         }
-        guard let r = try? await redaction(of: text, options: resolved) else { return nil }
+        let r = try await redaction(of: text, options: resolved)
 
         var w = FFIWriter()
         w.string(r.redactedText)

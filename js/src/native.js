@@ -42,6 +42,11 @@ export const dalSymbols = (modelId) => ({
   // One entry for every modality: the input is the model's own payload, like the
   // options and the result. A video model needs no new symbol here.
   run: "void* dal_run(void*, const uint8_t*, int, const uint8_t*, int, const char*, const char*)",
+  // Why the last run or download on this handle failed. The ABI's failure
+  // signals (NULL, non-zero) carry no reason, so without this every cause -
+  // offline, HTTP 403, an unwritable directory, an integrity mismatch - reached
+  // the caller as the same sentence.
+  lastError: "void* dal_last_error(void*)",
   destroy: "void dal_destroy(void*)",
   bufferFree: "void dal_buffer_free(void*)",
 });

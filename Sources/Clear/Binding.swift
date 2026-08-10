@@ -21,12 +21,13 @@ extension Clear: BoundModel {
     /// Result payload: `f32Array samples` (48 kHz mono), then `f64 sampleRate`,
     /// `f64 durationSec`, `f64 processingSec`, and `f64 measuredLUFS` (NaN when
     /// mastering was disabled).
-    public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
+    public func run(input: FFIReader, options: FFIReader) async throws -> [UInt8] {
         var input = input
         var options = options
         let audio = input.f32Array()
         let sampleRate = input.f64()
-        guard !audio.isEmpty, sampleRate > 0 else { return nil }
+        guard !audio.isEmpty else { throw BindingError.invalidInput("no samples") }
+        guard sampleRate > 0 else { throw BindingError.invalidInput("sampleRate \(sampleRate)") }
         var opts = Options.default
         if !options.isEmpty {
             opts.strength = Strength(options.f64())
@@ -36,9 +37,7 @@ extension Clear: BoundModel {
             opts.mastering.truePeakDBTP = options.f64()
             opts.mastering.maxLoudnessGainDB = options.f64()
         }
-        guard let result = try? await enhance(samples: audio, sampleRate: sampleRate, options: opts) else {
-            return nil
-        }
+        let result = try await enhance(samples: audio, sampleRate: sampleRate, options: opts)
         var w = FFIWriter()
         w.f32Array(result.samples)
         w.f64(result.sampleRate)

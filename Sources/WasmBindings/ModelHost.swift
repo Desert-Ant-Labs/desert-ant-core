@@ -160,13 +160,19 @@ public final class ModelHost {
         group: String?, deviceId: String?
     ) async throws(JSException) -> JSUint8Array {
         let instance = try loaded(handle)
-        let payload = await InferenceContext.$deviceId.withValue(present(deviceId)) {
-            await InferenceContext.withCallGroup(id: present(group)) {
-                await instance.run(
-                    input: FFIReader(bytes(input)), options: FFIReader(bytes(options)))
+        let payload: [UInt8]
+        do {
+            payload = try await InferenceContext.$deviceId.withValue(present(deviceId)) {
+                try await InferenceContext.withCallGroup(id: present(group)) {
+                    try await instance.run(
+                        input: FFIReader(bytes(input)), options: FFIReader(bytes(options)))
+                }
             }
+        } catch {
+            // The reason used to stop here: the binding returned nil and the
+            // browser saw the same sentence whatever had gone wrong.
+            throw failure("the model failed to run: \(error)")
         }
-        guard let payload else { throw failure("the model failed to run") }
         return JSUint8Array(payload)
     }
 

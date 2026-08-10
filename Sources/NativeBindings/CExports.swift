@@ -25,6 +25,11 @@ public func dal_run(
         groupId: groupId, deviceId: deviceId)
 }
 
+@_cdecl("dal_last_error")
+public func dal_last_error(_ handle: UnsafeMutableRawPointer?) -> UnsafeMutablePointer<CChar>? {
+    nativeLastError(handle)
+}
+
 @_cdecl("dal_destroy")
 public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
     nativeDestroy(handle)

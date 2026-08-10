@@ -105,6 +105,45 @@ jobs:
           # that it can never be invalidated.
           enable-cache: false
       - run: mise run build:node-native
+      # Handed to darwin-oldest, which runs this exact artifact on the oldest
+      # macOS we claim to support.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-arm64-native
+          path: packages/*-node/native/darwin-arm64/
+          retention-days: 1
+
+  darwin-oldest:
+    name: darwin native on the oldest macOS
+    needs: darwin-native
+    # macos-14 (Sonoma). It cannot *build* the package - it carries Swift 5.10
+    # and the floor is 6.2 - but a consumer never builds it either: they npm
+    # install a prebuilt native, which is exactly what this job runs.
+    #
+    # Nothing else covers this. The dylib reports `minos 13.0`, but a model
+    # artifact carries its own floor (redact's Core ML export is converted with
+    # minimum_deployment_target=iOS18, i.e. macOS 15) and no gate compared the
+    # two. A customer on an older macOS reported the neural path returning
+    # nothing at all while the deterministic recognizers kept working, which is
+    # what a model that cannot run looks like from the outside.
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/download-artifact@v4
+        with:
+          name: darwin-arm64-native
+          path: packages/
+      - run: npm ci
+      # CI=true turns the suite's "model unavailable" skip into a failure, so a
+      # model that will not load here cannot pass as a green run.
+      - name: redact native suite
+        env:
+          CI: "true"
+        run: node --test test/redact.test.mjs
+        working-directory: packages/redact-node
 
   linux:
     name: Linux (Swift + LiteRT)
