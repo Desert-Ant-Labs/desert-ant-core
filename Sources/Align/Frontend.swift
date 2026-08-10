@@ -1,3 +1,6 @@
+// Apple-only: the log-mel frontend is vDSP-backed. Non-Apple builds of this
+// target compile only the portable catalog declaration and helpers.
+#if canImport(Accelerate)
 import Accelerate
 import Foundation
 
@@ -120,3 +123,4 @@ final class Frontend {
 
     func timeToFrame(_ t: Double) -> Int { Int((t * Double(cfg.sample_rate) / Double(cfg.hop_length)).rounded()) }
 }
+#endif

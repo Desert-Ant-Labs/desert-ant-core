@@ -1,3 +1,4 @@
+#if canImport(CoreML)
 import CoreML
 import Foundation
 
@@ -101,3 +102,4 @@ final class StageModel {
         try predictions(mel: mel, bytes: bytes, langs: langs, kinds: kinds).map(\.position)
     }
 }
+#endif
