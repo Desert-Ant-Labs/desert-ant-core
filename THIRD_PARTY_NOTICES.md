@@ -31,6 +31,32 @@ No non-commercial or unlicensed data is used.
 
 ---
 
+## Align
+
+The Align models were trained from speech and machine-generated alignment references.
+The source datasets and reference systems are not redistributed here.
+
+### Training audio
+
+- **FLEURS** - Google - **CC BY 4.0**. Multilingual speech used for the production model.
+  Dataset: https://huggingface.co/datasets/google/fleurs
+
+### Reference generation (not redistributed here)
+
+- **Qwen3-ForcedAligner-0.6B** - Alibaba Qwen team - **Apache-2.0**. Primary word-boundary
+  reference for all nine languages. The aligner is not included here.
+- **OWSM-CTC v4 1B** - ESPnet/WavLab contributors - **CC BY 4.0**. Used on the validation
+  split to estimate CTC timing offsets and as a gross alignment-outlier detector where stable.
+  OWSM timestamps are not averaged into the final references. The model is not included here.
+- **ESPnet** - ESPnet contributors - **Apache-2.0**. CTC inference and alignment tooling used
+  by the training pipeline.
+
+Align links only Apple system frameworks (Core ML, Accelerate, AVFoundation, Speech); no
+third-party runtime library is used. The compiled Align weights, calibration policy, and
+Swift implementation are distributed under [`LICENSE.md`](LICENSE.md).
+
+---
+
 ## Emo, Clear
 
 Not yet recorded here. Their notices live on their Hugging Face model cards; move

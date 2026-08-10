@@ -61,6 +61,40 @@ let models: [ModelPackage] = [
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
+// Align is Apple-only (Core ML, Speech, AVFoundation), so it lives outside the
+// `models` list: it gets no Android/Node/Web products and no NativeBindings.
+// Like every model here it bundles nothing; its Core ML models and sidecars are
+// downloaded on demand via its catalog declaration (Sources/Align/Catalog.swift).
+// Its targets exist only in an Apple build: the manifest runs on the host, so
+// `os(macOS)` excludes Linux, and the wasm/android env vars exclude the
+// cross-compiles that run *from* macOS (belt and braces; those builds are
+// product-scoped anyway, and would never reach Align).
+#if os(macOS)
+let alignEnabled = !wasmBuild
+    && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
+#else
+let alignEnabled = false
+#endif
+
+let alignProducts: [Product] = !alignEnabled ? [] : [
+    .library(name: "Align", targets: ["Align"]),
+]
+
+let alignTargets: [Target] = !alignEnabled ? [] : [
+    .target(
+        name: "Align",
+        dependencies: [.byName(name: "DesertAnt")]
+    ),
+    .testTarget(
+        name: "AlignTests",
+        dependencies: ["Align", "TestSupport"],
+        resources: [
+            .copy("Resources/golden.json"),
+            .copy("Resources/calibration_golden.json"),
+        ]
+    ),
+]
+
 // Keep arrays typed separately to avoid manifest type-checker timeouts.
 let products: [Product] = [
         .library(name: "DesertAnt", targets: ["DesertAnt"]),
@@ -299,6 +333,7 @@ let testTargets: [Target] = [
 ]
 
 let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
+    + alignTargets
 
 let package = Package(
     name: "DesertAnt",
@@ -308,7 +343,7 @@ let package = Package(
         .tvOS(.v16),
         .visionOS(.v1),
     ],
-    products: products + modelProducts,
+    products: products + modelProducts + alignProducts,
     dependencies: jsDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
