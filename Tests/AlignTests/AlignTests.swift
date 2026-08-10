@@ -1,5 +1,7 @@
+// The refiner only exists where Core ML does; elsewhere this suite is empty.
+#if canImport(CoreML) && canImport(Accelerate)
 import Foundation
-import XCTest
+import Testing
 #if canImport(Speech)
 import CoreMedia
 import Speech
@@ -7,7 +9,7 @@ import Speech
 @testable import Align
 import TestSupport
 
-final class AlignTests: XCTestCase {
+struct AlignTests {
     struct Golden: Decodable {
         struct W: Decodable { let text: String; let start: Double; let end: Double }
         let sample_rate: Int; let n_samples: Int; let language: String
@@ -51,7 +53,7 @@ final class AlignTests: XCTestCase {
     }
 
     // A user pre-populating a directory with the declared files can load from it.
-    func testExplicitResourceLoading() async throws {
+    @Test func explicitResourceLoading() async throws {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("align-explicit-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -61,45 +63,45 @@ final class AlignTests: XCTestCase {
             languageCode: "en",
             resourceDirectory: directory
         )
-        XCTAssertTrue(fromDirectory.isSupported)
+        #expect(fromDirectory.isSupported)
     }
 
     // Frontend log-mel must match the Python reference (PSNR high).
-    func testFrontendParity() async throws {
+    @Test func frontendParity() async throws {
         let g = try loadGolden()
         let refiner = try await makeRefiner(languageCode: g.language)
         let audio = synthAudio(g.n_samples, g.sample_rate)
         let (lm, nF) = refiner._debugLogMel(audio)
-        XCTAssertEqual(nF, g.n_frames)
+        #expect(nF == g.n_frames)
         let ref = Data(base64Encoded: g.logmel_b64)!.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        XCTAssertEqual(lm.count, ref.count)
+        #expect(lm.count == ref.count)
         var mse = 0.0, peak = 0.0
         for k in 0..<lm.count { let d = Double(lm[k] - ref[k]); mse += d * d; peak = max(peak, abs(Double(ref[k]))) }
         mse /= Double(lm.count)
         let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
         print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse))")
-        XCTAssertGreaterThan(psnr, 30.0, "log-mel frontend diverges from Python reference")
+        #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
     }
 
-    func testCalibrationParity() async throws {
+    @Test func calibrationParity() async throws {
         let url = Bundle.module.url(forResource: "calibration_golden", withExtension: "json")!
         let golden = try JSONDecoder().decode(CalibrationGolden.self, from: Data(contentsOf: url))
         let refiner = try await makeRefiner(languageCode: "en")
-        XCTAssertEqual(golden.features.count, golden.corrections.count)
+        #expect(golden.features.count == golden.corrections.count)
         for i in golden.features.indices {
             let actual = refiner._debugCalibratedCorrection(golden.features[i])
-            XCTAssertEqual(actual, golden.corrections[i], accuracy: 0.000_001)
+            #expect(abs(actual - golden.corrections[i]) <= 0.000_001)
         }
     }
 
     // Full cascade (Core ML) corrections match the PyTorch reference within FP16 tolerance.
-    func testEndToEndParity() async throws {
+    @Test func endToEndParity() async throws {
         let g = try loadGolden()
         let refiner = try await makeRefiner(languageCode: g.language)
         let audio = synthAudio(g.n_samples, g.sample_rate)
         let words = g.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }
         let fixed = refiner.refine(words, audio: audio, sampleRate: Double(g.sample_rate))
-        XCTAssertEqual(fixed.count, words.count)
+        #expect(fixed.count == words.count)
         var maxDiff = 0.0
         var checkedBoundaries = 0
         for i in 0..<words.count {
@@ -114,13 +116,13 @@ final class AlignTests: XCTestCase {
             maxDiff = max(maxDiff, abs(ce - g.corrections[2 * i + 1] * 1000))
         }
         print("end-to-end max correction diff \(maxDiff) ms")
-        XCTAssertGreaterThan(checkedBoundaries, 0)
-        XCTAssertLessThan(maxDiff, 25.0, "Core ML cascade diverges from PyTorch reference")
+        #expect(checkedBoundaries > 0)
+        #expect(maxDiff < 25.0, "Core ML cascade diverges from PyTorch reference")
     }
 
     #if canImport(Speech)
     @available(iOS 26, macOS 26, tvOS 26, visionOS 26, *)
-    func testAttributedTimestampApplicationMatchesWordOutput() async throws {
+    @Test func attributedTimestampApplicationMatchesWordOutput() async throws {
         let g = try loadGolden()
         let refiner = try await makeRefiner(languageCode: g.language)
         let audio = synthAudio(g.n_samples, g.sample_rate)
@@ -137,19 +139,20 @@ final class AlignTests: XCTestCase {
         }
         let correctedText = refiner.refine(text, audio: audio, sampleRate: Double(g.sample_rate))
         let actual = refiner.words(from: correctedText)
-        XCTAssertEqual(actual.count, expected.count)
+        #expect(actual.count == expected.count)
         for i in expected.indices {
-            XCTAssertEqual(actual[i].text, expected[i].text)
-            XCTAssertEqual(actual[i].start, expected[i].start, accuracy: 0.000_003)
-            XCTAssertEqual(actual[i].end, expected[i].end, accuracy: 0.000_003)
+            #expect(actual[i].text == expected[i].text)
+            #expect(abs(actual[i].start - expected[i].start) <= 0.000_003)
+            #expect(abs(actual[i].end - expected[i].end) <= 0.000_003)
         }
     }
     #endif
 
-    func testUnsupportedLocalePassthrough() async throws {
+    @Test func unsupportedLocalePassthrough() async throws {
         let refiner = try await makeRefiner(languageCode: "xx")  // not a trained language
-        XCTAssertFalse(refiner.isSupported)
+        #expect(!refiner.isSupported)
         let words = [WordTiming(text: "a", start: 0.1, end: 0.2)]
-        XCTAssertEqual(refiner.refine(words, audio: synthAudio(16000, 16000)), words)
+        #expect(refiner.refine(words, audio: synthAudio(16000, 16000)) == words)
     }
 }
+#endif
