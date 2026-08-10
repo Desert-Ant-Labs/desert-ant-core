@@ -42,6 +42,8 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       if (ptr) lib.bufferFree(ptr);
     }
   };
+  // The core knows why, not which package: `readyModel` adds that prefix, so
+  // adding it here too would print the package name twice.
   const withReason = (message, handle) => {
     const why = reason(handle);
     return new Error(why ? `${message}: ${why}` : message);
@@ -64,7 +66,7 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       // "download" covers preparing the model home, so this fires for an
       // unwritable directory or a manifest that does not match the files there
       // as well as for an actual transfer failure. The reason says which.
-      if (rc !== 0) throw withReason(`${packageName}: could not prepare the model`, handle);
+      if (rc !== 0) throw withReason("could not prepare the model", handle);
     },
     async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
