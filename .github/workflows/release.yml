@@ -131,10 +131,15 @@ jobs:
           - { target: linux-x64, runner: ubuntu-24.04, container: "swift:6.3.3-rhel-ubi9" }
           - { target: linux-arm64, runner: ubuntu-24.04-arm, container: "swift:6.3.3-rhel-ubi9" }
           # CI's `darwin-native` job uses the same runner, so the toolchain that
-          # ships is the one CI proves. The published native's compatibility floor
-          # comes from the manifest's `platforms` (macOS 13), not from the runner;
-          # macos-14 is no longer usable because its Swift 5.10 predates the
-          # package's 6.2 requirement.
+          # ships is the one CI proves. macos-14 is no longer usable because its
+          # Swift 5.10 predates the package's 6.2 requirement.
+          #
+          # The runner does not set the Apple floor either way: that comes from the
+          # Core ML models, built for macOS 15 / iOS 18. macOS 14 refuses to load
+          # them ("compiler major version for compiled model is 9.0.0 and is more
+          # recent than this framework major version 8.0.0"), macOS 15 and 26 both
+          # accept them. There is no `platforms` clause in Package.swift, so
+          # nothing enforces this at resolve time; the README states it.
           - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     container: ${{ matrix.container }}
