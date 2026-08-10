@@ -115,8 +115,10 @@ jobs:
 
   # The npm packages ship a prebuilt native core per server-side target. Cross-OS
   # builds are not possible, so each is built on its own runner and gathered by
-  # the publish job. Linux builds on 22.04 (glibc 2.35) so the published libs run
-  # on Ubuntu 22.04+/Debian 12+, not only on the build host.
+  # the publish job. Linux builds inside a rhel-ubi9 container (glibc 2.34) so
+  # the published libs run on AWS Lambda's managed Node runtimes (Amazon Linux
+  # 2023 = glibc 2.34) as well as Ubuntu 22.04+/Debian 12+, not only on the
+  # build host. The container also supplies the Swift toolchain.
   natives:
     name: native ${{ matrix.target }}
     needs: gate
@@ -124,8 +126,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: linux-x64, runner: ubuntu-22.04 }
-          - { target: linux-arm64, runner: ubuntu-22.04-arm }
+          # Container glibc must stay <= 2.34 (Lambda AL2023); anything older
+          # also works. Newer runner images are fine - the container pins libc.
+          - { target: linux-x64, runner: ubuntu-24.04, container: "swift:6.3.3-rhel-ubi9" }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, container: "swift:6.3.3-rhel-ubi9" }
           # CI's `darwin-native` job uses the same runner, so the toolchain that
           # ships is the one CI proves. The published native's compatibility floor
           # comes from the manifest's `platforms` (macOS 13), not from the runner;
@@ -133,14 +137,16 @@ jobs:
           # package's 6.2 requirement.
           - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
     steps:
-      - uses: actions/checkout@v5
+      # Before checkout: with git present, actions/checkout does a real clone
+      # instead of the REST-tarball fallback the bare ubi9 image would force.
       - name: Linux build deps (static Foundation autolinks these)
         if: startsWith(matrix.target, 'linux')
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            libcurl4-openssl-dev libxml2-dev zlib1g-dev binutils file
+          dnf install -y -q --setopt=install_weak_deps=False \
+            git tar gzip libcurl-devel libxml2-devel zlib-devel binutils file
+      - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
       - uses: astral-sh/setup-uv@v7
         with:
