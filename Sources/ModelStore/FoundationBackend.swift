@@ -82,7 +82,13 @@ public struct FoundationTransport: ModelTransport {
 
 /// `FileManager`-backed filesystem.
 public struct FoundationFileSystem: FileSystem {
-    public init() {}
+    private let cacheRoot: String?
+
+    /// - Parameter cacheRoot: base for the managed cache layout. `nil` asks
+    ///   `FileManager` for the platform's caches directory.
+    public init(cacheRoot: String? = nil) {
+        self.cacheRoot = cacheRoot.flatMap { $0.isEmpty ? nil : $0 }
+    }
 
     public func exists(_ path: String) -> Bool { FileManager.default.fileExists(atPath: path) }
 
@@ -113,6 +119,7 @@ public struct FoundationFileSystem: FileSystem {
     public func remove(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
 
     public func defaultCacheRoot() -> String {
+        if let cacheRoot { return cacheRoot }
         if let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
             return url.path
         }
@@ -130,13 +137,20 @@ public extension StoredModel {
 
 public extension ModelStore {
     /// Default Apple/Linux store: URLSession + FileManager.
-    init(endpoint: String = "https://huggingface.co") {
-        self.init(transport: FoundationTransport(), fileSystem: FoundationFileSystem(), endpoint: endpoint)
+    ///
+    /// - Parameter cacheRoot: base for the managed cache layout. `nil` uses the
+    ///   platform caches directory, which is the usual case on Apple and Linux.
+    init(cacheRoot: String? = nil, endpoint: String = "https://huggingface.co") {
+        self.init(transport: FoundationTransport(),
+                  fileSystem: FoundationFileSystem(cacheRoot: cacheRoot), endpoint: endpoint)
     }
 
-    /// `cacheRoot` is ignored: FileManager provides a per-app default base.
+    /// An explicit `cacheRoot` wins; `nil` falls back to FileManager's caches
+    /// directory. This used to discard `cacheRoot` outright, so a caller that
+    /// passed one wrote somewhere else without saying so - which matters wherever
+    /// the platform default is not writable.
     static func platformDefault(cacheRoot: String?) throws -> ModelStore {
-        ModelStore()
+        ModelStore(cacheRoot: cacheRoot)
     }
 }
 #endif
