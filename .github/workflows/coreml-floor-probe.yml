@@ -1,0 +1,54 @@
+name: Core ML floor probe
+
+# One-off, run by hand. Which macOS versions accept the .mlmodelc we publish?
+#
+# We ship the model precompiled, so the artifact carries the Core ML compiler of
+# whichever machine exported it (redact v0.4.0: coremlc 3520.5.1). macOS 14
+# refuses it - "compiler major version for compiled model is 9.0.0 and is more
+# recent than this framework major version 8.0.0" - and macOS 26 accepts it. This
+# answers the only version left, which decides how many machines are affected.
+#
+# Loads the artifact with Core ML directly: no SDK, no native build, no npm, so
+# nothing here depends on the package's Swift floor. Delete once answered.
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      # 14 and 26 are the controls: a run where 14 passes or 26 fails is measuring
+      # the probe, not the artifact.
+      matrix:
+        runner: [macos-14, macos-15, macos-26]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Fetch the published artifact
+        run: |
+          base=https://huggingface.co/desert-ant-labs/redact/resolve/v0.4.0/redact.mlmodelc
+          mkdir -p redact.mlmodelc/weights redact.mlmodelc/analytics
+          for f in coremldata.bin metadata.json model.mil weights/weight.bin analytics/coremldata.bin; do
+            curl -fsSL "$base/$f" -o "redact.mlmodelc/$f"
+          done
+          grep -o 'coremlc-version[^}]*' redact.mlmodelc/model.mil | head -1
+
+      - name: Load it with Core ML
+        run: |
+          sw_vers
+          cat > probe.swift <<'SWIFT'
+          import CoreML
+          import Foundation
+
+          do {
+              _ = try MLModel(contentsOf: URL(fileURLWithPath: "redact.mlmodelc"))
+              print("ACCEPTED")
+          } catch {
+              print("REFUSED: \(error)")
+              exit(1)
+          }
+          SWIFT
+          swift probe.swift
