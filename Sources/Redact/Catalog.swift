@@ -11,7 +11,7 @@ public enum RedactModel: ModelDeclaration {
     public static let revision = "v0.4.0"
     /// Matches packages/redact-node/package.json and
     /// packages/redact-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
-    public static let sdkVersion = "1.0.3"
+    public static let sdkVersion = "1.0.4"
     public static let summary = "Multilingual on-device PII detection and redaction."
 
     /// Compact SentencePiece vocab.
