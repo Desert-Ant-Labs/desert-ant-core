@@ -108,7 +108,7 @@ jobs:
 
   linux:
     name: Linux (Swift + LiteRT)
-    runs-on: ubuntu-22.04 # glibc 2.35, the floor the published natives target
+    runs-on: ubuntu-22.04 # glibc 2.35; the *published* natives build on 2.34 in release.yml
     steps:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
@@ -172,7 +172,13 @@ jobs:
       # and that no package's dist is stale.
       - run: mise run check:types
 
+      # These natives only feed test:node and are never published; the real
+      # distribution floor (glibc 2.34, AWS Lambda's AL2023) is enforced by the
+      # release workflow, which builds inside a glibc-2.34 container. This host
+      # is newer, so state its own floor instead of tripping the guard.
       - run: mise run build:node-native
+        env:
+          DAL_GLIBC_CEILING: "2.35"
       - run: mise run test:node
 
       # The browser is the default entry of every model package, so it gets a
