@@ -4,6 +4,7 @@ import DesertAnt
 @testable import Emo
 @testable import Redact
 @testable import Clear
+@testable import Uhm
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -13,6 +14,7 @@ let catalog: [any ModelDeclaration.Type] = [
     EmoModel.self,
     RedactModel.self,
     ClearModel.self,
+    UhmModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
