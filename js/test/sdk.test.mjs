@@ -66,7 +66,9 @@ test("a failed download disposes the handle and names the package", async () => 
   const handle = core.create("/cache", "");
   await assert.rejects(
     () => readyModel({ core, packageName: "@desert-ant-labs/emo", handle }),
-    /@desert-ant-labs\/emo: model download failed.*network is down/s,
+    // The package name comes from this layer, the reason from the core. It used
+    // to say "model download failed" whatever had actually gone wrong.
+    /@desert-ant-labs\/emo: .*network is down/s,
   );
   assert.equal(core.isLive(handle), false, "the handle is released, not leaked");
 });

@@ -46,10 +46,8 @@ final class ClearBindingTests: XCTestCase {
         options.f64(.nan)       // integratedLUFS: mastering bypassed
         options.f64(-1.5)       // true-peak ceiling
         options.f64(9)          // max loudness gain
-        guard let payload = await clear.run(input: FFIReader(input.bytes),
-                                            options: FFIReader(options.bytes)) else {
-            return XCTFail("the audio binding returned no payload")
-        }
+        let payload = try await clear.run(input: FFIReader(input.bytes),
+                                          options: FFIReader(options.bytes))
         var reader = FFIReader(payload)
         let samples = reader.f32Array()
         XCTAssertFalse(samples.isEmpty)

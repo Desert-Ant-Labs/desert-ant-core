@@ -90,10 +90,11 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
     await core.download(handle, onProgress);
   } catch (cause) {
     model.dispose();
-    // Rethrown as-is: `core.download` already names the package and why it
-    // failed. Wrapping it in "model download failed" repeated the package name
-    // and asserted a cause the ABI had not actually reported.
-    throw cause;
+    // The core supplies why (dal_last_error, when it recorded one) and this layer
+    // adds which package, which the core has no way to know. It used to say
+    // "model download failed" for every cause, including an unwritable directory
+    // and a manifest that did not match the files already there.
+    throw new Error(`${packageName}: ${cause?.message ?? cause}`, { cause });
   }
   onProgress?.(1);
   return model;
