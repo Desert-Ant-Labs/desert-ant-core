@@ -64,8 +64,11 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     core,
     async open(options = {}) {
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
-      const cacheRoot = options.cacheRoot ?? native.defaultCacheRoot();
-      const handle = core.create(cacheRoot, options.directory ?? null);
+      // Only an explicit cacheRoot goes down. Apple and Linux resolve their own
+      // caches directory, so the default fabricated here was discarded by the
+      // core anyway; now that the core honours what it is given, sending one
+      // would relocate every existing cache.
+      const handle = core.create(options.cacheRoot ?? null, options.directory ?? null);
       return readyModel({ core, packageName, handle, onProgress });
     },
   };
