@@ -42,6 +42,7 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
 struct ModelPackage {
     let name: String
     var dependencies: [Target.Dependency] = []
+    var resources: [Resource] = []
     var testDependencies: [Target.Dependency] = []
     var testResources: [Resource] = []
 }
@@ -57,6 +58,10 @@ let models: [ModelPackage] = [
         name: "Redact",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
         testResources: [.copy("Resources/deterministic_corpus.json")]
+    ),
+    .init(
+        name: "Uhm",
+        dependencies: ["AudioIO", "AudioDSP"]
     ),
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
@@ -140,7 +145,8 @@ let modelTargets: [Target] = models.map { model in
         dependencies: [.byName(name: "DesertAnt"), .byName(name: "NativeBindings")]
             + model.dependencies,
         path: "Sources/\(model.name)",
-        exclude: ["Web"]
+        exclude: ["Web"],
+        resources: model.resources
     )
 } + modelWasmTargets
 
