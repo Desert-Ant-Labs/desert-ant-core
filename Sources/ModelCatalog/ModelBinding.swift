@@ -33,11 +33,23 @@ public protocol BoundModel: AnyObject {
     /// `options` is separate because an empty payload means "all defaults", which
     /// is a contract every SDK relies on; the input is always written.
     ///
-    /// Returning `nil` reports failure to the host as a NULL buffer.
-    func run(input: FFIReader, options: FFIReader) async -> [UInt8]?
+    /// Throwing reports failure to the host as a NULL buffer, and the thrown
+    /// error's description is what `dal_last_error` hands back. Every binding
+    /// used to swallow its error with `try?`, which is why a model that could
+    /// not run looked identical to one that found nothing.
+    func run(input: FFIReader, options: FFIReader) async throws -> [UInt8]
 }
 
-public extension BoundModel {
+/// Why a binding refused a payload, when the failure is the host's input rather
+/// than the model's own error.
+public enum BindingError: Error, CustomStringConvertible {
+    case invalidInput(String)
+
+    public var description: String {
+        switch self {
+        case .invalidInput(let what): "invalid input payload: \(what)"
+        }
+    }
 }
 
 /// A model's binding: how to construct it. The instance methods live on

@@ -14,7 +14,7 @@ extension Emo: BoundModel {
     ///
     /// Result payload: `u32 count`, then per suggestion a length-prefixed UTF-8
     /// emoji string and an `f64` confidence.
-    public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
+    public func run(input: FFIReader, options: FFIReader) async throws -> [UInt8] {
         var input = input
         var options = options
         let text = input.string()
@@ -22,9 +22,7 @@ extension Emo: BoundModel {
         // every SDK declares for `limit` (3), not a number of its own.
         let limit = options.isEmpty ? 3 : options.u32()
         let tone = EmojiSkinTone(ffiValue: options.u32())
-        guard let suggestions = try? await suggestions(for: text, limit: limit, skinTone: tone) else {
-            return nil
-        }
+        let suggestions = try await suggestions(for: text, limit: limit, skinTone: tone)
         var w = FFIWriter()
         w.u32(suggestions.count)
         for s in suggestions {

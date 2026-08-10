@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import path from "node:path";
+import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { Redact } from "../node.js";
@@ -24,6 +25,11 @@ try {
 } catch (e) {
   loadError = e;
 }
+// Skipping is for a contributor with no network. In CI it is the bug: a platform
+// where the model cannot load would otherwise report green with every model test
+// silently skipped, which is exactly how a darwin build that produced no neural
+// detections could have shipped.
+if (!redact && process.env.CI) throw loadError;
 const modelOpts = redact ? {} : { skip: `native model unavailable: ${String(loadError).slice(0, 100)}` };
 
 test("redaction masks names, email, IBAN", modelOpts, async () => {
@@ -51,6 +57,25 @@ test("restore round-trips exactly", modelOpts, async () => {
 test("label filter", modelOpts, async () => {
   const r = await redact.redaction("Anna at anna@x.com, IBAN DE89370400440532013000.", { labels: ["EMAIL"] });
   assert.deepEqual(new Set(r.items.map((i) => i.label)), new Set(["EMAIL"]));
+});
+
+// The ABI reports failure as a NULL buffer or a non-zero code, so the reason
+// travels separately (dal_last_error). Nothing else proves that channel is wired:
+// the reader swallows its own errors so it can never mask the failure it is
+// reporting, which means a typo in it degrades silently to no reason at all.
+test("a load failure reports why, not just that", async () => {
+  // A plain file where the model directory should be: the core cannot create it,
+  // and unlike a chmod this also fails for root, which CI containers run as.
+  const notADirectory = path.join(here, ".not-a-directory");
+  await fs.writeFile(notADirectory, "");
+  try {
+    await assert.rejects(Redact.load({ directory: notADirectory }), (e) => {
+      assert.match(e.message, /could not prepare the model: \S/, "the reason must be appended");
+      return true;
+    });
+  } finally {
+    await fs.rm(notADirectory, { force: true });
+  }
 });
 
 test("ORG is excluded from the default label set", () => {

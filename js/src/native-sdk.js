@@ -29,6 +29,24 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
 
   const isDownloaded = (handle) => lib.isDownloaded(handle) !== 0;
 
+  // The reason the core recorded for its last failure on this handle, if any.
+  // Never throws: this only ever runs while reporting another error.
+  const reason = (handle) => {
+    let ptr;
+    try {
+      ptr = lib.lastError(handle);
+      return ptr ? decodeResult(ptr).str() : undefined;
+    } catch {
+      return undefined;
+    } finally {
+      if (ptr) lib.bufferFree(ptr);
+    }
+  };
+  const withReason = (message, handle) => {
+    const why = reason(handle);
+    return new Error(why ? `${message}: ${why}` : message);
+  };
+
   // Plain closures rather than `this`-dependent methods: the core is handed
   // around as a value (LoadedModel, readyModel), so it must survive destructuring.
   const core = {
@@ -43,13 +61,16 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       if (isDownloaded(handle)) return;
       onProgress?.(0);
       const rc = await callAsync(lib.download, handle);
-      if (rc !== 0) throw new Error("the native core reported a download failure");
+      // "download" covers preparing the model home, so this fires for an
+      // unwritable directory or a manifest that does not match the files there
+      // as well as for an actual transfer failure. The reason says which.
+      if (rc !== 0) throw withReason(`${packageName}: could not prepare the model`, handle);
     },
     async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
       const ptr = await callAsync(
         lib.run, handle, input, input.length, payload, payload.length, group, deviceId);
-      if (!ptr) throw new Error(`${packageName}: the model failed to run`);
+      if (!ptr) throw withReason(`${packageName}: the model failed to run`, handle);
       try {
         return decodeResult(ptr);
       } finally {
@@ -64,8 +85,11 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     core,
     async open(options = {}) {
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
-      const cacheRoot = options.cacheRoot ?? native.defaultCacheRoot();
-      const handle = core.create(cacheRoot, options.directory ?? null);
+      // Only an explicit cacheRoot is passed down. Apple and Linux resolve their
+      // own caches directory, so fabricating one here used to be discarded by the
+      // core anyway; now that the core honours what it is given, sending a
+      // default would silently relocate every existing macOS cache.
+      const handle = core.create(options.cacheRoot ?? null, options.directory ?? null);
       return readyModel({ core, packageName, handle, onProgress });
     },
   };

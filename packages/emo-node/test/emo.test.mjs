@@ -28,6 +28,9 @@ try {
 } catch (e) {
   loadError = e;
 }
+// Skipping is for a contributor with no network; in CI it hides a platform where
+// the model cannot load behind a green run. See redact-node's suite.
+if (!emo && process.env.CI) throw loadError;
 const modelOpts = emo ? {} : { skip: `native model unavailable: ${String(loadError).slice(0, 120)}` };
 
 test("suggests emoji for an English phrase", modelOpts, async () => {

@@ -90,7 +90,10 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
     await core.download(handle, onProgress);
   } catch (cause) {
     model.dispose();
-    throw new Error(`${packageName}: model download failed: ${cause}`, { cause });
+    // Rethrown as-is: `core.download` already names the package and why it
+    // failed. Wrapping it in "model download failed" repeated the package name
+    // and asserted a cause the ABI had not actually reported.
+    throw cause;
   }
   onProgress?.(1);
   return model;
