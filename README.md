@@ -25,6 +25,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
   - [Install](#install-2)
   - [Usage](#usage-2)
 - [Model downloads and caching](#model-downloads-and-caching)
+  - [Offline and airgapped](#offline-and-airgapped)
 - [Platform support](#platform-support)
 - [Contributing](#contributing)
 - [License](#license)
@@ -276,6 +277,35 @@ verified before it is used.
 
 `isDownloaded()` answers whether a model is usable with no network, and
 `download()` fetches it ahead of time with progress.
+
+### Offline and airgapped
+
+Model files are ordinary HTTPS downloads, so a directory can be populated from
+any machine: neither the SDK nor a container matching the target platform is
+needed. Each model's repo, pinned revision, and per-platform file list are
+declared in `Sources/<Model>/Catalog.swift` at the tag you build against; Swift
+also exposes them as `modelRepo` and `modelRevision`.
+
+Redact at `v0.4.0`, for example. The Hub repo also holds training and tokenizer
+sources, which no SDK reads:
+
+| Platform | Files |
+|---|---|
+| Apple | `redact.mlmodelc/` (`coremldata.bin`, `metadata.json`, `model.mil`, `weights/weight.bin`, `analytics/coremldata.bin`), `redact_tokenizer.bin`, `labels.json` |
+| Android, Linux, Windows, web | `redact.tflite`, `redact_tokenizer.bin`, `labels.json` |
+
+```bash
+base=https://huggingface.co/desert-ant-labs/redact/resolve/v0.4.0
+for f in redact.tflite redact_tokenizer.bin labels.json; do
+  curl -fsSL --create-dirs -o "model/$f" "$base/$f"
+done
+```
+
+Pass that folder as `directory` and it is adopted as-is, with nothing downloaded
+and no network at run time. For a build that has to be reproducible, use the
+commit sha in place of the tag - the Hub accepts either, and `v0.4.0` is
+`1d65950bbf0459a4d7a94afb85095877f585d99c`. A revision is pinned per SDK version
+and moves only with a deliberate bump: every 1.0.x release ships `v0.4.0`.
 
 ## Platform support
 
