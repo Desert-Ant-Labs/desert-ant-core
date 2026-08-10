@@ -9,8 +9,10 @@ import DesertAnt
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
-    public static let revision = "v0.1.0"
-    public static let sdkVersion = "0.1.0"
+    // TODO: pin to a tagged revision once the align model repo is tagged.
+    public static let revision = "main"
+    /// Matches VERSION (check:version enforces it; this repo releases as one).
+    public static let sdkVersion = "1.0.5"
     public static let summary = "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).

@@ -1,3 +1,4 @@
+#if canImport(CoreML) && canImport(Accelerate)
 import DesertAnt
 import Foundation
 
@@ -314,3 +315,4 @@ public final class SpeechTimestampRefiner: @unchecked Sendable {
         return result
     }
 }
+#endif

@@ -65,22 +65,15 @@ let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name)
 // `models` list: it gets no Android/Node/Web products and no NativeBindings.
 // Like every model here it bundles nothing; its Core ML models and sidecars are
 // downloaded on demand via its catalog declaration (Sources/Align/Catalog.swift).
-// Its targets exist only in an Apple build: the manifest runs on the host, so
-// `os(macOS)` excludes Linux, and the wasm/android env vars exclude the
-// cross-compiles that run *from* macOS (belt and braces; those builds are
-// product-scoped anyway, and would never reach Align).
-#if os(macOS)
-let alignEnabled = !wasmBuild
-    && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
-#else
-let alignEnabled = false
-#endif
-
-let alignProducts: [Product] = !alignEnabled ? [] : [
+// The targets are declared unconditionally so the resolved graph is identical on
+// every platform (check:isolation reads it on Linux); the Apple-framework
+// sources gate themselves with `#if canImport(...)`, so a non-Apple build
+// compiles only the portable declaration and helpers.
+let alignProducts: [Product] = [
     .library(name: "Align", targets: ["Align"]),
 ]
 
-let alignTargets: [Target] = !alignEnabled ? [] : [
+let alignTargets: [Target] = [
     .target(
         name: "Align",
         dependencies: [.byName(name: "DesertAnt")]
