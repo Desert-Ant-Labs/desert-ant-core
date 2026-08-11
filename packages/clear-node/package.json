@@ -1,0 +1,86 @@
+{
+  "name": "@desert-ant-labs/clear",
+  "version": "1.0.5",
+  "description": "On-device speech enhancement for JavaScript: denoise, dereverb, and loudness-normalize to a podcast-ready 48 kHz. Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://desertant.com/models/clear/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+    "directory": "packages/clear-node"
+  },
+  "keywords": [
+    "speech-enhancement",
+    "denoise",
+    "dereverb",
+    "audio",
+    "loudness",
+    "lufs",
+    "on-device",
+    "wasm",
+    "litert",
+    "isomorphic"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "node --test test/clear.test.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./native": {
+      "types": "./index.d.ts",
+      "default": "./node.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./wasm": "./dist/ClearWeb.wasm"
+  },
+  "imports": {
+    "#platform": {
+      "browser": "./platform-browser.js",
+      "default": "./platform-node.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "clear.js",
+    "codec.js",
+    "node.js",
+    "platform-browser.js",
+    "platform-node.js",
+    "index.d.ts",
+    "dist",
+    "native",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@desert-ant-labs/core": "^1.0.5"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0"
+  },
+  "peerDependencies": {
+    "@litertjs/core": ">=2.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@litertjs/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@litertjs/core": "^2.5.2"
+  }
+}

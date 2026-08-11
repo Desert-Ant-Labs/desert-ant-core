@@ -39,6 +39,19 @@ export class FfiReader {
     return v;
   }
 
+  /** Read a uint32 count, then that many big-endian floats. The audio payload:
+   *  a fresh Float32Array, not a view, because the source bytes are big-endian
+   *  and the platform is not. */
+  f32Array() {
+    const n = this.u32();
+    const out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      out[i] = this._view.getFloat32(this._o, false);
+      this._o += 4;
+    }
+    return out;
+  }
+
   /** Read a uint32-length-prefixed UTF-8 string. */
   str() {
     const n = this.u32();
@@ -83,6 +96,17 @@ export class FfiWriter {
   f64(v) {
     const b = new Uint8Array(8);
     new DataView(b.buffer).setFloat64(0, v, false);
+    return this._push(b);
+  }
+
+  /** Append a uint32 element count, then that many big-endian floats: the
+   *  portable audio payload, matching Swift's `FFIWriter.f32Array`. */
+  f32Array(values) {
+    const a = values instanceof Float32Array ? values : Float32Array.from(values ?? []);
+    this.u32(a.length);
+    const b = new Uint8Array(a.length * 4);
+    const view = new DataView(b.buffer);
+    for (let i = 0; i < a.length; i++) view.setFloat32(i * 4, a[i], false);
     return this._push(b);
   }
 
