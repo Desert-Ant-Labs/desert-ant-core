@@ -357,6 +357,16 @@ class FfiReader(bytes: ByteArray) {
     fun int(): Int = buf.int
     fun double(): Double = buf.double
 
+    /** Whether any bytes are left, for fields appended after a first release. */
+    fun hasRemaining(): Boolean = buf.hasRemaining()
+
+    /** Read an int count, then that many big-endian floats: the audio payload. */
+    fun floats(): FloatArray {
+        val out = FloatArray(buf.int)
+        for (i in out.indices) out[i] = buf.float
+        return out
+    }
+
     fun string(): String {
         val b = ByteArray(buf.int)
         buf.get(b)
@@ -380,6 +390,13 @@ class FfiWriter {
 
     /** Append a big-endian IEEE-754 double. */
     fun double(v: Double): FfiWriter = apply { data.writeDouble(v) }
+
+    /** Append an int element count, then that many big-endian floats: the
+     *  portable audio payload, matching Swift's `FFIWriter.f32Array`. */
+    fun floats(values: FloatArray): FfiWriter = apply {
+        data.writeInt(values.size)
+        for (v in values) data.writeFloat(v)
+    }
 
     /** Append a uint32 UTF-8 byte count, then the UTF-8 bytes. */
     fun string(s: String): FfiWriter = apply {
