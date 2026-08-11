@@ -185,7 +185,9 @@ struct WireTests {
         #elseif os(Android)
         #expect(body.platform == "android")
         #elseif os(WASI)
-        #expect(body.platform == "web")
+        // One wasm binary serves two hosts, detected at runtime: a browser is
+        // "web", Node (where this suite runs on CI) is "server".
+        #expect(body.platform == "web" || body.platform == "server")
         #endif
         #expect(["ios", "android", "web", "server"].contains(body.platform))
         #expect(body.platform == defaultPlatform)
