@@ -84,12 +84,9 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     return dir;
   }
 
-  // LiteRT's CPU accelerator is XNNPACK, which asks cpuinfo to enumerate cores
-  // first. On ARM that answer only exists in sysfs, and AWS Lambda does not
-  // mount /sys/devices/system/cpu, so XNNPACK never starts and every inference
-  // fails while the library itself loaded cleanly. Checked here so that reads as
-  // a fixable setup problem instead of surfacing later as "the model failed to
-  // run". x86_64 is unaffected: cpuinfo uses CPUID there and never opens sysfs.
+  // Without /sys/devices/system/cpu the CPU backend cannot count cores on arm64
+  // and every inference fails, though the library loads fine. Caught here so it
+  // reads as a setup problem rather than "the model failed to run".
   function checkCpuTopology(dir) {
     if (process.platform !== "linux" || process.arch !== "arm64") return;
     if (fs.existsSync("/sys/devices/system/cpu/present")) return;

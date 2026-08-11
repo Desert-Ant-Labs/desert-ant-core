@@ -1,18 +1,7 @@
-// Supplies the two sysfs files XNNPACK's cpuinfo needs when the kernel's CPU
-// tree is not mounted. Preloaded with LD_PRELOAD; does nothing otherwise.
-//
-// Why this exists. LiteRT's CPU accelerator is XNNPACK, which asks cpuinfo to
-// enumerate cores before it builds its thread pool. On ARM there is no
-// instruction that answers that, so cpuinfo reads
-// /sys/devices/system/cpu/{possible,present}. AWS Lambda's sandbox does not
-// mount /sys/devices/system/cpu at all, cpuinfo fails, XNNPACK never
-// initializes, and LiteRtCreateCompiledModel fails - inference is dead while
-// the library itself loaded fine. x86_64 is unaffected: there cpuinfo uses the
-// CPUID instruction and never touches sysfs, which is the whole asymmetry.
-//
-// Only those two exact paths are answered; every other call goes straight to
-// libc. The reply is served from anonymous memory, so no writable filesystem is
-// needed and there is nothing to clean up.
+// LD_PRELOAD shim answering the two sysfs files XNNPACK's cpuinfo reads to count
+// cores, for hosts that do not mount /sys/devices/system/cpu (AWS Lambda).
+// Without them inference fails on arm64; x86_64 uses CPUID and never reads them.
+// Every other call passes through to libc.
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -29,21 +18,11 @@ static int wanted(const char *path) {
   return path && (strcmp(path, kPossible) == 0 || strcmp(path, kPresent) == 0);
 }
 
-// A read-only fd holding the cpu range sysfs would have reported, e.g. "0-1".
-// -1 leaves the caller to the real file, so a host that does mount sysfs is
-// never second-guessed on the strength of a failed memfd.
+// The cpu range sysfs would report, e.g. "0-1", served from anonymous memory.
+// -1 falls back to the real file.
 //
-// The count is whatever the kernel reports, which is what a mounted sysfs would
-// have said. On Lambda that is the microVM's CPU count rather than the fractional
-// vCPU the function is entitled to - true on x86_64 too, where cpuinfo reads
-// CPUID and never comes near this file, so it is the platform's answer and not
-// this shim's invention.
-//
-// Two things keep this from recursing, and both are load-bearing: `online` is not
-// in `wanted`, and only open/fopen are interposed, not openat. sysconf reads
-// /sys/devices/system/cpu/online before falling back to /proc/stat, and it does so
-// with a direct openat that never reaches the PLT. Intercept openat *and* claim
-// `online`, and this calls itself forever.
+// Do not add "online" to `wanted` or interpose openat: sysconf reads that path,
+// so the shim would call itself forever.
 static int cpu_range_fd(void) {
   long n = sysconf(_SC_NPROCESSORS_ONLN);
   if (n < 1) n = 1;
