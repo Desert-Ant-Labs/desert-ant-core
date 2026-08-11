@@ -96,6 +96,117 @@ final class AudioDSPTests: XCTestCase {
         XCTAssertTrue(y.allSatisfy { abs($0) <= 1 })       // never clips
     }
 
+    // MARK: limiter
+
+    /// The regression the limiter exists to fix. A signal that is quiet apart
+    /// from one loud transient cannot be mastered by a single static gain: to
+    /// keep the transient under the ceiling the whole file has to come down,
+    /// landing well below the requested loudness. The limiter takes the gain
+    /// out of the transient alone, so the target survives.
+    func testLimiterHoldsLoudnessTargetThroughATransient() {
+        let sr = 48_000.0
+        let n = Int(3 * sr)
+        var x = (0..<n).map { Float(0.05 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        // One 2 ms transient at full scale, a long way above the rest.
+        for i in Int(1.5 * sr)..<(Int(1.5 * sr) + Int(0.002 * sr)) { x[i] = 0.99 }
+
+        let (y, measured) = Loudness.normalize(x, sampleRate: sr, targetLUFS: -19,
+                                               maxGainDB: 30, peakCeilingDBFS: -1)
+        let after = Loudness.integratedLUFS(y, sampleRate: sr)!
+        let ceiling = Float(pow(10, -1.0 / 20))
+
+        // What the static backoff this replaced would have produced: one gain
+        // for the whole signal, scaled down until the transient fits.
+        let staticGain = Float(pow(10, min(-19 - measured!, 30) / 20))
+        var scaled = x.map { $0 * staticGain }
+        let peak = scaled.map { abs($0) }.max()!
+        if peak > ceiling { scaled = scaled.map { $0 * (ceiling / peak) } }
+        let staticAfter = Loudness.integratedLUFS(scaled, sampleRate: sr)!
+
+        // The limiter lands near the target. It does not land exactly on it,
+        // and cannot: the transient inflates the *input* measurement, so the
+        // gain is chosen for a signal whose energy the limiter then removes.
+        XCTAssertEqual(after, -19, accuracy: 1.5)
+        // The backoff misses by far more - that is the regression being fixed.
+        XCTAssertLessThan(staticAfter, after - 5)
+
+        // And the ceiling still holds, which is all the backoff ever bought.
+        XCTAssertTrue(y.allSatisfy { abs($0) <= ceiling + 1e-4 },
+                      "peak \(y.map { abs($0) }.max()!) exceeds ceiling \(ceiling)")
+    }
+
+    func testLimiterCeilingIsRespectedAndGainRecovers() {
+        let sr = 48_000.0
+        // Full-scale tone: every sample needs limiting.
+        var channels = [(0..<Int(sr)).map { Float(0.99 * sin(2 * .pi * 200 * Double($0) / sr)) }]
+        Limiter.apply(&channels, ceilingDBTP: -6, sampleRate: sr)
+        let ceiling = Float(pow(10, -6.0 / 20))
+        XCTAssertTrue(channels[0].allSatisfy { abs($0) <= ceiling + 1e-4 })
+
+        // After a lone transient the envelope must return to unity, otherwise
+        // the release is not working and the tail stays ducked.
+        var quiet = [[Float]](repeating: [Float](repeating: 0.01, count: Int(sr)), count: 1)
+        quiet[0][100] = 0.99
+        Limiter.apply(&quiet, ceilingDBTP: -6, sampleRate: sr)
+        XCTAssertEqual(quiet[0][Int(sr) - 1], 0.01, accuracy: 1e-4)
+    }
+
+    /// One envelope drives every channel: a peak in one channel must duck the
+    /// other by the same amount, or the stereo image shifts while it limits.
+    func testLimiterGainIsJointAcrossChannels() {
+        let sr = 48_000.0
+        let n = 4_800
+        var channels = [[Float]](repeating: [Float](repeating: 0.5, count: n), count: 2)
+        channels[0][2_000] = 0.99                       // peak in the left only
+        let before = channels[1][2_000]
+        Limiter.apply(&channels, ceilingDBTP: -6, sampleRate: sr)
+        XCTAssertLessThan(channels[1][2_000], before)   // right ducked too
+        XCTAssertEqual(channels[0][2_000] / 0.99, channels[1][2_000] / 0.5, accuracy: 1e-4)
+    }
+
+    /// Inter-sample peaks sit between samples, so true peak is never below the
+    /// sample peak and is strictly above it when a waveform straddles one.
+    func testTruePeakMeetsOrExceedsSamplePeak() {
+        let sr = 48_000.0
+        let x = (0..<Int(sr)).map { Float(0.9 * sin(2 * .pi * 11_000 * Double($0) / sr)) }
+        let samplePeak = 20 * log10(Double(x.map { abs($0) }.max()!))
+        let truePeak = Limiter.truePeakDBFS([x])
+        XCTAssertGreaterThanOrEqual(truePeak, samplePeak - 1e-9)
+        XCTAssertEqual(Limiter.truePeakDBFS([[Float](repeating: 0, count: 100)]), -.infinity)
+    }
+
+    /// The streaming limiter has to produce the same samples as the in-memory
+    /// one whatever the chunk sizes are, or a long file mastered through the
+    /// file path would not match the same audio mastered in memory. Both the
+    /// gain envelope and the held-back look-ahead tail have to cross chunk
+    /// boundaries for that to hold.
+    func testStreamingLimiterMatchesWholeSignal() {
+        let sr = 48_000.0
+        let n = 40_000
+        var x = (0..<n).map { Float(0.3 * sin(2 * .pi * 440 * Double($0) / sr)) }
+        for i in stride(from: 5_000, to: n, by: 9_000) { x[i] = 0.95 }
+
+        var whole = [x]
+        Limiter.apply(&whole, ceilingDBTP: -3, sampleRate: sr)
+
+        let streaming = Limiter.Streaming(ceilingDBTP: -3, sampleRate: sr, channels: 1)
+        var chunked = [Float]()
+        var offset = 0
+        for size in [1, 17, 4_800, 240, 12_000, 9_999] {
+            let end = min(offset + size, n)
+            if offset >= end { break }
+            chunked.append(contentsOf: streaming.process([Array(x[offset..<end])])[0])
+            offset = end
+        }
+        if offset < n { chunked.append(contentsOf: streaming.process([Array(x[offset...])])[0]) }
+        chunked.append(contentsOf: streaming.flush()[0])
+
+        XCTAssertEqual(chunked.count, whole[0].count)
+        for i in 0..<chunked.count {
+            XCTAssertEqual(chunked[i], whole[0][i], accuracy: 1e-6, "sample \(i)")
+        }
+    }
+
     // MARK: streaming meter
 
     /// The whole point of the streaming meter: chunked measurement has to agree

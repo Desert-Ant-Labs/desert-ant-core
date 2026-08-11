@@ -136,7 +136,9 @@ extension Clear {
         }
 
         // Mastering: one gain for the whole file, from the enhanced signal's own
-        // loudness and peak, matching what the in-memory path computes.
+        // loudness, matching what the in-memory path computes. The peak ceiling
+        // is the limiter's job in the second pass, not this gain's - backing the
+        // whole file off to fit its loudest transient would miss the target.
         var measured: Double? = nil
         var gain: Float = 1
         let mastering = options.mastering
@@ -145,9 +147,6 @@ extension Clear {
             var gainDB = mastering.integratedLUFS - lufs
             if gainDB > mastering.maxLoudnessGainDB { gainDB = mastering.maxLoudnessGainDB }
             gain = Float(pow(10, gainDB / 20))
-            let ceiling = Float(pow(10, mastering.truePeakDBTP / 20))
-            let peak = meter.peak
-            if peak * gain > ceiling, peak > 0 { gain = ceiling / peak }
         }
 
         // Second pass: scratch -> encoder, applying the gain. No model, no DSP.
@@ -157,6 +156,12 @@ extension Clear {
         defer { try? readHandle.close() }
         let blockBytes = (1 << 16) * MemoryLayout<Float>.size
         let applyGain = mastering.enabled
+        // Carries the gain envelope and its look-ahead tail across blocks, so a
+        // file mastered here matches the same audio mastered in memory.
+        let limiter = applyGain
+            ? Limiter.Streaming(ceilingDBTP: mastering.truePeakDBTP,
+                                sampleRate: sampleRate, channels: 1)
+            : nil
         while true {
             try Task.checkCancellation()
             let data = try readHandle.read(upToCount: blockBytes) ?? Data()
@@ -164,10 +169,15 @@ extension Clear {
             var block = data.withUnsafeBytes { raw -> [Float] in
                 Array(raw.bindMemory(to: Float.self))
             }
-            if applyGain {
-                for i in 0..<block.count { block[i] = max(-1, min(1, block[i] * gain)) }
+            if let limiter {
+                for i in 0..<block.count { block[i] *= gain }
+                block = limiter.process([block])[0]
             }
             try writer.write(block)
+        }
+        if let limiter {
+            let tail = limiter.flush()[0]
+            if !tail.isEmpty { try writer.write(tail) }
         }
         writer.finish()
 
