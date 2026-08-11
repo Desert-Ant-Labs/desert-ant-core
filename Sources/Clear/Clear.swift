@@ -63,6 +63,11 @@ public final class Clear: @unchecked Sendable {
         public let durationSec: Double
         public let processingSec: Double
         public let measuredLUFS: Double?
+        /// True peak of the delivered audio in dBFS, by 4x oversampling, or nil
+        /// when mastering was bypassed. Measured *after* limiting, so this is
+        /// what a caller can assert a delivery spec against - unlike
+        /// ``measuredLUFS``, which reports the input.
+        public let measuredTruePeakDBFS: Double?
         /// Which published model variant produced this output, or nil when the
         /// artifact is not a published one (a custom export, or a wasm host
         /// that compiled the model itself).
@@ -240,6 +245,7 @@ public final class Clear: @unchecked Sendable {
         // and peak ceiling. `loudnessRangeLU` is not applied (no range stage
         // yet); see `Mastering`.
         var measured: Double? = nil
+        var truePeak: Double? = nil
         let mastering = options.mastering
         if mastering.enabled {
             // In place: a returned master would sit alongside `out`, and both
@@ -247,6 +253,7 @@ public final class Clear: @unchecked Sendable {
             measured = Loudness.normalizeInPlace(
                 &out, sampleRate: ClearDSP.sampleRate, targetLUFS: mastering.integratedLUFS,
                 maxGainDB: mastering.maxLoudnessGainDB, peakCeilingDBFS: mastering.truePeakDBTP)
+            truePeak = Limiter.truePeakDBFS([out])
         }
         // Mastering is the tail of `enhancing`, so the phase ends at 1 only
         // once the audio is actually final.
@@ -254,6 +261,7 @@ public final class Clear: @unchecked Sendable {
         return Result(samples: out, sampleRate: ClearDSP.sampleRate,
                       durationSec: Double(out.count) / ClearDSP.sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
+                      measuredTruePeakDBFS: truePeak,
                       modelVariant: assets.variant)
     }
 

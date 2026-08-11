@@ -162,6 +162,7 @@ extension Clear {
             ? Limiter.Streaming(ceilingDBTP: mastering.truePeakDBTP,
                                 sampleRate: sampleRate, channels: 1)
             : nil
+        let truePeakMeter = applyGain ? Limiter.TruePeakMeter() : nil
         while true {
             try Task.checkCancellation()
             let data = try readHandle.read(upToCount: blockBytes) ?? Data()
@@ -173,11 +174,15 @@ extension Clear {
                 for i in 0..<block.count { block[i] *= gain }
                 block = limiter.process([block])[0]
             }
+            truePeakMeter?.consume(block)
             try writer.write(block)
         }
         if let limiter {
             let tail = limiter.flush()[0]
-            if !tail.isEmpty { try writer.write(tail) }
+            if !tail.isEmpty {
+                truePeakMeter?.consume(tail)
+                try writer.write(tail)
+            }
         }
         writer.finish()
 
@@ -185,6 +190,7 @@ extension Clear {
         return Result(samples: [], sampleRate: sampleRate,
                       durationSec: Double(totalFrames) / sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
+                      measuredTruePeakDBFS: truePeakMeter?.dBFS,
                       modelVariant: assets.variant)
     }
 }
