@@ -125,6 +125,19 @@ jobs:
           # that it can never be invalidated.
           enable-cache: false
 
+      # Same reasoning as the Apple job: no model artifact is committed, so the
+      # model-backed suites download the pinned revision on a cold cache. Cache
+      # the store so that happens once per revision rather than once per push -
+      # anonymous Hub tree calls from every push 429 under parallel jobs - and
+      # the run stays independent of Hugging Face being reachable. On Linux the
+      # managed store lives under XDG's ~/.cache.
+      - name: Cache downloaded models
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/desert-ant-models
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
+          restore-keys: models-${{ runner.os }}-
+
       # An app that adds one SDK must pay for that SDK alone; this reads the
       # resolved SwiftPM graph, so it needs the toolchain this job already has.
       - run: mise run check:isolation
@@ -155,6 +168,20 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
           key: swift-wasm-sdk-6.3.3
+
+      # The node package suites download the pinned model revision too: into the
+      # suite-local .model-cache (an explicit `directory`), and the managed store
+      # for anything resolving by default. Cache both for the same reason as the
+      # Swift jobs. The browser suite fetches inside Chromium and is not covered
+      # by a file cache.
+      - name: Cache downloaded models
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/desert-ant-models
+            packages/*-node/test/.model-cache
+          key: models-js-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
+          restore-keys: models-js-${{ runner.os }}-
 
       # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
       # actually execute under wasm, so this is the browser correctness check.
