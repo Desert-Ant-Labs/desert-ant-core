@@ -208,11 +208,9 @@ jobs:
           DAL_GLIBC_CEILING: "2.35"
       - run: mise run test:node
 
-      # The sysfs shim, proved where it matters: a container with
-      # /sys/devices/system/cpu masked, which is the shape AWS Lambda presents.
-      # Reading the cpu range must fail without the preload and succeed with it.
-      # The interposition is arch-independent, so x86_64 gates it even though
-      # only arm64 needs it at run time.
+      # A container with /sys/devices/system/cpu masked, the shape Lambda
+      # presents: the read must fail without the preload and succeed with it.
+      # x86_64 gates it because the interposition is arch-independent.
       - name: cpu-topology shim intercepts a masked sysfs
         run: |
           set -euo pipefail
