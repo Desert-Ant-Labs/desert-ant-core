@@ -68,6 +68,14 @@ public func nativeRun(
     return payload.flatMap(ffiEmit)
 }
 
+/// Debug-only: force every tracked session to emit usage now (bypassing the
+/// debounce and the re-emit window) and block until the sends complete. Only
+/// does anything when `DAL_HTTP_DEBUG` is set (otherwise no hooks are installed
+/// and this returns immediately).
+public func nativeFlushTelemetry() {
+    blockingValue { await TelemetryDebug.shared.flushAndWait() }
+}
+
 public func nativeDestroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
     Unmanaged<NativeHandle>.fromOpaque(handle).release()

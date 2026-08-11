@@ -43,6 +43,9 @@ export const dalSymbols = (modelId) => ({
   // options and the result. A video model needs no new symbol here.
   run: "void* dal_run(void*, const uint8_t*, int, const uint8_t*, int, const char*, const char*)",
   destroy: "void dal_destroy(void*)",
+  // Debug-only (DAL_HTTP_DEBUG): force pending usage telemetry out and block
+  // until the sends finish.
+  flushTelemetry: "void dal_flush_telemetry()",
   bufferFree: "void dal_buffer_free(void*)",
 });
 
