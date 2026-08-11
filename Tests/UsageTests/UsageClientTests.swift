@@ -177,19 +177,17 @@ struct WireTests {
     @Test func platformDefaultsToBuildTarget() throws {
         // No platform passed: IngestBody fills it from the build target.
         let body = IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")])
-        #if os(macOS)
-        #expect(body.platform == "macos")
-        #elseif os(iOS)
+        // The ingest API accepts exactly these values; build targets map onto them.
+        #if os(macOS) || os(Linux)
+        #expect(body.platform == "server")
+        #elseif os(iOS) || os(tvOS) || os(visionOS) || os(watchOS)
         #expect(body.platform == "ios")
-        #elseif os(Linux)
-        #expect(body.platform == "linux")
         #elseif os(Android)
         #expect(body.platform == "android")
         #elseif os(WASI)
         #expect(body.platform == "web")
-        #else
-        #expect(!body.platform.isEmpty)
         #endif
+        #expect(["ios", "android", "web", "server"].contains(body.platform))
         #expect(body.platform == defaultPlatform)
     }
 

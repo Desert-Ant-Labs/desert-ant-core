@@ -10,6 +10,9 @@
 // Android/wasm), so no JSON is hand-written here.
 
 import JSON
+#if os(WASI)
+import JavaScriptKit
+#endif
 
 /// SDK identity attached to every body's `sdk` field.
 public let defaultSDKName = "desert-ant-core"
@@ -17,24 +20,29 @@ public let defaultSDKVersion = "0.1.0" // keep in sync with the package/product 
 
 /// The platform tag put on the wire's `platform` field, derived from the build
 /// target. `IngestBody` defaults to this, so callers never pass it by hand.
+///
+/// The ingest API accepts exactly `ios | android | web | server`, so the build
+/// targets are mapped onto those: Apple device platforms (iPhone, TV, watch,
+/// Vision) report `ios`, and everything that runs on a desktop or a server
+/// (macOS, Linux, Node-native hosts) reports `server`. The wasm build serves
+/// two hosts from one binary — a browser page and Node (e.g. an SSR pass) — so
+/// on WASI the tag is detected at runtime: a browser is `web`, Node is `server`.
 #if os(Android)
 public let defaultPlatform = "android"
-#elseif os(iOS)
+#elseif os(iOS) || os(tvOS) || os(visionOS) || os(watchOS)
 public let defaultPlatform = "ios"
-#elseif os(macOS)
-public let defaultPlatform = "macos"
-#elseif os(tvOS)
-public let defaultPlatform = "tvos"
-#elseif os(visionOS)
-public let defaultPlatform = "visionos"
-#elseif os(watchOS)
-public let defaultPlatform = "watchos"
-#elseif os(Linux)
-public let defaultPlatform = "linux"
 #elseif os(WASI)
-public let defaultPlatform = "web"
+public var defaultPlatform: String {
+    // Node exposes `process.versions.node`; no browser global does. Checked
+    // rather than `location` so an SSR framework that shims `location` (or a
+    // browser extension page without one) still classifies correctly.
+    if JSObject.global.process.object?.versions.object?.node.string != nil {
+        return "server"
+    }
+    return "web"
+}
 #else
-public let defaultPlatform = "unknown"
+public let defaultPlatform = "server"
 #endif
 
 /// SDK identity block. Optional fields on the wire are omitted when `nil`

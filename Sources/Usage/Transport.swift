@@ -23,6 +23,8 @@ public func makeSend(endpoint: String) -> @Sendable (IngestBody, SendOptions) ->
         // (the transport is fire-and-forget). These types always encode.
         guard let json = try? buildBody(body) else { return }
         let payload = Array(json.utf8)
+        let debug = telemetryDebugEnabled()
+        if debug { print("[usage] POST \(endpoint)\n[usage] body: \(json)") }
         #if os(WASI)
         // On the browser, an unload flush must use navigator.sendBeacon (a normal
         // fetch is cancelled as the page goes away). text/plain keeps it a CORS
@@ -30,7 +32,15 @@ public func makeSend(endpoint: String) -> @Sendable (IngestBody, SendOptions) ->
         if opts.beacon, jsSendBeacon(endpoint, payload) { return }
         #endif
         let task = Task.detached {
-            _ = try? await httpPOST(endpoint, body: payload, contentType: "application/json")
+            do {
+                let response = try await httpPOST(endpoint, body: payload, contentType: "application/json")
+                if debug {
+                    let text = String(decoding: response.body, as: UTF8.self)
+                    print("[usage] response: \(response.status) \(text)")
+                }
+            } catch {
+                if debug { print("[usage] send failed: \(error)") }
+            }
         }
         // When enabled, let a caller await this otherwise fire-and-forget send.
         if telemetryDebugEnabled() {
