@@ -37,7 +37,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 |---|---|---|---|---|---|
 | **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
 | **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
-| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | soon | soon | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
+| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | `ai.desertant:clear` | `@desert-ant-labs/clear` | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
 
 Each model behaves the same on every platform, so you can build a feature once
 and ship it everywhere. New models are added regularly; the current set is always
@@ -166,6 +166,7 @@ dependencyResolutionManagement {
 dependencies {
     implementation("ai.desertant:emo:1.0.5")
     implementation("ai.desertant:redact:1.0.5")
+    implementation("ai.desertant:clear:1.0.5")
 }
 ```
 
@@ -173,8 +174,8 @@ One dependency per model, using the coordinates from the table above.
 
 ### Usage
 
-`suggestions`, `redaction`, and `download` are suspending functions. A model owns
-native resources, so close it when you are done, or let `use { }` do it.
+`suggestions`, `redaction`, `enhance`, and `download` are suspending functions. A
+model owns native resources, so close it when you are done, or let `use { }` do it.
 
 ```kotlin
 import ai.desertant.emo.Emo
@@ -193,6 +194,21 @@ Redact(context).use { redact ->
     val result = redact.redaction("Email Anna Kovács at anna@example.hu.")
     println(result.redactedText)                 // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
     val restored = result.restore(llmReply)
+}
+```
+
+```kotlin
+import ai.desertant.clear.Clear
+import ai.desertant.clear.LoudnessPreset
+import ai.desertant.clear.Mastering
+import ai.desertant.clear.Options
+
+Clear(context).use { clear ->
+    val result = clear.enhance(samples, 48_000.0)            // 48 kHz mono out
+    result.measuredTruePeakDbfs                              // what the master actually peaks at
+
+    val forSpotify = Options(mastering = Mastering.of(LoudnessPreset.SPOTIFY))
+    val louder = clear.enhance(samples, 48_000.0, forSpotify)
 }
 ```
 
@@ -244,6 +260,16 @@ const result = await redact.redaction("Email Anna Kovács at anna@example.hu.");
 console.log(result.redactedText);   // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
 const restored = result.restore(llmReply);
 redact.dispose();
+```
+
+```ts
+import { Clear } from "@desert-ant-labs/clear";
+
+const clear = await Clear.load();
+const result = await clear.enhance(samples, 48_000);   // Float32Array in, 48 kHz mono out
+result.measuredTruePeakDBFS;                           // what the master actually peaks at
+await clear.enhance(samples, 48_000, { targetLUFS: "spotify" });
+clear.dispose();
 ```
 
 Self-host the model files or track download progress:
