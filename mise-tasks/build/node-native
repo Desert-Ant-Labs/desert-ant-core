@@ -72,7 +72,7 @@ for model in $(dal_select "${usage_model:-all}" node); do
         cc -shared -fPIC -O2 -o "$dest/libdalcpushim.so" Tools/cpushim/dal_cpu_shim.c -ldl
         # The npm package needs no .debug_info/.symtab; koffi resolves the
         # <model>_* C ABI through .dynsym, which stripping keeps.
-        strip --strip-unneeded "$dest/lib${product}Node.so"
+        strip --strip-unneeded "$dest/lib${product}Node.so" "$dest/libdalcpushim.so"
         # Distribution floor guard: fail loudly if any shipped lib picked up a
         # glibc symbol newer than Amazon Linux 2023 (AWS Lambda) provides.
         # DAL_GLIBC_CEILING loosens it for builds that are never published
