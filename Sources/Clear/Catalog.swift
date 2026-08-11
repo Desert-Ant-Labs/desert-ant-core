@@ -9,9 +9,8 @@ public enum ClearModel: ModelDeclaration {
     public static let id = "clear"
     public static let product = "Clear"
     public static let revision = "v0.2.0"
-    /// No published npm/Maven package yet, so nothing cross-checks this the way
-    /// ModelCatalogTests checks emo and redact; keep it in step with
-    /// packages/clear-* when they land.
+    /// Matches packages/clear-node/package.json and packages/clear-kotlin/build.gradle.kts
+    /// (ModelCatalogTests enforces it).
     public static let sdkVersion = "1.0.5"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
