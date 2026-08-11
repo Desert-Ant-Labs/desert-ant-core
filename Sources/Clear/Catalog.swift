@@ -8,10 +8,7 @@ import DesertAnt
 public enum ClearModel: ModelDeclaration {
     public static let id = "clear"
     public static let product = "Clear"
-    // The Hub repo's `v0.1.0` tag predates the LiteRT export, so pinning it
-    // would leave Android/Linux/web with no artifact. Tracks `main` until the
-    // next tag carries `clear-studio.tflite`, then becomes that `v`-tag.
-    public static let revision = "main"
+    public static let revision = "v0.2.0"
     /// No published npm/Maven package yet, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with
     /// packages/clear-* when they land.
