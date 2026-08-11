@@ -57,8 +57,16 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       }
     },
     destroy: (handle) => lib.destroy(handle),
+    flushTelemetry: () => callAsync(lib.flushTelemetry),
     withCallGroup,
   };
+
+  // Debug-only hook for forcing the usage POST out and awaiting it, mirroring
+  // the wasm entry (`createWasmSdk`). Gated on the same flag the Swift core
+  // reads natively, so it exists exactly when the flush hooks are installed.
+  if (process.env.DAL_HTTP_DEBUG) {
+    globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
+  }
 
   return {
     core,

@@ -30,6 +30,11 @@ public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
     nativeDestroy(handle)
 }
 
+@_cdecl("dal_flush_telemetry")
+public func dal_flush_telemetry() {
+    nativeFlushTelemetry()
+}
+
 @_cdecl("dal_buffer_free")
 public func dal_buffer_free(_ pointer: UnsafeMutablePointer<CChar>?) {
     nativeBufferFree(pointer)
