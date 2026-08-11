@@ -194,16 +194,21 @@ public enum Loudness {
                                         peakCeilingDBFS: Double) -> Double?
     {
         guard let lufs = integratedLUFS(samples, sampleRate: sampleRate) else { return nil }
+        // Only upward gain is capped: amplifying a quiet input past the cap
+        // would lift the model's noise floor with it, while attenuating a loud
+        // one is always safe.
         var gainDB = targetLUFS - lufs
         if gainDB > maxGainDB { gainDB = maxGainDB }
-        var gain = Float(pow(10, gainDB / 20))
+        let gain = Float(pow(10, gainDB / 20))
+        for i in 0..<samples.count { samples[i] *= gain }
 
-        var peak: Float = 0
-        for v in samples { peak = max(peak, abs(v)) }
-        let ceiling = Float(pow(10, peakCeilingDBFS / 20))
-        if peak * gain > ceiling, peak > 0 { gain = ceiling / peak }
-
-        for i in 0..<samples.count { samples[i] = max(-1, min(1, samples[i] * gain)) }
+        // The limiter, not a static backoff, is what holds the ceiling. Backing
+        // the whole signal off by `ceiling / peak` would meet the ceiling and
+        // miss the loudness target by however far the loudest transient
+        // overshot.
+        var channels = [samples]
+        Limiter.apply(&channels, ceilingDBTP: peakCeilingDBFS, sampleRate: sampleRate)
+        samples = channels[0]
         return lufs
     }
 }
