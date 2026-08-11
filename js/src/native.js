@@ -89,8 +89,12 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
   // reads as a setup problem rather than "the model failed to run".
   function checkCpuTopology(dir) {
     if (process.platform !== "linux" || process.arch !== "arm64") return;
-    if (fs.existsSync("/sys/devices/system/cpu/present")) return;
-    if ((process.env.LD_PRELOAD ?? "").includes("libdalcpushim")) return;
+    // Read rather than stat: the shim answers open, so a successful read is the
+    // only proof it is really loaded. Checking LD_PRELOAD for the name instead
+    // would accept a typo'd or wrong-arch path and hand back the opaque failure.
+    try {
+      if (fs.readFileSync("/sys/devices/system/cpu/present", "utf8").trim()) return;
+    } catch {}
     const shim = path.join(dir, "libdalcpushim.so");
     throw new Error(
       `${packageName}: this host does not mount /sys/devices/system/cpu, which the ` +
