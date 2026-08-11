@@ -84,12 +84,32 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     return dir;
   }
 
+  // LiteRT's CPU accelerator is XNNPACK, which asks cpuinfo to enumerate cores
+  // first. On ARM that answer only exists in sysfs, and AWS Lambda does not
+  // mount /sys/devices/system/cpu, so XNNPACK never starts and every inference
+  // fails while the library itself loaded cleanly. Checked here so that reads as
+  // a fixable setup problem instead of surfacing later as "the model failed to
+  // run". x86_64 is unaffected: cpuinfo uses CPUID there and never opens sysfs.
+  function checkCpuTopology(dir) {
+    if (process.platform !== "linux" || process.arch !== "arm64") return;
+    if (fs.existsSync("/sys/devices/system/cpu/present")) return;
+    if ((process.env.LD_PRELOAD ?? "").includes("libdalcpushim")) return;
+    const shim = path.join(dir, "libdalcpushim.so");
+    throw new Error(
+      `${packageName}: this host does not mount /sys/devices/system/cpu, which the ` +
+        `CPU backend needs to enumerate cores on arm64 (AWS Lambda is one such host). ` +
+        `Set LD_PRELOAD=${shim} to preload the shim bundled with this package, ` +
+        `or run on x86_64, which does not need it.`,
+    );
+  }
+
   const CORE = coreFile(coreName);
   let lib;
   function loadLib() {
     if (lib) return lib;
     const koffi = koffiModule();
     const dir = nativeDir();
+    checkCpuTopology(dir);
     // Load the LiteRT runtime first so the core's DT_NEEDED resolves in-process.
     const runtime = RUNTIME[process.platform];
     if (runtime && fs.existsSync(path.join(dir, runtime))) koffi.load(path.join(dir, runtime));
