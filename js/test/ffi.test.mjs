@@ -28,6 +28,36 @@ test("FfiReader reads u32/i32/f64/str big-endian in order", () => {
   assert.equal(r.remaining, 0);
 });
 
+test("FfiReader reads an f32Array the way Swift writes one", () => {
+  // Built independently of FfiWriter, so this pins the wire format rather than
+  // just proving the writer and reader agree with each other.
+  const parts = [];
+  const count = Buffer.alloc(4);
+  count.writeUInt32BE(4);
+  parts.push(count);
+  const values = [0.5, -0.25, 0, 1];
+  for (const v of values) {
+    const b = Buffer.alloc(4);
+    b.writeFloatBE(v);
+    parts.push(b);
+  }
+  const r = new FfiReader(new Uint8Array(Buffer.concat(parts)));
+  assert.deepEqual(Array.from(r.f32Array()), values);
+  assert.equal(r.remaining, 0);
+});
+
+test("FfiWriter round-trips an f32Array, taking arrays or Float32Array", () => {
+  const values = [0, 1, -1, 0.5, -0.25];
+  for (const input of [values, Float32Array.from(values)]) {
+    const bytes = new FfiWriter().f32Array(input).f64(48_000).done();
+    assert.equal(bytes.length, 4 + values.length * 4 + 8);
+    const r = new FfiReader(bytes);
+    assert.deepEqual(Array.from(r.f32Array()), values);
+    assert.equal(r.f64(), 48_000);
+    assert.equal(r.remaining, 0);
+  }
+});
+
 test("FfiReader mirrors a shapes-style line payload", () => {
   // present(1), kind line(1), from(x,y), to(x,y)
   const b = buildPayload();

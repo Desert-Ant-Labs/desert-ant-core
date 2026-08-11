@@ -9,6 +9,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LoadedModelTest {
+    /** The audio payload: an int count then big-endian floats, matching Swift's
+     *  `FFIWriter.f32Array` and the JavaScript `FfiWriter.f32Array`. */
+    @Test fun floatArraysRoundTripThroughTheFfiCodec() {
+        val values = floatArrayOf(0f, 1f, -1f, 0.5f, -0.25f)
+        val bytes = FfiWriter().floats(values).double(48_000.0).done()
+        assertEquals(4 + values.size * 4 + 8, bytes.size)
+
+        val r = FfiReader(bytes)
+        assertArrayEquals(values, r.floats(), 0f)
+        assertEquals(48_000.0, r.double(), 0.0)
+        assertFalse(r.hasRemaining())
+    }
+
+    /** A field appended after a release has to read as absent, not as garbage,
+     *  for a host built against the older schema. */
+    @Test fun hasRemainingGuardsAnAppendedField() {
+        val r = FfiReader(FfiWriter().floats(floatArrayOf(1f)).double(1.0).done())
+        r.floats()
+        assertTrue(r.hasRemaining())
+        r.double()
+        assertFalse(r.hasRemaining())
+    }
+
     @Test fun createsTheRightCatalogHandleWithoutLoadingTheRuntime() {
         val native = FakeNative()
         model(native, directory = "/models/emo")
