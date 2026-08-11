@@ -26,6 +26,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
   - [Usage](#usage-2)
 - [Model downloads and caching](#model-downloads-and-caching)
   - [Offline and airgapped](#offline-and-airgapped)
+  - [AWS Lambda on arm64](#aws-lambda-on-arm64)
 - [Platform support](#platform-support)
 - [Contributing](#contributing)
 - [License](#license)
@@ -308,6 +309,24 @@ and no network at run time. For a build that has to be reproducible, use the
 commit sha in place of the tag - the Hub accepts either, and `v0.4.0` is
 `1d65950bbf0459a4d7a94afb85095877f585d99c`. A revision is pinned per SDK version
 and moves only with a deliberate bump: every 1.0.x release ships `v0.4.0`.
+
+### AWS Lambda on arm64
+
+Lambda does not mount `/sys/devices/system/cpu`. On arm64 the CPU backend reads
+it to enumerate cores, so without it inference fails on every call even though
+the library loads. Preload the shim shipped alongside the native:
+
+```
+LD_PRELOAD=/var/task/node_modules/@desert-ant-labs/redact/native/linux-arm64/libdalcpushim.so
+```
+
+Set it as a function environment variable, and correct the path if the package
+lives in a layer (`/opt/nodejs/node_modules/...`). It answers those two sysfs
+reads and passes everything else through untouched. The dynamic linker has to
+insert it before libc, which is why the SDK cannot do this for you.
+
+x86_64 needs none of this: there the core count comes from a CPU instruction
+rather than sysfs.
 
 ## Platform support
 

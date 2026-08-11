@@ -208,6 +208,28 @@ jobs:
           DAL_GLIBC_CEILING: "2.35"
       - run: mise run test:node
 
+      # The sysfs shim, proved where it matters: a container with
+      # /sys/devices/system/cpu masked, which is the shape AWS Lambda presents.
+      # Reading the cpu range must fail without the preload and succeed with it.
+      # The interposition is arch-independent, so x86_64 gates it even though
+      # only arm64 needs it at run time.
+      - name: cpu-topology shim intercepts a masked sysfs
+        run: |
+          set -euo pipefail
+          shim=packages/redact-node/native/linux-x64/libdalcpushim.so
+          [ -f "$shim" ] || { echo "::error::build:node-native did not produce $shim"; exit 1; }
+          mask="--mount type=tmpfs,destination=/sys/devices/system/cpu,tmpfs-mode=0555"
+          read_cpu='require("node:fs").readFileSync("/sys/devices/system/cpu/possible","utf8")'
+          if docker run --rm $mask -v "$PWD/$shim:/shim.so" node:22-slim \
+               node -e "$read_cpu" 2>/dev/null; then
+            echo "::error::sysfs was readable without the shim; the test proves nothing"
+            exit 1
+          fi
+          got=$(docker run --rm $mask -v "$PWD/$shim:/shim.so" -e LD_PRELOAD=/shim.so \
+                  node:22-slim node -e "process.stdout.write($read_cpu.trim())")
+          echo "with shim, /sys/devices/system/cpu/possible = '$got'"
+          [[ "$got" =~ ^0(-[0-9]+)?$ ]] || { echo "::error::unexpected cpu range '$got'"; exit 1; }
+
       # The browser is the default entry of every model package, so it gets a
       # real engine and real weights, not just a bundle that compiles.
       - run: mise run test:browser

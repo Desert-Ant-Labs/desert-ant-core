@@ -67,6 +67,11 @@ for model in $(dal_select "${usage_model:-all}" node); do
         rm -rf "$stub"
         cp ".build-host/release/lib${product}Node.so" "$dest/"
         cp "$litert/libLiteRt.so" "$dest/"
+        # Ships next to the natives so a host with no /sys/devices/system/cpu
+        # (AWS Lambda) can LD_PRELOAD it and let XNNPACK start. Not loaded
+        # otherwise, and not linked into anything - see the source for why the
+        # dynamic linker has to be the one to insert it.
+        cc -shared -fPIC -O2 -o "$dest/libdalcpushim.so" Tools/cpushim/dal_cpu_shim.c -ldl
         # The npm package needs no .debug_info/.symtab; koffi resolves the
         # <model>_* C ABI through .dynsym, which stripping keeps.
         strip --strip-unneeded "$dest/lib${product}Node.so"
