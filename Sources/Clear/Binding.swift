@@ -19,8 +19,10 @@ extension Clear: BoundModel {
     /// crosses the boundary and adding one breaks no host.
     ///
     /// Result payload: `f32Array samples` (48 kHz mono), then `f64 sampleRate`,
-    /// `f64 durationSec`, `f64 processingSec`, and `f64 measuredLUFS` (NaN when
-    /// mastering was disabled).
+    /// `f64 durationSec`, `f64 processingSec`, `f64 measuredLUFS` (NaN when
+    /// mastering was disabled), and `f64 measuredTruePeakDBFS` (likewise NaN).
+    /// Fields are only ever appended, so a host built against an earlier schema
+    /// keeps reading the prefix it knows.
     public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
         var input = input
         var options = options
@@ -45,6 +47,7 @@ extension Clear: BoundModel {
         w.f64(result.durationSec)
         w.f64(result.processingSec)
         w.f64(result.measuredLUFS ?? .nan)
+        w.f64(result.measuredTruePeakDBFS ?? .nan)
         return w.bytes
     }
 }

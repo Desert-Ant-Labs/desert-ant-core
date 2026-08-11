@@ -66,6 +66,30 @@ public enum Limiter {
         channels = out
     }
 
+    /// ``Limiter/truePeakDBFS(_:)`` over a signal delivered in pieces, for the
+    /// file path, which never holds the whole master. Carrying the last sample
+    /// across calls is what keeps the interpolated peaks at a chunk boundary
+    /// from being missed.
+    public final class TruePeakMeter {
+        private var maxAbs: Float = 0
+        private var prev: Float = 0
+
+        public init() {}
+
+        public func consume(_ samples: [Float]) {
+            for cur in samples {
+                maxAbs = max(maxAbs, abs(cur))
+                maxAbs = max(maxAbs, abs(0.75 * prev + 0.25 * cur))
+                maxAbs = max(maxAbs, abs(0.50 * prev + 0.50 * cur))
+                maxAbs = max(maxAbs, abs(0.25 * prev + 0.75 * cur))
+                prev = cur
+            }
+        }
+
+        /// dBFS, or `-infinity` if nothing but silence was fed.
+        public var dBFS: Double { maxAbs > 0 ? 20 * log10(Double(maxAbs)) : -.infinity }
+    }
+
     /// Per-position magnitude across channels: what the envelope reacts to.
     static func jointMagnitude(_ channels: [[Float]], count n: Int) -> [Float] {
         var absX = [Float](repeating: 0, count: n)

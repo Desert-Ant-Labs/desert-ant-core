@@ -20,10 +20,12 @@ public extension Clear {
 
         /// True-peak ceiling in dBTP. -1.5 dBTP leaves headroom for lossy codecs.
         ///
-        /// The current limiter measures *sample* peak, not true peak (no 4x
-        /// oversampling), so this is applied as a dBFS ceiling. It is therefore
-        /// slightly optimistic on inter-sample peaks - which is what the default
-        /// -1.5 dBTP of headroom absorbs.
+        /// The look-ahead limiter rides *sample* peak, so the ceiling it holds
+        /// is slightly optimistic about inter-sample peaks - which is what the
+        /// default -1.5 dBTP of headroom absorbs. The true peak that resulted is
+        /// measured with 4x oversampling and reported as
+        /// ``Clear/Result/measuredTruePeakDBFS``, so a caller can assert against
+        /// a delivery spec rather than trust the ceiling.
         public var truePeakDBTP: Double
 
         /// Loudness range target in LU (spoken word is <= 7 LU; EBU R128

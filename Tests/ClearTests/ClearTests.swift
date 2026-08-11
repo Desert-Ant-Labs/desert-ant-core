@@ -199,6 +199,15 @@ struct ClearTests {
         #expect(rms(spotify.samples) > rms(broadcast.samples))
         #expect(spotify.measuredLUFS != nil)
         #expect(bypassed.measuredLUFS == nil)
+
+        // True peak is measured after limiting, so it reports the delivered
+        // audio and has to sit under the ceiling the preset asked for.
+        #expect(bypassed.measuredTruePeakDBFS == nil)
+        let truePeak = try #require(spotify.measuredTruePeakDBFS)
+        #expect(truePeak <= Clear.Mastering.spotify.truePeakDBTP + 0.5)
+        // 4x oversampling can only find peaks a sample-peak reading misses.
+        let samplePeak = 20 * log10(Double(spotify.samples.map { abs($0) }.max() ?? 0))
+        #expect(truePeak >= samplePeak - 1e-9)
     }
 
     /// The store path the SDK's own initializer takes: resolve the pinned model
