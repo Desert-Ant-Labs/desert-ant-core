@@ -55,7 +55,7 @@ deployment target, and an older OS refuses to load them.
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "1.0.4")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "1.0.5")
 ```
 
 Then add a product per model you want, named as in the table above. You only pay
@@ -164,8 +164,8 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:1.0.4")
-    implementation("ai.desertant:redact:1.0.4")
+    implementation("ai.desertant:emo:1.0.5")
+    implementation("ai.desertant:redact:1.0.5")
 }
 ```
 
