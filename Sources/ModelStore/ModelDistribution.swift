@@ -76,6 +76,36 @@ public struct ModelDistribution: Sendable, Equatable {
         return store.isDownloaded(spec(cacheDirectory))
     }
 
+    /// Directories of every downloaded version of this model's repo in the
+    /// managed cache (see ``ModelStore/downloadedModels(repo:)``): one path per
+    /// revision, its last component the revision itself.
+    public func installedModels(cacheRoot: String? = nil) -> [String] {
+        guard let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else { return [] }
+        return store.downloadedModels(repo: repo)
+    }
+
+    /// This distribution re-pointed at the concrete revision a
+    /// ``RevisionRequirement`` resolves to (see
+    /// ``ModelStore/resolveRevision(_:repo:)`` for the network/cache/fallback
+    /// order). `exact` never touches the network.
+    public func resolving(_ requirement: RevisionRequirement, cacheRoot: String? = nil) async -> ModelDistribution {
+        if let revision = requirement.exactRevision {
+            return ModelDistribution(repo: repo, revision: revision, files: files)
+        }
+        guard let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else { return self }
+        let revision = await store.resolveRevision(requirement, repo: repo)
+        return ModelDistribution(repo: repo, revision: revision, files: files)
+    }
+
+    /// The downloaded revisions of this repo satisfying `requirement` (offline;
+    /// the managed cache only). The best match is last-sorted by the
+    /// requirement's own ordering via ``RevisionRequirement/bestMatch(in:)``.
+    public func downloadedRevisions(satisfying requirement: RevisionRequirement,
+                                    cacheRoot: String? = nil) -> [String] {
+        guard let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else { return [] }
+        return store.downloadedRevisions(repo: repo).filter { requirement.bestMatch(in: [$0]) != nil }
+    }
+
     /// Get the model for `cacheDirectory`, downloading it there on demand. Files
     /// you placed there yourself are adopted offline; our own cache is reused
     /// offline; otherwise the model is downloaded. `nil` uses the managed cache.

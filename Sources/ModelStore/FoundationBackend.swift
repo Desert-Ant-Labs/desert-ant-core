@@ -37,6 +37,19 @@ public struct FoundationTransport: ModelTransport {
         }
     }
 
+    public func tags(_ url: String) async throws -> [String] {
+        guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
+        let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: u))
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw ModelStoreError.io("refs \(url): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
+        }
+        struct Refs: Decodable {
+            struct Ref: Decodable { let name: String }
+            let tags: [Ref]?
+        }
+        return try JSONDecoder().decode(Refs.self, from: data).tags?.map(\.name) ?? []
+    }
+
     private struct TreeItem: Decodable {
         let type: String
         let path: String
@@ -117,6 +130,10 @@ public struct FoundationFileSystem: FileSystem {
     }
 
     public func remove(_ path: String) { try? FileManager.default.removeItem(atPath: path) }
+
+    public func listDirectory(_ path: String) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(atPath: path)) ?? []
+    }
 
     public func defaultCacheRoot() -> String {
         if let cacheRoot { return cacheRoot }
