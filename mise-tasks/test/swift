@@ -12,7 +12,10 @@ dal_start_echo_server 8199
 # Own scratch dir: the Xcode toolchain's artifacts are incompatible with the
 # swift.org toolchain the wasm tasks use, so they must never share one.
 if [ "$(uname)" = Darwin ]; then
-    swift test --scratch-path .build-host
+    # xcrun pins the Xcode toolchain even when a mise-managed swift is on PATH:
+    # older mise ignores the tools os=["linux"] filter above, and the swift.org
+    # toolchain cannot build against the Xcode SDK.
+    xcrun swift test --scratch-path .build-host
 else
     litert=$(dal_litert_dir)
     LD_LIBRARY_PATH="$litert${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
