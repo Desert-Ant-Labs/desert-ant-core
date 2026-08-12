@@ -24,9 +24,31 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     /// Load a compiled model. `computeUnits` is what the model SDK asks for
     /// (Core ML's `MLComputeUnits`); the environment and the simulator can
     /// override it - see ``configuration(for:)``.
-    init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
+    /// - Parameter functionName: which function of a multifunction model to run. One
+    ///   `.mlmodelc` can carry several graphs - a selector and a scorer sharing an encoder,
+    ///   say - and shipping them as one asset stores the shared weights once rather than
+    ///   twice. `nil` uses the model's default function, which is every single-function
+    ///   model.
+    init(modelPath: String, computeUnits: ComputeUnits = .all,
+         functionName: String? = nil) throws {
+        let configuration = CoreMLSession.configuration(for: computeUnits)
+        if let functionName {
+            // watchOS 11.0 belongs here even though this package declares no watchOS platform.
+            // `MLModelConfiguration.functionName` is annotated watchOS 11.0+ in the Core ML
+            // header, and a platform left out of an `#available` list falls to `*` — which
+            // matches every watchOS version, so the guard PASSES and the line below then fails
+            // to COMPILE against the watchOS SDK. An omission here is a build error rather
+            // than a runtime fallback, and `ModelPlatform.current` does route watchOS to
+            // `.apple`.
+            guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
+            else {
+                throw InferenceError.sessionUnavailable(
+                    "multifunction models need iOS 18 / macOS 15; '\(functionName)' is unreachable here")
+            }
+            configuration.functionName = functionName
+        }
         model = try MLModel(contentsOf: URL(fileURLWithPath: modelPath),
-                            configuration: CoreMLSession.configuration(for: computeUnits))
+                            configuration: configuration)
     }
 
     /// The configuration to load with, in precedence order:
@@ -53,6 +75,16 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
             #endif
         }
         return configuration
+    }
+
+    /// Read off the declared constraint. On a multifunction package `modelDescription` reflects
+    /// the function this session was configured with, so `select` and `score` report their own
+    /// widths from two sessions over the same file.
+    func inputWidth(_ name: String) -> Int? {
+        guard let shape = model.modelDescription
+            .inputDescriptionsByName[name]?.multiArrayConstraint?.shape,
+              let last = shape.last?.intValue, last > 0 else { return nil }
+        return last
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
