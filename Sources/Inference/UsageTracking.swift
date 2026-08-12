@@ -26,6 +26,17 @@ func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any I
 /// while awaiting the wrapped session, so concurrent runs still run concurrently.
 actor TrackedSession: InferenceSession {
     private let wrapped: any InferenceSession
+
+    /// Forwarded, `nonisolated` so it satisfies the synchronous protocol requirement.
+    ///
+    /// Without this the wrapper silently inherits the protocol's `nil` default and every caller
+    /// falls back to its own constant — not a compile error, not a warning, just a wrong buffer
+    /// width. It cost a run: the clips scorer asked a 256-wide graph for its width, got `nil`
+    /// through this wrapper, sized buffers at the fallback 128, and Core ML rejected the batch.
+    /// A wrapper that drops an introspection method is the same defect class as one that drops
+    /// an error.
+    nonisolated func inputWidth(_ name: String) -> Int? { wrapped.inputWidth(name) }
+
     private let storage: UsageStorage
     private let makeDeviceClient: (String) -> UsageClient
     private let debounceNanos: UInt64

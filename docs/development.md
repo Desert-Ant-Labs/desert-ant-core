@@ -124,11 +124,11 @@ The point of CI is one question: does every model still work on every platform?
 
 Every model with an npm package runs real inference in a real browser
 (`test:browser`, headless Chromium), not just a bundle that compiles. Models with
-no npm or Maven package (Clear today) are Apple + Linux + a wasm compile check;
-that is intentional, since there is no artifact to test. Model-backed tests are
-disabled on iOS and WASI by `runsModelBackedTests`, so `test:ios` proves the
-package compiles and its non-model logic works while macOS covers Core ML
-inference.
+no npm or Maven package (Clear and Clips today) are Apple + Linux + a wasm
+compile check; that is intentional, since there is no artifact to test.
+Model-backed tests are disabled on iOS and WASI by `runsModelBackedTests`, so
+`test:ios` proves the package compiles and its non-model logic works while macOS
+covers Core ML inference.
 
 Plus two invariants, in the `checks` job:
 

@@ -1,0 +1,231 @@
+[
+  {
+    "metadataOutputVersion" : "3.0",
+    "outputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 16)",
+        "shortDescription" : "",
+        "shape" : "[16]",
+        "name" : "saliency",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 16)",
+        "shortDescription" : "",
+        "shape" : "[16]",
+        "name" : "start_p",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float16",
+        "formattedType" : "MultiArray (Float16 16)",
+        "shortDescription" : "",
+        "shape" : "[16]",
+        "name" : "end_p",
+        "type" : "MultiArray"
+      }
+    ],
+    "modelParameters" : [
+
+    ],
+    "specificationVersion" : 9,
+    "functions" : [
+      {
+        "computePrecision" : "Mixed (Float16, Int32)",
+        "outputSchema" : [
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Float16",
+            "formattedType" : "MultiArray (Float16 16)",
+            "shortDescription" : "",
+            "shape" : "[16]",
+            "name" : "saliency",
+            "type" : "MultiArray"
+          },
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Float16",
+            "formattedType" : "MultiArray (Float16 16)",
+            "shortDescription" : "",
+            "shape" : "[16]",
+            "name" : "start_p",
+            "type" : "MultiArray"
+          },
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Float16",
+            "formattedType" : "MultiArray (Float16 16)",
+            "shortDescription" : "",
+            "shape" : "[16]",
+            "name" : "end_p",
+            "type" : "MultiArray"
+          }
+        ],
+        "stateSchema" : [
+
+        ],
+        "name" : "select",
+        "mlProgramOperationTypeHistogram" : {
+          "Ios16.reduceMean" : 1,
+          "Ios16.reduceSum" : 1,
+          "Ios18.add" : 1,
+          "Ios18.cast" : 2,
+          "Ios18.mul" : 5,
+          "Ios18.sigmoid" : 3
+        },
+        "inputSchema" : [
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Int32",
+            "formattedType" : "MultiArray (Int32 16 × 128)",
+            "shortDescription" : "",
+            "shape" : "[16, 128]",
+            "name" : "ids",
+            "type" : "MultiArray"
+          },
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Int32",
+            "formattedType" : "MultiArray (Int32 16 × 128)",
+            "shortDescription" : "",
+            "shape" : "[16, 128]",
+            "name" : "mask",
+            "type" : "MultiArray"
+          },
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Float32",
+            "formattedType" : "MultiArray (Float32 16 × 5)",
+            "shortDescription" : "",
+            "shape" : "[16, 5]",
+            "name" : "disc",
+            "type" : "MultiArray"
+          }
+        ]
+      },
+      {
+        "computePrecision" : "Mixed (Float16, Int32)",
+        "outputSchema" : [
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Float16",
+            "formattedType" : "MultiArray (Float16 16)",
+            "shortDescription" : "",
+            "shape" : "[16]",
+            "name" : "score",
+            "type" : "MultiArray"
+          }
+        ],
+        "stateSchema" : [
+
+        ],
+        "name" : "score",
+        "mlProgramOperationTypeHistogram" : {
+          "Ios16.reduceMean" : 1,
+          "Ios18.tanh" : 1,
+          "Ios18.cast" : 1,
+          "Ios18.mul" : 2
+        },
+        "inputSchema" : [
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Int32",
+            "formattedType" : "MultiArray (Int32 16 × 128)",
+            "shortDescription" : "",
+            "shape" : "[16, 128]",
+            "name" : "ids",
+            "type" : "MultiArray"
+          },
+          {
+            "hasShapeFlexibility" : "0",
+            "isOptional" : "0",
+            "dataType" : "Int32",
+            "formattedType" : "MultiArray (Int32 16 × 128)",
+            "shortDescription" : "",
+            "shape" : "[16, 128]",
+            "name" : "mask",
+            "type" : "MultiArray"
+          }
+        ]
+      }
+    ],
+    "mlProgramOperationTypeHistogram" : {
+      "Ios16.reduceMean" : 1,
+      "Ios16.reduceSum" : 1,
+      "Ios18.add" : 1,
+      "Ios18.cast" : 2,
+      "Ios18.mul" : 5,
+      "Ios18.sigmoid" : 3
+    },
+    "isUpdatable" : "0",
+    "stateSchema" : [
+
+    ],
+    "availability" : {
+      "macOS" : "15.0",
+      "tvOS" : "18.0",
+      "visionOS" : "2.0",
+      "watchOS" : "11.0",
+      "iOS" : "18.0",
+      "macCatalyst" : "18.0"
+    },
+    "computePrecision" : "Mixed (Float16, Int32)",
+    "modelType" : {
+      "name" : "MLModelType_mlProgram"
+    },
+    "inputSchema" : [
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Int32",
+        "formattedType" : "MultiArray (Int32 16 × 128)",
+        "shortDescription" : "",
+        "shape" : "[16, 128]",
+        "name" : "ids",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Int32",
+        "formattedType" : "MultiArray (Int32 16 × 128)",
+        "shortDescription" : "",
+        "shape" : "[16, 128]",
+        "name" : "mask",
+        "type" : "MultiArray"
+      },
+      {
+        "hasShapeFlexibility" : "0",
+        "isOptional" : "0",
+        "dataType" : "Float32",
+        "formattedType" : "MultiArray (Float32 16 × 5)",
+        "shortDescription" : "",
+        "shape" : "[16, 5]",
+        "name" : "disc",
+        "type" : "MultiArray"
+      }
+    ],
+    "defaultFunctionName" : "select",
+    "generatedClassName" : "clips_multifunction",
+    "userDefinedMetadata" : {
+
+    },
+    "method" : "predict"
+  }
+]

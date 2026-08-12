@@ -1,0 +1,40 @@
+program(1.3)
+[buildInfo = dict<string, string>({{"coremlc-component-MIL", "3510.2.1"}, {"coremlc-version", "3500.32.1"}})]
+{
+    func score<ios18>(tensor<int32, [16, 128]> ids, tensor<int32, [16, 128]> mask) {
+            tensor<int32, [16, 128]> mul = mul(x = ids, y = mask)[name = string("mul")];
+            tensor<int32, [1]> mean_axes_0 = const()[name = string("mean_axes_0"), val = tensor<int32, [1]>([1])];
+            bool mean_keep_dims_0 = const()[name = string("mean_keep_dims_0"), val = bool(false)];
+            string _to_copy_to_fp16_dtype_0 = const()[name = string("_to_copy_to_fp16_dtype_0"), val = string("fp16")];
+            tensor<fp16, [16, 128]> mul_to_fp16 = cast(dtype = _to_copy_to_fp16_dtype_0, x = mul)[name = string("cast_3")];
+            tensor<fp16, [16]> mean_cast_fp16 = reduce_mean(axes = mean_axes_0, keep_dims = mean_keep_dims_0, x = mul_to_fp16)[name = string("mean_cast_fp16")];
+            fp16 _inversed_div_y_0_to_fp16 = const()[name = string("_inversed_div_y_0_to_fp16"), val = fp16(0x1.064p-10)];
+            tensor<fp16, [16]> _inversed_div_cast_fp16 = mul(x = mean_cast_fp16, y = _inversed_div_y_0_to_fp16)[name = string("_inversed_div_cast_fp16")];
+            tensor<fp16, [16]> score = tanh(x = _inversed_div_cast_fp16)[name = string("tanh_cast_fp16")];
+        } -> (score);
+    func select<ios18>(tensor<fp32, [16, 5]> disc, tensor<int32, [16, 128]> ids, tensor<int32, [16, 128]> mask) {
+            tensor<int32, [16, 128]> mul = mul(x = ids, y = mask)[name = string("mul")];
+            tensor<int32, [1]> mean_axes_0 = const()[name = string("mean_axes_0"), val = tensor<int32, [1]>([1])];
+            bool mean_keep_dims_0 = const()[name = string("mean_keep_dims_0"), val = bool(false)];
+            string _to_copy_to_fp16_dtype_0 = const()[name = string("_to_copy_to_fp16_dtype_0"), val = string("fp16")];
+            tensor<fp16, [16, 128]> mul_to_fp16 = cast(dtype = _to_copy_to_fp16_dtype_0, x = mul)[name = string("cast_6")];
+            tensor<fp16, [16]> mean_cast_fp16 = reduce_mean(axes = mean_axes_0, keep_dims = mean_keep_dims_0, x = mul_to_fp16)[name = string("mean_cast_fp16")];
+            fp16 _inversed_div_y_0_to_fp16 = const()[name = string("_inversed_div_y_0_to_fp16"), val = fp16(0x1.064p-10)];
+            tensor<fp16, [16]> _inversed_div_cast_fp16 = mul(x = mean_cast_fp16, y = _inversed_div_y_0_to_fp16)[name = string("_inversed_div_cast_fp16")];
+            tensor<int32, [1]> sum_1_axes_0 = const()[name = string("sum_1_axes_0"), val = tensor<int32, [1]>([1])];
+            bool sum_1_keep_dims_0 = const()[name = string("sum_1_keep_dims_0"), val = bool(false)];
+            string disc_to_fp16_dtype_0 = const()[name = string("disc_to_fp16_dtype_0"), val = string("fp16")];
+            tensor<fp16, [16, 5]> disc_to_fp16 = cast(dtype = disc_to_fp16_dtype_0, x = disc)[name = string("cast_5")];
+            tensor<fp16, [16]> sum_1_cast_fp16 = reduce_sum(axes = sum_1_axes_0, keep_dims = sum_1_keep_dims_0, x = disc_to_fp16)[name = string("sum_1_cast_fp16")];
+            fp16 const_4_to_fp16 = const()[name = string("const_4_to_fp16"), val = fp16(0x1.47cp-7)];
+            tensor<fp16, [16]> mul_1_cast_fp16 = mul(x = sum_1_cast_fp16, y = const_4_to_fp16)[name = string("mul_1_cast_fp16")];
+            tensor<fp16, [16]> add_cast_fp16 = add(x = _inversed_div_cast_fp16, y = mul_1_cast_fp16)[name = string("add_cast_fp16")];
+            tensor<fp16, [16]> saliency = sigmoid(x = add_cast_fp16)[name = string("sigmoid_cast_fp16")];
+            fp16 const_5_to_fp16 = const()[name = string("const_5_to_fp16"), val = fp16(0x1p-1)];
+            tensor<fp16, [16]> mul_2_cast_fp16 = mul(x = add_cast_fp16, y = const_5_to_fp16)[name = string("mul_2_cast_fp16")];
+            tensor<fp16, [16]> start_p = sigmoid(x = mul_2_cast_fp16)[name = string("sigmoid_1_cast_fp16")];
+            fp16 const_6_promoted_to_fp16 = const()[name = string("const_6_promoted_to_fp16"), val = fp16(-0x1p+0)];
+            tensor<fp16, [16]> neg_cast_fp16 = mul(x = add_cast_fp16, y = const_6_promoted_to_fp16)[name = string("neg_cast_fp16")];
+            tensor<fp16, [16]> end_p = sigmoid(x = neg_cast_fp16)[name = string("sigmoid_2_cast_fp16")];
+        } -> (saliency, start_p, end_p);
+}

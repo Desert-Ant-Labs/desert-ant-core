@@ -37,9 +37,24 @@ public protocol InferenceSession: Sendable {
     /// concrete backends ignore it — only the usage-tracking wrapper uses it.
     /// Most callers use the two-argument convenience below.
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor]
+
+    /// The last-dimension extent this graph was compiled at for a named input — its sequence
+    /// width — or `nil` when the runtime cannot report shapes.
+    ///
+    /// Exists so a caller can size buffers from the ARTIFACT rather than from a constant. The
+    /// clips scorer forced it: two candidate packages differ in exactly this number (`score` at
+    /// [16,128] against [16,256]) and in nothing else about their I/O, so a hardcoded width
+    /// silently truncates every candidate on the wider one and reports no difference between
+    /// them — a null by construction rather than a measurement.
+    func inputWidth(_ name: String) -> Int?
 }
 
 public extension InferenceSession {
+    /// Runtimes that cannot introspect their own shapes report nothing, and callers fall back
+    /// to their own default. Returning `nil` rather than a guess keeps "I don't know" distinct
+    /// from "it is 128".
+    func inputWidth(_ name: String) -> Int? { nil }
+
     /// Run, resolving the device id for usage attribution without the SDK having
     /// to pass one. Precedence:
     ///   1. `InferenceContext.deviceId` — a per-call task-local the host binds
