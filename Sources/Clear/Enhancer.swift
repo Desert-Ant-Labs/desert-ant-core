@@ -61,6 +61,19 @@ struct ClearEnhancer {
     let chunkLen: Int
     private let stft = ClearSTFT()
 
+    /// How many independent chunks one `run` consumes, and in which layout.
+    ///
+    /// The Core ML export is ANE-shaped: planar `[B, C, F, T]` tensors with a
+    /// fixed batch of four windows (`spec (4,2,481,200)`,
+    /// `feat_erb (4,1,32,200)`, `feat_spec (4,2,96,200)`). Every other runtime
+    /// (LiteRT/ONNX/JS host) keeps the original DFN3 layout: one window per
+    /// run, interleaved `[1, 1, T, F, 2]`.
+    #if canImport(CoreML)
+    static let batchSize = 4
+    #else
+    static let batchSize = 1
+    #endif
+
     init(sessions: [any InferenceSession], chunkLen: Int = 200) {
         self.sessions = sessions.isEmpty ? [] : sessions
         self.chunkLen = chunkLen
@@ -95,7 +108,9 @@ struct ClearEnhancer {
         defer { outRe.deinitialize(count: count); outRe.deallocate(); outIm.deinitialize(count: count); outIm.deallocate() }
 
         let nChunks = (nFrames + chunkLen - 1) / chunkLen
-        let workers = max(1, min(sessions.count, nChunks))
+        let batch = Self.batchSize
+        let nGroups = (nChunks + batch - 1) / batch
+        let workers = max(1, min(sessions.count, nGroups))
         let chunkLen = self.chunkLen
         // Each worker owns one session and a strided set of chunks; output
         // ranges are disjoint per chunk, so the shared buffers need no locking.
@@ -106,14 +121,16 @@ struct ClearEnhancer {
                 group.addTask {
                     let (outRe, outIm, sessions, fe, fsr, fsi, sr, si) = box.value
                     let session = sessions[w]
-                    var c = w
-                    while c < nChunks {
-                        let start = c * chunkLen, end = min(start + chunkLen, nFrames)
-                        try await Self.runChunk(session: session, start: start, end: end, nFrames: nFrames, chunkLen: chunkLen,
+                    var g = w
+                    while g < nGroups {
+                        let firstChunk = g * batch
+                        let chunks = min(batch, nChunks - firstChunk)
+                        try await Self.runGroup(session: session, firstChunk: firstChunk, chunks: chunks,
+                                                nFrames: nFrames, chunkLen: chunkLen,
                                                 featErb: fe, featSpecReal: fsr, featSpecImag: fsi,
                                                 specReal: sr, specImag: si, outRe: outRe, outIm: outIm)
-                        completed.finishOne()
-                        c += workers
+                        for _ in 0..<chunks { completed.finishOne() }
+                        g += workers
                     }
                 }
             }
@@ -128,6 +145,28 @@ struct ClearEnhancer {
         return enhanced
     }
 
+    /// Run one group of `chunks` consecutive windows (`batchSize` of them at
+    /// most) through `session` and scatter the result into the output planes.
+    private static func runGroup(session: any InferenceSession, firstChunk: Int, chunks: Int,
+                                 nFrames: Int, chunkLen: Int,
+                                 featErb: [Float], featSpecReal: [Float], featSpecImag: [Float],
+                                 specReal: [Float], specImag: [Float],
+                                 outRe: UnsafeMutablePointer<Float>, outIm: UnsafeMutablePointer<Float>) async throws {
+        #if canImport(CoreML)
+        try await runPlanarBatch(session: session, firstChunk: firstChunk, chunks: chunks,
+                                 nFrames: nFrames, chunkLen: chunkLen,
+                                 featErb: featErb, featSpecReal: featSpecReal, featSpecImag: featSpecImag,
+                                 specReal: specReal, specImag: specImag, outRe: outRe, outIm: outIm)
+        #else
+        let start = firstChunk * chunkLen
+        try await runChunk(session: session, start: start, end: min(start + chunkLen, nFrames),
+                           nFrames: nFrames, chunkLen: chunkLen,
+                           featErb: featErb, featSpecReal: featSpecReal, featSpecImag: featSpecImag,
+                           specReal: specReal, specImag: specImag, outRe: outRe, outIm: outIm)
+        #endif
+    }
+
+    /// The original DFN3 layout: one window per run, interleaved complex.
     private static func runChunk(session: any InferenceSession, start: Int, end: Int, nFrames: Int, chunkLen: Int,
                                  featErb: [Float], featSpecReal: [Float], featSpecImag: [Float],
                                  specReal: [Float], specImag: [Float],
@@ -202,6 +241,112 @@ struct ClearEnhancer {
         }
         #endif
     }
+
+    #if canImport(CoreML)
+    /// The Core ML export's layout: a fixed batch of `batchSize` independent
+    /// windows as planar `[B, C, F, T]` tensors (frequency-major, time last),
+    /// which is what the ANE program declares. Unused batch elements are left
+    /// zero and their outputs ignored.
+    private static func runPlanarBatch(session: any InferenceSession, firstChunk: Int, chunks: Int,
+                                       nFrames: Int, chunkLen: Int,
+                                       featErb: [Float], featSpecReal: [Float], featSpecImag: [Float],
+                                       specReal: [Float], specImag: [Float],
+                                       outRe: UnsafeMutablePointer<Float>, outIm: UnsafeMutablePointer<Float>) async throws {
+        let T = chunkLen, B = batchSize
+        let nFreq = ClearDSP.nFreq, nErb = ClearDSP.nErb, nDf = ClearDSP.nDf
+        let look = ClearDSP.convLookahead
+
+        var specBuf = [Float](repeating: 0, count: B * 2 * nFreq * T)
+        var erbBuf = [Float](repeating: 0, count: B * nErb * T)
+        var featSpecBuf = [Float](repeating: 0, count: B * 2 * nDf * T)
+
+        for b in 0..<chunks {
+            let start = (firstChunk + b) * T
+            // Features are read `convLookahead` frames ahead of the window; the
+            // spectrum is read at the window itself. Both clamp at the tail.
+            let tEnd = min(T, nFrames - start - look)
+            let sEnd = min(T, nFrames - start)
+            if tEnd > 0 {
+                toPlanar(featErb, srcFrame: start + look, frames: tEnd, cols: nErb,
+                         into: &erbBuf, planeOffset: b * nErb * T, T: T)
+                toPlanar(featSpecReal, srcFrame: start + look, frames: tEnd, cols: nDf,
+                         into: &featSpecBuf, planeOffset: (b * 2) * nDf * T, T: T)
+                toPlanar(featSpecImag, srcFrame: start + look, frames: tEnd, cols: nDf,
+                         into: &featSpecBuf, planeOffset: (b * 2 + 1) * nDf * T, T: T)
+            }
+            if sEnd > 0 {
+                toPlanar(specReal, srcFrame: start, frames: sEnd, cols: nFreq,
+                         into: &specBuf, planeOffset: (b * 2) * nFreq * T, T: T)
+                toPlanar(specImag, srcFrame: start, frames: sEnd, cols: nFreq,
+                         into: &specBuf, planeOffset: (b * 2 + 1) * nFreq * T, T: T)
+            }
+        }
+
+        let outputs = try await session.run(
+            inputs: [
+                "spec": Tensor(float32: specBuf, shape: [B, 2, nFreq, T]),
+                "feat_erb": Tensor(float32: erbBuf, shape: [B, 1, nErb, T]),
+                "feat_spec": Tensor(float32: featSpecBuf, shape: [B, 2, nDf, T]),
+            ],
+            outputs: ["spec_enhanced"])
+        guard let enh = outputs.first?.float32Values, enh.count >= B * 2 * nFreq * T else {
+            throw ClearError.inferenceFailed("spec_enhanced missing or wrong size")
+        }
+
+        for b in 0..<chunks {
+            let start = (firstChunk + b) * T
+            let valid = min(T, nFrames - start)
+            guard valid > 0 else { continue }
+            fromPlanar(enh, planeOffset: (b * 2) * nFreq * T, cols: nFreq, T: T,
+                       frames: valid, into: outRe + start * nFreq)
+            fromPlanar(enh, planeOffset: (b * 2 + 1) * nFreq * T, cols: nFreq, T: T,
+                       frames: valid, into: outIm + start * nFreq)
+        }
+    }
+
+    /// Frame-major source (`[frame][cols]`, starting at `srcFrame`) into one
+    /// `[cols][T]` plane of `dst` at `planeOffset`. A full window transposes
+    /// straight into place; a short tail window transposes into scratch and
+    /// then copies the columns it has, leaving the rest zero.
+    private static func toPlanar(_ src: [Float], srcFrame: Int, frames: Int, cols: Int,
+                                 into dst: inout [Float], planeOffset: Int, T: Int) {
+        src.withUnsafeBufferPointer { sp in
+            let s = sp.baseAddress! + srcFrame * cols
+            dst.withUnsafeMutableBufferPointer { dp in
+                let d = dp.baseAddress! + planeOffset
+                if frames == T {
+                    vDSP_mtrans(s, 1, d, 1, vDSP_Length(cols), vDSP_Length(frames))
+                } else {
+                    var scratch = [Float](repeating: 0, count: cols * frames)
+                    scratch.withUnsafeMutableBufferPointer { tp in
+                        vDSP_mtrans(s, 1, tp.baseAddress!, 1, vDSP_Length(cols), vDSP_Length(frames))
+                        vDSP_mmov(tp.baseAddress!, d, vDSP_Length(frames), vDSP_Length(cols),
+                                  vDSP_Length(frames), vDSP_Length(T))
+                    }
+                }
+            }
+        }
+    }
+
+    /// The inverse: one `[cols][T]` plane of `src` back to `frames` rows of a
+    /// frame-major destination.
+    private static func fromPlanar(_ src: [Float], planeOffset: Int, cols: Int, T: Int,
+                                   frames: Int, into dst: UnsafeMutablePointer<Float>) {
+        src.withUnsafeBufferPointer { sp in
+            let s = sp.baseAddress! + planeOffset
+            if frames == T {
+                vDSP_mtrans(s, 1, dst, 1, vDSP_Length(frames), vDSP_Length(cols))
+            } else {
+                var scratch = [Float](repeating: 0, count: cols * frames)
+                scratch.withUnsafeMutableBufferPointer { tp in
+                    vDSP_mmov(s, tp.baseAddress!, vDSP_Length(frames), vDSP_Length(cols),
+                              vDSP_Length(T), vDSP_Length(frames))
+                    vDSP_mtrans(tp.baseAddress!, 1, dst, 1, vDSP_Length(frames), vDSP_Length(cols))
+                }
+            }
+        }
+    }
+    #endif
 
     #if canImport(Accelerate)
     private static func interleave(_ re: [Float], _ im: [Float], srcOffset: Int, into dst: inout [Float], dstOffset: Int, count: Int) {
