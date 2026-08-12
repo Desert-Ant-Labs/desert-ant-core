@@ -46,6 +46,12 @@ let noJavaScriptKit = !wasmBuild
 let mlxBuild = ProcessInfo.processInfo.environment["DAL_MLX_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
+// `AutoEdit` reads speech with WhisperKit and cuts with AVFoundation, both
+// Apple-only. SwiftPM resolves dependencies before it knows the platform, so
+// this switch scopes the WhisperKit dependency to consumers that build it.
+let videoBuild = ProcessInfo.processInfo.environment["DAL_VIDEO_BUILD"] != nil
+    && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
+
 let mlxDependencies: [Package.Dependency] = !mlxBuild ? [] : [
     .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", from: "3.31.3"),
     // swift-transformers is NOT optional here even though no line of Title names it. The
@@ -91,6 +97,7 @@ let models: [ModelPackage] = [
     .init(name: "Emo"),
     .init(
         name: "Clips",
+        dependencies: ["Transcript"],
         testResources: [
             .copy("Resources/clip_vocab_subset.bin"),
             .copy("Resources/tokenizer_parity.json"),
@@ -108,8 +115,9 @@ let models: [ModelPackage] = [
         testResources: [.copy("Resources/deterministic_corpus.json")]
     ),
 ] + (mlxBuild ? [
+    // Cards are written for a `Clip`, which `Transcript` declares.
     ModelPackage(name: "Title",
-                 dependencies: [.byName(name: "Clips")] + mlxProducts,
+                 dependencies: [.byName(name: "Transcript")] + mlxProducts,
                  appleOnly: true),
 ] : [])
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
@@ -120,6 +128,8 @@ let products: [Product] = [
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
+        // Shared by every model and pipeline that reads a transcript.
+        .library(name: "Transcript", targets: ["Transcript"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         // Cross-platform audio: decode/encode (AudioIO) and STFT/mel/framing
         // DSP (AudioDSP), so audio model SDKs ship no per-platform audio code.
@@ -255,6 +265,9 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
+        // Transcript vocabulary: words, sentences, clips, and time spans. No
+        // dependencies, so every platform splits a transcript identically.
+        .target(name: "Transcript"),
         .target(name: "FFIBuffer"),
         .target(name: "NativeBindings", dependencies: ["DesertAnt"]),
         .target(
@@ -343,6 +356,7 @@ let testTargets: [Target] = [
             dependencies: [.byName(name: "DesertAnt")] + modelDependencies
         ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
+        .testTarget(name: "TranscriptTests", dependencies: ["Transcript"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
         .testTarget(
@@ -355,7 +369,28 @@ let testTargets: [Target] = [
         .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ]
 
-let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
+// The video pipeline: transcribe, select, cut.
+let autoEditTargets: [Target] = !videoBuild ? [] : [
+    .target(
+        name: "AutoEdit",
+        dependencies: [
+            "Clips", "DesertAnt", "Transcript",
+            .product(name: "WhisperKit", package: "argmax-oss-swift"),
+            .product(name: "Align", package: "align"),
+        ]
+    ),
+    .testTarget(name: "AutoEditTests", dependencies: ["AutoEdit"]),
+]
+let autoEditProducts: [Product] = !videoBuild ? [] : [
+    .library(name: "AutoEdit", targets: ["AutoEdit"]),
+]
+let autoEditDependencies: [Package.Dependency] = !videoBuild ? [] : [
+    .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0"),
+    .package(url: "https://github.com/Desert-Ant-Labs/align.git", from: "0.1.1"),
+]
+
+let coreTargets: [Target] =
+    libraryTargets + testTargets + modelTargets + modelTestTargets + autoEditTargets
 
 let package = Package(
     name: "DesertAnt",
@@ -386,8 +421,8 @@ let package = Package(
     platforms: mlxBuild
         ? [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)]
         : [.iOS(.v16), .macOS(.v13), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts,
-    dependencies: jsDependencies + mlxDependencies + [
+    products: products + modelProducts + autoEditProducts,
+    dependencies: jsDependencies + mlxDependencies + autoEditDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: coreTargets

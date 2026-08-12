@@ -49,7 +49,7 @@ public enum TitleModel: ModelDeclaration {
     /// — SwiftPM resolves platforms at manifest level and no declaration here can satisfy it.
     public static let osFloor = OSFloor.mlx
 
-    public static let sdkVersion = "1.0.3"
+    public static let sdkVersion = "1.0.5"
     public static let summary =
         "On-device titles and descriptions: a short factual title and a one- to two-sentence "
         + "description for any passage of text."

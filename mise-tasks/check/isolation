@@ -18,7 +18,9 @@ for model in $models; do
     grep -rq '^import Audio' "Sources/$product" && audio_users="$audio_users $product"
 done
 
-swift package describe --type json \
+# `Title` only exists in the graph when `DAL_MLX_BUILD=1` (see Package.swift);
+# without it, this check would fail with "no Swift target named Title".
+DAL_MLX_BUILD=1 swift package describe --type json \
     | MODELS="$(for m in $models; do dal_product "$m"; done | tr '\n' ' ')" AUDIO_USERS="$audio_users" node -e '
 let raw = "";
 process.stdin.on("data", (d) => (raw += d)).on("end", () => {

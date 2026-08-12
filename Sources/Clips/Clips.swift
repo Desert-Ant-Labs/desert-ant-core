@@ -1,44 +1,5 @@
 import DesertAnt
-
-/// One selected moment, returned by ``Clips/clips(in:limit:)``.
-///
-/// The type is `Clip` rather than `Clips` because `Clips` is the SDK class,
-/// the way ``EmoSuggestion`` sits beside `Emo`. A moment IS a clip: a run of
-/// transcript sentences worth cutting on its own.
-public struct Clip: Identifiable, Sendable, Equatable {
-    init(id: Int, sentenceIDs: [Int], text: String, score: Double,
-         percentile: Double, estimatedDurationSec: Double) {
-        self.id = id
-        self.sentenceIDs = sentenceIDs
-        self.text = text
-        self.score = score
-        self.percentile = percentile
-        self.estimatedDurationSec = estimatedDurationSec
-    }
-
-    /// Rank position in the returned list; `0` is the best moment.
-    public let id: Int
-
-    /// Indices into the transcript you passed in, ascending.
-    public let sentenceIDs: [Int]
-
-    /// The moment's sentences joined with spaces.
-    public let text: String
-
-    /// The scorer's raw output. Compare moments from the SAME transcript with
-    /// it; do not threshold on it - see ``percentile``.
-    public let score: Double
-
-    /// Rank position WITHIN this transcript, `0...1`. Use this for thresholds,
-    /// never ``score``: the scorer is trained with within-video ranking, and
-    /// per-video 95th-percentile scores span 0.33-0.95, so an absolute cut
-    /// returns nothing on many videos.
-    public let percentile: Double
-
-    /// Rough spoken length at 2.5 words per second. An estimate from the text,
-    /// not a measurement of any audio.
-    public let estimatedDurationSec: Double
-}
+import Transcript
 
 /// Errors thrown while loading or running the model. (`MessageError` is
 /// `LocalizedError` wherever Foundation exists, so `localizedDescription`
