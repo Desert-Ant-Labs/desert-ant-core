@@ -25,6 +25,59 @@ let wasmBuild = ProcessInfo.processInfo.environment["DAL_WASM_BUILD"] != nil
 let noJavaScriptKit = !wasmBuild
     || ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
+// MLX is opt-in for the same reason, and the reason is the same MACRO problem — but unlike
+// JavaScriptKit it is gated by a package TRAIT rather than an environment variable.
+//
+// `Title` is the one model here that does not run through `InferenceSession`: writing a title
+// is short autoregressive decode, which measured 5.7-8.3x faster on MLX/GPU than on the ANE,
+// and `8e97532` removed MLState when the Core ML path lost. So Title needs mlx-swift-lm.
+//
+// `MLXHuggingFace` exposes `#huggingFaceLoadModelContainer`, a MACRO — so it pulls swift-syntax
+// and host macro plugins exactly as JavaScriptKit does, and a package dependency cannot carry a
+// platform condition. Declaring its target edges unconditionally would make every Linux and
+// Android consumer clone and build it for a target MLX cannot run on at all, and would risk the
+// same static-stdlib link conflict recorded above.
+//
+// So: the `MLX` trait (SE-0450). SwiftPM PRUNES the mlx-swift-lm and swift-transformers
+// package dependencies whenever no enabled trait references them, so a consumer without the
+// trait never clones them — the same graph the old `DAL_MLX_BUILD` env var produced, but
+// declared in the consumer's manifest instead of ambient process environment (which Xcode's
+// resolver could only see via `launchctl setenv`).
+//
+// The trait is deliberately NOT a default trait: default traits are enabled implicitly by
+// every consumer, including the Linux/Android/wasm pipelines, which would then need
+// `--disable-default-traits` plumbed through every build (including plugin invocations that
+// may not forward trait flags). Opt-in keeps every non-Apple graph exactly as before.
+//
+// A consumer opts in with:  .package(url: ..., traits: ["MLX"])   (tools-version 6.1+)
+// and a build that forgets it fails compiling against the `Title` stub (its MLX API is behind
+// `#if MLX`) rather than mis-building.
+//
+// The env var check stays temporarily as a migration guard: a build still exporting
+// DAL_MLX_BUILD gets a loud error instead of silently building a Title stub.
+if ProcessInfo.processInfo.environment["DAL_MLX_BUILD"] != nil {
+    // Uncomment-to-taste: fatalError would block builds that harmlessly still export it.
+    FileHandle.standardError.write(Data(
+        "warning: DAL_MLX_BUILD is obsolete; use the 'MLX' package trait instead.\n".utf8))
+}
+
+let mlxDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", from: "3.31.3"),
+    // swift-transformers is NOT optional here even though no line of Title names it. The
+    // `#huggingFaceLoadModelContainer` macro EXPANDS into code referencing `HuggingFace`,
+    // `HubClient` and `Tokenizers`, so the dependency is invisible at the call site and shows up
+    // only as "cannot find 'HubClient' in scope" inside a macro expansion.
+    .package(url: "https://github.com/huggingface/swift-transformers.git", from: "1.3.3"),
+]
+// `MLX` itself is NOT a product of mlx-swift-lm -- it comes transitively from mlx-swift, which
+// is why `import MLX` works without declaring it. Declaring it fails resolution.
+let mlxProducts: [Target.Dependency] = [
+    .product(name: "Transformers", package: "swift-transformers", condition: .when(traits: ["MLX"])),
+    .product(name: "MLXLMCommon", package: "mlx-swift-lm", condition: .when(traits: ["MLX"])),
+    .product(name: "MLXLLM", package: "mlx-swift-lm", condition: .when(traits: ["MLX"])),
+    .product(name: "MLXHuggingFace", package: "mlx-swift-lm", condition: .when(traits: ["MLX"])),
+]
+
 let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
     .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
 ]
@@ -45,10 +98,14 @@ struct ModelPackage {
     var resources: [Resource] = []
     var testDependencies: [Target.Dependency] = []
     var testResources: [Resource] = []
+    /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
+    /// platform, and a product promising an artifact that cannot load is worse than its absence.
+    var appleOnly: Bool = false
 }
 
 let models: [ModelPackage] = [
     .init(name: "Emo"),
+    .init(name: "Clips", dependencies: ["Transcript"]),
     .init(
         name: "Clear",
         dependencies: ["AudioIO", "AudioDSP"],
@@ -71,6 +128,13 @@ let models: [ModelPackage] = [
             .copy("Resources/gist-feature-oracle.json"),
         ]
     ),
+] + [
+    // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
+    // without the `MLX` trait its MLX dependencies are pruned and the target compiles as a
+    // stub (`#if MLX` in Title.swift), so the graph is identical on every platform.
+    ModelPackage(name: "Title",
+                 dependencies: [.byName(name: "Transcript")] + mlxProducts,
+                 appleOnly: true),
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
@@ -144,6 +208,8 @@ let products: [Product] = [
         .library(name: "Regex", targets: ["Regex"]),
         .library(name: "JSON", targets: ["JSON"]),
         .library(name: "TextNormalization", targets: ["TextNormalization"]),
+        // Shared by every model and pipeline that reads a transcript.
+        .library(name: "Transcript", targets: ["Transcript"]),
         .library(name: "FFIBuffer", targets: ["FFIBuffer"]),
         // Cross-platform audio: decode/encode (AudioIO) and STFT/mel/framing
         // DSP (AudioDSP), so audio model SDKs ship no per-platform audio code.
@@ -161,19 +227,22 @@ let products: [Product] = [
         .library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
 ]
 
-let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.map { model in
+// `appleOnly` models (Title) have no `Web/` entry point, so they get no wasm product.
+let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
 let modelProducts: [Product] = models.flatMap { model in
-    [
-        .library(name: model.name, targets: [model.name]),
-        .library(name: "\(model.name)Android", type: .dynamic, targets: [model.name]),
-        .library(name: "\(model.name)Node", type: .dynamic, targets: [model.name]),
-    ]
+    model.appleOnly
+        ? [.library(name: model.name, targets: [model.name])]
+        : [
+            .library(name: model.name, targets: [model.name]),
+            .library(name: "\(model.name)Android", type: .dynamic, targets: [model.name]),
+            .library(name: "\(model.name)Node", type: .dynamic, targets: [model.name]),
+        ]
 } + modelWasmProducts
 
-let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.map { model in
+let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
     .executableTarget(
         name: "\(model.name)Web",
         dependencies: [
@@ -190,7 +259,9 @@ let modelTargets: [Target] = models.map { model in
         dependencies: [.byName(name: "DesertAnt"), .byName(name: "NativeBindings")]
             + model.dependencies,
         path: "Sources/\(model.name)",
-        exclude: ["Web"],
+        // Only models with a wasm entry point have a `Web/` directory to exclude. An exclude
+        // naming a path that does not exist is a warning today and could become an error.
+        exclude: model.appleOnly ? [] : ["Web"],
         resources: model.resources
     )
 } + modelWasmTargets
@@ -276,6 +347,9 @@ let libraryTargets: [Target] = [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
+        // Transcript vocabulary: words, sentences, clips, and time spans. No
+        // dependencies, so every platform splits a transcript identically.
+        .target(name: "Transcript"),
         .target(name: "FFIBuffer"),
         .target(name: "NativeBindings", dependencies: ["DesertAnt"]),
         .target(
@@ -364,6 +438,7 @@ let testTargets: [Target] = [
             dependencies: [.byName(name: "DesertAnt"), "Tongue"] + modelDependencies
         ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
+        .testTarget(name: "TranscriptTests", dependencies: ["Transcript"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
         .testTarget(name: "JSONTests", dependencies: ["JSON"]),
         .testTarget(
@@ -376,19 +451,50 @@ let testTargets: [Target] = [
         .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ]
 
-let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
-    + alignTargets + tongueTargets
+
+let coreTargets: [Target] =
+    libraryTargets + testTargets + modelTargets + modelTestTargets + alignTargets
+    + tongueTargets
 
 let package = Package(
     name: "DesertAnt",
-    platforms: [
-        .iOS(.v16),
-        .macOS(.v13),
-        .tvOS(.v16),
-        .visionOS(.v1),
+    // The package floor is the LOWEST any product supports, not the highest any product
+    // needs. Emo, Clear and Redact run on iOS 16 and keep it.
+    //
+    // Clips and Title need more, and they declare it THEMSELVES with `@available` rather than
+    // dragging every other model up with them:
+    //
+    //   Clips  iOS 18 / macOS 15 / tvOS 18 / visionOS 2. `clips.mlmodelc` is a MULTIFUNCTION
+    //          package and multifunction is an iOS 18 feature. Read off the compiled artifact:
+    //          specificationVersion 9. iOS 17 was measured, not assumed: the graph converts at
+    //          spec 8, but two fixed-shape packages cost 562 MB against 284, and one
+    //          enumerated-shape package cannot use the Neural Engine and ran ~20x slower
+    //          (833 ms/batch at 128 against 40 ms).
+    //   Title  iOS 17 / macOS 14, MLX's own floor.
+    //
+    // An earlier version of this branch raised the whole package to iOS 17, then to iOS 18, on
+    // the reasoning that "SwiftPM platform floors are package-wide". That is true of THIS
+    // declaration and false of the thing that matters: `@available` is per-declaration, so a
+    // model that needs a newer OS can say so without costing the models that do not.
+    //
+    // The one case where the package floor genuinely must move is MLX, because a DEPENDENCY's
+    // platform requirement is a manifest-level constraint that `@available` cannot satisfy:
+    // SwiftPM refuses to resolve `MLXLLM` (macOS 14) into a macOS 13 package. The floor used
+    // to rise only behind `DAL_MLX_BUILD`; `platforms` cannot vary by trait, so with the `MLX`
+    // trait the iOS 17 / macOS 14 floor is now unconditional. That costs iOS 16 / macOS 13 for
+    // Apple consumers that never enable MLX — accepted deliberately: no known Apple consumer
+    // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
+    // consumer appears, this is the line to argue about.
+    platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
+    products: products + modelProducts + alignProducts,
+    traits: [
+        .trait(
+            name: "MLX",
+            description: "MLX-backed generation (the Title model). Apple platforms only; "
+                + "pulls mlx-swift-lm and swift-transformers into the graph."
+        ),
     ],
-    products: products + modelProducts + alignProducts + tongueProducts,
-    dependencies: jsDependencies + [
+    dependencies: jsDependencies + mlxDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: coreTargets

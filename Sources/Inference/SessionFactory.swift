@@ -12,9 +12,11 @@ import Usage
 /// `computeUnits` is a Core ML concern (LiteRT picks its own delegates), and the
 /// environment can still override it - see `CoreMLSession.configuration(for:)`.
 public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .all,
+                             functionName: String? = nil,
                              sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if canImport(CoreML)
-    return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
+    return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits,
+                                     functionName: functionName), sdk: sdk)
     #elseif canImport(CLiteRt)
     return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
     #else
@@ -50,12 +52,14 @@ public extension StoredModel {
     /// the typed contract in `Sources/JSHost/Host.swift`. This is the one call a
     /// model SDK makes to go from resolved files to a runnable session.
     func inferenceSession(model: String, computeUnits: ComputeUnits = .all,
+                          functionName: String? = nil,
                           sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model)
         return tracked(JSInferenceSession(), sdk: sdk)
         #else
-        return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits, sdk: sdk)  // already tracked
+        return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits,
+                                              functionName: functionName, sdk: sdk)  // already tracked
         #endif
     }
 }

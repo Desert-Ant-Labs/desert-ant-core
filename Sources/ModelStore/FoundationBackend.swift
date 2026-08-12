@@ -65,6 +65,7 @@ public struct FoundationTransport: ModelTransport {
         let onBytes: @Sendable (Int64) -> Void
         var continuation: CheckedContinuation<HTTPURLResponse?, Error>?
         private var moveError: Error?
+        private var lastReportedBytes: Int64 = 0
 
         init(destination: URL, onBytes: @escaping @Sendable (Int64) -> Void) {
             self.destination = destination; self.onBytes = onBytes
@@ -73,6 +74,18 @@ public struct FoundationTransport: ModelTransport {
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                         didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                         totalBytesExpectedToWrite: Int64) {
+            // URLSession reports every received chunk — tens of thousands for a
+            // large weight file — and each report fans out through an actor hop
+            // downstream (`LazyLoader` spawns a Task per callback), which floods
+            // the actor badly enough that observers see only 0% and 100%.
+            // 512 KB steps keep progress sub-percent-smooth for anything over
+            // ~50 MB at a few hundred callbacks per file. The final bytes of a
+            // file always report (completion also reports via the store's
+            // per-file accounting), so nothing is lost for small files.
+            // Serial: URLSession calls the delegate on one queue.
+            guard totalBytesWritten - lastReportedBytes >= 512 * 1024
+                || totalBytesWritten == totalBytesExpectedToWrite else { return }
+            lastReportedBytes = totalBytesWritten
             onBytes(totalBytesWritten)
         }
 
