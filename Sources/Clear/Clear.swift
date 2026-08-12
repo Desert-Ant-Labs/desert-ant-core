@@ -248,13 +248,22 @@ public final class Clear: @unchecked Sendable {
     /// Load a local model file directly (a `.mlmodelc` on Apple, a `.tflite`
     /// elsewhere), skipping the store entirely. For tests and custom
     /// deployments; apps point `directory` at their files instead.
-    public init(modelPath: String, computeUnits: ComputeUnits = .all,
+    ///
+    /// A local file resolves nothing, so `revision` is a declaration, not a
+    /// requirement: the exact revision you know the file came from (a tag or
+    /// commit hash). It is reported back on ``revisionRequirement``,
+    /// ``modelRevision``, and every ``Result/modelRevision``, so a CI cache
+    /// keyed by revision produces self-identifying runs. It is never checked
+    /// against the file - there is nothing offline to check it against.
+    public init(modelPath: String, revision: String? = nil,
+                computeUnits: ComputeUnits = .all,
                 concurrency: Int = Clear.defaultConcurrency) throws {
         // Built eagerly (this initializer throws), then handed to the loader so
         // the rest of the class has one path to its assets.
-        let assets = try ModelAssets(modelPath: modelPath, computeUnits: computeUnits, concurrency: concurrency)
+        let assets = try ModelAssets(modelPath: modelPath, revision: revision,
+                                     computeUnits: computeUnits, concurrency: concurrency)
         variant = ModelVariant.inferred(fromPath: modelPath)
-        revisionRequirement = nil
+        revisionRequirement = revision.map { .exact($0) }
         model = LoadedModel { assets }
     }
 
