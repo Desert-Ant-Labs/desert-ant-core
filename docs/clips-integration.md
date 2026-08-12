@@ -7,6 +7,7 @@ here was run against the shipping bytes on 2026-08-11; nothing is aspirational.
 
 ```swift
 import Clips
+import Transcript
 
 let clipper = Clips(directory: "/path/to/model")   // nil = managed cache + download
 let clips = try await clipper.clips(in: sentences) // [String] in, [Clip] out
@@ -14,6 +15,10 @@ let clips = try await clipper.clips(in: sentences) // [String] in, [Clip] out
 
 `Clip` carries `sentenceIDs`, `text`, `score`, `percentile`, `estimatedDurationSec`, and an
 `id`. Clips come back **best first** and never overlap.
+
+It is declared in `Transcript`, alongside `Sentence`, `TimedWord`, and the interval arithmetic
+that turns `sentenceIDs` into the stretches of source a clip plays. `Title` names the same type
+when it writes a card, so neither model depends on the other.
 
 **Rank on `percentile`, not `score`.** The scorer is trained with within-video ranking, and
 per-video 95th-percentile raw scores span 0.33 to 0.95, so an absolute threshold on `score`

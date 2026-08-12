@@ -1,4 +1,5 @@
 import DesertAnt
+import Transcript
 
 /// Choosing which moments to keep: the discourse features the selector is fed,
 /// candidate enumeration around saliency anchors, weighted interval scheduling

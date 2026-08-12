@@ -18,8 +18,14 @@ for model in $(dal_select "${usage_model:-all}"); do
     # `--target`, not `--product`: the model libraries are automatic products,
     # which SwiftPM refuses to select and then silently builds everything.
     if [ "$(uname)" = Darwin ]; then
-        swift build --scratch-path .build-host --target "$product"
+        # `Title` is MLX and exists only behind `DAL_MLX_BUILD=1` (see
+        # Package.swift). Scoped to Title so the other models keep proving
+        # they build against a graph without mlx-swift-lm.
+        mlx=; [ "$product" = Title ] && mlx=1
+        DAL_MLX_BUILD=$mlx swift build --scratch-path .build-host --target "$product"
     else
+        # MLX has no Linux port; `Title` never enters the graph here.
+        [ "$product" = Title ] && { echo "skip: MLX is Apple-only"; continue; }
         swift build --scratch-path .build-host --target "$product" -Xlinker "-L$litert"
     fi
 done

@@ -1,4 +1,3 @@
-import Clips
 import DesertAnt
 import Foundation
 // `HuggingFace` and `Tokenizers` are imported for the MACRO, not for this file's own code:
@@ -11,10 +10,11 @@ import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
 import Tokenizers
+import Transcript
 
 /// A title and a description for a passage of text.
 ///
-/// Owned by `Title`, deliberately, and NOT a field on ``Clips/Clip``. Selection and card
+/// Owned by `Title`, deliberately, and NOT a field on ``Transcript/Clip``. Selection and card
 /// writing are separate stages on separate silicon, and a `card` property hanging off every
 /// `Clip` would be permanently nil for the many consumers that never call this module — the
 /// same reasoning that keeps `Title` a separate product. Pair them with ``Titles/cards(for:)``
