@@ -142,6 +142,45 @@ public struct ModelStore: Sendable {
         return storedModel(for: model)
     }
 
+    /// Directories of every revision of `repo` present in the managed cache,
+    /// sorted by revision. Only completed downloads are listed (the store's
+    /// manifest marks completion); an interrupted download is not. The last
+    /// path component of each entry is the revision. Locations you populated
+    /// yourself (an explicit `cacheDirectory`) are outside the managed layout
+    /// and are not listed.
+    public func downloadedModels(repo: String) -> [String] {
+        let base = join(fs.defaultCacheRoot(), "desert-ant-models", repo)
+        return downloadedRevisions(repo: repo).map { join(base, $0) }
+    }
+
+    /// The revisions of `repo` with a completed download in the managed cache,
+    /// sorted. (`downloadedModels(repo:)` returns the same entries as paths.)
+    public func downloadedRevisions(repo: String) -> [String] {
+        let base = join(fs.defaultCacheRoot(), "desert-ant-models", repo)
+        return fs.listDirectory(base)
+            .filter { fs.exists(join(base, $0, Self.metadataDirectory, "manifest")) }
+            .sorted()
+    }
+
+    /// Resolve a ``RevisionRequirement`` to a concrete revision for `repo`.
+    /// `exact` needs nothing. A range asks the Hub for the repo's tags; when
+    /// that fails (offline, or a transport without a refs call), it falls back
+    /// to the newest *downloaded* revision in range, then to the range's `from`
+    /// - so a device that downloaded once keeps working offline, and a fresh
+    /// offline install still points at a valid revision to try.
+    public func resolveRevision(_ requirement: RevisionRequirement, repo: String) async -> String {
+        switch requirement {
+        case .exact(let revision):
+            return revision
+        case .from(let from):
+            if let tags = try? await transport.tags("\(endpoint)/api/models/\(repo)/refs"),
+               let best = requirement.bestMatch(in: tags) {
+                return best
+            }
+            return requirement.bestMatch(in: downloadedRevisions(repo: repo)) ?? from
+        }
+    }
+
     // MARK: internals
 
     /// Expand the requested files/folders against the repo tree.

@@ -57,8 +57,13 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     /// This variant's slice of the model repo: the same repo and pinned
     /// revision as the catalog entry, but only this variant's files, so
     /// choosing one variant never downloads the other.
-    public var distribution: ModelDistribution {
-        ModelDistribution(repo: ClearModel.repo, revision: ClearModel.revision, files: files)
+    public var distribution: ModelDistribution { distribution(revision: ClearModel.revision) }
+
+    /// The same slice pinned to an explicit repo `revision` (a tag like
+    /// `v0.2.0`, a branch, or a commit hash) instead of the SDK's pinned one.
+    /// Each revision caches separately, so switching never clobbers another.
+    public func distribution(revision: String) -> ModelDistribution {
+        ModelDistribution(repo: ClearModel.repo, revision: revision, files: files)
     }
 
     /// The variant an artifact path belongs to, by its file name

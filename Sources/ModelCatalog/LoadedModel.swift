@@ -36,6 +36,28 @@ import PlatformSupport
 /// downloading into it or into the managed cache) and builds the runtime once,
 /// sharing that single load with every concurrent caller. A failed load is not
 /// cached, so a later call retries.
+/// Which stage a model load is in. `downloading` runs to completion before
+/// `preparing` starts, and the fraction resets at the transition.
+public enum ModelLoadPhase: Sendable, Equatable {
+    /// Fetching (or verifying) the model files; fraction is bytes-based.
+    /// Reports 1 immediately when everything is already cached.
+    case downloading
+    /// Building the runtime from the resolved files. Coarse: most backends
+    /// report only 0 and 1 (Core ML compilation exposes no progress).
+    case preparing
+}
+
+/// A phase-aware model load report: which ``ModelLoadPhase`` and how far into
+/// it (`0...1`).
+public struct ModelLoadProgress: Sendable, Equatable {
+    public let phase: ModelLoadPhase
+    public let fraction: Double
+    public init(phase: ModelLoadPhase, fraction: Double) {
+        self.phase = phase
+        self.fraction = fraction
+    }
+}
+
 public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     private let loader: LazyLoader<Runtime>
     private let availability: @Sendable () -> Bool
@@ -72,12 +94,38 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
         cacheRoot: String? = nil,
         build: @escaping @Sendable (StoredModel) async throws -> Runtime
     ) {
+        // The loader's Double carries both phases: [0, 0.5) is the download
+        // fraction (halved), [0.5, 1] is preparing/build. `download` and `load`
+        // decode it back, so the Double API keeps its old meaning.
         loader = LazyLoader { progress in
             let files = try await distribution.resolve(
-                cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction) }
+                cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
+            progress(0.5)
             return try await build(files)
         }
         availability = { distribution.isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot) }
+    }
+
+    /// Load from a distribution that is itself resolved asynchronously (a
+    /// ranged ``RevisionRequirement``, where the concrete revision comes from
+    /// the Hub's tags at load time). `resolve` runs once, at the front of the
+    /// shared load; `isAvailable` must answer offline-availability without it
+    /// (typically: any cached revision satisfies the requirement).
+    public init(
+        resolve: @escaping @Sendable () async throws -> ModelDistribution,
+        isAvailable: @escaping @Sendable () -> Bool,
+        directory: String? = nil,
+        cacheRoot: String? = nil,
+        build: @escaping @Sendable (StoredModel, ModelDistribution) async throws -> Runtime
+    ) {
+        loader = LazyLoader { progress in
+            let distribution = try await resolve()
+            let files = try await distribution.resolve(
+                cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
+            progress(0.5)
+            return try await build(files, distribution)
+        }
+        availability = isAvailable
     }
 
     /// Wrap a runtime the caller already has the inputs for (the cross-language
@@ -97,7 +145,19 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     /// Reports progress `0...1`. Concurrent calls, and an implicit load from a
     /// first use, share one download.
     public func download(progress: @Sendable @escaping (Double) -> Void = { _ in }) async throws {
-        try await loader.run(progress: progress)
+        try await loader.run { progress(Self.decode($0).phase == .downloading ? Self.decode($0).fraction : 1) }
+    }
+
+    /// Like ``download(progress:)`` but phase-aware: reports the download
+    /// (byte-level fraction) and then the preparing phase (building the
+    /// runtime; on Apple the first launch's Core ML compile lands here).
+    public func load(progress: @Sendable @escaping (ModelLoadProgress) -> Void) async throws {
+        try await loader.run { progress(Self.decode($0)) }
+    }
+
+    private static func decode(_ v: Double) -> ModelLoadProgress {
+        v < 0.5 ? ModelLoadProgress(phase: .downloading, fraction: min(1, v * 2))
+                : ModelLoadProgress(phase: .preparing, fraction: min(1, (v - 0.5) * 2))
     }
 
     /// The runtime, loading it on first use.
