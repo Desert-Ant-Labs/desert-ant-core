@@ -12,6 +12,10 @@ final class Model: @unchecked Sendable {
 
     private static let seq = 256
     private static let maxContent = seq - 2      // room for <s> … </s>
+    // Window overlap, matching the Python reference (stride=64); without it an
+    // entity on a window edge is split across two passes and BIOES can't rebuild it.
+    private static let stride = 64
+    private static let step = maxContent - stride
     private static let lowScore = 0.3
     // BERT position ids: 0..<seq, matching both exports.
     private static let positionIDs: [Int32] = (0..<seq).map(Int32.init)
@@ -54,11 +58,15 @@ final class Model: @unchecked Sendable {
         let offsets = reconstructOffsets(t, tokens)
         let low = min(Model.lowScore, minScore)
 
+        // Overlapping windows re-emit spans; keep one per (start, end, label) at
+        // its best score, in first-seen order.
+        var best: [String: Int] = [:]
         var scored: [(Span, Double)] = []
         var i = 0
-        while i < tokens.count {
-            let chunk = Array(tokens[i..<min(i + Model.maxContent, tokens.count)])
-            let chunkOffsets = Array(offsets[i..<i + chunk.count])
+        while !tokens.isEmpty {
+            let end = min(i + Model.maxContent, tokens.count)
+            let chunk = Array(tokens[i..<end])
+            let chunkOffsets = Array(offsets[i..<end])
             let (tags, tagOffsets, probs) = try await runWindow(chunk, chunkOffsets)
             // score = max token prob overlapping each BIOES span (within this window)
             let usableTags = zip(tags, probs).map { $0.1 >= low ? $0.0 : "O" }
@@ -67,9 +75,16 @@ final class Model: @unchecked Sendable {
                 for (k, (a, b)) in tagOffsets.enumerated() where b > a && max(a, span.start) < min(b, span.end) {
                     mx = max(mx, probs[k])
                 }
-                scored.append((span, mx))
+                let key = "\(span.start):\(span.end):\(span.label)"
+                if let at = best[key] {
+                    if mx > scored[at].1 { scored[at].1 = mx }
+                } else {
+                    best[key] = scored.count
+                    scored.append((span, mx))
+                }
             }
-            i += chunk.count
+            if end == tokens.count { break }
+            i += Model.step
         }
 
         var kept = Pipeline.hysteresis(t, scored, minScore)
