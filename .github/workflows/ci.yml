@@ -298,17 +298,51 @@ jobs:
             Vendor/litert
           key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
 
+      # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
+      - uses: gradle/actions/setup-gradle@v4
+
       # Cross-compile and package first, outside the emulator's lifetime, so a
       # long native build does not eat the emulator boot timeout.
       - run: mise run build:android
+
+      # Stage the JNI test harness now too, for the same reason. The emulator
+      # is x86_64, so skip the arm64 cross-compile CI would never run.
+      - run: mise run test:android --stage-only
+        env:
+          DAL_ANDROID_ABIS: x86_64
+
+      # A cold boot costs minutes; cache a booted-once AVD snapshot and resume
+      # from it on every later run.
+      - name: AVD cache
+        uses: actions/cache@v6
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-31-x86_64-default
+
+      - name: Create AVD snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
+          arch: x86_64
+          target: default # AOSP image: smaller and faster than google_apis, nothing here needs Play Services
+          force-avd-creation: false
+          disable-animations: false
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: echo "Generated AVD snapshot for caching"
 
       - name: On-device tests
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
           arch: x86_64
-          target: google_apis
+          target: default
+          force-avd-creation: false
           disable-animations: true
           emulator-boot-timeout: 900
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: mise run test:android
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
+          script: mise run test:android --no-stage
