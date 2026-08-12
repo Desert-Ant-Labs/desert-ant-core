@@ -46,7 +46,9 @@ for model in $models; do
         echo "error: the $model AAR duplicates a runtime that ai.desertant:core owns" >&2
         exit 1
     }
-    for abi in arm64-v8a x86_64; do
+    # The core AAR always carries both LiteRT ABIs (prebuilt, cheap); only the
+    # Swift cross-compile honors DAL_ANDROID_ABIS, so check what was built.
+    for abi in ${DAL_ANDROID_ABIS:-arm64-v8a x86_64}; do
         unzip -Z1 "$aar" | grep -qx "jni/$abi/lib${product}Android.so" \
             || { echo "error: the $model AAR is missing jni/$abi/lib${product}Android.so" >&2; exit 1; }
     done
