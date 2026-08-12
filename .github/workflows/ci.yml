@@ -184,6 +184,40 @@ jobs:
             ~/.config/swiftpm/swift-sdks
           key: swift-wasm-sdk-6.3.3
 
+      # The three Swift builds this job runs from scratch otherwise: the wasm
+      # test build (test:wasi) and the wasm release builds (build:wasm) share
+      # the default .build - which also holds the swift-syntax macro host build
+      # JavaScriptKit's BridgeJS plugin needs, minutes on its own - and
+      # build:node-native uses .build-host. The source hash keys an exact hit;
+      # restore-keys accept a stale cache SwiftPM then patches incrementally.
+      - name: Cache the Swift builds (wasm + native)
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build
+            .build-host
+          key: js-swift-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          restore-keys: js-swift-build-${{ runner.os }}-
+
+      # test:browser fetches Chromium (~130 MB) through Playwright on every
+      # cold run; the lockfile pins the Playwright version, which decides the
+      # browser build it wants.
+      - name: Cache Playwright's Chromium
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      # npm ci runs several times (workspace install, test:bundles' packed
+      # installs); a warm ~/.npm turns those into cache reads.
+      - name: Cache the npm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
       # The node package suites download the pinned model revision too: into the
       # suite-local .model-cache (an explicit `directory`), and the managed store
       # for anything resolving by default. Cache both for the same reason as the
