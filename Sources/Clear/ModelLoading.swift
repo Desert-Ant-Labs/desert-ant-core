@@ -43,7 +43,7 @@ public struct ModelAssets: Sendable {
     /// Sessions over an artifact already on disk. The variant is read off the
     /// file name, so a pre-downloaded artifact still identifies itself on
     /// `Result`.
-    init(modelPath: String, computeUnits: ComputeUnits = .cpuOnly, concurrency: Int = 1) throws {
+    init(modelPath: String, computeUnits: ComputeUnits = .all, concurrency: Int = 1) throws {
         self.init(
             sessions: try (0..<max(1, concurrency)).map { _ in
                 try inferenceSession(modelPath: modelPath, computeUnits: computeUnits, sdk: ClearModel.sdkInfo)

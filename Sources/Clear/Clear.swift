@@ -162,8 +162,10 @@ public final class Clear: @unchecked Sendable {
     }
 
     /// `computeUnits` selects the Core ML compute units on Apple (ignored by the
-    /// LiteRT/JS backends). Default `.cpuOnly`: the palettized model benchmarks
-    /// ~2x faster on the CPU than the Neural Engine or GPU on M-series Macs.
+    /// LiteRT/JS backends). Default `.all`, letting Core ML place the work
+    /// itself; pass `.cpuOnly` if CPU-only benchmarks better for your model
+    /// and hardware (the palettized model has run ~2x faster on the CPU than
+    /// the Neural Engine or GPU on some M-series Macs).
     /// `concurrency` is the model-session pool size (see `defaultConcurrency`).
     ///
     /// Nothing is bundled with this package. To ship the model with your app,
@@ -176,7 +178,7 @@ public final class Clear: @unchecked Sendable {
     /// separately, so switching versions never clobbers another's files.
     public convenience init(directory: String? = nil, variant: ModelVariant = .default,
                             revision: String? = nil,
-                            computeUnits: ComputeUnits = .cpuOnly,
+                            computeUnits: ComputeUnits = .all,
                             concurrency: Int = Clear.defaultConcurrency) {
         self.init(directory: directory, cacheRoot: nil, variant: variant,
                   revision: .exact(revision ?? ClearModel.revision),
@@ -193,7 +195,7 @@ public final class Clear: @unchecked Sendable {
     /// ``Result/modelRevision``.
     public convenience init(directory: String? = nil, variant: ModelVariant = .default,
                             revision: RevisionRequirement,
-                            computeUnits: ComputeUnits = .cpuOnly,
+                            computeUnits: ComputeUnits = .all,
                             concurrency: Int = Clear.defaultConcurrency) {
         self.init(directory: directory, cacheRoot: nil, variant: variant, revision: revision,
                   computeUnits: computeUnits, concurrency: concurrency)
@@ -207,7 +209,7 @@ public final class Clear: @unchecked Sendable {
     public init(directory: String?, cacheRoot: String?,
                 variant: ModelVariant = .default,
                 revision requirement: RevisionRequirement = .exact(ClearModel.revision),
-                computeUnits: ComputeUnits = .cpuOnly,
+                computeUnits: ComputeUnits = .all,
                 concurrency: Int = Clear.defaultConcurrency) {
         // A variant is its own slice of the model repo, so the loader resolves
         // that distribution rather than the catalog entry's default one; the
@@ -246,7 +248,7 @@ public final class Clear: @unchecked Sendable {
     /// Load a local model file directly (a `.mlmodelc` on Apple, a `.tflite`
     /// elsewhere), skipping the store entirely. For tests and custom
     /// deployments; apps point `directory` at their files instead.
-    public init(modelPath: String, computeUnits: ComputeUnits = .cpuOnly,
+    public init(modelPath: String, computeUnits: ComputeUnits = .all,
                 concurrency: Int = Clear.defaultConcurrency) throws {
         // Built eagerly (this initializer throws), then handed to the loader so
         // the rest of the class has one path to its assets.
