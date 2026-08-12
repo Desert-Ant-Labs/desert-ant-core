@@ -18,6 +18,9 @@ for model in $models; do
     grep -rq '^import Audio' "Sources/$product" && audio_users="$audio_users $product"
 done
 
+# `Title` is declared unconditionally since the `MLX` trait replaced
+# DAL_MLX_BUILD (see Package.swift): its MLX edges are trait-conditional and
+# pruned here, so no flag is needed for the target to appear in the graph.
 swift package describe --type json \
     | MODELS="$(for m in $models; do dal_product "$m"; done | tr '\n' ' ')" AUDIO_USERS="$audio_users" node -e '
 let raw = "";
