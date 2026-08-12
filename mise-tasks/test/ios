@@ -9,7 +9,21 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # Newest available iPhone simulator.
 device=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?( Max)?' | tail -1)
 echo "Using simulator: ${device:?no iPhone simulator is available}"
+
+# On CI, pin DerivedData and the SPM clone dir to repo-local paths so
+# actions/cache can persist them across runs; locally, leave Xcode's defaults
+# (and your existing DerivedData) untouched.
+ci_flags=()
+if [[ -n "${CI:-}" ]]; then
+    ci_flags=(
+        -derivedDataPath .build/ios-deriveddata
+        -clonedSourcePackagesDirPath .build/ios-packages
+        -skipPackageUpdates
+    )
+fi
+
 xcodebuild test \
     -scheme DesertAnt-Package \
     -destination "platform=iOS Simulator,name=$device" \
-    -skipMacroValidation
+    -skipMacroValidation \
+    ${ci_flags[@]+"${ci_flags[@]}"}
