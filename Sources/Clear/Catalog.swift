@@ -8,7 +8,12 @@ import DesertAnt
 public enum ClearModel: ModelDeclaration {
     public static let id = "clear"
     public static let product = "Clear"
-    public static let revision = "v0.2.0"
+    // Not the v0.2.0 tag: that tag's Core ML export predates the ANE-shaped
+    // batch-4 layout the enhancer now feeds (Enhancer.batchSize), so Apple
+    // would fail with a shape mismatch on every run. This commit of `main`
+    // carries the re-shaped .mlmodelc alongside the LiteRT exports; becomes
+    // the next `v`-tag once one is cut with it.
+    public static let revision = "1d8810fa86077c319952ffc2080b31bab86a2ad7"
     /// Matches packages/clear-node/package.json and packages/clear-kotlin/build.gradle.kts
     /// (ModelCatalogTests enforces it).
     public static let sdkVersion = "1.0.5"

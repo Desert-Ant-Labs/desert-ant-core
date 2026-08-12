@@ -157,7 +157,7 @@ struct ClearTests {
     /// once per process and every test here reuses it.
     private func enhancer() async throws -> Clear {
         let files = try await ModelFixture.files(ClearModel.self)
-        return try Clear(modelPath: files.path(ClearModel.artifact))
+        return try Clear(modelPath: files.path(ClearModel.artifact), revision: "1d8810f")
     }
 
     @Test func enhanceEndToEnd() async throws {
@@ -293,7 +293,7 @@ struct ClearTests {
     @Test func progressReportsModelLoad() async throws {
         _ = try await ModelFixture.files(ClearModel.self)   // cached; the load is local
         let log = ProgressLog()
-        _ = try await Clear().enhance(samples: tone(48_000), sampleRate: 48_000) { log.append($0) }
+        _ = try await enhancer().enhance(samples: tone(48_000), sampleRate: 48_000) { log.append($0) }
         #expect(log.all().first?.phase == .loadingModel)
     }
 }
