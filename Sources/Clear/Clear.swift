@@ -72,6 +72,11 @@ public final class Clear: @unchecked Sendable {
         /// artifact is not a published one (a custom export, or a wasm host
         /// that compiled the model itself).
         public let modelVariant: ModelVariant?
+        /// The repo revision the model was resolved from - for a ranged
+        /// ``RevisionRequirement`` this is the concrete tag it landed on. Nil
+        /// when nothing was downloaded (a local `modelPath`, explicit assets,
+        /// or a self-hosted wasm model).
+        public let modelRevision: String?
         public var realtimeFactor: Double { processingSec > 0 ? durationSec / processingSec : 0 }
     }
 
@@ -123,6 +128,26 @@ public final class Clear: @unchecked Sendable {
     // same loader.
     let model: LoadedModel<ModelAssets>
 
+    /// The variant this instance loads, or nil when it was built from an
+    /// explicit artifact/assets whose variant only the caller knows.
+    public let variant: ModelVariant?
+    /// The revision requirement this instance resolves: `.exact` of the
+    /// `revision` passed at init (else the SDK's pinned
+    /// ``Clear/modelRevision``), or the range you passed. Nil when the instance
+    /// was built from a local `modelPath` or explicit assets (nothing is
+    /// downloaded, so no repo revision applies).
+    public let revisionRequirement: RevisionRequirement?
+    /// The concrete model revision this instance resolves, when it is knowable
+    /// without the network: the exact revision, or nil for a ranged
+    /// requirement (resolved at load time against the Hub's tags; the loaded
+    /// one is reported on ``Result/modelRevision``).
+    ///
+    /// This is the revision that *will* be downloaded (or that the cache is
+    /// checked against - see ``isDownloaded()``). For a branch revision like
+    /// `"main"` the cache holds whatever commit was current at download time;
+    /// only a tag or commit hash pins the exact contents.
+    public var modelRevision: String? { revisionRequirement?.exactRevision }
+
     /// Default model sessions to run chunks in parallel over. Native LiteRT is
     /// single-threaded per run, so a pool uses multiple cores; Apple (fast) and
     /// wasm (LiteRT.js is already multi-threaded) use one.
@@ -144,10 +169,33 @@ public final class Clear: @unchecked Sendable {
     /// Nothing is bundled with this package. To ship the model with your app,
     /// point `directory` at a folder you populated with the model files: it is
     /// used as-is, offline, and nothing is downloaded.
+    ///
+    /// `revision` pins a specific published model version (a Hub tag like
+    /// `v0.2.0`, a branch, or a commit hash) instead of the revision this SDK
+    /// was built against (``Clear/modelRevision``). Each revision caches
+    /// separately, so switching versions never clobbers another's files.
     public convenience init(directory: String? = nil, variant: ModelVariant = .default,
+                            revision: String? = nil,
                             computeUnits: ComputeUnits = .cpuOnly,
                             concurrency: Int = Clear.defaultConcurrency) {
         self.init(directory: directory, cacheRoot: nil, variant: variant,
+                  revision: .exact(revision ?? ClearModel.revision),
+                  computeUnits: computeUnits, concurrency: concurrency)
+    }
+
+    /// Like `init(revision: String)`, but with a ``RevisionRequirement``:
+    /// `.exact("v0.2.0")` behaves as above, while
+    /// `.from("v0.2.0")` (SwiftPM semantics: up to the next major) resolves to
+    /// the newest published tag
+    /// with the same major version at load time - and, offline, to the newest
+    /// already-downloaded revision in range, so an installed device keeps
+    /// working without the network. The resolved revision is reported on each
+    /// ``Result/modelRevision``.
+    public convenience init(directory: String? = nil, variant: ModelVariant = .default,
+                            revision: RevisionRequirement,
+                            computeUnits: ComputeUnits = .cpuOnly,
+                            concurrency: Int = Clear.defaultConcurrency) {
+        self.init(directory: directory, cacheRoot: nil, variant: variant, revision: revision,
                   computeUnits: computeUnits, concurrency: concurrency)
     }
 
@@ -158,12 +206,31 @@ public final class Clear: @unchecked Sendable {
     @_spi(ClearBindings)
     public init(directory: String?, cacheRoot: String?,
                 variant: ModelVariant = .default,
+                revision requirement: RevisionRequirement = .exact(ClearModel.revision),
                 computeUnits: ComputeUnits = .cpuOnly,
                 concurrency: Int = Clear.defaultConcurrency) {
         // A variant is its own slice of the model repo, so the loader resolves
-        // that distribution rather than the catalog entry's default one.
-        model = LoadedModel(variant.distribution, directory: directory, cacheRoot: cacheRoot) { files in
-            try await .clear(files: files, variant: variant, computeUnits: computeUnits, concurrency: concurrency)
+        // that distribution rather than the catalog entry's default one; the
+        // requirement decides the revision (for ranges, at load time).
+        self.variant = variant
+        self.revisionRequirement = requirement
+        let base = variant.distribution(revision: ClearModel.revision)
+        model = LoadedModel(
+            resolve: { await base.resolving(requirement, cacheRoot: cacheRoot) },
+            isAvailable: {
+                // Offline answer: an exact revision checks itself (including a
+                // user-populated directory); a range is available when any
+                // downloaded revision satisfies it.
+                let revisions = requirement.exactRevision.map { [$0] }
+                    ?? base.downloadedRevisions(satisfying: requirement, cacheRoot: cacheRoot)
+                return revisions.contains {
+                    variant.distribution(revision: $0)
+                        .isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot)
+                }
+            },
+            directory: directory, cacheRoot: cacheRoot) { files, distribution in
+            try await .clear(files: files, variant: variant, revision: distribution.revision,
+                             computeUnits: computeUnits, concurrency: concurrency)
         }
     }
 
@@ -171,6 +238,8 @@ public final class Clear: @unchecked Sendable {
     /// custom-deployment paths).
     @_spi(ClearBindings)
     public init(assets: ModelAssets) {
+        variant = nil
+        revisionRequirement = nil
         model = LoadedModel { assets }
     }
 
@@ -182,7 +251,35 @@ public final class Clear: @unchecked Sendable {
         // Built eagerly (this initializer throws), then handed to the loader so
         // the rest of the class has one path to its assets.
         let assets = try ModelAssets(modelPath: modelPath, computeUnits: computeUnits, concurrency: concurrency)
+        variant = ModelVariant.inferred(fromPath: modelPath)
+        revisionRequirement = nil
         model = LoadedModel { assets }
+    }
+
+    /// Paths of every downloaded version of the clear model in the managed
+    /// cache, one per revision, sorted. The last path component of each entry
+    /// is the revision (`.../desert-ant-models/desert-ant-labs/clear/v0.2.0`),
+    /// so `models().map { ($0 as NSString).lastPathComponent }` lists the
+    /// versions available offline. Only completed downloads appear; a folder
+    /// you populated yourself (an explicit `directory`) is not part of the
+    /// managed cache and is not listed.
+    ///
+    /// Note: a revision directory may hold one or both variants' files - the
+    /// per-variant check is ``isDownloaded(variant:revision:directory:cacheRoot:)``.
+    public static func models(cacheRoot: String? = nil) -> [String] {
+        ModelVariant.default.distribution.installedModels(cacheRoot: cacheRoot)
+    }
+
+    /// Whether a given variant/revision is already downloaded and intact
+    /// (usable offline), without constructing an enhancer. `revision` defaults
+    /// to the SDK's pinned ``Clear/modelRevision``; `directory` mirrors the
+    /// initializer's parameter (nil = the managed cache).
+    public static func isDownloaded(variant: ModelVariant = .default,
+                                    revision: String? = nil,
+                                    directory: String? = nil,
+                                    cacheRoot: String? = nil) -> Bool {
+        variant.distribution(revision: revision ?? ClearModel.revision)
+            .isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot)
     }
 
     /// Whether the model is available for this enhancer with no network:
@@ -196,9 +293,19 @@ public final class Clear: @unchecked Sendable {
         _ = try await model.value()
     }
 
-    /// Download the model if needed, reporting progress 0...1.
+    /// Download the model if needed, reporting download progress 0...1.
     public func download(progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws {
         try await model.download(progress: progress)
+    }
+
+    /// Download (if needed) and fully load the model, reporting phase-aware
+    /// progress: ``ModelLoadPhase/downloading`` with a bytes-based fraction,
+    /// then ``ModelLoadPhase/preparing`` while the inference session is built
+    /// (on Apple, the first launch's Core ML compile lands here). Returns once
+    /// the model is ready, so the first `enhance` starts instantly. Concurrent
+    /// callers join the same load.
+    public func load(progress: @escaping @Sendable (ModelLoadProgress) -> Void = { _ in }) async throws {
+        try await model.load(progress: progress)
     }
 
     /// Enhance mono/stereo `samples` at `sampleRate`, returning 48 kHz mono.
@@ -262,7 +369,7 @@ public final class Clear: @unchecked Sendable {
                       durationSec: Double(out.count) / ClearDSP.sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       measuredTruePeakDBFS: truePeak,
-                      modelVariant: assets.variant)
+                      modelVariant: assets.variant, modelRevision: assets.revision)
     }
 
     func elapsedSeconds(since start: ContinuousClock.Instant) -> Double {

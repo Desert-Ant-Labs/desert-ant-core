@@ -216,6 +216,10 @@ struct ClearTests {
         _ = try await ModelFixture.files(ClearModel.self)
         // Availability is per instance (LoadedModel owns it), so ask one.
         #expect(Clear().isDownloaded())
+        // The managed cache lists the downloaded version, its last path
+        // component the revision the SDK is pinned to.
+        let models = Clear.models()
+        #expect(models.contains { $0.hasSuffix("/\(ClearModel.repo)/\(Clear.modelRevision)") })
     }
 
     /// The file-in/file-out path (Apple/Linux): decode any audio file, enhance,
