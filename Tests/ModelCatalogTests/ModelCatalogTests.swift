@@ -22,10 +22,13 @@ struct ModelCatalogTests {
         for model in catalog {
             #expect(model.id == model.id.lowercased() && !model.id.isEmpty)
             #expect(model.repo == "desert-ant-labs/\(model.id)")
-            // A v-tag, or `main` for a model whose first tag predates one of its
-            // platform artifacts (clear: the Hub tag has no LiteRT export yet).
-            #expect(model.revision.hasPrefix("v") || model.revision == "main",
-                    "\(model.id): revision must be a v-tag (or a documented `main` pin)")
+            // A v-tag; or, for a model whose latest tag lacks one of its
+            // platform artifacts, a documented pin of `main` itself or a full
+            // commit hash of it (immutable, unlike the branch - clear pins the
+            // commit carrying the ANE-shaped Core ML export until it is tagged).
+            let isCommitHash = model.revision.count == 40 && model.revision.allSatisfy(\.isHexDigit)
+            #expect(model.revision.hasPrefix("v") || model.revision == "main" || isCommitHash,
+                    "\(model.id): revision must be a v-tag (or a documented main/commit pin)")
             #expect(model.product.first?.isUppercase == true, "\(model.id): product is capitalized")
             #expect(!model.summary.isEmpty)
         }
