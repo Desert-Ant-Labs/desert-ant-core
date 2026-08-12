@@ -301,12 +301,26 @@ jobs:
       # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
       - uses: gradle/actions/setup-gradle@v4
 
-      # Cross-compile and package first, outside the emulator's lifetime, so a
-      # long native build does not eat the emulator boot timeout.
-      - run: mise run build:android
+      # The Swift cross-compile scratch dir. Restoring it turns the six-way
+      # (models x ABIs) static-stdlib release build into an incremental one;
+      # the source hash keys an exact hit, and restore-keys accept a stale
+      # cache that SwiftPM then patches incrementally.
+      - name: Cache the Android Swift build
+        uses: actions/cache@v6
+        with:
+          path: .build-android
+          key: android-swift-build-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          restore-keys: android-swift-build-
 
-      # Stage the JNI test harness now too, for the same reason. The emulator
-      # is x86_64, so skip the arm64 cross-compile CI would never run.
+      # Cross-compile and package first, outside the emulator's lifetime, so a
+      # long native build does not eat the emulator boot timeout. The emulator
+      # is x86_64, so skip the arm64 cross-compiles CI would never run - that
+      # is half of the Swift build work. The release workflow builds both.
+      - run: mise run build:android
+        env:
+          DAL_ANDROID_ABIS: x86_64
+
+      # Stage the JNI test harness now too, for the same reason.
       - run: mise run test:android --stage-only
         env:
           DAL_ANDROID_ABIS: x86_64
@@ -337,6 +351,10 @@ jobs:
 
       - name: On-device tests
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          # If Gradle's preBuild re-runs build:android-natives, keep it on the
+          # one ABI this emulator can execute.
+          DAL_ANDROID_ABIS: x86_64
         with:
           api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
           arch: x86_64

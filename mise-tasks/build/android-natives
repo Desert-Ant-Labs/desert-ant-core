@@ -20,6 +20,18 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 api="${DAL_ANDROID_API:-24}"
 export SWIFT_ANDROID_STATIC_BUILD=1
 
+# Which ABIs to build. Ships both by default; CI's emulator is x86_64 only, so
+# it sets DAL_ANDROID_ABIS=x86_64 to skip the arm64 half it would never run.
+# The release workflow leaves this unset and builds everything.
+abi_pairs=""
+for abi in ${DAL_ANDROID_ABIS:-arm64-v8a x86_64}; do
+    case "$abi" in
+        arm64-v8a) abi_pairs="$abi_pairs arm64-v8a:aarch64" ;;
+        x86_64) abi_pairs="$abi_pairs x86_64:x86_64" ;;
+        *) echo "error: unknown ABI '$abi' in DAL_ANDROID_ABIS" >&2; exit 1 ;;
+    esac
+done
+
 # Build against the official Swift Android SDK. Stable releases floor at API 28
 # (Bionic gained posix_spawn there), but the 6.4.x snapshots support API 23+, so
 # this keeps minSdk 24 on first-party tooling. The host toolchain and the SDK
@@ -118,7 +130,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
     product=$(dal_product "$model")
     jni_libs="packages/$model-kotlin/src/main/jniLibs"
 
-    for pair in arm64-v8a:aarch64 x86_64:x86_64; do
+    for pair in $abi_pairs; do
         abi=${pair%:*} arch=${pair#*:}
         echo "== $product $abi ($arch) =="
 
