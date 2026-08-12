@@ -4,6 +4,7 @@ import DesertAnt
 @testable import Emo
 @testable import Redact
 @testable import Clear
+@testable import Clips
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -13,6 +14,7 @@ let catalog: [any ModelDeclaration.Type] = [
     EmoModel.self,
     RedactModel.self,
     ClearModel.self,
+    ClipModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
@@ -158,4 +160,59 @@ private func firstSemanticVersion(in line: Substring) -> String? {
         i = j + 1
     }
     return nil
+}
+
+/// The declared OS floor must match the artifact, not somebody's memory.
+///
+/// This is the check that makes `osFloor` worth having. A comment saying "needs iOS 18" rots
+/// silently; a value the catalog states and a test reads off the COMPILED PACKAGE cannot. The
+/// defect it exists to catch already happened twice on this repo: `Package.swift` declared
+/// iOS 16 while `README.md` promised iOS 18, and `ClipModel.revision` carried a justification
+/// that had stopped being true.
+@Suite("Model OS floors")
+struct ModelOSFloorTests {
+
+    /// A Core ML package states its own availability. Read it and compare.
+    ///
+    /// Skips loudly rather than passing when the artifact is absent — the packages are ~284 MB
+    /// and are not in the repository, so a green tick here with nothing checked would be worse
+    /// than no test.
+    @Test("A model's declared floor matches its compiled artifact")
+    func declaredFloorMatchesArtifact() throws {
+        let root = ProcessInfo.processInfo.environment["DAL_CLIP_REAL_MODEL_DIR"]
+        guard let root else {
+            print("SKIP: set DAL_CLIP_REAL_MODEL_DIR to check the floor against the artifact. "
+                  + "NOT PASSING — nothing was compared.")
+            return
+        }
+        let metadata = URL(fileURLWithPath: root)
+            .appending(path: ClipModel.coreML).appending(path: "metadata.json")
+        guard let data = try? Data(contentsOf: metadata),
+              let parsed = try? JSONSerialization.jsonObject(with: data) else {
+            Issue.record("could not read \(metadata.path)"); return
+        }
+        let entry = (parsed as? [Any])?.first as? [String: Any] ?? parsed as? [String: Any]
+        let availability = entry?["availability"] as? [String: String] ?? [:]
+        #expect(!availability.isEmpty, "the artifact records no availability map")
+        // The artifact speaks in "18.0"; the declaration in 18.
+        for (key, declared) in [("iOS", ClipModel.osFloor.iOS), ("macOS", ClipModel.osFloor.macOS),
+                                ("tvOS", ClipModel.osFloor.tvOS)] {
+            guard let stated = availability[key], let major = Int(stated.split(separator: ".")[0])
+            else { continue }
+            #expect(declared == major,
+                    "\(key): ClipModel.osFloor says \(declared), the artifact says \(major)")
+        }
+    }
+
+    /// Every model states a floor, and none states one BELOW what the package supports.
+    @Test("Declared floors are coherent with the package")
+    func floorsAreCoherent() {
+        for model in catalog {
+            let f = model.osFloor
+            #expect(f.iOS >= OSFloor.packageFloor.iOS,
+                    "\(model.id) claims an iOS floor below the package's")
+            #expect(f.macOS >= OSFloor.packageFloor.macOS,
+                    "\(model.id) claims a macOS floor below the package's")
+        }
+    }
 }
