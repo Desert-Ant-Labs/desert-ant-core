@@ -22,10 +22,15 @@ public struct ModelAssets: Sendable {
     /// when the artifact is not a published variant (a custom export, or a
     /// wasm host that compiled the model itself).
     let variant: ModelVariant?
+    /// The repo revision the sessions' artifact was resolved from, reported on
+    /// `Result`. Nil for a local `modelPath`, explicit assets, or a wasm host
+    /// (nothing was downloaded, so no revision applies).
+    let revision: String?
 
-    init(sessions: [any InferenceSession], variant: ModelVariant? = nil) {
+    init(sessions: [any InferenceSession], variant: ModelVariant? = nil, revision: String? = nil) {
         self.sessions = sessions
         self.variant = variant
+        self.revision = revision
     }
 
     /// Bindings entry point: build from an already-constructed session (e.g. the
@@ -48,7 +53,7 @@ public struct ModelAssets: Sendable {
 
     /// Build from a resolved model directory: one session per worker over this
     /// platform's artifact.
-    static func clear(files: StoredModel, variant: ModelVariant,
+    static func clear(files: StoredModel, variant: ModelVariant, revision: String? = nil,
                       computeUnits: ComputeUnits, concurrency: Int) async throws -> ModelAssets {
         var sessions: [any InferenceSession] = []
         for _ in 0..<max(1, concurrency) {
@@ -56,7 +61,7 @@ public struct ModelAssets: Sendable {
                 model: variant.artifact,
                 computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
         }
-        return ModelAssets(sessions: sessions, variant: variant)
+        return ModelAssets(sessions: sessions, variant: variant, revision: revision)
     }
 }
 

@@ -24,7 +24,19 @@ public struct RemoteEntry: Sendable, Equatable {
 /// verification hashes; `download` streams a file, reporting cumulative bytes.
 public protocol ModelTransport: Sendable {
     func tree(_ url: String) async throws -> [RemoteEntry]
+    /// Tag names published for a repo (the Hub refs API). Only ranged
+    /// ``RevisionRequirement`` resolution calls this; backends without it
+    /// throw, and resolution falls back to the downloaded cache.
+    func tags(_ url: String) async throws -> [String]
     func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws
+}
+
+public extension ModelTransport {
+    /// Default for backends without a refs call (Android host bridge, wasm):
+    /// ranged resolution then relies on its cache fallback.
+    func tags(_ url: String) async throws -> [String] {
+        throw ModelStoreError.io("tag listing not supported by this transport")
+    }
 }
 
 /// Filesystem seam: the small set of operations the store needs. `move` must be
@@ -40,6 +52,15 @@ public protocol FileSystem: Sendable {
     func remove(_ path: String)                         // best-effort
     /// Default cache root when a model gives no `cacheDirectory`.
     func defaultCacheRoot() -> String
+    /// Names of the entries directly under `path` (not recursive). A missing
+    /// or unreadable directory is `[]`.
+    func listDirectory(_ path: String) -> [String]
+}
+
+public extension FileSystem {
+    /// Backends without directory enumeration (the wasm in-memory store) list
+    /// nothing rather than failing to conform.
+    func listDirectory(_ path: String) -> [String] { [] }
 }
 
 public enum ModelStoreError: Error, CustomStringConvertible {
