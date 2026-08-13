@@ -4,13 +4,12 @@ import Transcript
 
 /// Turns a recording into the clips worth publishing from it.
 ///
-/// Transcribes the recording, selects its strongest moments, and cuts the
-/// source down to them.
+/// Takes a transcript produced outside this SDK, selects its strongest
+/// moments, and cuts the source down to them.
 ///
 /// ```swift
-/// let editor = AutoEdit(clips: Clips(directory: clipsModel, cacheRoot: nil),
-///                       transcriber: WhisperTranscriber(model: .best))
-/// let edit = try await editor.edit(of: video)
+/// let editor = AutoEdit(clips: Clips(directory: clipsModel, cacheRoot: nil))
+/// let edit = try await editor.edit(of: transcription)
 /// for clip in edit.clips {
 ///     try await editor.write(clip, of: video, in: edit, to: folder.appending(path: "\(clip.id).mp4"))
 /// }
@@ -46,62 +45,47 @@ public struct AutoEdit: Sendable {
     }
 
     private let clips: Clips
-    private let transcriber: any Transcribing
 
     /// Creates an editor.
     ///
-    /// - Parameters:
-    ///   - clips: The selection model.
-    ///   - transcriber: The source of timed words.
-    public init(clips: Clips, transcriber: any Transcribing) {
+    /// - Parameter clips: The selection model.
+    public init(clips: Clips) {
         self.clips = clips
-        self.transcriber = transcriber
     }
 
-    /// Transcribes a recording and selects the clips worth publishing.
+    /// Selects the clips worth publishing from a transcript.
     ///
     /// - Parameters:
-    ///   - recording: The audio or video file to edit.
-    ///   - language: The language to transcribe as, or `nil` to detect it.
+    ///   - transcription: The recording's timed words, produced by whichever
+    ///     recognizer transcribed it.
     ///   - limit: The greatest number of clips to select, or `nil` for the
     ///     model's own limit for the transcript's length.
     /// - Returns: The transcript and the clips selected from it.
-    /// - Throws: ``AutoEditError/noSpeech`` if the recording contains no
-    ///   recognizable speech, or ``AutoEditError/unsupported(_:)`` if the
-    ///   transcriber cannot read `language`.
+    /// - Throws: ``AutoEditError/noSpeech`` if the transcription contains no
+    ///   recognizable speech.
     public func edit(
-        of recording: URL,
-        language: Locale? = nil,
-        limit: Int? = nil,
-        progress: @escaping TranscriptionProgressHandler = { _ in }
+        of transcription: Transcription,
+        limit: Int? = nil
     ) async throws -> Edit {
-        let reading = try await transcript(of: recording, language: language, progress: progress)
+        let reading = try reading(of: transcription)
         return Edit(
             reading: reading,
             clips: try await clips(in: reading.sentences, limit: limit)
         )
     }
 
-    /// Transcribes a recording, so that a transcript can be kept and selected
-    /// from again without transcribing a second time.
+    /// Shapes a transcription into sentences, so that a transcript can be kept
+    /// and selected from again.
     ///
-    /// - Parameters:
-    ///   - recording: The audio or video file to transcribe.
-    ///   - language: The language to transcribe as, or `nil` to detect it.
+    /// - Parameter transcription: The recording's timed words.
     /// - Returns: The transcript, numbered from zero, and the language it was
     ///   read as.
-    /// - Throws: ``AutoEditError/noSpeech`` if the recording contains no
-    ///   recognizable speech, or ``AutoEditError/unsupported(_:)`` if the
-    ///   transcriber cannot read `language`.
-    public func transcript(
-        of recording: URL,
-        language: Locale? = nil,
-        progress: @escaping TranscriptionProgressHandler = { _ in }
-    ) async throws -> Reading {
-        let read = try await transcriber.transcribe(recording, language: language, progress: progress)
-        let sentences = Sentence.sentences(from: read.words)
+    /// - Throws: ``AutoEditError/noSpeech`` if the transcription contains no
+    ///   recognizable speech.
+    public func reading(of transcription: Transcription) throws -> Reading {
+        let sentences = Sentence.sentences(from: transcription.words)
         guard !sentences.isEmpty else { throw AutoEditError.noSpeech }
-        return Reading(sentences: sentences, language: read.language)
+        return Reading(sentences: sentences, language: transcription.language)
     }
 
     /// Selects the clips worth publishing from a transcript.
