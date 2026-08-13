@@ -42,6 +42,17 @@ public extension Clear {
         /// the input. Equivalent to ``bypass``.
         public var enabled: Bool
 
+        /// Per-channel target in LUFS applied *before* the joint stages, or nil
+        /// (the default) to leave the balance alone.
+        ///
+        /// Mastering is otherwise joint - one gain and one limiter envelope for
+        /// the whole programme - precisely so it never moves the stereo image.
+        /// This is the deliberate exception, for a pair whose sides were
+        /// recorded at different levels (one mic hotter than the other); it
+        /// corrects each side to the same loudness first, and the joint stages
+        /// then treat the result as one signal. Ignored for mono.
+        public var balanceChannelsLUFS: Double?
+
         /// Upper bound on the loudness gain in dB.
         ///
         /// The chain normally lifts the output to `integratedLUFS` however quiet
@@ -56,7 +67,9 @@ public extension Clear {
                     truePeakDBTP: Double = -1.5,
                     loudnessRangeLU: Double = 7.0,
                     enabled: Bool = true,
-                    maxLoudnessGainDB: Double = 9.0) {
+                    maxLoudnessGainDB: Double = 9.0,
+                    balanceChannelsLUFS: Double? = nil) {
+            self.balanceChannelsLUFS = balanceChannelsLUFS
             self.integratedLUFS = integratedLUFS
             self.truePeakDBTP = truePeakDBTP
             self.loudnessRangeLU = loudnessRangeLU

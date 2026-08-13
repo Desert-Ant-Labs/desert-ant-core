@@ -85,7 +85,30 @@ struct ClearEnhancer {
     ///   - onChunk: the fraction of model chunks completed. Chunks finish out
     ///     of order across the session pool, so this counts completions rather
     ///     than positions - monotonic, but not a position in the file.
+    /// Wall time in each stage of one `enhance` call, for
+    /// ``Clear/PhaseTimings``. Seconds.
+    struct StageTimings: Sendable {
+        var stftForward = 0.0
+        var computeFeatures = 0.0
+        var modelPredict = 0.0
+        var stftInverse = 0.0
+
+        static func += (lhs: inout StageTimings, rhs: StageTimings) {
+            lhs.stftForward += rhs.stftForward
+            lhs.computeFeatures += rhs.computeFeatures
+            lhs.modelPredict += rhs.modelPredict
+            lhs.stftInverse += rhs.stftInverse
+        }
+    }
+
+    /// Seconds since `start`, on the monotonic clock.
+    private static func since(_ start: ContinuousClock.Instant) -> Double {
+        let c = start.duration(to: .now).components
+        return Double(c.seconds) + Double(c.attoseconds) / 1e18
+    }
+
     func enhance(_ samples: [Float],
+                 timings: UnsafeMutablePointer<StageTimings>? = nil,
                  onAnalysis: (@Sendable (Double) -> Void)? = nil,
                  onChunk: (@Sendable (Double) -> Void)? = nil) async throws -> [Float] {
         guard !samples.isEmpty, !sessions.isEmpty else { return samples }
@@ -93,12 +116,16 @@ struct ClearEnhancer {
         // Doing these as three passes cost three full-signal copies, and at
         // 48 kHz mono each one is 363 MB for a 33-minute file.
         let padded = Self.prepareInput(samples)
+        var mark = ContinuousClock.now
         let (real, imag, nFrames) = stft.forward(prePadded: padded)
+        timings?.pointee.stftForward += Self.since(mark)
         guard nFrames > 0 else { return sanitize(samples) }
         onAnalysis?(0.5)
 
+        mark = .now
         let (featErb, featSpecReal, featSpecImag) =
             ClearFeatures.compute(real: real, imag: imag, nFrames: nFrames)
+        timings?.pointee.computeFeatures += Self.since(mark)
         onAnalysis?(1)
 
         let count = real.count
@@ -116,6 +143,7 @@ struct ClearEnhancer {
         // ranges are disjoint per chunk, so the shared buffers need no locking.
         let box = Unchecked((outRe, outIm, sessions, featErb, featSpecReal, featSpecImag, real, imag))
         let completed = ChunkCounter(total: nChunks, report: onChunk)
+        mark = .now
         try await withThrowingTaskGroup(of: Void.self) { group in
             for w in 0..<workers {
                 group.addTask {
@@ -136,11 +164,16 @@ struct ClearEnhancer {
             }
             try await group.waitForAll()
         }
+        // Wall time across the whole pool, not summed CPU: the workers run
+        // concurrently, so this is what the caller actually waited.
+        timings?.pointee.modelPredict += Self.since(mark)
 
         // Synthesize straight from the scratch buffers. Copying them into
         // `Array`s first held a second pair of spectrogram planes (726 MB at 33
         // minutes) while the originals were still live until the `defer`.
+        mark = .now
         var enhanced = stft.inverse(real: outRe, imag: outIm, nFrames: nFrames)
+        timings?.pointee.stftInverse += Self.since(mark)
         if enhanced.count > samples.count { enhanced.removeLast(enhanced.count - samples.count) }
         return enhanced
     }

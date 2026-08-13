@@ -64,9 +64,14 @@ extension Clear {
         let start = ContinuousClock.now
         let sampleRate = ClearDSP.sampleRate
 
-        let reader = try AudioIO.StreamingReader(path: path, sampleRate: sampleRate)
+        // 1 asks the decoder to mix down, so the model runs once instead of
+        // per channel; nil keeps the file's own layout.
+        let reader = try AudioIO.StreamingReader(
+            path: path, sampleRate: sampleRate,
+            channels: options.channelMode == .mono ? 1 : nil)
+        let channelCount = reader.channelCount
         let enhancer = ClearEnhancer(sessions: assets.sessions)
-        let meter = Loudness.StreamingMeter(sampleRate: sampleRate)
+        let meter = Loudness.StreamingMeter(sampleRate: sampleRate, channels: channelCount)
 
         // The front end is per window and quick; report it once so the phase
         // sequence still reads analyzing -> enhancing for a caller's UI.
@@ -94,39 +99,52 @@ extension Clear {
             let scratchHandle = try FileHandle(forWritingTo: scratch)
             defer { try? scratchHandle.close() }
 
-            var previousTail = [Float]()
+            var previousTail = [[Float]](repeating: [], count: channelCount)
             while true {
                 try Task.checkCancellation()
-                guard let window = try reader.next(maxFrames: Self.windowFrames), !window.isEmpty else { break }
+                guard let window = try reader.nextChannels(maxFrames: Self.windowFrames),
+                      let windowLength = window.first?.count, windowLength > 0 else { break }
 
-                // Warmup prefix + this window. The prefix is real audio the
-                // model has already seen; it only exists to converge the EMA.
-                var input = previousTail
-                input.append(contentsOf: window)
-                let prefix = previousTail.count
+                // Each channel is enhanced on its own, with its own warmup
+                // prefix, because the feature EMA is per signal.
+                var useful = [[Float]]()
+                useful.reserveCapacity(channelCount)
+                for c in 0..<channelCount {
+                    // Warmup prefix + this window. The prefix is real audio the
+                    // model has already seen; it only exists to converge the EMA.
+                    var input = previousTail[c]
+                    input.append(contentsOf: window[c])
+                    let prefix = previousTail[c].count
 
-                let enhanced = try await enhancer.enhance(input)
-                guard enhanced.count >= prefix else {
-                    throw ClearError.inferenceFailed("window shorter than its warmup prefix")
-                }
-                var useful = Array(enhanced[prefix...])
-                if useful.count > window.count { useful.removeLast(useful.count - window.count) }
+                    let enhanced = try await enhancer.enhance(input)
+                    guard enhanced.count >= prefix else {
+                        throw ClearError.inferenceFailed("window shorter than its warmup prefix")
+                    }
+                    var channel = Array(enhanced[prefix...])
+                    if channel.count > windowLength { channel.removeLast(channel.count - windowLength) }
 
-                if blend {
-                    let n = min(useful.count, window.count)
-                    for i in 0..<n { useful[i] = strength * useful[i] + (1 - strength) * window[i] }
+                    if blend {
+                        let n = min(channel.count, windowLength)
+                        for i in 0..<n { channel[i] = strength * channel[i] + (1 - strength) * window[c][i] }
+                    }
+                    useful.append(channel)
                 }
 
                 meter?.consume(useful)
-                totalFrames += useful.count
-                try useful.withUnsafeBufferPointer { bp in
+                totalFrames += useful[0].count
+                // Interleaved in the scratch file, so the second pass reads
+                // whole frames and can limit and write them without seeking.
+                let frame = Resample.interleave(useful)
+                try frame.withUnsafeBufferPointer { bp in
                     try scratchHandle.write(contentsOf: Data(bytes: bp.baseAddress!,
                                                              count: bp.count * MemoryLayout<Float>.size))
                 }
 
-                previousTail = window.count > Self.warmupFrames
-                    ? Array(window[(window.count - Self.warmupFrames)...])
-                    : window
+                previousTail = (0..<channelCount).map { c in
+                    windowLength > Self.warmupFrames
+                        ? Array(window[c][(windowLength - Self.warmupFrames)...])
+                        : window[c]
+                }
 
                 if let progress, expectedFrames > 0 {
                     progress(Progress(phase: .enhancing,
@@ -150,17 +168,20 @@ extension Clear {
         }
 
         // Second pass: scratch -> encoder, applying the gain. No model, no DSP.
-        let writer = try AudioIO.StreamingWriter(to: outputPath, sampleRate: Int(sampleRate), channels: 1)
+        let writer = try AudioIO.StreamingWriter(to: outputPath, sampleRate: Int(sampleRate),
+                                                 channels: channelCount)
         defer { writer.finish() }
         let readHandle = try FileHandle(forReadingFrom: scratch)
         defer { try? readHandle.close() }
-        let blockBytes = (1 << 16) * MemoryLayout<Float>.size
+        // A whole number of frames per block, so a stereo frame is never split
+        // across two reads and the channels stay aligned.
+        let blockBytes = (1 << 16) * channelCount * MemoryLayout<Float>.size
         let applyGain = mastering.enabled
         // Carries the gain envelope and its look-ahead tail across blocks, so a
         // file mastered here matches the same audio mastered in memory.
         let limiter = applyGain
             ? Limiter.Streaming(ceilingDBTP: mastering.truePeakDBTP,
-                                sampleRate: sampleRate, channels: 1)
+                                sampleRate: sampleRate, channels: channelCount)
             : nil
         let truePeakMeter = applyGain ? Limiter.TruePeakMeter() : nil
         while true {
@@ -172,13 +193,14 @@ extension Clear {
             }
             if let limiter {
                 for i in 0..<block.count { block[i] *= gain }
-                block = limiter.process([block])[0]
+                block = Resample.interleave(
+                    limiter.process(Resample.deinterleave(block, channels: channelCount)))
             }
             truePeakMeter?.consume(block)
             try writer.write(block)
         }
         if let limiter {
-            let tail = limiter.flush()[0]
+            let tail = Resample.interleave(limiter.flush())
             if !tail.isEmpty {
                 truePeakMeter?.consume(tail)
                 try writer.write(tail)
@@ -187,7 +209,7 @@ extension Clear {
         writer.finish()
 
         progress?(Progress(phase: .enhancing, fraction: 1))
-        return Result(samples: [], sampleRate: sampleRate,
+        return Result(channels: [], sampleRate: sampleRate,
                       durationSec: Double(totalFrames) / sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       measuredTruePeakDBFS: truePeakMeter?.dBFS,
