@@ -17,9 +17,13 @@ export type LoudnessPreset = keyof typeof LOUDNESS_PRESETS;
 
 /** The enhanced audio, and what mastering measured on the way out. */
 export interface ClearResult {
-  /** Enhanced audio: 48 kHz mono, whatever the input rate was. */
+  /** Enhanced audio, one entry per channel. Mono input gives one. */
+  channels: Float32Array[];
+  /** The first channel - the whole signal for mono, the left of a stereo pair. */
   samples: Float32Array;
-  /** Always 48000. */
+  /** How many entries `channels` holds. */
+  channelCount: number;
+  /** The delivery rate, 48000 unless `outputSampleRate` asked otherwise. */
   sampleRate: number;
   /** Length of the output in seconds. */
   durationSec: number;
@@ -49,15 +53,33 @@ export interface EnhanceOptions extends CallOptions {
   peakCeilingDBFS?: number;
   /** Upper bound on the loudness gain in dB. Defaults to 9. */
   maxGainDB?: number;
+  /** Delivery sample rate. The model always runs at 48 kHz; the result is
+   *  resampled on the way out. Defaults to 48000. */
+  outputSampleRate?: number;
+  /**
+   * What the output's channel layout should be. `"mono"` (the default)
+   * downmixes before enhancement and emits one channel, which is what every
+   * release so far did; `"preserve"` keeps the input's layout and costs an
+   * inference pass per channel.
+   */
+  channelMode?: "mono" | "preserve";
+  /** Per-channel LUFS target applied before the joint stages, to correct a pair
+   *  whose sides were recorded at different levels. Omit to leave the balance
+   *  alone; mastering is otherwise joint and never moves the stereo image. */
+  balanceChannelsLUFS?: number;
 }
 
 /** On-device speech enhancement: denoise, dereverb, loudness-normalize. */
 export declare class Clear {
   /** Load the model, downloading and caching it on first use. */
   static load(options?: ModelLoadOptions): Promise<Clear>;
-  /** Enhance mono `samples`, returning 48 kHz mono. */
-  enhance(samples: Float32Array | number[], sampleRate?: number,
-          options?: EnhanceOptions): Promise<ClearResult>;
+  /**
+   * Enhance audio. Pass one run of samples for mono, or one entry per channel
+   * for multi-channel - the output is mono unless `channelMode` is
+   * `"preserve"`.
+   */
+  enhance(samples: Float32Array | number[] | Float32Array[] | number[][],
+          sampleRate?: number, options?: EnhanceOptions): Promise<ClearResult>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
   /** Bill every call made inside `body` as one usage call. */

@@ -26,6 +26,11 @@ data class Mastering(
     val maxLoudnessGainDb: Double = 9.0,
     /** Set false to return the unmastered model output. */
     val enabled: Boolean = true,
+    /** Per-channel LUFS target applied before the joint stages, or null to
+     *  leave the balance alone. Mastering is otherwise joint - one gain, one
+     *  limiter envelope - so it never moves the stereo image; this is the
+     *  exception, for a pair whose sides were recorded at different levels. */
+    val balanceChannelsLufs: Double? = null,
 ) {
     companion object {
         fun of(preset: LoudnessPreset): Mastering = Mastering(integratedLufs = preset.integratedLufs)
@@ -35,18 +40,37 @@ data class Mastering(
     }
 }
 
+/**
+ * What to do with a multi-channel input. [MONO] is the default because keeping
+ * a pair costs an inference pass per channel (measured 1.8x), and no app should
+ * start paying that for taking a new version.
+ */
+enum class ChannelMode {
+    /** Downmix before enhancement, emit one channel. */
+    MONO,
+
+    /** Keep the input's layout, enhancing each channel separately. */
+    PRESERVE,
+}
+
 /** Options controlling enhancement and mastering. */
 data class Options(
     /** Enhancement blend in `0.0..1.0`. 1.0 is the full model output. */
     val strength: Double = 1.0,
     val mastering: Mastering = Mastering(),
+    /** Delivery sample rate. The model always runs at 48 kHz; the result is
+     *  resampled on the way out. */
+    val sampleRate: Double = 48_000.0,
+    /** What the output's channel layout should be. Defaults to
+     *  [ChannelMode.MONO], which is what every release so far produced. */
+    val channelMode: ChannelMode = ChannelMode.MONO,
 )
 
 /** The enhanced audio, and what mastering measured on the way out. */
 data class Result(
-    /** Enhanced audio: 48 kHz mono, whatever the input rate was. */
-    val samples: FloatArray,
-    /** Always 48000.0. */
+    /** Enhanced audio, one array per channel. Mono input gives one. */
+    val channels: List<FloatArray>,
+    /** The delivery rate, 48000.0 unless [Options.sampleRate] asked otherwise. */
     val sampleRate: Double,
     /** Length of the output in seconds. */
     val durationSec: Double,
@@ -61,6 +85,13 @@ data class Result(
      */
     val measuredTruePeakDbfs: Double?,
 ) {
+    /** The first channel - the whole signal for mono, the left of a stereo
+     *  pair. Multi-channel callers want [channels]. */
+    val samples: FloatArray get() = channels.firstOrNull() ?: FloatArray(0)
+
+    /** How many entries [channels] holds. */
+    val channelCount: Int get() = channels.size
+
     /** Above 1.0 is faster than real time. */
     val realtimeFactor: Double get() = if (processingSec > 0) durationSec / processingSec else 0.0
 
@@ -68,8 +99,11 @@ data class Result(
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
         if (other !is Result) return false
-        return samples.contentEquals(other.samples) &&
-            sampleRate == other.sampleRate &&
+        if (channels.size != other.channels.size) return false
+        for (i in channels.indices) {
+            if (!channels[i].contentEquals(other.channels[i])) return false
+        }
+        return sampleRate == other.sampleRate &&
             durationSec == other.durationSec &&
             processingSec == other.processingSec &&
             measuredLufs == other.measuredLufs &&
@@ -77,7 +111,7 @@ data class Result(
     }
 
     override fun hashCode(): Int {
-        var result = samples.contentHashCode()
+        var result = channels.fold(1) { acc, c -> 31 * acc + c.contentHashCode() }
         result = 31 * result + sampleRate.hashCode()
         result = 31 * result + durationSec.hashCode()
         result = 31 * result + processingSec.hashCode()
@@ -136,32 +170,56 @@ class Clear(
         samples: FloatArray,
         sampleRate: Double = 48_000.0,
         options: Options = Options(),
+    ): Result = enhance(listOf(samples), sampleRate, options)
+
+    /**
+     * Enhance a multi-channel programme, one array per channel, all the same
+     * length. Mono out unless [Options.channelMode] is [ChannelMode.PRESERVE],
+     * which costs an inference pass per channel. Mastering stays joint, so it
+     * cannot move the stereo image; see [Mastering.balanceChannelsLufs].
+     */
+    suspend fun enhance(
+        channels: List<FloatArray>,
+        sampleRate: Double = 48_000.0,
+        options: Options = Options(),
     ): Result {
-        // Input payload: the samples, then the sample rate. Options payload:
-        // f64 strength, then the mastering chain as f64 integratedLUFS (NaN
-        // bypasses), f64 truePeakDBTP, f64 maxLoudnessGainDB. Result payload:
-        // the samples, then f64 sampleRate/durationSec/processingSec, and the
-        // two measurements (NaN when bypassed). All three must match
-        // Sources/Clear/Binding.swift.
-        val input = FfiWriter().floats(samples).double(sampleRate).done()
+        require(channels.isNotEmpty()) { "at least one channel is required" }
+        // Input payload: the first channel, the sample rate, then an int count
+        // of extra channels and those channels. Options payload: f64 strength,
+        // then the mastering chain as f64 integratedLUFS (NaN bypasses), f64
+        // truePeakDBTP, f64 maxLoudnessGainDB, then f64 outputSampleRate, f64
+        // monoDownmix and f64 balanceChannelsLUFS. Result payload: the first
+        // channel, f64 sampleRate/durationSec/processingSec, the two
+        // measurements (NaN when bypassed), then the extra channels. All three
+        // must match Sources/Clear/Binding.swift.
+        val inputWriter = FfiWriter().floats(channels[0]).double(sampleRate)
+        inputWriter.int(channels.size - 1)
+        for (channel in channels.drop(1)) inputWriter.floats(channel)
         val m = options.mastering
         val payload = FfiWriter()
             .double(options.strength)
             .double(if (m.enabled) m.integratedLufs else Double.NaN)
             .double(m.truePeakDbtp)
             .double(m.maxLoudnessGainDb)
+            .double(options.sampleRate)
+            .double(if (options.channelMode == ChannelMode.MONO) 1.0 else 0.0)
+            .double(m.balanceChannelsLufs ?: Double.NaN)
             .done()
-        return model.run(input, payload, failureMessage = "enhance failed") { r ->
-            val out = r.floats()
+        return model.run(inputWriter.done(), payload, failureMessage = "enhance failed") { r ->
+            val first = r.floats()
             val rate = r.double()
             val duration = r.double()
             val processing = r.double()
             val lufs = r.double()
-            // Appended after the first release: a core built before it leaves
-            // nothing to read, and the field reads as absent.
+            // Appended after the first release: a core built before them leaves
+            // nothing to read, and the fields read as absent.
             val truePeak = if (r.hasRemaining()) r.double() else Double.NaN
+            val out = mutableListOf(first)
+            if (r.hasRemaining()) {
+                repeat(r.int()) { out.add(r.floats()) }
+            }
             Result(
-                samples = out,
+                channels = out,
                 sampleRate = rate,
                 durationSec = duration,
                 processingSec = processing,
