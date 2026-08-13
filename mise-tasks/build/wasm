@@ -22,6 +22,11 @@ sdk=$(dal_wasm_sdk)
 # can have a working wasm core before it ships a package (Clear does today), and
 # a *Web product that stops compiling should fail here rather than the first time
 # someone packages it.
+# Three phases rather than one loop: the Swift builds must run serially (the js
+# plugin needs the one default scratch path), but the wasm-opt passes are
+# independent single-threaded jobs of about a minute each, so they run in
+# parallel once every binary exists.
+built=""
 for model in $(dal_select "${usage_model:-all}"); do
     product=$(dal_product "$model")
     [ -d "Sources/$product/Web" ] || { echo "== $product has no wasm entry, skipping =="; continue; }
@@ -35,14 +40,27 @@ for model in $(dal_select "${usage_model:-all}"); do
     # which SwiftPM's plugin sandbox blocks on macOS without it.
     swift package -Xswiftc -Osize --swift-sdk "$sdk" --allow-writing-to-package-directory \
         js --product "${product}Web" -c release --output "$out"
+    built="$built $model"
+done
 
-    if command -v wasm-opt > /dev/null; then
+if command -v wasm-opt > /dev/null; then
+    pids=()
+    for model in $built; do
+        product=$(dal_product "$model")
+        out=.build/wasm-package/$product
         wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int \
             --enable-sign-ext --enable-reference-types --strip-debug --strip-producers \
-            "$out/${product}Web.wasm" -o "$out/${product}Web.wasm"
-    else
-        echo "warning: wasm-opt not found; shipping unoptimized wasm (~3x larger)" >&2
-    fi
+            "$out/${product}Web.wasm" -o "$out/${product}Web.wasm" &
+        pids+=($!)
+    done
+    for pid in ${pids[@]+"${pids[@]}"}; do wait "$pid"; done
+else
+    echo "warning: wasm-opt not found; shipping unoptimized wasm (~3x larger)" >&2
+fi
+
+for model in $built; do
+    product=$(dal_product "$model")
+    out=.build/wasm-package/$product
 
     # Models without an npm package are a compile check only; there is nowhere
     # to stage the artifact.
