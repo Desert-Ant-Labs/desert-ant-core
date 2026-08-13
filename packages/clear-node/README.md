@@ -51,8 +51,36 @@ result.realtimeFactor;         // above 1 is faster than real time
 clear.dispose();
 ```
 
-Input can be a `Float32Array` or a plain array of numbers, at any sample rate;
-the output is always 48 kHz mono.
+Input can be a `Float32Array` or a plain array of numbers, at any sample rate.
+
+## Channels
+
+The output is **mono by default**, whatever goes in - the model is mono, so
+keeping a stereo pair costs an inference pass per channel (about 1.8x a mono
+run). Pass one entry per channel *and* ask to keep them:
+
+```ts
+const stereo = await clear.enhance([left, right], 48_000, { channelMode: "preserve" });
+stereo.channelCount;   // 2
+stereo.channels;       // [Float32Array, Float32Array]
+stereo.samples;        // the first channel
+```
+
+Leaving `channelMode` alone (or setting it to `"mono"`) downmixes before
+enhancement, so the model runs once:
+
+```ts
+await clear.enhance([left, right], 48_000);   // one channel out, one inference pass
+```
+
+Mastering is joint: one loudness gain and one limiter envelope across the
+channels, so it never moves the stereo image. `balanceChannelsLUFS` is the
+deliberate exception, for a pair whose sides were recorded at different levels:
+
+```ts
+await clear.enhance([left, right], 48_000,
+                    { channelMode: "preserve", balanceChannelsLUFS: -20 });
+```
 
 ## Mastering
 
@@ -77,6 +105,14 @@ denoising sounds too processed:
 
 ```ts
 await clear.enhance(samples, 48_000, { strength: 0.7 });
+```
+
+`outputSampleRate` sets the delivery rate. The model always runs at 48 kHz and
+the result is resampled on the way out, so the meter and the limiter still see
+the rate their constants are derived for:
+
+```ts
+await clear.enhance(samples, 48_000, { outputSampleRate: 44_100 });
 ```
 
 ## Self-hosting and progress
