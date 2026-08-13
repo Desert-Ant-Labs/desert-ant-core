@@ -24,20 +24,33 @@ export const LOUDNESS_PRESETS = Object.freeze({
   broadcast: -23,
 });
 
-/** Input payload: `f32Array samples` (mono), then `f64 sampleRate`. */
-export function encodeInput(samples, sampleRate) {
-  return new FfiWriter().f32Array(samples).f64(sampleRate).done();
+/** Input payload: `f32Array` (the first channel), then `f64 sampleRate`, then
+ *  `u32 extraChannelCount` and that many more `f32Array`s. */
+export function encodeInput(channels, sampleRate) {
+  const w = new FfiWriter().f32Array(channels[0]).f64(sampleRate);
+  w.u32(channels.length - 1);
+  for (const channel of channels.slice(1)) w.f32Array(channel);
+  return w.done();
 }
 
 /** Options payload: `f64 strength`, then the mastering chain as
  *  `f64 integratedLUFS` (NaN bypasses mastering), `f64 truePeakDBTP`,
- *  `f64 maxLoudnessGainDB`. */
-export function encodeOptions({ strength, targetLUFS, peakCeilingDBFS, maxGainDB }) {
+ *  `f64 maxLoudnessGainDB`, then `f64 outputSampleRate`, `f64 monoDownmix`
+ *  (1 downmixes, 0 preserves the layout) and `f64 balanceChannelsLUFS`
+ *  (NaN for none). */
+export function encodeOptions({
+  strength, targetLUFS, peakCeilingDBFS, maxGainDB,
+  outputSampleRate, monoDownmix, balanceChannelsLUFS,
+}) {
   return new FfiWriter()
     .f64(strength)
     .f64(targetLUFS === null || targetLUFS === undefined ? NaN : targetLUFS)
     .f64(peakCeilingDBFS)
     .f64(maxGainDB)
+    .f64(outputSampleRate)
+    .f64(monoDownmix === false ? 0 : 1)
+    .f64(balanceChannelsLUFS === null || balanceChannelsLUFS === undefined
+      ? NaN : balanceChannelsLUFS)
     .done();
 }
 
@@ -47,7 +60,7 @@ export function encodeOptions({ strength, targetLUFS, peakCeilingDBFS, maxGainDB
  *  bypassed, which surfaces as null rather than as a NaN a caller has to know
  *  to test for. `r` is an FfiReader positioned at the payload. */
 export function decodeResult(r) {
-  const samples = r.f32Array();
+  const first = r.f32Array();
   const sampleRate = r.f64();
   const durationSec = r.f64();
   const processingSec = r.f64();
@@ -55,8 +68,15 @@ export function decodeResult(r) {
   // Appended after the first release: a core built before it leaves nothing to
   // read, and the field reads as absent rather than as a decode failure.
   const measuredTruePeakDBFS = r.remaining >= 8 ? r.f64() : NaN;
+  const channels = [first];
+  if (r.remaining >= 4) {
+    const extra = r.u32();
+    for (let i = 0; i < extra; i++) channels.push(r.f32Array());
+  }
   return {
-    samples,
+    channels,
+    samples: first,
+    channelCount: channels.length,
     sampleRate,
     durationSec,
     processingSec,

@@ -45,12 +45,23 @@ export function makeClear(sdk) {
      * `options.targetLUFS` takes a number or a key of {@link LOUDNESS_PRESETS};
      * pass null to skip mastering and get the model's own level back.
      *
+     * The result is mono unless `options.channelMode` is `"preserve"`: the
+     * model is mono, so keeping a stereo pair costs an inference pass per
+     * channel.
+     *
      * `options.deviceId` (a string or a zero-arg function returning one)
      * attributes usage to a specific end-user device; it is collected per call,
      * so it is safe for concurrent multi-tenant hosts. `options.group` (an id
      * from {@link withCallGroup}) bills several calls as one.
      */
     async enhance(samples, sampleRate = 48_000, options = {}) {
+      // One run of samples is mono; a list whose entries are themselves
+      // array-like is one entry per channel. `ArrayBuffer.isView` is what
+      // catches a [Float32Array, Float32Array] pair, which `Array.isArray`
+      // alone would read as mono.
+      const perChannel = Array.isArray(samples) && samples.length > 0
+        && (Array.isArray(samples[0]) || ArrayBuffer.isView(samples[0]));
+      const channels = perChannel ? samples : [samples];
       const target = options.targetLUFS === undefined
         ? LOUDNESS_PRESETS.applePodcasts
         : options.targetLUFS;
@@ -59,9 +70,12 @@ export function makeClear(sdk) {
         targetLUFS: typeof target === "string" ? LOUDNESS_PRESETS[target] : target,
         peakCeilingDBFS: options.peakCeilingDBFS ?? -1.5,
         maxGainDB: options.maxGainDB ?? 9,
+        outputSampleRate: options.outputSampleRate ?? 48_000,
+        monoDownmix: (options.channelMode ?? "mono") === "mono",
+        balanceChannelsLUFS: options.balanceChannelsLUFS,
       });
       return decodeResult(
-        await this.#model.run(encodeInput(samples, sampleRate), payload, options));
+        await this.#model.run(encodeInput(channels, sampleRate), payload, options));
     }
 
     /** Whether the model is usable with no network. */
