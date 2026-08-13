@@ -44,4 +44,33 @@ public enum Resample {
         let mono = mixdownMono(pcm.samples, channels: pcm.channels)
         return linear(mono, from: pcm.sampleRate, to: sampleRate)
     }
+
+    /// Split interleaved `channels`-channel audio into one array per channel.
+    public static func deinterleave(_ interleaved: [Float], channels: Int) -> [[Float]] {
+        guard channels > 1 else { return [interleaved] }
+        let frames = interleaved.count / channels
+        return (0..<channels).map { c in
+            var out = [Float](repeating: 0, count: frames)
+            for f in 0..<frames { out[f] = interleaved[f * channels + c] }
+            return out
+        }
+    }
+
+    /// Lay one array per channel back out interleaved, which is what the WAV
+    /// encoder and the streaming writer take.
+    public static func interleave(_ channels: [[Float]]) -> [Float] {
+        guard channels.count > 1 else { return channels.first ?? [] }
+        let frames = channels.map(\.count).min() ?? 0
+        var out = [Float](repeating: 0, count: frames * channels.count)
+        for (c, channel) in channels.enumerated() {
+            for f in 0..<frames { out[f * channels.count + c] = channel[f] }
+        }
+        return out
+    }
+
+    /// Keep the channel layout, resampling each channel to `sampleRate`.
+    public static func toChannels(_ pcm: PCM, sampleRate: Double) -> [[Float]] {
+        deinterleave(pcm.samples, channels: pcm.channels)
+            .map { linear($0, from: pcm.sampleRate, to: sampleRate) }
+    }
 }
