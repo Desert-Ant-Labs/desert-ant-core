@@ -4,15 +4,13 @@ import Transcript
 
 /// Turns a recording into the clips worth publishing from it.
 ///
-/// Takes a transcript produced outside this SDK, selects its strongest
-/// moments, and cuts the source down to them.
+/// Takes a transcript produced outside this SDK and selects its strongest
+/// moments. Cutting the recording down to them, like transcribing it, happens
+/// outside this SDK: `Clip.ranges(in:padding:)` gives the time spans to cut.
 ///
 /// ```swift
 /// let editor = AutoEdit(clips: Clips(directory: clipsModel, cacheRoot: nil))
 /// let edit = try await editor.edit(of: transcription)
-/// for clip in edit.clips {
-///     try await editor.write(clip, of: video, in: edit, to: folder.appending(path: "\(clip.id).mp4"))
-/// }
 /// ```
 ///
 /// To title the clips, pass them to `Titles` from the `Title` module:
@@ -97,30 +95,5 @@ public struct AutoEdit: Sendable {
     /// - Returns: The clips, highest scoring first.
     public func clips(in transcript: [Sentence], limit: Int? = nil) async throws -> [Clip] {
         try await clips.clips(in: transcript.map(\.text), limit: limit)
-    }
-
-    /// Cuts a clip out of the recording it was selected from.
-    ///
-    /// - Parameters:
-    ///   - clip: The clip to write.
-    ///   - recording: The recording the clip was selected from.
-    ///   - edit: The edit the clip belongs to.
-    ///   - destination: Where to write the result. A file already at this path
-    ///     is left alone and a numbered name is used instead.
-    ///   - padding: Time added to both ends of every span, in seconds.
-    /// - Returns: The path written.
-    @discardableResult
-    public func write(
-        _ clip: Clip,
-        of recording: URL,
-        in edit: Edit,
-        to destination: URL,
-        padding: Double = 0.15
-    ) async throws -> URL {
-        try await VideoIO.write(
-            recording,
-            ranges: clip.ranges(in: edit.transcript, padding: padding),
-            to: destination
-        )
     }
 }

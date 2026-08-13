@@ -23,23 +23,11 @@ public struct Transcription: Sendable, Equatable {
 public enum AutoEditError: MessageError, Sendable {
     /// The transcript contains no recognizable speech.
     case noSpeech
-    /// The recording has no track of a kind the edit needs.
-    case noPlayableTrack
-    /// The operation has no implementation on this platform.
-    case unsupported(String)
-    /// The recording could not be written in a supported format.
-    case exportFailed(String)
 
     public var message: String {
         switch self {
         case .noSpeech:
             "No speech was found in that recording."
-        case .noPlayableTrack:
-            "That recording has neither a picture nor a sound track to cut."
-        case .unsupported(let what):
-            "Unsupported: \(what)."
-        case .exportFailed(let why):
-            "The recording could not be written. \(why)"
         }
     }
 }

@@ -46,9 +46,9 @@ let noJavaScriptKit = !wasmBuild
 let mlxBuild = ProcessInfo.processInfo.environment["DAL_MLX_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
-// `AutoEdit` cuts recordings with AVFoundation, which is Apple-only, so this
-// switch scopes the video pipeline to consumers that build it. Transcription
-// happens outside this SDK; callers bring timed words from their own recognizer.
+// `AutoEdit` selects clips from a transcript. Transcribing the recording and
+// cutting it down to the selected spans both happen outside this SDK; this
+// switch scopes the video pipeline to consumers that opt into it.
 let videoBuild = ProcessInfo.processInfo.environment["DAL_VIDEO_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
@@ -377,7 +377,6 @@ let autoEditTargets: [Target] = !videoBuild ? [] : [
             "Clips", "DesertAnt", "Transcript",
         ]
     ),
-    .testTarget(name: "AutoEditTests", dependencies: ["AutoEdit"]),
 ]
 let autoEditProducts: [Product] = !videoBuild ? [] : [
     .library(name: "AutoEdit", targets: ["AutoEdit"]),
