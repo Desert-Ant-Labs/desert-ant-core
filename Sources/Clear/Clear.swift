@@ -26,6 +26,17 @@ public final class Clear: @unchecked Sendable {
         public static let subtle: Strength = 0.4
     }
 
+    /// What to do with a multi-channel input. ``mono`` is the default because
+    /// keeping a pair costs an inference pass per channel (measured 1.8x), and
+    /// no app should start paying that for taking a new version.
+    public enum ChannelMode: Sendable, Equatable {
+        /// Downmix before enhancement, emit one channel. What every release so
+        /// far did, whatever went in.
+        case mono
+        /// Keep the input's layout, enhancing each channel separately.
+        case preserve
+    }
+
     public struct Options: Sendable {
         /// Enhancement blend. Default full.
         public var strength: Strength
@@ -34,21 +45,36 @@ public final class Clear: @unchecked Sendable {
         /// `.bypass` to leave the model's own level alone.
         public var mastering: Mastering
 
-        public init(strength: Strength = .full, mastering: Mastering = .applePodcasts) {
+        /// Output sample rate. The model runs at 48 kHz whatever this is; the
+        /// result is resampled on the way out. Default 48 kHz matches the model
+        /// and podcast delivery.
+        public var sampleRate: Double
+
+        /// What the output's channel layout should be. Defaults to
+        /// ``ChannelMode/mono``.
+        public var channelMode: ChannelMode
+
+        public init(strength: Strength = .full, mastering: Mastering = .applePodcasts,
+                    sampleRate: Double = 48_000, channelMode: ChannelMode = .mono) {
             self.strength = strength
             self.mastering = mastering
+            self.sampleRate = sampleRate
+            self.channelMode = channelMode
         }
 
         /// Loudness targets without naming a delivery platform. `targetLUFS` is
         /// required, so `Options()` still means "full strength, Apple Podcasts".
         public init(strength: Strength = .full, targetLUFS: Double?,
-                    peakCeilingDBFS: Double = -1.5, maxGainDB: Double = 9) {
+                    peakCeilingDBFS: Double = -1.5, maxGainDB: Double = 9,
+                    sampleRate: Double = 48_000, channelMode: ChannelMode = .mono) {
             self.strength = strength
             self.mastering = Mastering(
                 integratedLUFS: targetLUFS ?? Mastering.applePodcasts.integratedLUFS,
                 truePeakDBTP: peakCeilingDBFS,
                 enabled: targetLUFS != nil,
                 maxLoudnessGainDB: maxGainDB)
+            self.sampleRate = sampleRate
+            self.channelMode = channelMode
         }
 
         /// The integrated-LUFS target, or nil when mastering is bypassed.
@@ -57,8 +83,47 @@ public final class Clear: @unchecked Sendable {
         public static let `default` = Options()
     }
 
+    /// Per-stage wall time of one enhance pass, in seconds: what tells a slow
+    /// device from a slow model.
+    ///
+    /// Wall time on the critical path, not summed CPU: channels run serially so
+    /// their stages add up, and `modelPredict` is the whole session pool rather
+    /// than the sum of its workers. ``totalSec`` sits a little under
+    /// ``Clear/Result/processingSec`` - the difference is model load.
+    public struct PhaseTimings: Sendable, Equatable {
+        /// Resampling the input to 48 kHz, and the downmix in
+        /// ``Clear/ChannelMode/mono``. Zero when the input was already 48 kHz mono.
+        public var decodeResampleSec: Double = 0
+        /// The analysis STFT.
+        public var stftForwardSec: Double = 0
+        /// The ERB/DF feature front end.
+        public var computeFeaturesSec: Double = 0
+        /// The model itself: every chunk, across the session pool.
+        public var modelPredictSec: Double = 0
+        /// The synthesis STFT.
+        public var stftInverseSec: Double = 0
+        /// The strength blend against the input.
+        public var blendSec: Double = 0
+        /// Loudness measurement, the gain, and the limiter.
+        public var masteringSec: Double = 0
+        /// Resampling to the delivery rate, when one was asked for.
+        public var deliverySec: Double = 0
+
+        public var totalSec: Double {
+            decodeResampleSec + stftForwardSec + computeFeaturesSec + modelPredictSec
+                + stftInverseSec + blendSec + masteringSec + deliverySec
+        }
+    }
+
     public struct Result: Sendable {
-        public let samples: [Float]         // enhanced, 48 kHz mono
+        /// Enhanced audio, one array per channel, at ``sampleRate``. One channel
+        /// unless ``Clear/Options/channelMode`` asked to preserve the input's.
+        public let channels: [[Float]]
+        /// The first channel - the whole signal for mono, the left side of a
+        /// stereo pair. Multi-channel callers want ``channels``.
+        public var samples: [Float] { channels.first ?? [] }
+        /// How many channels ``channels`` holds.
+        public var channelCount: Int { channels.count }
         public let sampleRate: Double
         public let durationSec: Double
         public let processingSec: Double
@@ -77,6 +142,8 @@ public final class Clear: @unchecked Sendable {
         /// when nothing was downloaded (a local `modelPath`, explicit assets,
         /// or a self-hosted wasm model).
         public let modelRevision: String?
+        /// Per-stage breakdown of this pass. See ``Clear/PhaseTimings``.
+        public var phaseTimings = PhaseTimings()
         public var realtimeFactor: Double { processingSec > 0 ? durationSec / processingSec : 0 }
     }
 
@@ -319,13 +386,35 @@ public final class Clear: @unchecked Sendable {
         try await model.load(progress: progress)
     }
 
-    /// Enhance mono/stereo `samples` at `sampleRate`, returning 48 kHz mono.
+    /// Enhance mono `samples` at `sampleRate`.
     ///
     /// `progress` reports ``Phase/loadingModel`` (only when the model is not
     /// loaded yet), then ``Phase/enhancing``, then ``Phase/mastering``.
     public func enhance(samples: [Float], sampleRate: Double,
                         options: Options = .default,
                         progress: ProgressHandler? = nil) async throws -> Result {
+        try await enhance(channels: [samples], sampleRate: sampleRate,
+                          options: options, progress: progress)
+    }
+
+    /// Enhance a multi-channel programme, one array per channel, all the same
+    /// length. Mono out unless ``Options/channelMode`` is
+    /// ``ChannelMode/preserve``.
+    ///
+    /// Channels run one after another, not concurrently: the chunk loop already
+    /// spreads a channel across the session pool, so overlapping them would
+    /// only contend. Mastering is joint - one gain, one limiter envelope - so
+    /// it cannot move the stereo image; see
+    /// ``Clear/Mastering/balanceChannelsLUFS`` for the exception.
+    public func enhance(channels: [[Float]], sampleRate: Double,
+                        options: Options = .default,
+                        progress: ProgressHandler? = nil) async throws -> Result {
+        guard let inputLength = channels.first?.count, inputLength > 0 else {
+            throw ClearError.inferenceFailed("no input samples")
+        }
+        guard channels.allSatisfy({ $0.count == inputLength }) else {
+            throw ClearError.inferenceFailed("every channel must be the same length")
+        }
         // Load with progress, so the first call reports the download/compile
         // instead of appearing to hang. `download` is a no-op once loaded, and
         // concurrent callers join the same load.
@@ -336,28 +425,61 @@ public final class Clear: @unchecked Sendable {
         let assets = try await model.value()
         let start = ContinuousClock.now
         progress?(Progress(phase: .analyzing, fraction: 0))
-        let input = sampleRate == ClearDSP.sampleRate
-            ? samples
-            : Resample.linear(samples, from: sampleRate, to: ClearDSP.sampleRate)
-        let enhancer = ClearEnhancer(sessions: assets.sessions)
-        // The front end (STFT + features) finishes `analyzing`; the chunk loop
-        // that follows is `enhancing`. The flip is announced when the front end
-        // reports done, so the phase change is not deferred to the first chunk
-        // (which on a long file is seconds later).
-        var out = try await enhancer.enhance(
-            input,
-            onAnalysis: { fraction in
-                progress?(Progress(phase: .analyzing, fraction: fraction))
-                if fraction >= 1 { progress?(Progress(phase: .enhancing, fraction: 0)) }
-            },
-            onChunk: { progress?(Progress(phase: .enhancing, fraction: $0)) })
 
-        // Strength blend against the (resampled) input.
-        let s = Float(options.strength.value)
-        if s < 1 {
-            let n = min(out.count, input.count)
-            for i in 0..<n { out[i] = s * out[i] + (1 - s) * input[i] }
+        var phases = PhaseTimings()
+        var mark = ContinuousClock.now
+
+        // Downmix before resampling: the mix is what the model then runs on, so
+        // doing it first is what actually saves the second inference pass.
+        let source = options.channelMode == .mono && channels.count > 1
+            ? [Self.downmix(channels)] : channels
+        let input = source.map {
+            sampleRate == ClearDSP.sampleRate
+                ? $0
+                : Resample.linear($0, from: sampleRate, to: ClearDSP.sampleRate)
         }
+        phases.decodeResampleSec = elapsedSeconds(since: mark)
+
+        let enhancer = ClearEnhancer(sessions: assets.sessions)
+        let s = Float(options.strength.value)
+        var stages = ClearEnhancer.StageTimings()
+        var out = [[Float]]()
+        out.reserveCapacity(input.count)
+
+        for (index, channel) in input.enumerated() {
+            // Each channel is a slice of the whole job, so a two-channel file
+            // reports 0...0.5 for the left and 0.5...1 for the right rather
+            // than sweeping to 1 twice.
+            let base = Double(index) / Double(input.count)
+            let span = 1 / Double(input.count)
+            // The front end (STFT + features) finishes `analyzing`; the chunk
+            // loop that follows is `enhancing`. The flip is announced when the
+            // front end reports done, so the phase change is not deferred to
+            // the first chunk (which on a long file is seconds later).
+            var enhanced = try await enhancer.enhance(
+                channel,
+                timings: &stages,
+                onAnalysis: { fraction in
+                    progress?(Progress(phase: .analyzing, fraction: base + fraction * span))
+                    if fraction >= 1, index == 0 {
+                        progress?(Progress(phase: .enhancing, fraction: 0))
+                    }
+                },
+                onChunk: { progress?(Progress(phase: .enhancing, fraction: base + $0 * span)) })
+
+            // Strength blend against the (resampled) input.
+            if s < 1 {
+                mark = .now
+                let n = min(enhanced.count, channel.count)
+                for i in 0..<n { enhanced[i] = s * enhanced[i] + (1 - s) * channel[i] }
+                phases.blendSec += elapsedSeconds(since: mark)
+            }
+            out.append(enhanced)
+        }
+        phases.stftForwardSec = stages.stftForward
+        phases.computeFeaturesSec = stages.computeFeatures
+        phases.modelPredictSec = stages.modelPredict
+        phases.stftInverseSec = stages.stftInverse
 
         // Mastering: integrated-LUFS normalization with the preset's gain cap
         // and peak ceiling. `loudnessRangeLU` is not applied (no range stage
@@ -366,21 +488,47 @@ public final class Clear: @unchecked Sendable {
         var truePeak: Double? = nil
         let mastering = options.mastering
         if mastering.enabled {
+            mark = .now
             // In place: a returned master would sit alongside `out`, and both
             // are full length.
             measured = Loudness.normalizeInPlace(
                 &out, sampleRate: ClearDSP.sampleRate, targetLUFS: mastering.integratedLUFS,
-                maxGainDB: mastering.maxLoudnessGainDB, peakCeilingDBFS: mastering.truePeakDBTP)
-            truePeak = Limiter.truePeakDBFS([out])
+                maxGainDB: mastering.maxLoudnessGainDB, peakCeilingDBFS: mastering.truePeakDBTP,
+                balanceChannelsLUFS: mastering.balanceChannelsLUFS)
+            truePeak = Limiter.truePeakDBFS(out)
+            phases.masteringSec = elapsedSeconds(since: mark)
         }
+
+        // Delivery rate last, so the model, the meter, and the limiter all ran
+        // at the 48 kHz their constants are derived for.
+        if options.sampleRate != ClearDSP.sampleRate {
+            mark = .now
+            out = out.map { Resample.linear($0, from: ClearDSP.sampleRate, to: options.sampleRate) }
+            phases.deliverySec = elapsedSeconds(since: mark)
+        }
+
         // Mastering is the tail of `enhancing`, so the phase ends at 1 only
         // once the audio is actually final.
         progress?(Progress(phase: .enhancing, fraction: 1))
-        return Result(samples: out, sampleRate: ClearDSP.sampleRate,
-                      durationSec: Double(out.count) / ClearDSP.sampleRate,
+        let length = out.first?.count ?? 0
+        return Result(channels: out, sampleRate: options.sampleRate,
+                      durationSec: Double(length) / options.sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       measuredTruePeakDBFS: truePeak,
-                      modelVariant: assets.variant, modelRevision: assets.revision)
+                      modelVariant: assets.variant, modelRevision: assets.revision,
+                      phaseTimings: phases)
+    }
+
+    /// Average the channels. Equal weights, which is the standard downmix and
+    /// what keeps a centred voice at the same level it had in the pair.
+    static func downmix(_ channels: [[Float]]) -> [Float] {
+        guard let n = channels.first?.count else { return [] }
+        let scale = 1 / Float(channels.count)
+        var out = [Float](repeating: 0, count: n)
+        for channel in channels {
+            for i in 0..<n { out[i] += channel[i] * scale }
+        }
+        return out
     }
 
     func elapsedSeconds(since start: ContinuousClock.Instant) -> Double {
@@ -411,25 +559,30 @@ public final class Clear: @unchecked Sendable {
                                               options: options, progress: progress)
         }
         #endif
-        let samples = try await AudioIO.decode(path: path, sampleRate: ClearDSP.sampleRate)
-        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate,
+        let decoded = try await AudioIO.decodeChannels(path: path, sampleRate: ClearDSP.sampleRate)
+        let result = try await enhance(channels: decoded, sampleRate: ClearDSP.sampleRate,
                                        options: options, progress: progress)
         if let outputPath {
-            try AudioIO.write(result.samples, sampleRate: Int(ClearDSP.sampleRate), to: outputPath)
+            try AudioIO.write(Resample.interleave(result.channels),
+                              sampleRate: Int(result.sampleRate),
+                              channels: result.channelCount, to: outputPath)
         }
         return result
     }
     #endif
 
-    /// Enhance in-memory audio-file `bytes`, returning enhanced 48 kHz mono
-    /// samples and a ready-to-write WAV byte buffer.
+    /// Enhance in-memory audio-file `bytes`, returning the enhanced samples and
+    /// a ready-to-write WAV byte buffer. The input's channel layout is kept
+    /// unless ``Options/channelMode`` is ``ChannelMode/preserve``.
     public func enhance(bytes: [UInt8], options: Options = .default,
                         progress: ProgressHandler? = nil) async throws
         -> (result: Result, wav: [UInt8]) {
-        let samples = try await AudioIO.decode(bytes: bytes, sampleRate: ClearDSP.sampleRate)
-        let result = try await enhance(samples: samples, sampleRate: ClearDSP.sampleRate,
+        let decoded = try await AudioIO.decodeChannels(bytes: bytes, sampleRate: ClearDSP.sampleRate)
+        let result = try await enhance(channels: decoded, sampleRate: ClearDSP.sampleRate,
                                        options: options, progress: progress)
-        let wav = AudioIO.encodeWAV(result.samples, sampleRate: Int(ClearDSP.sampleRate))
+        let wav = AudioIO.encodeWAV(Resample.interleave(result.channels),
+                                    sampleRate: Int(result.sampleRate),
+                                    channels: result.channelCount)
         return (result, wav)
     }
 }

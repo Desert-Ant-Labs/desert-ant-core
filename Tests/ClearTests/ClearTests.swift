@@ -114,6 +114,43 @@ struct ClearTests {
         #expect(Clear.Mastering.targetLUFS(-21).integratedLUFS == -21)
     }
 
+    // MARK: channels
+
+    /// Equal-weight averaging, so a centred voice keeps the level it had in the
+    /// pair instead of coming out 6 dB down or summing to clipping.
+    @Test func downmixAveragesTheChannels() {
+        #expect(Clear.downmix([[1, 2, 3]]) == [1, 2, 3])
+        #expect(Clear.downmix([[1, 0, -1], [1, 0, -1]]) == [1, 0, -1])
+        #expect(Clear.downmix([[1, 1], [0, -1]]) == [0.5, 0])
+        #expect(Clear.downmix([]) == [])
+    }
+
+    /// `samples` is a convenience over `channels`, so the two must not be able
+    /// to disagree.
+    @Test func resultSamplesIsTheFirstChannel() {
+        let stereo = Clear.Result(channels: [[1, 2], [3, 4]], sampleRate: 48_000,
+                                  durationSec: 0, processingSec: 0, measuredLUFS: nil,
+                                  measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil)
+        #expect(stereo.channelCount == 2)
+        #expect(stereo.samples == [1, 2])
+
+        let empty = Clear.Result(channels: [], sampleRate: 48_000,
+                                 durationSec: 0, processingSec: 0, measuredLUFS: nil,
+                                 measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil)
+        #expect(empty.samples == [])
+        #expect(empty.channelCount == 0)
+    }
+
+    /// The new options have to default to exactly the old behaviour, or every
+    /// existing caller silently changes.
+    @Test func channelOptionsDefaultToTheMonoPath() {
+        #expect(Clear.Options.default.channelMode == .mono)
+        #expect(Clear.Options.default.sampleRate == 48_000)
+        #expect(Clear.Options.default.mastering.balanceChannelsLUFS == nil)
+        #expect(Clear.Options(targetLUFS: -16).sampleRate == 48_000)
+        #expect(Clear.Options(targetLUFS: -16).channelMode == .mono)
+    }
+
     // MARK: variants
 
     /// The variant is what selects files, so its names must match the Hub's
@@ -210,6 +247,263 @@ struct ClearTests {
         #expect(truePeak >= samplePeak - 1e-9)
     }
 
+    /// Stereo in, stereo out, with both sides actually enhanced rather than one
+    /// being copied or dropped.
+    @Test func stereoKeepsBothChannels() async throws {
+        let clear = try await enhancer()
+        let left = noisyTone()
+        // A different signal per side, so a channel mix-up is visible.
+        let right = left.map { $0 * 0.5 }
+
+        let result = try await clear.enhance(channels: [left, right], sampleRate: 48_000,
+                                             options: .init(mastering: .applePodcasts,
+                                                            channelMode: .preserve))
+        #expect(result.channelCount == 2)
+        #expect(result.channels[0].count == result.channels[1].count)
+        #expect(result.samples == result.channels[0])
+        for channel in result.channels {
+            #expect(channel.allSatisfy { $0.isFinite })
+            var energy: Float = 0; for v in channel { energy += v * v }
+            #expect(energy > 0)
+        }
+        // The sides stay distinguishable: joint mastering must not have
+        // collapsed them into the same signal.
+        #expect(result.channels[0] != result.channels[1])
+    }
+
+    /// Mastering is joint, so the level difference between the sides survives
+    /// it. This is what "does not move the stereo image" means concretely.
+    @Test func jointMasteringPreservesTheImage() async throws {
+        let clear = try await enhancer()
+        let left = noisyTone()
+        let result = try await clear.enhance(channels: [left, left.map { $0 * 0.5 }],
+                                             sampleRate: 48_000,
+                                             options: .init(mastering: .spotify,
+                                                            channelMode: .preserve))
+        // Compare energies rather than samples: the model is not linear, so the
+        // ratio is approximate, but a joint gain keeps them well apart.
+        func energy(_ s: [Float]) -> Double {
+            var acc = 0.0; for v in s { acc += Double(v) * Double(v) }
+            return acc
+        }
+        let ratio = energy(result.channels[1]) / energy(result.channels[0])
+        #expect(ratio < 0.9, "sides converged (ratio \(ratio)); mastering moved the image")
+    }
+
+    /// The default collapses a pair before inference, so the result is one
+    /// channel and one inference pass - what every release so far did.
+    @Test func defaultCollapsesThePairBeforeInference() async throws {
+        let clear = try await enhancer()
+        let left = noisyTone()
+        let result = try await clear.enhance(channels: [left, left.map { $0 * 0.5 }],
+                                             sampleRate: 48_000,
+                                             options: .init(channelMode: .mono))
+        #expect(result.channelCount == 1)
+        #expect(result.samples.allSatisfy { $0.isFinite })
+    }
+
+    /// The mono entry point is the one-channel case of the same path, so the
+    /// two must agree sample for sample.
+    @Test func monoEntryPointMatchesOneChannel() async throws {
+        let clear = try await enhancer()
+        let x = noisyTone()
+        let mono = try await clear.enhance(samples: x, sampleRate: 48_000)
+        let single = try await clear.enhance(channels: [x], sampleRate: 48_000)
+        #expect(mono.channels.count == 1)
+        #expect(mono.samples == single.samples)
+    }
+
+    /// The delivery rate is applied after the model, the meter, and the
+    /// limiter, all of which are derived for 48 kHz.
+    @Test func outputSampleRateResamplesTheDelivery() async throws {
+        let clear = try await enhancer()
+        let x = noisyTone()
+        let result = try await clear.enhance(samples: x, sampleRate: 48_000,
+                                             options: .init(sampleRate: 24_000))
+        #expect(result.sampleRate == 24_000)
+        #expect(result.samples.allSatisfy { $0.isFinite })
+        // Half the rate over the same audio is about half the samples.
+        let expected = Double(x.count) / 2
+        #expect(abs(Double(result.samples.count) - expected) < expected * 0.02)
+        #expect(abs(result.durationSec - Double(x.count) / 48_000) < 0.05)
+    }
+
+    /// Balancing corrects a pair recorded at different levels, which is the one
+    /// case where mastering is allowed to move the sides relative to each other.
+    @Test func channelBalancingEqualisesTheSides() async throws {
+        let clear = try await enhancer()
+        let left = noisyTone()
+        var mastering = Clear.Mastering.applePodcasts
+        mastering.balanceChannelsLUFS = -20
+        let result = try await clear.enhance(channels: [left, left.map { $0 * 0.25 }],
+                                             sampleRate: 48_000,
+                                             options: .init(mastering: mastering,
+                                                            channelMode: .preserve))
+        func energy(_ s: [Float]) -> Double {
+            var acc = 0.0; for v in s { acc += Double(v) * Double(v) }
+            return acc
+        }
+        // Started 12 dB apart; balancing should bring them close together.
+        let ratio = energy(result.channels[1]) / energy(result.channels[0])
+        #expect(ratio > 0.5, "balancing did not lift the quiet side (ratio \(ratio))")
+    }
+
+    /// A stereo file stays stereo through the bounded-memory path, which reads,
+    /// enhances, meters, limits and writes per channel. The written file is the
+    /// proof: it has to decode back as two channels.
+    @Test func stereoSurvivesTheFilePath() async throws {
+        let clear = try await enhancer()
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clear-stereo-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("in.wav")
+        let output = dir.appendingPathComponent("out.wav")
+        let left = noisyTone()
+        let right = left.map { $0 * 0.5 }
+        try AudioIO.writeWAV(Resample.interleave([left, right]),
+                             sampleRate: 48_000, channels: 2, to: input.path)
+
+        let result = try await clear.enhance(path: input.path, to: output.path,
+                                             options: .init(channelMode: .preserve))
+        #expect(result.sampleRate == 48_000)
+
+        let decoded = try await AudioIO.decodeChannels(path: output.path, sampleRate: 48_000)
+        #expect(decoded.count == 2)
+        let expected = Int(result.durationSec * 48_000)
+        #expect(abs(decoded[0].count - expected) <= 480)
+        for channel in decoded {
+            #expect(channel.contains { $0 != 0 })
+            #expect(channel.allSatisfy { $0.isFinite })
+        }
+        // Joint mastering keeps the sides apart, the same as in memory.
+        #expect(decoded[0] != decoded[1])
+    }
+
+    /// A stereo input still writes a mono file: the contract an existing
+    /// caller depends on, which a version bump must not change under it.
+    @Test func theFilePathWritesMonoByDefault() async throws {
+        let clear = try await enhancer()
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("clear-mono-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        let input = dir.appendingPathComponent("in.wav")
+        let output = dir.appendingPathComponent("out.wav")
+        let left = noisyTone()
+        try AudioIO.writeWAV(Resample.interleave([left, left.map { $0 * 0.5 }]),
+                             sampleRate: 48_000, channels: 2, to: input.path)
+
+        _ = try await clear.enhance(path: input.path, to: output.path)
+        let decoded = try await AudioIO.decodeChannels(path: output.path, sampleRate: 48_000)
+        #expect(decoded.count == 1)
+    }
+
+    /// The stage breakdown has to account for the run: every stage that ran is
+    /// non-zero, the model dominates, and the total sits under `processingSec`
+    /// without being a rounding error away from zero.
+    @Test func phaseTimingsAccountForTheRun() async throws {
+        let clear = try await enhancer()
+        let result = try await clear.enhance(samples: noisyTone(), sampleRate: 48_000,
+                                             options: .init(strength: 0.8))
+        let p = result.phaseTimings
+        #expect(p.stftForwardSec > 0)
+        #expect(p.computeFeaturesSec > 0)
+        #expect(p.modelPredictSec > 0)
+        #expect(p.stftInverseSec > 0)
+        #expect(p.blendSec > 0)             // strength < 1, so the blend ran
+        #expect(p.masteringSec > 0)
+        // Nothing to do: already 48 kHz in, 48 kHz out. The resample stage
+        // still walks the channels, so it is negligible rather than exactly 0;
+        // the delivery stage is skipped outright.
+        #expect(p.decodeResampleSec < 0.001)
+        #expect(p.deliverySec == 0)
+
+        // The model is the expensive part of an enhance pass.
+        #expect(p.modelPredictSec > p.stftForwardSec)
+        // The stages are a breakdown of the run, so they cannot exceed it.
+        #expect(p.totalSec <= result.processingSec)
+        #expect(p.totalSec > result.processingSec * 0.5,
+                "stages \(p.totalSec)s account for too little of \(result.processingSec)s")
+    }
+
+    /// Two channels run one after another, so their stage times add up rather
+    /// than being reported once.
+    @Test func phaseTimingsSumAcrossChannels() async throws {
+        let clear = try await enhancer()
+        let x = noisyTone()
+        // The first enhance pays the Core ML compile and a cold session, which
+        // lands in whichever measurement runs first - on CI that made mono look
+        // slower than stereo and failed this backwards.
+        _ = try await clear.enhance(channels: [x], sampleRate: 48_000)
+
+        let mono = try await clear.enhance(channels: [x], sampleRate: 48_000)
+        let stereo = try await clear.enhance(channels: [x, x], sampleRate: 48_000,
+                                             options: .init(channelMode: .preserve))
+        // Serial channels means their model time adds up; taking the slower
+        // channel would land at ~1x. Measured ~1.8x idle, so 1.2x separates
+        // summing from maxing without asserting a throughput number.
+        #expect(stereo.phaseTimings.modelPredictSec > mono.phaseTimings.modelPredictSec * 1.2,
+                "stereo \(stereo.phaseTimings.modelPredictSec)s vs mono \(mono.phaseTimings.modelPredictSec)s: not summing across channels")
+    }
+
+    /// This runtime has to reproduce the Apple reference in
+    /// `Tests/Fixtures/clear-parity.json` - what says LiteRT runs the same
+    /// pipeline rather than merely running.
+    @Test func matchesTheCrossPlatformReference() async throws {
+        let golden = try #require(ParityFixture.golden())
+        let clear = try await enhancer()
+        let result = try await clear.enhance(samples: ParityFixture.input(), sampleRate: 48_000,
+                                             options: .init(mastering: .applePodcasts))
+
+        #expect(abs(result.samples.count - golden.sampleCount) <= 480)
+        let envelope = ParityFixture.envelope(result.samples)
+        #expect(envelope.count == golden.blockRMS.count)
+
+        // Per-block RMS, compared relative to the loudest block so the quiet
+        // tail does not demand absurd precision of near-silence.
+        let scale = max(golden.blockRMS.max() ?? 1, 1e-9)
+        var worst = 0.0
+        for (i, expected) in golden.blockRMS.enumerated() where i < envelope.count {
+            worst = max(worst, abs(envelope[i] - expected) / scale)
+        }
+        let lufs = try #require(result.measuredLUFS)
+        let truePeak = try #require(result.measuredTruePeakDBFS)
+
+        // Reported even on success: a log that only speaks up when it breaks
+        // cannot show the margin shrinking.
+        print(String(format: "PARITY envelope=%.4f lufs=%+.4f truePeak=%+.4f",
+                     worst, lufs - golden.measuredLUFS, truePeak - golden.truePeakDBFS))
+
+        // Apple produced the reference, so only there is this a like-for-like
+        // regression gate; see ParityFixture.envelopeTolerance.
+        #if canImport(CoreML)
+        #expect(worst < ParityFixture.envelopeTolerance,
+                "block RMS diverged by \(worst) of full scale (tolerance \(ParityFixture.envelopeTolerance))")
+        #endif
+        #expect(abs(lufs - golden.measuredLUFS) < ParityFixture.loudnessToleranceDB,
+                "loudness \(lufs) vs reference \(golden.measuredLUFS)")
+        #expect(abs(truePeak - golden.truePeakDBFS) < ParityFixture.loudnessToleranceDB,
+                "true peak \(truePeak) vs reference \(golden.truePeakDBFS)")
+    }
+
+    /// The Android APK carries its own copy of the reference, because wiring a
+    /// Gradle copy into androidTest assets did not order reliably on a clean
+    /// build. Two files can drift; this is what stops them.
+    @Test func theAndroidFixtureCopyMatches() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let shared = root.appendingPathComponent("Tests/Fixtures/clear-parity.json")
+        let android = root.appendingPathComponent(
+            "packages/clear-kotlin/src/androidTest/assets/clear-parity.json")
+        guard let a = try? Data(contentsOf: shared), let b = try? Data(contentsOf: android) else {
+            return   // not a repo checkout (wasm, sandboxed); nothing to compare
+        }
+        #expect(a == b, "the androidTest copy is stale; copy Tests/Fixtures/clear-parity.json over it")
+    }
+
     /// The store path the SDK's own initializer takes: resolve the pinned model
     /// into the managed cache, then report it as available offline.
     @Test func resolvesThroughTheModelStore() async throws {
@@ -295,6 +589,99 @@ struct ClearTests {
         let log = ProgressLog()
         _ = try await enhancer().enhance(samples: tone(48_000), sampleRate: 48_000) { log.append($0) }
         #expect(log.all().first?.phase == .loadingModel)
+    }
+}
+#endif
+
+// The wire contract the JavaScript and Kotlin SDKs encode against. No compiler
+// checks it across languages, so each side asserts the same bytes.
+#if !os(WASI)
+@Suite(.serialized, .modelBacked) struct ClearBindingTests {
+    private func enhancer() async throws -> Clear {
+        let files = try await ModelFixture.files(ClearModel.self)
+        return try Clear(modelPath: files.path(ClearModel.artifact), revision: "1d8810f")
+    }
+
+    private func input(_ channels: [[Float]], sampleRate: Double = 48_000) -> FFIReader {
+        var w = FFIWriter()
+        w.f32Array(channels[0])
+        w.f64(sampleRate)
+        w.u32(channels.count - 1)
+        for channel in channels.dropFirst() { w.f32Array(channel) }
+        return FFIReader(w.bytes)
+    }
+
+    private func options(monoDownmix: Bool = true, outputRate: Double = 48_000) -> FFIReader {
+        var o = FFIWriter()
+        o.f64(1)            // strength
+        o.f64(-19)          // integratedLUFS
+        o.f64(-1.5)         // truePeakDBTP
+        o.f64(9)            // maxLoudnessGainDB
+        o.f64(outputRate)
+        o.f64(monoDownmix ? 1 : 0)
+        o.f64(Double.nan)   // balanceChannelsLUFS: none
+        return FFIReader(o.bytes)
+    }
+
+    /// Reads a result payload back into its channels.
+    private func decode(_ bytes: [UInt8]) -> (channels: [[Float]], sampleRate: Double) {
+        var r = FFIReader(bytes)
+        var channels = [r.f32Array()]
+        let rate = r.f64()
+        _ = r.f64(); _ = r.f64(); _ = r.f64(); _ = r.f64()   // durations, measurements
+        let extra = r.u32()
+        for _ in 0..<extra { channels.append(r.f32Array()) }
+        return (channels, rate)
+    }
+
+    @Test func monoRoundTripsWithNoExtraChannels() async throws {
+        let clear = try await enhancer()
+        let x = Array(noisyTone().prefix(48_000))
+        let bytes = try #require(await clear.run(input: input([x]), options: options()))
+        let (channels, rate) = decode(bytes)
+        #expect(channels.count == 1)
+        #expect(rate == 48_000)
+        #expect(!channels[0].isEmpty)
+    }
+
+    @Test func stereoCrossesTheBoundaryBothWays() async throws {
+        let clear = try await enhancer()
+        let left = Array(noisyTone().prefix(48_000))
+        let right = left.map { $0 * 0.5 }
+        let bytes = try #require(await clear.run(input: input([left, right]),
+                                                 options: options(monoDownmix: false)))
+        let (channels, _) = decode(bytes)
+        #expect(channels.count == 2)
+        #expect(channels[0].count == channels[1].count)
+        #expect(channels[0] != channels[1])
+    }
+
+    @Test func monoDownmixAndOutputRateCrossAsOptions() async throws {
+        let clear = try await enhancer()
+        let left = Array(noisyTone().prefix(48_000))
+        let bytes = try #require(await clear.run(
+            input: input([left, left.map { $0 * 0.5 }]),
+            options: options(monoDownmix: true, outputRate: 24_000)))
+        let (channels, rate) = decode(bytes)
+        #expect(channels.count == 1)
+        #expect(rate == 24_000)
+    }
+
+    /// A host built before the channel and rate fields sends the old, shorter
+    /// payloads. Those must still run, as mono at 48 kHz.
+    @Test func theOlderSchemaStillRuns() async throws {
+        let clear = try await enhancer()
+        let x = Array(noisyTone().prefix(48_000))
+        var w = FFIWriter()
+        w.f32Array(x)
+        w.f64(48_000)                    // no extra-channel count
+        var o = FFIWriter()
+        o.f64(1); o.f64(-19); o.f64(-1.5); o.f64(9)   // no rate/mode/balance
+        let bytes = try #require(await clear.run(input: FFIReader(w.bytes),
+                                                 options: FFIReader(o.bytes)))
+        let (channels, rate) = decode(bytes)
+        #expect(channels.count == 1)
+        #expect(rate == 48_000)
     }
 }
 #endif
