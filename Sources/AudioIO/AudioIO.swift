@@ -67,6 +67,33 @@ public enum AudioIO {
         #endif
     }
 
+    /// Decode the audio file at `path` at `sampleRate`, keeping its channel
+    /// layout: one array per channel, all the same length.
+    ///
+    /// Only where a real decoder is available (Apple, and the portable WAV
+    /// path). The Android and web hosts decode to mono, so they keep using
+    /// ``decode(path:sampleRate:)``.
+    public static func decodeChannels(path: String, sampleRate: Double) async throws -> [[Float]] {
+        #if canImport(AVFoundation)
+        return try appleDecodeChannels(path: path, bytes: nil, sampleRate: sampleRate, channels: nil)
+        #elseif os(Android) || os(WASI)
+        return [try await decode(path: path, sampleRate: sampleRate)]
+        #else
+        return try portableDecodeChannels(bytes: readFile(path), sampleRate: sampleRate)
+        #endif
+    }
+
+    /// ``decodeChannels(path:sampleRate:)`` over in-memory bytes.
+    public static func decodeChannels(bytes: [UInt8], sampleRate: Double) async throws -> [[Float]] {
+        #if canImport(AVFoundation)
+        return try appleDecodeChannels(path: nil, bytes: bytes, sampleRate: sampleRate, channels: nil)
+        #elseif os(Android) || os(WASI)
+        return [try await decode(bytes: bytes, sampleRate: sampleRate)]
+        #else
+        return try portableDecodeChannels(bytes: bytes, sampleRate: sampleRate)
+        #endif
+    }
+
     /// Encode mono (or interleaved) `samples` in `[-1, 1]` as a 16-bit PCM WAV
     /// byte buffer. Portable and identical on every platform.
     public static func encodeWAV(_ samples: [Float], sampleRate: Int, channels: Int = 1) -> [UInt8] {
@@ -80,6 +107,14 @@ public enum AudioIO {
         do {
             let pcm = try WAV.decode(bytes)
             return Resample.toMono(pcm, sampleRate: sampleRate)
+        } catch {
+            throw AudioIOError.decodeFailed("\(error)")
+        }
+    }
+
+    static func portableDecodeChannels(bytes: [UInt8], sampleRate: Double) throws -> [[Float]] {
+        do {
+            return Resample.toChannels(try WAV.decode(bytes), sampleRate: sampleRate)
         } catch {
             throw AudioIOError.decodeFailed("\(error)")
         }
