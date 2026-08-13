@@ -90,28 +90,49 @@ public enum Loudness {
         private let block: Int          // 400 ms
         private let step: Int           // 100 ms (75% overlap)
 
-        // K-weighting state, carried across `consume` calls. This is what makes
-        // chunked measurement identical to whole-signal measurement.
-        private var s1Delays = [Float](repeating: 0, count: 4)
-        private var s2Delays = [Float](repeating: 0, count: 4)
+        /// How many channels this meter was built for.
+        public let channelCount: Int
 
-        // Weighted samples not yet consumed by a full block. Never longer than
-        // `block`, so memory is bounded regardless of signal length.
-        private var pending = [Float]()
+        // K-weighting state, one filter pair per channel, carried across
+        // `consume` calls. This is what makes chunked measurement identical to
+        // whole-signal measurement.
+        private var s1Delays: [[Float]]
+        private var s2Delays: [[Float]]
+
+        // Weighted samples not yet consumed by a full block, per channel. Never
+        // longer than `block`, so memory is bounded regardless of signal length.
+        private var pending: [[Float]]
 
         // One `Double` pair per 100 ms of signal: about 317 KB per hour, which
         // is small enough to keep for the gating passes.
         private var blockLoud = [Double]()
         private var meanSq = [Double]()
+        // Per-channel block mean squares, kept only when a caller asks for
+        // per-channel loudness (channel balancing); nil otherwise, so the mono
+        // and stereo mastering paths pay nothing for a number they never read.
+        private var perChannelMeanSq: [[Double]]?
 
-        /// Peak absolute sample seen, for callers that also need peak-ceiling
-        /// headroom and would otherwise need a second traversal.
+        /// Peak absolute sample seen across every channel, for callers that also
+        /// need peak-ceiling headroom and would otherwise need a second
+        /// traversal.
         public private(set) var peak: Float = 0
 
         /// Returns nil unless `sampleRate` is 48 kHz, which is what the
         /// K-weighting coefficients are derived for.
-        public init?(sampleRate: Double) {
-            guard sampleRate == 48_000 else { return nil }
+        public convenience init?(sampleRate: Double) {
+            self.init(sampleRate: sampleRate, channels: 1)
+        }
+
+        /// A meter over `channels` interleaved-by-array streams. BS.1770 weights
+        /// left and right at 1.0 and sums their mean squares per block, which is
+        /// what makes a stereo programme measure louder than either side alone.
+        public init?(sampleRate: Double, channels: Int, perChannel: Bool = false) {
+            guard sampleRate == 48_000, channels > 0 else { return nil }
+            channelCount = channels
+            s1Delays = Array(repeating: [Float](repeating: 0, count: 4), count: channels)
+            s2Delays = Array(repeating: [Float](repeating: 0, count: 4), count: channels)
+            pending = Array(repeating: [Float](), count: channels)
+            if perChannel { perChannelMeanSq = Array(repeating: [Double](), count: channels) }
             block = Int(0.4 * sampleRate)
             step = Int(0.1 * sampleRate)
             pending.reserveCapacity(block + step)
@@ -124,43 +145,93 @@ public enum Loudness {
 
         public func consume(_ samples: UnsafeBufferPointer<Float>) {
             guard let base = samples.baseAddress, !samples.isEmpty else { return }
-            for i in 0..<samples.count { peak = max(peak, abs(base[i])) }
-
-            var weighted = [Float](repeating: 0, count: samples.count)
-            weighted.withUnsafeMutableBufferPointer { dp in
-                dp.baseAddress!.update(from: base, count: samples.count)
-            }
-            Loudness.biquadInPlace(&weighted, Loudness.s1b, Loudness.s1a, delays: &s1Delays)
-            Loudness.biquadInPlace(&weighted, Loudness.s2b, Loudness.s2a, delays: &s2Delays)
-
-            pending.append(contentsOf: weighted)
+            weight(base, count: samples.count, channel: 0)
             drainBlocks()
+        }
+
+        /// Feed the next span of every channel. All of them must be the same
+        /// length: the 400 ms blocks are cut at one absolute position shared by
+        /// the whole programme, not per channel.
+        public func consume(_ channels: [[Float]]) {
+            guard let n = channels.first?.count, n > 0, channels.count == channelCount else { return }
+            for c in 0..<channelCount {
+                channels[c].withUnsafeBufferPointer { weight($0.baseAddress!, count: n, channel: c) }
+            }
+            drainBlocks()
+        }
+
+        /// K-weight one channel's span and park it in that channel's pending.
+        private func weight(_ base: UnsafePointer<Float>, count: Int, channel c: Int) {
+            for i in 0..<count { peak = max(peak, abs(base[i])) }
+
+            var weighted = [Float](repeating: 0, count: count)
+            weighted.withUnsafeMutableBufferPointer { dp in
+                dp.baseAddress!.update(from: base, count: count)
+            }
+            Loudness.biquadInPlace(&weighted, Loudness.s1b, Loudness.s1a, delays: &s1Delays[c])
+            Loudness.biquadInPlace(&weighted, Loudness.s2b, Loudness.s2a, delays: &s2Delays[c])
+
+            pending[c].append(contentsOf: weighted)
+        }
+
+        /// Mean square of `pending[c]` over one block starting at `start`.
+        private func blockMeanSquare(_ c: Int, from start: Int) -> Double {
+            #if canImport(Accelerate)
+            var msF: Float = 0
+            pending[c].withUnsafeBufferPointer {
+                vDSP_measqv($0.baseAddress! + start, 1, &msF, vDSP_Length(block))
+            }
+            return Double(msF)
+            #else
+            var sum = 0.0
+            for i in start..<(start + block) { sum += Double(pending[c][i]) * Double(pending[c][i]) }
+            return sum / Double(block)
+            #endif
         }
 
         private func drainBlocks() {
             var start = 0
-            while start + block <= pending.count {
-                var ms: Double
-                #if canImport(Accelerate)
-                var msF: Float = 0
-                pending.withUnsafeBufferPointer { vDSP_measqv($0.baseAddress! + start, 1, &msF, vDSP_Length(block)) }
-                ms = Double(msF)
-                #else
-                var sum = 0.0
-                for i in start..<(start + block) { sum += Double(pending[i]) * Double(pending[i]) }
-                ms = sum / Double(block)
-                #endif
+            // Every channel is fed the same length, so their pendings stay in
+            // lockstep and one loop bound serves all of them.
+            while start + block <= pending[0].count {
+                // BS.1770 sums the weighted mean squares across channels (L and
+                // R both weight 1.0), so a block's loudness is the programme's,
+                // not one channel's.
+                var ms = 0.0
+                for c in 0..<channelCount {
+                    let channelMS = blockMeanSquare(c, from: start)
+                    ms += channelMS
+                    perChannelMeanSq?[c].append(channelMS)
+                }
                 meanSq.append(ms)
                 blockLoud.append(-0.691 + 10 * log10(ms + 1e-12))
                 start += step
             }
-            if start > 0 { pending.removeFirst(start) }
+            if start > 0 {
+                for c in 0..<channelCount { pending[c].removeFirst(start) }
+            }
         }
 
         /// The gated integrated loudness, or nil when nothing passed the gate
         /// (silence, or a signal shorter than one 400 ms block).
         public func finalize() -> Double? {
-            // Absolute gate -70 LUFS, then relative gate at (gated mean - 10 LU).
+            Self.gated(blockLoud: blockLoud, meanSq: meanSq)
+        }
+
+        /// Each channel's own integrated loudness, gated on that channel
+        /// alone; empty unless built with `perChannel: true`. What channel
+        /// balancing needs, and what ``finalize()`` cannot express.
+        public func finalizePerChannel() -> [Double?] {
+            guard let perChannelMeanSq else { return [] }
+            return perChannelMeanSq.map { channelMS in
+                let loud = channelMS.map { -0.691 + 10 * log10($0 + 1e-12) }
+                return Self.gated(blockLoud: loud, meanSq: channelMS)
+            }
+        }
+
+        /// BS.1770 gating: absolute at -70 LUFS, then relative at (gated mean
+        /// - 10 LU).
+        private static func gated(blockLoud: [Double], meanSq: [Double]) -> Double? {
             func gatedLoudness(_ threshold: Double) -> Double? {
                 var acc = 0.0; var n = 0
                 for (i, l) in blockLoud.enumerated() where l > threshold { acc += meanSq[i]; n += 1 }
@@ -209,6 +280,54 @@ public enum Loudness {
         var channels = [samples]
         Limiter.apply(&channels, ceilingDBTP: peakCeilingDBFS, sampleRate: sampleRate)
         samples = channels[0]
+        return lufs
+    }
+
+    /// Integrated loudness of a multi-channel programme, or nil for silence.
+    /// One channel gives the same number as the mono entry point.
+    public static func integratedLUFS(_ channels: [[Float]], sampleRate: Double) -> Double? {
+        guard let n = channels.first?.count, n > 0,
+              let meter = StreamingMeter(sampleRate: sampleRate, channels: channels.count)
+        else { return nil }
+        meter.consume(channels)
+        return meter.finalize()
+    }
+
+    /// ``normalizeInPlace(_:sampleRate:targetLUFS:maxGainDB:peakCeilingDBFS:)``
+    /// over a multi-channel programme.
+    ///
+    /// Gain and limiter are both joint, so mastering never moves the stereo
+    /// image. `balanceChannelsLUFS` is the exception: it runs first, per
+    /// channel, and the joint stages then see one corrected programme.
+    @discardableResult
+    public static func normalizeInPlace(_ channels: inout [[Float]], sampleRate: Double,
+                                        targetLUFS: Double, maxGainDB: Double,
+                                        peakCeilingDBFS: Double,
+                                        balanceChannelsLUFS: Double? = nil) -> Double?
+    {
+        guard let n = channels.first?.count, n > 0 else { return nil }
+
+        if let balanceTarget = balanceChannelsLUFS, channels.count > 1 {
+            guard let meter = StreamingMeter(sampleRate: sampleRate,
+                                             channels: channels.count, perChannel: true)
+            else { return nil }
+            meter.consume(channels)
+            for (c, measured) in meter.finalizePerChannel().enumerated() {
+                guard let measured, measured.isFinite else { continue }
+                let gain = Float(pow(10, (balanceTarget - measured) / 20))
+                for i in 0..<n { channels[c][i] *= gain }
+            }
+        }
+
+        guard let lufs = integratedLUFS(channels, sampleRate: sampleRate) else { return nil }
+        var gainDB = targetLUFS - lufs
+        if gainDB > maxGainDB { gainDB = maxGainDB }
+        let gain = Float(pow(10, gainDB / 20))
+        for c in 0..<channels.count {
+            for i in 0..<n { channels[c][i] *= gain }
+        }
+
+        Limiter.apply(&channels, ceilingDBTP: peakCeilingDBFS, sampleRate: sampleRate)
         return lufs
     }
 }
