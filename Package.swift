@@ -46,12 +46,6 @@ let noJavaScriptKit = !wasmBuild
 let mlxBuild = ProcessInfo.processInfo.environment["DAL_MLX_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
-// `AutoEdit` selects clips from a transcript. Transcribing the recording and
-// cutting it down to the selected spans both happen outside this SDK; this
-// switch scopes the video pipeline to consumers that opt into it.
-let videoBuild = ProcessInfo.processInfo.environment["DAL_VIDEO_BUILD"] != nil
-    && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
-
 let mlxDependencies: [Package.Dependency] = !mlxBuild ? [] : [
     .package(url: "https://github.com/ml-explore/mlx-swift-lm.git", from: "3.31.3"),
     // swift-transformers is NOT optional here even though no line of Title names it. The
@@ -369,8 +363,10 @@ let testTargets: [Target] = [
         .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ]
 
-// The video pipeline: transcribe, select, cut.
-let autoEditTargets: [Target] = !videoBuild ? [] : [
+// The video pipeline: select clips from a caller-supplied transcript.
+// Transcribing the recording and cutting it happen outside this SDK, so this
+// is portable Swift and needs no build switch.
+let autoEditTargets: [Target] = [
     .target(
         name: "AutoEdit",
         dependencies: [
@@ -378,7 +374,7 @@ let autoEditTargets: [Target] = !videoBuild ? [] : [
         ]
     ),
 ]
-let autoEditProducts: [Product] = !videoBuild ? [] : [
+let autoEditProducts: [Product] = [
     .library(name: "AutoEdit", targets: ["AutoEdit"]),
 ]
 
