@@ -46,9 +46,9 @@ let noJavaScriptKit = !wasmBuild
 let mlxBuild = ProcessInfo.processInfo.environment["DAL_MLX_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
-// `AutoEdit` reads speech with WhisperKit and cuts with AVFoundation, both
-// Apple-only. SwiftPM resolves dependencies before it knows the platform, so
-// this switch scopes the WhisperKit dependency to consumers that build it.
+// `AutoEdit` cuts recordings with AVFoundation, which is Apple-only, so this
+// switch scopes the video pipeline to consumers that build it. Transcription
+// happens outside this SDK; callers bring timed words from their own recognizer.
 let videoBuild = ProcessInfo.processInfo.environment["DAL_VIDEO_BUILD"] != nil
     && ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] == nil
 
@@ -375,16 +375,12 @@ let autoEditTargets: [Target] = !videoBuild ? [] : [
         name: "AutoEdit",
         dependencies: [
             "Clips", "DesertAnt", "Transcript",
-            .product(name: "WhisperKit", package: "argmax-oss-swift"),
         ]
     ),
     .testTarget(name: "AutoEditTests", dependencies: ["AutoEdit"]),
 ]
 let autoEditProducts: [Product] = !videoBuild ? [] : [
     .library(name: "AutoEdit", targets: ["AutoEdit"]),
-]
-let autoEditDependencies: [Package.Dependency] = !videoBuild ? [] : [
-    .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0"),
 ]
 
 let coreTargets: [Target] =
@@ -420,7 +416,7 @@ let package = Package(
         ? [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)]
         : [.iOS(.v16), .macOS(.v13), .tvOS(.v16), .visionOS(.v1)],
     products: products + modelProducts + autoEditProducts,
-    dependencies: jsDependencies + mlxDependencies + autoEditDependencies + [
+    dependencies: jsDependencies + mlxDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: coreTargets
