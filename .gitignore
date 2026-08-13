@@ -5,6 +5,7 @@ mise.local.toml
 .build/
 .build-host/
 .build-android/
+.build-androidtest/
 .swiftpm/
 Package.resolved
 Vendor/

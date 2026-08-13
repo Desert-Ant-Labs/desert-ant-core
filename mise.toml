@@ -33,7 +33,8 @@
 # wasm and Android tasks pin a swift.org toolchain, because they need its clang
 # and a matching cross-compilation SDK, which only exist for released versions.
 # Each toolchain gets its own SwiftPM scratch directory (.build-host,
-# .build-android, .build for wasm) so their artifacts never collide.
+# .build-android for the snapshot natives, .build-androidtest for the on-device
+# harness, .build for wasm) so their artifacts never collide.
 
 [env]
 # Non-empty also vendors the LiteRT GPU accelerator sibling on Linux.

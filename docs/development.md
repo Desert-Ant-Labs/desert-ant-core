@@ -167,7 +167,8 @@ directory, because their artifacts are mutually incompatible:
 | Toolchain | Used by | Scratch |
 |---|---|---|
 | Xcode / the system toolchain | `test:swift`, `build:swift`, `build:node-native` | `.build-host` |
-| pinned swift.org release | `test:wasi`, `build:wasm`, `test:android` | `.build` (the js plugin requires the default) |
+| pinned swift.org release | `test:wasi`, `build:wasm` | `.build` (the js plugin requires the default) |
+| pinned swift.org release | `test:android` | `.build-androidtest` |
 | swift.org 6.4 snapshot | `build:android-natives` | `.build-android` |
 
 mise provisions the pinned toolchains, the JDK, Node, and wasm-opt. The Android
