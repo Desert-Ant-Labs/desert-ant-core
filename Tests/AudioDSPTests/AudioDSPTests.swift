@@ -207,6 +207,77 @@ final class AudioDSPTests: XCTestCase {
         }
     }
 
+    // MARK: multi-channel loudness
+
+    /// The mono path must not have moved: a one-channel meter has to agree with
+    /// the mono entry point exactly, or every existing measurement shifted.
+    func testOneChannelMatchesTheMonoMeter() {
+        let sr = 48_000.0
+        let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        let mono = Loudness.integratedLUFS(x, sampleRate: sr)!
+        let single = Loudness.integratedLUFS([x], sampleRate: sr)!
+        XCTAssertEqual(mono, single, accuracy: 1e-12)
+    }
+
+    /// BS.1770 sums the channels' mean squares, so the same signal in both
+    /// channels is +3 dB louder than one alone - a stereo programme is not the
+    /// average of its sides.
+    func testStereoSumsChannelsPerBS1770() {
+        let sr = 48_000.0
+        let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        let one = Loudness.integratedLUFS([x], sampleRate: sr)!
+        let two = Loudness.integratedLUFS([x, x], sampleRate: sr)!
+        XCTAssertEqual(two - one, 3.0103, accuracy: 0.01)
+
+        // A silent right channel adds no energy, so the pair reads as the left.
+        let silent = [Float](repeating: 0, count: x.count)
+        let half = Loudness.integratedLUFS([x, silent], sampleRate: sr)!
+        XCTAssertEqual(half, one, accuracy: 0.01)
+    }
+
+    /// Per-channel gating is what channel balancing corrects against, so each
+    /// side has to report its own level, not the programme's.
+    func testPerChannelLoudnessReportsEachSide() {
+        let sr = 48_000.0
+        let loud = (0..<Int(3 * sr)).map { Float(0.2 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        let quiet = loud.map { $0 * 0.5 }        // -6 dB
+        let meter = Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true)!
+        meter.consume([loud, quiet])
+        let each = meter.finalizePerChannel()
+        XCTAssertEqual(each.count, 2)
+        XCTAssertEqual(each[0]! - each[1]!, 6.0206, accuracy: 0.01)
+    }
+
+    /// Balancing lifts the quiet side to the target while the joint stages
+    /// leave the corrected image alone.
+    func testChannelBalancingEqualisesTheSides() {
+        let sr = 48_000.0
+        let loud = (0..<Int(3 * sr)).map { Float(0.2 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        var channels = [loud, loud.map { $0 * 0.5 }]
+        Loudness.normalizeInPlace(&channels, sampleRate: sr, targetLUFS: -19,
+                                  maxGainDB: 30, peakCeilingDBFS: -1,
+                                  balanceChannelsLUFS: -20)
+
+        let after = Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true)!
+        after.consume(channels)
+        let each = after.finalizePerChannel()
+        XCTAssertEqual(each[0]!, each[1]!, accuracy: 0.1)
+    }
+
+    /// Without balancing, mastering is joint: both channels take the same gain,
+    /// so their level difference survives untouched.
+    func testJointGainPreservesTheStereoImage() {
+        let sr = 48_000.0
+        let loud = (0..<Int(3 * sr)).map { Float(0.05 * sin(2 * .pi * 1000 * Double($0) / sr)) }
+        var channels = [loud, loud.map { $0 * 0.5 }]
+        Loudness.normalizeInPlace(&channels, sampleRate: sr, targetLUFS: -19,
+                                  maxGainDB: 30, peakCeilingDBFS: -1)
+        // The ratio between the sides is what the image is; it must not move.
+        for i in stride(from: 1_000, to: 100_000, by: 10_000) where abs(channels[0][i]) > 1e-4 {
+            XCTAssertEqual(channels[1][i] / channels[0][i], 0.5, accuracy: 1e-3)
+        }
+    }
+
     // MARK: streaming meter
 
     /// The whole point of the streaming meter: chunked measurement has to agree
