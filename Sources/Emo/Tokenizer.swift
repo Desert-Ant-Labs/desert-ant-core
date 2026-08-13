@@ -185,19 +185,23 @@ final class SemTokenizer {
             let v = Int(bytes[off]) | Int(bytes[off + 1]) << 8; off += 2
             lens.append(v)
         }
-        var ps = [String](); ps.reserveCapacity(k)
-        var idx = [String: Int32](minimumCapacity: k)
+        // Pieces are stored back to back to the end of the container, so the
+        // index borrows `bytes` as its byte image and records where each piece
+        // begins; nothing is copied and no piece becomes a `String`.
+        var bounds = [Int32](); bounds.reserveCapacity(k + 1)
         var maxL = 1
         for i in 0..<k {
-            let piece = String(decoding: bytes[off..<(off + lens[i])], as: UTF8.self)
+            bounds.append(Int32(off))
+            // Measured in scalars, because the Viterbi window below is.
+            var scalars = 0
+            for byte in bytes[off..<(off + lens[i])] where byte & 0xC0 != 0x80 { scalars += 1 }
+            if scalars > maxL { maxL = scalars }
             off += lens[i]
-            ps.append(piece)
-            idx[piece] = Int32(i)
-            let n = piece.unicodeScalars.count
-            if n > maxL { maxL = n }
         }
+        bounds.append(Int32(off))
+        guard bytes.count <= Int(Int32.max), let idx = VocabIndex(image: bytes, bounds: bounds)
+        else { return nil }
         scores = sc
-        pieces = ps
         index = idx
         maxLen = min(maxL, 24)
         unkScore = Double(sc[Int(unkID)])
@@ -207,33 +211,166 @@ final class SemTokenizer {
         let ms: Character = "\u{2581}"
         let lowered = text.lowercased().nfkc
         let normalized = String([ms] + lowered.map { $0 == " " ? ms : $0 })
+        // The lattice is indexed by scalar, the vocab is keyed by byte, so carry
+        // the text as UTF-8 plus the byte offset each scalar starts at. Built
+        // once per call; the O(n × maxLen) inner loop then slices it for free.
         let s = Array(normalized.unicodeScalars)
         let n = s.count
         if n == 0 { return [] }
-        let neg = -1e18
-        var best = [Double](repeating: neg, count: n + 1); best[0] = 0
-        var backPos = [Int](repeating: -1, count: n + 1)
-        var backID = [Int32](repeating: -1, count: n + 1)
-        for i in 1...n {
-            let lo = max(0, i - maxLen)
-            for j in lo..<i {
-                if let tid = index[String(String.UnicodeScalarView(s[j..<i]))] {
-                    let sc = best[j] + Double(scores[Int(tid)])
-                    if sc > best[i] { best[i] = sc; backPos[i] = j; backID[i] = tid }
+        let utf8 = Array(normalized.utf8)
+        var span = [Int](repeating: 0, count: n + 1)
+        for (i, scalar) in s.enumerated() { span[i + 1] = span[i] + utf8Width(scalar) }
+
+        return utf8.withUnsafeBufferPointer { text -> [Int32] in
+            index.withLookup { lookup -> [Int32] in
+                let neg = -1e18
+                var best = [Double](repeating: neg, count: n + 1); best[0] = 0
+                var backPos = [Int](repeating: -1, count: n + 1)
+                var backID = [Int32](repeating: -1, count: n + 1)
+                for i in 1...n {
+                    let lo = max(0, i - maxLen)
+                    for j in lo..<i {
+                        let query = UnsafeBufferPointer(rebasing: text[span[j]..<span[i]])
+                        if let tid = lookup.id(of: query) {
+                            let sc = best[j] + Double(scores[tid])
+                            if sc > best[i] { best[i] = sc; backPos[i] = j; backID[i] = Int32(tid) }
+                        }
+                    }
+                    let cand = best[i - 1] + unkScore
+                    if cand > best[i] { best[i] = cand; backPos[i] = i - 1; backID[i] = unkID }
                 }
+                var ids = [Int32](); var i = n
+                while i > 0 { ids.append(backID[i]); i = backPos[i] }
+                return ids.reversed()
             }
-            let cand = best[i - 1] + unkScore
-            if cand > best[i] { best[i] = cand; backPos[i] = i - 1; backID[i] = unkID }
         }
-        var ids = [Int32](); var i = n
-        while i > 0 { ids.append(backID[i]); i = backPos[i] }
-        return ids.reversed()
     }
 
-    private let pieces: [String]
     private let scores: [Float]
-    private let index: [String: Int32]
+    private let index: VocabIndex
     private let unkID: Int32
     private let unkScore: Double
     private let maxLen: Int
+}
+
+/// How many UTF-8 bytes a scalar occupies, without building a `String` for it.
+@inline(__always)
+private func utf8Width(_ scalar: Unicode.Scalar) -> Int {
+    switch scalar.value {
+    case ..<0x80: 1
+    case ..<0x800: 2
+    case ..<0x1_0000: 3
+    default: 4
+    }
+}
+
+/// The vocabulary, keyed on a piece's UTF-8 **bytes**.
+///
+/// Swift compares and hashes `String` by Unicode *canonical equivalence*, not by
+/// bytes, so in a `[String: Int32]` vocab two byte-distinct pieces that differ
+/// only in composition or in combining-mark order are ONE key, and the later id
+/// silently evicts the earlier - after which no input can ever produce it. Emo's
+/// 48,000-piece vocab has two such pairs, both Vietnamese and both common words:
+/// `▁một` (id 688 precomposed, id 39184 as `ô` + combining dot below) and `▁ở`
+/// (id 1493, id 41329). The decomposed entry is the higher id, so it won the key
+/// and the composed one - the only form NFKC can ever produce - was unreachable,
+/// which is why those two words encoded to ids the training tokenizer never
+/// assigns them.
+///
+/// Bytes are what the container stores and what training matched, so bytes are
+/// the key. This is open addressing over the container's own byte image rather
+/// than a `[[UInt8]: Int32]` dictionary because the decoder probes the vocab
+/// O(scalars × maxLen) times per phrase, and an `Array` key would heap-allocate
+/// on every probe.
+struct VocabIndex {
+    /// The whole container, borrowed. Piece `id` is `image[bounds[id]..<bounds[id + 1]]`,
+    /// so the pieces cost no storage beyond the bytes already read from disk.
+    private let image: [UInt8]
+    private let bounds: [Int32]
+    /// Open addressing, power-of-two, `-1` where empty; the value is a piece id.
+    private let table: [Int32]
+    private let mask: Int
+
+    /// Fails when two pieces carry identical bytes, which is a malformed
+    /// container rather than a Unicode subtlety.
+    init?(image: [UInt8], bounds: [Int32]) {
+        let count = bounds.count - 1
+        guard count > 0 else { return nil }
+        var capacity = 16
+        while capacity < count * 2 { capacity <<= 1 }
+        var slots = [Int32](repeating: -1, count: capacity)
+        let m = capacity - 1
+
+        let duplicate = image.withUnsafeBufferPointer { bytes -> Bool in
+            for id in 0..<count {
+                let lo = Int(bounds[id]), hi = Int(bounds[id + 1])
+                let piece = UnsafeBufferPointer(rebasing: bytes[lo..<hi])
+                var slot = VocabIndex.hash(piece) & m
+                while slots[slot] >= 0 {
+                    let other = Int(slots[slot])
+                    let range = Int(bounds[other])..<Int(bounds[other + 1])
+                    if range.count == piece.count,
+                       UnsafeBufferPointer(rebasing: bytes[range]).elementsEqual(piece) {
+                        return true
+                    }
+                    slot = (slot + 1) & m
+                }
+                slots[slot] = Int32(id)
+            }
+            return false
+        }
+        guard !duplicate else { return nil }
+
+        self.image = image
+        self.bounds = bounds
+        table = slots
+        mask = m
+    }
+
+    /// Borrow the index for the length of one tokenization. Everything the inner
+    /// loop touches is resolved to a pointer once, so a probe is a hash, a
+    /// length compare, and a byte compare - no allocation, no retain.
+    func withLookup<R>(_ body: (Lookup) -> R) -> R {
+        image.withUnsafeBufferPointer { image in
+            bounds.withUnsafeBufferPointer { bounds in
+                table.withUnsafeBufferPointer { table in
+                    body(Lookup(image: image, bounds: bounds, table: table, mask: mask))
+                }
+            }
+        }
+    }
+
+    struct Lookup {
+        fileprivate let image: UnsafeBufferPointer<UInt8>
+        fileprivate let bounds: UnsafeBufferPointer<Int32>
+        fileprivate let table: UnsafeBufferPointer<Int32>
+        fileprivate let mask: Int
+
+        /// The id of the piece whose UTF-8 is exactly `query`, or nil.
+        func id(of query: UnsafeBufferPointer<UInt8>) -> Int? {
+            var slot = VocabIndex.hash(query) & mask
+            while true {
+                let id = Int(table[slot])
+                if id < 0 { return nil }
+                let lo = Int(bounds[id]), hi = Int(bounds[id + 1])
+                if hi - lo == query.count,
+                   UnsafeBufferPointer(rebasing: image[lo..<hi]).elementsEqual(query) {
+                    return id
+                }
+                slot = (slot + 1) & mask
+            }
+        }
+    }
+
+    /// FNV-1a, the same hash `NGram` above uses, cheap enough to run on every
+    /// probe.
+    @inline(__always)
+    fileprivate static func hash(_ bytes: UnsafeBufferPointer<UInt8>) -> Int {
+        var h: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in bytes {
+            h ^= UInt64(byte)
+            h = h &* 0x0000_0100_0000_01B3
+        }
+        return Int(truncatingIfNeeded: h) & Int.max
+    }
 }
