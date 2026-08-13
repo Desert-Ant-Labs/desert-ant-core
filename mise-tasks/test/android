@@ -87,6 +87,17 @@ if ! [ -e "$bundle/swift-android/ndk-sysroot/usr/include/stdlib.h" ] \
     )
 fi
 
+# SwiftPM matches an SDK by triple across every search path, and the snapshot
+# SDK build:android-natives installs matches the Android triple just as well as
+# the release one resolved above - so the pick is arbitrary, and picking the
+# snapshot against this task's toolchain fails to find its sysroot ('stdlib.h'
+# file not found). Neither an id nor a triple disambiguates: the id also matches
+# every arch in the bundle, and the same bundle is installed under more than one
+# SDK directory. Building against a directory holding only this bundle does.
+sdkroot=".build-androidtest/swift-sdks"
+rm -rf "$sdkroot" && mkdir -p "$sdkroot"
+ln -sfn "$bundle" "$sdkroot/$(basename "$bundle")"
+
 # Cross-compile the JNI harness per ABI and stage it (plus the NDK's
 # libc++_shared.so) into the Gradle module's jniLibs. A static stdlib bundles the
 # Swift runtime into the .so, matching how a shipping Android artifact looks.
@@ -99,7 +110,7 @@ for abi in $abis; do
     esac
     resources="$bundle/swift-android/swift-resources/usr/lib/swift_static-$arch"
     swift build --scratch-path .build-androidtest -c release --product CoreAndroidTests \
-        --swift-sdk "$arch-unknown-linux-android$api" \
+        --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
         -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
     mkdir -p "$jni/$abi"
     cp ".build-androidtest/$arch-unknown-linux-android$api/release/libCoreAndroidTests.so" "$jni/$abi/"
