@@ -16,7 +16,10 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # runs it on a device, then runs each model AAR's own instrumented suite.
 #
 # A pinned swift.org toolchain: the Android cross-compilation SDK only exists for
-# released Swift versions. Own scratch dir so toolchains never share one.
+# released Swift versions. Own scratch dir (.build-androidtest) so toolchains
+# never share one: build:android-natives owns .build-android with a 6.4.x
+# snapshot toolchain, and reusing its scratch state from this release toolchain
+# breaks the C targets' header search (stdlib.h not found).
 api="${DAL_ANDROID_API:-31}"
 ndk_version=r27d
 export SWIFT_ANDROID_STATIC_BUILD=1 # drops JavaScriptKit (host macros) from the graph
@@ -68,8 +71,11 @@ fi
 [ -n "$bundle" ] || { echo "error: the Swift Android SDK was not found after install" >&2; exit 1; }
 
 # The SDK needs an Android NDK (r27d+); install it into the bundle once and run
-# its setup script. Marker: a populated ndk-sysroot. Large one-time download.
-if ! find -L "$bundle/swift-android/ndk-sysroot" -name libc++_shared.so 2> /dev/null | grep -q .; then
+# its setup script. Marker: a populated ndk-sysroot whose symlinked headers and
+# libraries both resolve (a restored cache can leave dangling links behind).
+# Large one-time download.
+if ! [ -e "$bundle/swift-android/ndk-sysroot/usr/include/stdlib.h" ] \
+    || ! find -L "$bundle/swift-android/ndk-sysroot" -name libc++_shared.so 2> /dev/null | grep -q .; then
     echo "Installing the Android NDK $ndk_version and configuring the SDK (one-time, large download)..."
     (
         cd "$bundle/swift-android"
@@ -92,11 +98,11 @@ for abi in $abis; do
         *) echo "error: unknown ABI '$abi' in DAL_ANDROID_ABIS" >&2; exit 1 ;;
     esac
     resources="$bundle/swift-android/swift-resources/usr/lib/swift_static-$arch"
-    swift build --scratch-path .build-android -c release --product CoreAndroidTests \
+    swift build --scratch-path .build-androidtest -c release --product CoreAndroidTests \
         --swift-sdk "$arch-unknown-linux-android$api" \
         -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
     mkdir -p "$jni/$abi"
-    cp ".build-android/$arch-unknown-linux-android$api/release/libCoreAndroidTests.so" "$jni/$abi/"
+    cp ".build-androidtest/$arch-unknown-linux-android$api/release/libCoreAndroidTests.so" "$jni/$abi/"
     cxx=$(find -L "$bundle/swift-android/ndk-sysroot/usr/lib" -path "*$arch*" -name libc++_shared.so 2> /dev/null | head -1)
     [ -z "$cxx" ] || cp "$cxx" "$jni/$abi/"
 done
