@@ -28,7 +28,12 @@ public extension AudioIO {
         /// Frames already read from the source, at the source's own rate.
         public var sourceFramePosition: AVAudioFramePosition { file.framePosition }
 
-        public init(path: String, sampleRate: Double) throws {
+        /// How many channels ``nextChannels(maxFrames:)`` returns.
+        public let channelCount: Int
+
+        /// Reads at `sampleRate`, keeping `channels` of them - or the file's own
+        /// layout when `channels` is nil. 1 is the mixdown.
+        public init(path: String, sampleRate: Double, channels: Int? = 1) throws {
             do {
                 file = try AVAudioFile(forReading: URL(fileURLWithPath: path))
             } catch {
@@ -37,30 +42,42 @@ public extension AudioIO {
             let source = file.processingFormat
             totalSourceFrames = file.length
             sourceSampleRate = source.sampleRate
+            let wanted = channels ?? Int(source.channelCount)
+            channelCount = max(1, wanted)
             guard let target = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                             sampleRate: sampleRate, channels: 1,
+                                             sampleRate: sampleRate,
+                                             channels: AVAudioChannelCount(channelCount),
                                              interleaved: false) else {
-                throw AudioIOError.decodeFailed("cannot build \(sampleRate) Hz mono format")
+                throw AudioIOError.decodeFailed(
+                    "cannot build \(sampleRate) Hz \(channelCount)ch format")
             }
             self.target = target
-            // Already mono at the target rate in float32? Then read straight
-            // through and skip the converter entirely.
+            // Already the target format? Then read straight through and skip
+            // the converter entirely.
             let matches = source.sampleRate == sampleRate
-                && source.channelCount == 1
+                && Int(source.channelCount) == channelCount
                 && source.commonFormat == .pcmFormatFloat32
                 && !source.isInterleaved
             if matches {
                 converter = nil
             } else {
                 guard let c = AVAudioConverter(from: source, to: target) else {
-                    throw AudioIOError.decodeFailed("cannot convert \(source) to mono \(sampleRate) Hz")
+                    throw AudioIOError.decodeFailed(
+                        "cannot convert \(source) to \(channelCount)ch \(sampleRate) Hz")
                 }
                 converter = c
             }
         }
 
-        /// The next up-to-`maxFrames` samples, or nil once the file is drained.
+        /// The next up-to-`maxFrames` samples of the first channel, or nil once
+        /// the file is drained.
         public func next(maxFrames: Int) throws -> [Float]? {
+            try nextChannels(maxFrames: maxFrames)?.first
+        }
+
+        /// The next up-to-`maxFrames` frames of every channel, or nil once the
+        /// file is drained.
+        public func nextChannels(maxFrames: Int) throws -> [[Float]]? {
             if finished { return nil }
             // AVAudioFile.read throws rather than returning nothing when the
             // position is already at the end, so stop before asking.
@@ -68,7 +85,7 @@ public extension AudioIO {
                 finished = true
                 return nil
             }
-            return try autoreleasepool { () throws -> [Float]? in
+            return try autoreleasepool { () throws -> [[Float]]? in
                 guard let out = AVAudioPCMBuffer(pcmFormat: target,
                                                  frameCapacity: AVAudioFrameCount(maxFrames)) else {
                     throw AudioIOError.decodeFailed("cannot allocate a \(maxFrames)-frame buffer")
@@ -119,8 +136,10 @@ public extension AudioIO {
 
                 let n = Int(out.frameLength)
                 if n == 0 { return nil }
-                guard let channel = out.floatChannelData?[0] else { return nil }
-                return Array(UnsafeBufferPointer(start: channel, count: n))
+                guard let data = out.floatChannelData else { return nil }
+                return (0..<channelCount).map {
+                    Array(UnsafeBufferPointer(start: data[$0], count: n))
+                }
             }
         }
     }

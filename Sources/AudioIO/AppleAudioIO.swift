@@ -13,6 +13,14 @@ import Foundation
 
 extension AudioIO {
     static func appleDecode(path: String?, bytes: [UInt8]?, sampleRate: Double) throws -> [Float] {
+        try appleDecodeChannels(path: path, bytes: bytes, sampleRate: sampleRate, channels: 1).first ?? []
+    }
+
+    /// As `appleDecode`, but keeping `channels` of them - or the file's own
+    /// layout when `channels` is nil. One channel is the mixdown, which is what
+    /// the mono entry point asks for.
+    static func appleDecodeChannels(path: String?, bytes: [UInt8]?, sampleRate: Double,
+                                    channels requested: Int?) throws -> [[Float]] {
         let url: URL
         var temp: URL?
         if let path {
@@ -31,9 +39,14 @@ extension AudioIO {
         do {
             let file = try AVAudioFile(forReading: url)
             let inFormat = file.processingFormat
+            // nil means "whatever the file has"; the converter downmixes when
+            // asked for fewer channels than the source carries.
+            let outChannels = AVAudioChannelCount(requested ?? Int(inFormat.channelCount))
             guard
+                outChannels > 0,
                 let outFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
-                                              sampleRate: sampleRate, channels: 1, interleaved: false),
+                                              sampleRate: sampleRate, channels: outChannels,
+                                              interleaved: false),
                 let converter = AVAudioConverter(from: inFormat, to: outFormat),
                 file.length > 0,
                 let inBuffer = AVAudioPCMBuffer(pcmFormat: inFormat,
@@ -55,8 +68,12 @@ extension AudioIO {
                 fed = true; status.pointee = .haveData; return inBuffer
             }
             if let error { throw error }
-            guard let channel = outBuffer.floatChannelData?[0] else { return [] }
-            return Array(UnsafeBufferPointer(start: channel, count: Int(outBuffer.frameLength)))
+            guard let data = outBuffer.floatChannelData else { return [] }
+            let frames = Int(outBuffer.frameLength)
+            // Non-interleaved, so each channel is its own contiguous buffer.
+            return (0..<Int(outChannels)).map {
+                Array(UnsafeBufferPointer(start: data[$0], count: frames))
+            }
         } catch let e as AudioIOError {
             throw e
         } catch {
