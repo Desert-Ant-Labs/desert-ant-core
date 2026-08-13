@@ -75,6 +75,27 @@ final class EmoTests: XCTestCase {
         XCTAssertEqual(results.count, 3)
     }
 
+    /// The vocab is keyed on a piece's UTF-8 bytes, not on `String`.
+    ///
+    /// Swift's `String` equality is Unicode canonical equivalence, so a
+    /// `[String: Int32]` vocab merges byte-distinct pieces that normalize alike,
+    /// and the later id evicts the earlier. This vocab has exactly two such
+    /// pairs, both common Vietnamese words, and in both the decomposed entry
+    /// holds the higher id - so it took the key and the composed entry, the only
+    /// form NFKC can ever produce, became unreachable. Both words then encoded to
+    /// an id the training tokenizer never assigns them.
+    func testVietnameseVocabPiecesAreReachable() async throws {
+        try requireModelBacked()
+        let files = try await ModelFixture.files(EmoModel.self)
+        let sem = try XCTUnwrap(SemTokenizer(bytes: try files.read(EmoModel.tokenizer)))
+        // emo v0.7.0: `▁một` is 688 composed / 39184 decomposed, and `▁ở` is
+        // 1493 / 41329. A re-cut vocab moves these, and should fail here loudly.
+        XCTAssertEqual(sem.encode("một"), [688])
+        XCTAssertEqual(sem.encode("ở"), [1493])
+        // Whichever form the caller types, NFKC composes it to the same piece.
+        XCTAssertEqual(sem.encode("m\u{006F}\u{0323}\u{0302}t"), sem.encode("m\u{1ED9}t"))
+    }
+
 #endif
 
     func testSkinTonePostprocessing() {
