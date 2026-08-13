@@ -37,7 +37,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 |---|---|---|---|---|---|
 | **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
 | **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
-| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | soon | soon | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
+| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | `ai.desertant:clear` | `@desert-ant-labs/clear` | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
 | **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
 
 Each model behaves the same on every platform, so you can build a feature once

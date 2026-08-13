@@ -194,7 +194,7 @@ struct ClearTests {
     /// once per process and every test here reuses it.
     private func enhancer() async throws -> Clear {
         let files = try await ModelFixture.files(ClearModel.self)
-        return try Clear(modelPath: files.path(ClearModel.artifact), revision: "1d8810f")
+        return try Clear(modelPath: files.path(ClearModel.artifact), revision: ClearModel.revision)
     }
 
     @Test func enhanceEndToEnd() async throws {
@@ -599,7 +599,7 @@ struct ClearTests {
 @Suite(.serialized, .modelBacked) struct ClearBindingTests {
     private func enhancer() async throws -> Clear {
         let files = try await ModelFixture.files(ClearModel.self)
-        return try Clear(modelPath: files.path(ClearModel.artifact), revision: "1d8810f")
+        return try Clear(modelPath: files.path(ClearModel.artifact), revision: ClearModel.revision)
     }
 
     private func input(_ channels: [[Float]], sampleRate: Double = 48_000) -> FFIReader {
