@@ -125,6 +125,22 @@ Without a filesystem, enhance in memory and get WAV bytes back:
 let (result, wav) = try await clear.enhance(bytes: recording)
 ```
 
+The output is mono by default, whatever goes in. The model is mono, so keeping
+a stereo pair costs an inference pass per channel - about 1.8x a mono run - so
+it is opt-in:
+
+```swift
+let stereo = try await clear.enhance(channels: [left, right], sampleRate: 48_000,
+                                     options: .init(channelMode: .preserve))
+stereo.channels.count                       // 2
+stereo.measuredTruePeakDBFS                 // what the master actually peaks at
+stereo.phaseTimings.modelPredictSec         // where the time went
+```
+
+Mastering is joint - one gain and one limiter envelope across the channels - so
+it never moves the stereo image. `Mastering.balanceChannelsLUFS` is the
+exception, for a pair whose sides were recorded at different levels.
+
 **Download ahead of time**
 
 Any model can be fetched before first use, for example during onboarding:
@@ -205,11 +221,16 @@ import ai.desertant.clear.Mastering
 import ai.desertant.clear.Options
 
 Clear(context).use { clear ->
-    val result = clear.enhance(samples, 48_000.0)            // 48 kHz mono out
+    val result = clear.enhance(samples, 48_000.0)            // 48 kHz out
     result.measuredTruePeakDbfs                              // what the master actually peaks at
 
     val forSpotify = Options(mastering = Mastering.of(LoudnessPreset.SPOTIFY))
     val louder = clear.enhance(samples, 48_000.0, forSpotify)
+
+    // Mono out by default; ask to keep the pair, at an inference pass each.
+    val stereo = clear.enhance(listOf(left, right), 48_000.0,
+                               Options(channelMode = ChannelMode.PRESERVE))
+    stereo.channelCount                                      // 2
 }
 ```
 
@@ -267,9 +288,13 @@ redact.dispose();
 import { Clear } from "@desert-ant-labs/clear";
 
 const clear = await Clear.load();
-const result = await clear.enhance(samples, 48_000);   // Float32Array in, 48 kHz mono out
+const result = await clear.enhance(samples, 48_000);   // Float32Array in, 48 kHz out
 result.measuredTruePeakDBFS;                           // what the master actually peaks at
 await clear.enhance(samples, 48_000, { targetLUFS: "spotify" });
+
+// One entry per channel, and ask to keep them: mono is the default.
+const stereo = await clear.enhance([left, right], 48_000, { channelMode: "preserve" });
+stereo.channelCount;                                   // 2
 clear.dispose();
 ```
 
