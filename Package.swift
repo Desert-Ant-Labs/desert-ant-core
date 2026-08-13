@@ -376,7 +376,6 @@ let autoEditTargets: [Target] = !videoBuild ? [] : [
         dependencies: [
             "Clips", "DesertAnt", "Transcript",
             .product(name: "WhisperKit", package: "argmax-oss-swift"),
-            .product(name: "Align", package: "align"),
         ]
     ),
     .testTarget(name: "AutoEditTests", dependencies: ["AutoEdit"]),
@@ -386,7 +385,6 @@ let autoEditProducts: [Product] = !videoBuild ? [] : [
 ]
 let autoEditDependencies: [Package.Dependency] = !videoBuild ? [] : [
     .package(url: "https://github.com/argmaxinc/argmax-oss-swift.git", from: "1.0.0"),
-    .package(url: "https://github.com/Desert-Ant-Labs/align.git", from: "0.1.1"),
 ]
 
 let coreTargets: [Target] =
