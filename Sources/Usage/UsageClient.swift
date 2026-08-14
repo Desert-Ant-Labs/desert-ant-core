@@ -10,6 +10,8 @@
 public let dayMs: Int64 = 24 * 60 * 60 * 1000
 /// Session-shaped window (30-min idle timeout) for ephemeral, web-like hosts.
 public let webSessionMs: Int64 = 30 * 60 * 1000
+/// Default coalescing interval for a continuously-running `server` host's deltas.
+public let hourMs: Int64 = 60 * 60 * 1000
 
 /// Persisted per install, across sessions.
 public struct UsageState: Sendable, Equatable {
@@ -48,6 +50,8 @@ public struct ClientDeps {
     public var context: (() -> [String: String]?)?
     /// Re-emit window (ms): `dayMs` for persistent installs, `webSessionMs` for web-like.
     public var windowMs: Int64
+    /// Min gap (ms) between post-turnstile delta sends; 0 = send every flush.
+    public var emitIntervalMs: Int64
     public var now: () -> Int64
     public var loadState: () -> UsageState
     public var saveState: (UsageState) -> Void
@@ -62,6 +66,7 @@ public struct ClientDeps {
         callCount: (() -> Int)? = nil,
         context: (() -> [String: String]?)? = nil,
         windowMs: Int64 = dayMs,
+        emitIntervalMs: Int64 = 0,
         now: @escaping () -> Int64 = systemNowMs,
         loadState: @escaping () -> UsageState,
         saveState: @escaping (UsageState) -> Void,
@@ -75,6 +80,7 @@ public struct ClientDeps {
         self.callCount = callCount
         self.context = context
         self.windowMs = windowMs
+        self.emitIntervalMs = emitIntervalMs
         self.now = now
         self.loadState = loadState
         self.saveState = saveState
@@ -88,6 +94,7 @@ public final class UsageClient {
     private var sessionCalls = 0      // recordCall() accrued this session, not yet accounted
     private var pending: IngestEvent? // queued turnstile, awaiting first flush
     private var emitted = false       // did we open a turnstile this session?
+    private var lastEmitAt: Int64 = 0 // clock of the last actual send; gates delta coalescing
 
     public init(_ deps: ClientDeps) { self.deps = deps }
 
@@ -133,14 +140,29 @@ public final class UsageClient {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
             sessionCalls = 0
+            lastEmitAt = deps.now()
             deps.send(makeBody([ev]), opts)
             return
         }
 
-        if emitted && sessionCalls > 0 {
-            // Turnstile already sent; late calls ride a delta load (server sums them).
-            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(sessionCalls), context: currentContext())
+        if emitted && (sessionCalls > 0 || st.carryCallCount > 0) {
+            // Turnstile already sent; late calls ride a delta load (server sums them),
+            // coalesced to one send per emitIntervalMs — an unload (beacon) always drains.
+            let due = opts.beacon || deps.emitIntervalMs <= 0
+                || deps.now() - lastEmitAt >= deps.emitIntervalMs
+            if !due {
+                if deps.callCount == nil && sessionCalls > 0 {
+                    deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
+                    sessionCalls = 0
+                }
+                return
+            }
+            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext())
+            if deps.callCount == nil && st.carryCallCount != 0 {
+                deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
+            }
             sessionCalls = 0
+            lastEmitAt = deps.now()
             deps.send(makeBody([ev]), opts)
             return
         }
