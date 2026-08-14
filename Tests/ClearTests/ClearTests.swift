@@ -439,14 +439,23 @@ struct ClearTests {
         // slower than stereo and failed this backwards.
         _ = try await clear.enhance(channels: [x], sampleRate: 48_000)
 
-        let mono = try await clear.enhance(channels: [x], sampleRate: 48_000)
-        let stereo = try await clear.enhance(channels: [x, x], sampleRate: 48_000,
-                                             options: .init(channelMode: .preserve))
+        // Single wall-clock samples are noisy on shared CI runners - one
+        // stalled mono run flips the comparison. The minimum over a few runs
+        // is a stable estimate of the true cost, so compare those instead.
+        var monoSec = Double.greatestFiniteMagnitude
+        var stereoSec = Double.greatestFiniteMagnitude
+        for _ in 0..<3 {
+            let mono = try await clear.enhance(channels: [x], sampleRate: 48_000)
+            let stereo = try await clear.enhance(channels: [x, x], sampleRate: 48_000,
+                                                 options: .init(channelMode: .preserve))
+            monoSec = min(monoSec, mono.phaseTimings.modelPredictSec)
+            stereoSec = min(stereoSec, stereo.phaseTimings.modelPredictSec)
+        }
         // Serial channels means their model time adds up; taking the slower
         // channel would land at ~1x. Measured ~1.8x idle, so 1.2x separates
         // summing from maxing without asserting a throughput number.
-        #expect(stereo.phaseTimings.modelPredictSec > mono.phaseTimings.modelPredictSec * 1.2,
-                "stereo \(stereo.phaseTimings.modelPredictSec)s vs mono \(mono.phaseTimings.modelPredictSec)s: not summing across channels")
+        #expect(stereoSec > monoSec * 1.2,
+                "stereo \(stereoSec)s vs mono \(monoSec)s: not summing across channels")
     }
 
     /// This runtime has to reproduce the Apple reference in
