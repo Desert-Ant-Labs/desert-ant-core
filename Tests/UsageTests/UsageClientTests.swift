@@ -9,7 +9,7 @@ private final class Harness {
     var sent: [(body: IngestBody, opts: SendOptions)] = []
     let client: UsageClient
 
-    init(_ initial: UsageState = UsageState(), callCount: (() -> Int)? = nil, windowMs: Int64 = dayMs) {
+    init(_ initial: UsageState = UsageState(), callCount: (() -> Int)? = nil, windowMs: Int64 = dayMs, emitIntervalMs: Int64 = 0) {
         self.state = initial
         // Captured by reference through the closures below.
         var boxRef: Harness!
@@ -19,6 +19,7 @@ private final class Harness {
             platform: "test",
             callCount: callCount,
             windowMs: windowMs,
+            emitIntervalMs: emitIntervalMs,
             now: { boxRef.clock },
             loadState: { boxRef.state },
             saveState: { boxRef.state = $0 },
@@ -92,6 +93,48 @@ struct UsageClientTests {
         #expect(h.events.count == 2)
         #expect(h.events[0].callCount == 1)
         #expect(h.events[1].callCount == 4)
+        #expect(h.sent[1].opts.beacon == true)
+    }
+
+    @Test func serverCoalescesDeltaLoadsWithinInterval() {
+        let h = Harness(UsageState(lastActiveAt: 0), emitIntervalMs: hourMs)
+        h.client.start()
+        h.client.recordCall(1)
+        h.client.flush() // turnstile
+        #expect(h.sent.count == 1)
+        #expect(h.events[0].callCount == 1)
+
+        // Flushes within the hour are held, not sent.
+        for _ in 0..<3 {
+            h.advance(60_000)
+            h.client.recordCall(2)
+            h.client.flush()
+        }
+        #expect(h.sent.count == 1)
+        #expect(h.state.carryCallCount == 6)
+
+        // Past the hour: one delta carrying everything held.
+        h.advance(hourMs)
+        h.client.recordCall(2)
+        h.client.flush()
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].callCount == 8)
+        #expect(h.state.carryCallCount == 0)
+    }
+
+    @Test func beaconFlushesHeldDeltasImmediately() {
+        let h = Harness(UsageState(lastActiveAt: 0), emitIntervalMs: hourMs)
+        h.client.start()
+        h.client.flush()
+        h.advance(60_000)
+        h.client.recordCall(5)
+        h.client.flush() // held within the hour
+        #expect(h.sent.count == 1)
+
+        h.client.recordCall(2)
+        h.client.flush(SendOptions(beacon: true)) // unload drains held + new
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].callCount == 7)
         #expect(h.sent[1].opts.beacon == true)
     }
 

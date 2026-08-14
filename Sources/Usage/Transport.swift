@@ -90,6 +90,7 @@ public func makeClient(
     deviceId: String? = nil,
     platform: String = defaultPlatform,
     windowMs: Int64 = dayMs,
+    emitIntervalMs: Int64? = nil,
     callCount: (() -> Int)? = nil,
     context: (() -> [String: String]?)? = nil,
     storage: UsageStorage? = nil
@@ -99,6 +100,8 @@ public func makeClient(
     let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
+    // Coalesce a continuously-running server's delta loads to hourly by default.
+    let resolvedEmitInterval = emitIntervalMs ?? (platform == "server" ? hourMs : 0)
     return UsageClient(ClientDeps(
         deviceId: device,
         key: resolvedKey,
@@ -108,6 +111,7 @@ public func makeClient(
         callCount: callCount,
         context: context,
         windowMs: windowMs,
+        emitIntervalMs: resolvedEmitInterval,
         now: systemNowMs,
         loadState: { store.loadState(namespace, device) },
         saveState: { store.saveState($0, namespace, device) },
