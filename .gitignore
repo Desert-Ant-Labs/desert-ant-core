@@ -6,6 +6,7 @@ mise.local.toml
 .build-host/
 .build-android/
 .build-androidtest/
+.build-floor/
 .swiftpm/
 Package.resolved
 Vendor/
@@ -39,6 +40,10 @@ packages/*/test/.model-cache/
 packages/*/src/main/jniLibs/
 packages/*/src/main/assets/
 packages/*/src/main/resources/
+# Tongue's jar resources are source, not build output: the bundled model is the
+# artifact itself, checked in like the copies in Sources/Tongue/Resources and
+# packages/tongue-node/src.
+!packages/tongue-kotlin/src/main/resources/
 kotlin/src/main/jniLibs/
 androidtest/src/main/jniLibs/
 js/LICENSE.md
