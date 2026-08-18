@@ -93,6 +93,43 @@ let alignTargets: [Target] = [
     ),
 ]
 
+// Tongue is a pure model: a 2 MB int8 head plus a frozen normalizer/router
+// specification, no inference runtime and no model download — the weights ship
+// as target resources. Like Align it lives outside the `models` list (no
+// NativeBindings, no Web product, no Node/Android dynamic products); unlike
+// every other model its Kotlin and JavaScript SDKs are direct ports of the same
+// frozen spec (packages/tongue-kotlin, packages/tongue-node), locked to this
+// target by the shared golden vectors in Tests/TongueTests/Resources.
+let tongueProducts: [Product] = [
+    .library(name: "Tongue", targets: ["Tongue"]),
+]
+
+let tongueTargets: [Target] = [
+    .target(
+        name: "Tongue",
+        dependencies: [.byName(name: "DesertAnt")],
+        resources: [
+            .copy("Resources/tongue_int8.bin"),
+            .copy("Resources/tongue_meta.json"),
+            // Apple requires a privacy manifest from any SDK that collects data
+            // or calls a required-reason API; the usage turnstile does both.
+            // `.copy` so the file lands at the bundle root, where Xcode's
+            // manifest aggregation looks.
+            .copy("Resources/PrivacyInfo.xcprivacy"),
+        ]
+    ),
+    .testTarget(
+        name: "TongueTests",
+        dependencies: ["Tongue", "TestSupport"],
+        resources: [
+            .copy("Resources/detection_vectors.json"),
+            .copy("Resources/normalize_vectors.json"),
+            .copy("Resources/script_vectors.json"),
+            .copy("Resources/hashing_vectors.json"),
+        ]
+    ),
+]
+
 // Keep arrays typed separately to avoid manifest type-checker timeouts.
 let products: [Product] = [
         .library(name: "DesertAnt", targets: ["DesertAnt"]),
@@ -332,7 +369,7 @@ let testTargets: [Target] = [
 ]
 
 let coreTargets: [Target] = libraryTargets + testTargets + modelTargets + modelTestTargets
-    + alignTargets
+    + alignTargets + tongueTargets
 
 let package = Package(
     name: "DesertAnt",
@@ -342,7 +379,7 @@ let package = Package(
         .tvOS(.v16),
         .visionOS(.v1),
     ],
-    products: products + modelProducts + alignProducts,
+    products: products + modelProducts + alignProducts + tongueProducts,
     dependencies: jsDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],

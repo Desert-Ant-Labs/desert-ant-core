@@ -1,0 +1,178 @@
+{
+  "spec": "docs/normalizer.md",
+  "max_chars": 512,
+  "cases": [
+    {
+      "input": "",
+      "output": ""
+    },
+    {
+      "input": "   ",
+      "output": ""
+    },
+    {
+      "input": "Hallo Welt",
+      "output": "hallo welt"
+    },
+    {
+      "input": "  Hallo   WELT  ",
+      "output": "hallo welt"
+    },
+    {
+      "input": "hi https://a.com me@b.io @you #tag 42 there",
+      "output": "hi there"
+    },
+    {
+      "input": "São Paulo über ĝis",
+      "output": "são paulo über ĝis"
+    },
+    {
+      "input": "İstanbul",
+      "output": "i̇stanbul"
+    },
+    {
+      "input": "ISTANBUL",
+      "output": "istanbul"
+    },
+    {
+      "input": "été",
+      "output": "été"
+    },
+    {
+      "input": "été",
+      "output": "été"
+    },
+    {
+      "input": "bom​dia 😀",
+      "output": "bomdia"
+    },
+    {
+      "input": "😀😁",
+      "output": ""
+    },
+    {
+      "input": "안녕하세요",
+      "output": "안녕하세요"
+    },
+    {
+      "input": "Καλημέρα κόσμε",
+      "output": "καλημέρα κόσμε"
+    },
+    {
+      "input": "Привет мир",
+      "output": "привет мир"
+    },
+    {
+      "input": "東京に行きます",
+      "output": "東京に行きます"
+    },
+    {
+      "input": "我们明天见",
+      "output": "我们明天见"
+    },
+    {
+      "input": "สวัสดีครับ",
+      "output": "สวัสดีครับ"
+    },
+    {
+      "input": "a𝕏 b",
+      "output": "a𝕏 b"
+    },
+    {
+      "input": "kann ich das haben",
+      "output": "kann ich das haben"
+    },
+    {
+      "input": "où est la gare",
+      "output": "où est la gare"
+    },
+    {
+      "input": "hvor er stationen",
+      "output": "hvor er stationen"
+    },
+    {
+      "input": "gdzie jest dworzec",
+      "output": "gdzie jest dworzec"
+    },
+    {
+      "input": "thanks for the tour @москва",
+      "output": "thanks for the tour"
+    },
+    {
+      "input": "great conference today #القاهرة",
+      "output": "great conference today"
+    },
+    {
+      "input": "hello #こんにちは world",
+      "output": "hello world"
+    },
+    {
+      "input": "hello #über world",
+      "output": "hello world"
+    },
+    {
+      "input": "hello #नमस्ते world",
+      "output": "hello ्ते world"
+    },
+    {
+      "input": "hello #ที่นี่ world",
+      "output": "hello ี่นี่ world"
+    },
+    {
+      "input": "hello #مَرْحَبا world",
+      "output": "hello َرْحَبا world"
+    },
+    {
+      "input": "hello #שָׁלוֹם world",
+      "output": "hello ָׁלוֹם world"
+    },
+    {
+      "input": "١٢٣٤ درهم",
+      "output": "درهم"
+    },
+    {
+      "input": "१२३ mera ghar",
+      "output": "mera ghar"
+    },
+    {
+      "input": "٠١٢٣٤٥٦٧٨٩",
+      "output": ""
+    },
+    {
+      "input": "๑๒๓ บาท",
+      "output": "บาท"
+    },
+    {
+      "input": "ΟΔΟΣ ΑΘΗΝΑΣ",
+      "output": "οδος αθηνας"
+    },
+    {
+      "input": "ΣΟΦΟΣ ΑΝΘΡΩΠΟΣ",
+      "output": "σοφος ανθρωπος"
+    },
+    {
+      "input": "ab",
+      "output": "a b"
+    },
+    {
+      "input": "a b",
+      "output": "a b"
+    },
+    {
+      "input": "a\u001cb",
+      "output": "a b"
+    },
+    {
+      "input": "a b c",
+      "output": "a b c"
+    },
+    {
+      "input": "a　b c d",
+      "output": "a b c d"
+    },
+    {
+      "input": "a﻿b",
+      "output": "ab"
+    }
+  ]
+}
