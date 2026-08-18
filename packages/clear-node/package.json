@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/clear",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "On-device speech enhancement for JavaScript: denoise, dereverb, and loudness-normalize to a podcast-ready 48 kHz. Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -67,7 +67,7 @@
   ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
-    "@desert-ant-labs/core": "^1.1.0"
+    "@desert-ant-labs/core": "^1.2.0"
   },
   "optionalDependencies": {
     "koffi": "^2.9.0"

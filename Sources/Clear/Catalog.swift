@@ -11,7 +11,7 @@ public enum ClearModel: ModelDeclaration {
     public static let revision = "v0.3.0"
     /// Matches packages/clear-node/package.json and packages/clear-kotlin/build.gradle.kts
     /// (ModelCatalogTests enforces it).
-    public static let sdkVersion = "1.1.0"
+    public static let sdkVersion = "1.2.0"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
     /// The variant this declaration describes: the SDK default. The repo also
