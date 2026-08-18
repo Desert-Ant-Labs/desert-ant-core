@@ -18,7 +18,15 @@ if [ "$want" = core ]; then
 else
     models=$(dal_select "$want" kotlin)
     projects=(":core:assembleRelease")
-    for model in $models; do projects+=(":$model:assembleRelease"); done
+    for model in $models; do
+        # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar with
+        # no variants, so `assemble` is its whole Android build.
+        if [ -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then
+            projects+=(":$model:assembleRelease")
+        else
+            projects+=(":$model:assemble")
+        fi
+    done
     ./gradlew "${projects[@]}"
 fi
 

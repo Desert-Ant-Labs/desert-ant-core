@@ -1,0 +1,121 @@
+{
+  "spec": "docs/scripts.md",
+  "cases": [
+    {
+      "input": "kann ich das haben",
+      "normalized": "kann ich das haben",
+      "verdict": "ambiguous",
+      "candidates": [],
+      "script": "Latin"
+    },
+    {
+      "input": "안녕하세요",
+      "normalized": "안녕하세요",
+      "verdict": "decisive",
+      "candidates": [
+        "ko"
+      ],
+      "script": "Hangul"
+    },
+    {
+      "input": "東京に行きます",
+      "normalized": "東京に行きます",
+      "verdict": "decisive",
+      "candidates": [
+        "ja"
+      ],
+      "script": "Japanese"
+    },
+    {
+      "input": "我们明天见",
+      "normalized": "我们明天见",
+      "verdict": "decisive",
+      "candidates": [
+        "zh"
+      ],
+      "script": "Han"
+    },
+    {
+      "input": "привет",
+      "normalized": "привет",
+      "verdict": "narrowing",
+      "candidates": [
+        "ru",
+        "uk",
+        "bg",
+        "sr",
+        "mk",
+        "be",
+        "kk",
+        "ky"
+      ],
+      "script": "Cyrillic"
+    },
+    {
+      "input": "Καλημέρα",
+      "normalized": "καλημέρα",
+      "verdict": "decisive",
+      "candidates": [
+        "el"
+      ],
+      "script": "Greek"
+    },
+    {
+      "input": "שלום",
+      "normalized": "שלום",
+      "verdict": "decisive",
+      "candidates": [
+        "he"
+      ],
+      "script": "Hebrew"
+    },
+    {
+      "input": "สวัสดี",
+      "normalized": "สวัสดี",
+      "verdict": "decisive",
+      "candidates": [
+        "th"
+      ],
+      "script": "Thai"
+    },
+    {
+      "input": "გამარჯობა",
+      "normalized": "გამარჯობა",
+      "verdict": "decisive",
+      "candidates": [
+        "ka"
+      ],
+      "script": "Georgian"
+    },
+    {
+      "input": "مرحبا",
+      "normalized": "مرحبا",
+      "verdict": "narrowing",
+      "candidates": [
+        "ar",
+        "fa",
+        "ur",
+        "ug"
+      ],
+      "script": "Arabic"
+    },
+    {
+      "input": "नमस्ते",
+      "normalized": "नमस्ते",
+      "verdict": "narrowing",
+      "candidates": [
+        "hi",
+        "mr",
+        "ne"
+      ],
+      "script": "Devanagari"
+    },
+    {
+      "input": "",
+      "normalized": "",
+      "verdict": "ambiguous",
+      "candidates": [],
+      "script": null
+    }
+  ]
+}

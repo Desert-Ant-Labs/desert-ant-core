@@ -1,6 +1,8 @@
 package ai.desertant.gradle
 
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
+import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.KotlinJvm
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.gradle.api.Project
 import org.gradle.api.provider.Property
@@ -34,13 +36,19 @@ abstract class DesertAntPublishExtension {
  * Coordinates come from the project's group/name/version, which the root build
  * sets from VERSION - so they are never spelled out in a build script.
  */
-internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension) {
+internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension, jvm: Boolean = false) {
     pluginManager.apply("com.vanniktech.maven.publish")
     val publishing = extensions.getByType(MavenPublishBaseExtension::class.java)
     publishing.publishToMavenCentral()
     // ORG_GRADLE_PROJECT_signingInMemoryKey maps to this property in CI.
     if (providers.gradleProperty("signingInMemoryKey").isPresent) publishing.signAllPublications()
-    publishing.configure(AndroidSingleVariantLibrary(variant = "release", sourcesJar = true, publishJavadocJar = true))
+    if (jvm) {
+        // Dokka, not the `javadoc` task: a Kotlin source set has no Java
+        // sources, so the javadoc tool would ship a jar holding only a manifest.
+        publishing.configure(KotlinJvm(javadocJar = JavadocJar.Dokka("dokkaGeneratePublicationHtml"), sourcesJar = true))
+    } else {
+        publishing.configure(AndroidSingleVariantLibrary(variant = "release", sourcesJar = true, publishJavadocJar = true))
+    }
     publishing.pom { pom ->
         pom.name.set(ext.displayName)
         pom.description.set(ext.description)

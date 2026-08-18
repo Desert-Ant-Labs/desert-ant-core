@@ -130,6 +130,12 @@ fi # end of staging
 [ -n "${usage_core_only:-}" ] && exit 0
 tasks=()
 for model in $(dal_select "${usage_model:-all}" kotlin); do
-    tasks+=(":$model:connectedDebugAndroidTest")
+    # A pure-Kotlin module (no AndroidManifest.xml) has no instrumented suite:
+    # its bytecode is what runs on the device, so its JVM tests are the check.
+    if [ -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then
+        tasks+=(":$model:connectedDebugAndroidTest")
+    else
+        tasks+=(":$model:test")
+    fi
 done
 [ ${#tasks[@]} -eq 0 ] || ./gradlew --no-daemon "${tasks[@]}"
