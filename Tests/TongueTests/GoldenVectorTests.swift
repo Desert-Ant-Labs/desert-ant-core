@@ -1,3 +1,8 @@
+// The vectors and the bundled model are SwiftPM resources, and `Bundle.module`
+// has no WASI backing (the generated accessor traps rather than throws), so on
+// wasm this whole suite is compiled out and test:wasi is a compile check for
+// Tongue — the same shape every model's resource-reading tests take.
+#if !os(WASI)
 import XCTest
 @testable import Tongue
 
@@ -176,3 +181,4 @@ final class DetectionTests: XCTestCase {
         XCTAssertNil(detection.language)
     }
 }
+#endif
