@@ -48,6 +48,17 @@ unzip -Z1 "$aar" | grep -q 'Accelerator\.so$' && {
 
 for model in $models; do
     product=$(dal_product "$model")
+    # A pure-Kotlin module builds a jar, not an AAR; it owns no natives, so the
+    # check here is the inverse: nothing native may have crept into it.
+    if [ ! -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then
+        jar=$(find "packages/$model-kotlin/build/libs" -name '*.jar' ! -name '*-sources*' ! -name '*-javadoc*' | head -1)
+        [ -n "$jar" ] || { echo "error: no jar for $model" >&2; exit 1; }
+        unzip -Z1 "$jar" | grep -q '\.so$' && {
+            echo "error: the $model jar ships a native library; a pure module must not" >&2
+            exit 1
+        }
+        continue
+    fi
     aar=$(find "packages/$model-kotlin/build/outputs/aar" -name '*-release.aar' | head -1)
     [ -n "$aar" ] || { echo "error: no release AAR for $model" >&2; exit 1; }
     unzip -Z1 "$aar" | grep -Eq 'libLiteRt|libc\+\+_shared' && {
