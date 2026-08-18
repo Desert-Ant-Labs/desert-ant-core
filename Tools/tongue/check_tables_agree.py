@@ -1,6 +1,6 @@
 """Assert the three ports' generated Unicode tables encode the same data.
 
-    python3 scripts/check_tables_agree.py
+    python3 Tools/tongue/check_tables_agree.py
 
 `mise run gen-tables` regenerates all three from the Python reference, and CI
 diffs the result — but only when it can check out the reference, which is a
