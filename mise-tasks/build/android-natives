@@ -127,6 +127,12 @@ if [ -z "$strip_bin" ]; then
 fi
 
 for model in $(dal_select "${usage_model:-all}" kotlin); do
+    # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar: no JNI
+    # library to cross-compile.
+    if [ ! -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then
+        echo "== $model is pure Kotlin, no natives =="
+        continue
+    fi
     product=$(dal_product "$model")
     jni_libs="packages/$model-kotlin/src/main/jniLibs"
 
