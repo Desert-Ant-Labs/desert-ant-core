@@ -353,7 +353,7 @@ let testTargets: [Target] = [
         ),
         .testTarget(
             name: "ModelCatalogTests",
-            dependencies: [.byName(name: "DesertAnt")] + modelDependencies
+            dependencies: [.byName(name: "DesertAnt"), "Tongue"] + modelDependencies
         ),
         .testTarget(name: "TextNormalizationTests", dependencies: ["TextNormalization"]),
         .testTarget(name: "RegexTests", dependencies: ["Regex"]),
