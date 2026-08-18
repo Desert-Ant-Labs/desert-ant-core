@@ -39,6 +39,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
 | **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | `ai.desertant:clear` | `@desert-ant-labs/clear` | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
 | **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
+| **Tongue** | Language identification for short text, 84 languages | `Tongue` | `ai.desertant:tongue` | `@desert-ant-labs/tongue` | Bundled (2 MB) |
 
 Each model behaves the same on every platform, so you can build a feature once
 and ship it everywhere. New models are added regularly; the current set is always
@@ -141,6 +142,23 @@ Mastering is joint - one gain and one limiter envelope across the channels - so
 it never moves the stereo image. `Mastering.balanceChannelsLUFS` is the
 exception, for a pair whose sides were recorded at different levels.
 
+**Tongue**
+
+Nothing to download and nothing async: the 2 MB model ships inside the package,
+and a detection is pure arithmetic.
+
+```swift
+import Tongue
+
+let tongue = try Tongue()                      // loads the bundled 2 MB model
+let detection = tongue.detect("kann ich das haben")
+
+detection.language          // "de"
+detection.reliability       // .confident
+detection.candidates        // [Prediction(language: "de", probability: 0.999…), …]
+detection.isTooCloseToCall  // false
+```
+
 **Download ahead of time**
 
 Any model can be fetched before first use, for example during onboarding:
@@ -184,10 +202,13 @@ dependencies {
     implementation("ai.desertant:emo:1.1.0")
     implementation("ai.desertant:redact:1.1.0")
     implementation("ai.desertant:clear:1.1.0")
+    implementation("ai.desertant:tongue:1.1.0")
 }
 ```
 
-One dependency per model, using the coordinates from the table above.
+One dependency per model, using the coordinates from the table above. Tongue is
+a plain jar rather than an AAR — a pure Kotlin port with no native libraries —
+so it also runs on a bare JVM (17+).
 
 ### Usage
 
@@ -234,6 +255,16 @@ Clear(context).use { clear ->
 }
 ```
 
+```kotlin
+import ai.desertant.tongue.Tongue
+
+// Android: pass the Context. On a bare JVM call Tongue.bundled().
+val tongue = Tongue.bundled(context)
+val detection = tongue.detect("kann ich das haben")
+detection.language                               // "de"
+detection.isTooCloseToCall                       // false
+```
+
 Download before first use, or point at your own directory:
 
 ```kotlin
@@ -255,6 +286,9 @@ npm i @desert-ant-labs/emo @litertjs/core
 
 # Server-side inference in Node (prebuilt native core, no extra install):
 npm i @desert-ant-labs/emo
+
+# Tongue is pure JavaScript — no wasm, no LiteRT.js, no native core:
+npm i @desert-ant-labs/tongue
 ```
 
 The default import is the browser build. It has no native dependencies, so it
@@ -298,6 +332,23 @@ stereo.channelCount;                                   // 2
 clear.dispose();
 ```
 
+```ts
+import { Tongue } from "@desert-ant-labs/tongue";      // one import everywhere
+
+const tongue = await Tongue.load();                    // Node: reads the bundled model
+const detection = tongue.detect("kann ich das haben");
+detection.language;                                    // "de"
+detection.isTooCloseToCall;                            // false
+```
+
+In a browser, serve tongue's two model files yourself (a bundler does not serve
+files out of `node_modules`) and pass `from`; both files are exported subpaths,
+so a copy script can `require.resolve` them under pnpm and Yarn PnP too:
+
+```ts
+const tongue = await Tongue.load({ from: "/models/tongue" });
+```
+
 Self-host the model files or track download progress:
 
 ```ts
@@ -321,7 +372,8 @@ const emo = await Emo.load({ litert, litertWasmDir: "/path/to/@litertjs/core/was
 Weights are published on the [Hugging Face
 Hub](https://huggingface.co/desert-ant-labs). Each SDK version is pinned to one
 model revision, so a model never changes under you, and every download is
-verified before it is used.
+verified before it is used. (Tongue is the exception: its 2 MB model ships
+inside each package, so nothing here applies to it and nothing downloads.)
 
 - **Managed cache**, the default. Files land in the platform cache directory and
   are reused across launches.

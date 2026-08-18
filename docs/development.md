@@ -101,6 +101,23 @@ The wasm host contract has a related limit: it holds one compiled model per
 module, so the multi-session concurrency `Clear` uses natively
 (`ModelAssets(sessions:)`) degrades to a single session on the web.
 
+### Pure models
+
+A model with no inference runtime can skip the generated seams entirely: tongue
+is a frozen specification (normalizer, hasher, script router, one int8 matmul)
+ported by hand to Swift, Kotlin, and TypeScript, locked together by the golden
+vectors every port replays (`Tests/TongueTests/Resources` and the copies beside
+each port). Its npm package declares `"desertant": {"pure": true}`, which is
+what `dal_node_pure` reads, so `test:node` runs the package's own suite and the
+native/wasm staging tasks skip it; its Kotlin module has no
+`src/main/AndroidManifest.xml`, which is how the Android tasks know it is a
+plain JVM jar (`ai.desertant.jvm-model-sdk` in gradle-plugin/, `assemble`
+instead of `assembleRelease`, the JVM suite instead of a connected one). Nothing
+downloads: the model ships inside each package, its catalog declaration says so,
+and there is no HubDownloadTests for it on purpose. The table generators live in
+`Tools/tongue/`; `check_tables_agree.py` proves the three ports carry identical
+tables.
+
 Tasks that act per model take a model argument, defaulting to `all`:
 
 ```bash

@@ -1,0 +1,72 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>tongue — browser example</title>
+<style>
+  body { font: 16px/1.6 system-ui, sans-serif; max-width: 34rem; margin: 4rem auto; padding: 0 1rem;
+         color: #14181a; background: #f7f8f8; }
+  h1 { font-size: 1.3rem; font-weight: 650; }
+  p { color: #414a4e; }
+  textarea { width: 100%; font: inherit; padding: .6rem .7rem; border: 1px solid #cbd1d3;
+             border-radius: 8px; background: #fff; }
+  #out { margin-top: 1.2rem; min-height: 5rem; }
+  .lang { font-size: 1.6rem; font-weight: 650; }
+  .note { color: #b4741a; font-size: .9rem; }
+  .row { display: grid; grid-template-columns: 5rem 1fr 3.2rem; gap: .6rem; align-items: center;
+         font-variant-numeric: tabular-nums; font-size: .9rem; margin-top: .3rem; }
+  .bar { height: .45rem; background: #e1e5e6; border-radius: 99px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: #2d52c8; }
+  button { font: inherit; padding: .25rem .6rem; margin: 0 .3rem .3rem 0; border: 1px solid #cbd1d3;
+           border-radius: 99px; background: #fff; cursor: pointer; }
+</style>
+
+<h1>tongue — language identification in the browser</h1>
+<p>The 2&nbsp;MB model runs here, in this page. Nothing you type is sent anywhere:
+there is no wasm module and no inference runtime, just arithmetic.</p>
+
+<textarea id="in" rows="3" spellcheck="false">kann ich das haben</textarea>
+<div id="samples"></div>
+<div id="out"></div>
+
+<script type="module">
+  // Served from ../../packages/tongue-node/dist by the dev server below, so this
+  // exercises the built package rather than the source tree.
+  import { Tongue } from "/tongue/index.js";
+
+  const samples = ["kann ich das haben", "je voudrais un café", "안녕하세요",
+                   "привет как дела", "la casa", "hi i am", "Samsung Galaxy"];
+  const input = document.getElementById("in");
+  const out = document.getElementById("out");
+
+  document.getElementById("samples").append(...samples.map((text) => {
+    const button = document.createElement("button");
+    button.textContent = text;
+    button.onclick = () => { input.value = text; render(); };
+    return button;
+  }));
+
+  // Point `from` at the directory holding tongue_int8.bin and tongue_meta.json.
+  const tongue = await Tongue.load({ from: "/tongue" });
+
+  function render() {
+    const detection = tongue.detect(input.value);
+    if (!detection.candidates.length) { out.textContent = ""; return; }
+
+    const names = detection.candidates.slice(0, 3);
+    // Too close to separate: name both rather than crowning one.
+    const headline = detection.isTooCloseToCall && names.length > 1
+      ? `${names[0].language} or ${names[1].language}`
+      : detection.language;
+    const note = detection.reliability === "tentative"
+      ? `<p class="note">Short or ambiguous — a best guess only.</p>` : "";
+
+    out.innerHTML = `${note}<div class="lang">${headline}</div>` + names.map((c) => `
+      <div class="row">
+        <span>${c.language}</span>
+        <span class="bar"><span style="width:${(c.probability * 100).toFixed(1)}%"></span></span>
+        <span>${(c.probability * 100).toFixed(1)}%</span>
+      </div>`).join("");
+  }
+
+  input.addEventListener("input", render);
+  render();
+</script>
