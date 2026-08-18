@@ -37,6 +37,15 @@ dal_models_with() {
     return 0
 }
 
+# A pure model ships hand-written ports and no native/wasm cores: its npm
+# package declares `"desertant": {"pure": true}` (tongue is the first). Tasks
+# that stage or test native artifacts skip these; their suites still run
+# (test:node runs the package's own tests, Gradle runs the Kotlin ones).
+dal_node_pure() { # <model>
+    [ -f "packages/$1-node/package.json" ] || return 1
+    [ "$(node -p "require('./packages/$1-node/package.json').desertant?.pure ?? false")" = true ]
+}
+
 # "emo" -> "Emo". The Swift product/target name, and the native library prefix.
 dal_product() { echo "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]')${1:1}"; }
 

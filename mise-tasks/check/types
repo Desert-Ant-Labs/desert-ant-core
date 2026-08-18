@@ -33,8 +33,15 @@ trap cleanup EXIT
 built=0
 for model in $(dal_models_with node); do
     # Every model package's public entry types, so a consumer's `import { Emo }`
-    # is checked and not just core's internals.
-    echo "import type * as pkg_$model from \"../../../packages/$model-node/index.js\";" >> "$fixture"
+    # is checked and not just core's internals. The entry comes from the
+    # package's own `types` field: a pure package (tongue) builds its types
+    # into dist/ from TypeScript, everyone else hand-writes ./index.d.ts.
+    entry=$(node -p "(require('./packages/$model-node/package.json').types ?? './index.d.ts').replace(/^\.\//, '')")
+    if [ ! -f "packages/$model-node/$entry" ]; then
+        echo "note: packages/$model-node/$entry is not built; skipping its public types" >&2
+        continue
+    fi
+    echo "import type * as pkg_$model from \"../../../packages/$model-node/${entry%.d.ts}.js\";" >> "$fixture"
     echo "export type Public_$model = keyof typeof pkg_$model;" >> "$fixture"
 
     abi="packages/$model-node/dist/bridge-js.d.ts"

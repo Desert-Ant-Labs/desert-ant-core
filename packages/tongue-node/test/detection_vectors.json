@@ -1,0 +1,325 @@
+{
+  "_comment": "Head output, pinned. Written by scripts/gen_detection_vectors.py, a fourth implementation of the documented algorithm (sorted bucket order, float32 multiply and add, float32 softmax shift) reading the shipped weights. Probabilities are compared with a tolerance because exp() differs in the last bits between libms; language, reliability and isTooCloseToCall are exact. Flat parallel arrays so each port reads it with the same minimal reader it already uses for the other vectors, rather than taking a JSON dependency. Nothing asserted a probability before this file existed, which is how the ports came to disagree on hashtag input while every suite passed.",
+  "tolerance": 1e-06,
+  "cases": [
+    {
+      "input": "kann ich das haben",
+      "normalized": "kann ich das haben",
+      "language": "de",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "de",
+        "sv",
+        "da"
+      ],
+      "candidateProbabilities": [
+        0.9999999999404268,
+        2.9310127900608914e-11,
+        8.078916848995516e-12
+      ]
+    },
+    {
+      "input": "je voudrais un café au lait",
+      "normalized": "je voudrais un café au lait",
+      "language": "fr",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "fr",
+        "gl",
+        "nl"
+      ],
+      "candidateProbabilities": [
+        0.9999999999998377,
+        1.5852287306579965e-13,
+        3.721834198846821e-15
+      ]
+    },
+    {
+      "input": "quanto costa il biglietto",
+      "normalized": "quanto costa il biglietto",
+      "language": "it",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "it",
+        "en",
+        "fr"
+      ],
+      "candidateProbabilities": [
+        0.9999999999996001,
+        2.1842155255558508e-13,
+        1.4752217413083846e-13
+      ]
+    },
+    {
+      "input": "la casa",
+      "normalized": "la casa",
+      "language": "it",
+      "reliability": "tentative",
+      "isTooCloseToCall": true,
+      "candidateLanguages": [
+        "it",
+        "es",
+        "ca"
+      ],
+      "candidateProbabilities": [
+        0.30503631087365596,
+        0.29465882626760054,
+        0.27120660902372573
+      ]
+    },
+    {
+      "input": "hi i am",
+      "normalized": "hi i am",
+      "language": "cy",
+      "reliability": "tentative",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "cy",
+        "ca",
+        "en"
+      ],
+      "candidateProbabilities": [
+        0.9962523350907129,
+        0.0016613375160581558,
+        0.001456173156014636
+      ]
+    },
+    {
+      "input": "saya tidak tahu di mana dia tinggal sekarang",
+      "normalized": "saya tidak tahu di mana dia tinggal sekarang",
+      "language": "id",
+      "reliability": "tentative",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "id",
+        "ms",
+        "tl"
+      ],
+      "candidateProbabilities": [
+        0.574223170072584,
+        0.425776829927416,
+        4.539908367036696e-19
+      ]
+    },
+    {
+      "input": "où est la gare",
+      "normalized": "où est la gare",
+      "language": "fr",
+      "reliability": "likely",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "fr",
+        "it",
+        "ro"
+      ],
+      "candidateProbabilities": [
+        0.9999997538669976,
+        2.2471908961367997e-07,
+        1.854600960467148e-08
+      ]
+    },
+    {
+      "input": "hvor er stationen",
+      "normalized": "hvor er stationen",
+      "language": "da",
+      "reliability": "likely",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "da",
+        "no",
+        "de"
+      ],
+      "candidateProbabilities": [
+        0.9980513797831972,
+        0.0019246612802412287,
+        9.995500266808856e-06
+      ]
+    },
+    {
+      "input": "gdzie jest dworzec",
+      "normalized": "gdzie jest dworzec",
+      "language": "pl",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "pl",
+        "sk",
+        "cy"
+      ],
+      "candidateProbabilities": [
+        1.0,
+        6.346712792315555e-18,
+        6.0723150584633515e-18
+      ]
+    },
+    {
+      "input": "привет как твои дела",
+      "normalized": "привет как твои дела",
+      "language": "ru",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "ru",
+        "bg",
+        "mk"
+      ],
+      "candidateProbabilities": [
+        0.9999980834439087,
+        1.900670929499252e-06,
+        1.5429593123644105e-08
+      ]
+    },
+    {
+      "input": "мен сені жақсы көремін",
+      "normalized": "мен сені жақсы көремін",
+      "language": "kk",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "kk",
+        "ky",
+        "be"
+      ],
+      "candidateProbabilities": [
+        1.0,
+        1.3719611294504194e-17,
+        9.859787380770882e-28
+      ]
+    },
+    {
+      "input": "мовчання золото",
+      "normalized": "мовчання золото",
+      "language": "uk",
+      "reliability": "likely",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "uk",
+        "ru",
+        "be"
+      ],
+      "candidateProbabilities": [
+        0.9999996636974632,
+        3.3262928886265376e-07,
+        3.6728328371721605e-09
+      ]
+    },
+    {
+      "input": "hello #नमस्ते world",
+      "normalized": "hello ्ते world",
+      "language": "en",
+      "reliability": "likely",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "en",
+        "ca",
+        "sw"
+      ],
+      "candidateProbabilities": [
+        0.9210715089473795,
+        0.06140520340143141,
+        0.012118368516338318
+      ]
+    },
+    {
+      "input": "hello #مَرْحَبا world",
+      "normalized": "hello َرْحَبا world",
+      "language": "ar",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "ar",
+        "fa",
+        "ur"
+      ],
+      "candidateProbabilities": [
+        0.9999999829828198,
+        1.4187239989845083e-08,
+        2.829562777698463e-09
+      ]
+    },
+    {
+      "input": "thanks for the tour @москва",
+      "normalized": "thanks for the tour",
+      "language": "en",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "en",
+        "sw",
+        "da"
+      ],
+      "candidateProbabilities": [
+        0.9999949931904198,
+        2.237302095638713e-06,
+        1.8421526032105468e-06
+      ]
+    },
+    {
+      "input": "ΟΔΟΣ ΑΘΗΝΑΣ",
+      "normalized": "οδος αθηνας",
+      "language": "el",
+      "reliability": "confident",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "el"
+      ],
+      "candidateProbabilities": [
+        1.0
+      ]
+    },
+    {
+      "input": "ñ ø ő ț å æ",
+      "normalized": "ñ ø ő ț å æ",
+      "language": "no",
+      "reliability": "tentative",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "no",
+        "is",
+        "da"
+      ],
+      "candidateProbabilities": [
+        0.9999596621992172,
+        2.892351750055328e-05,
+        1.1381988035446e-05
+      ]
+    },
+    {
+      "input": "Samsung Galaxy",
+      "normalized": "samsung galaxy",
+      "language": "id",
+      "reliability": "likely",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "id",
+        "ms",
+        "en"
+      ],
+      "candidateProbabilities": [
+        0.9938790096635592,
+        0.003217704216543842,
+        0.0018452714822339018
+      ]
+    },
+    {
+      "input": "xy",
+      "normalized": "xy",
+      "language": "en",
+      "reliability": "tentative",
+      "isTooCloseToCall": false,
+      "candidateLanguages": [
+        "en",
+        "vi",
+        "nl"
+      ],
+      "candidateProbabilities": [
+        0.5748205282307508,
+        0.33133872666178465,
+        0.01794433280117168
+      ]
+    }
+  ]
+}
