@@ -1,6 +1,6 @@
 """Generate ScriptTables.kt from the Python reference.
 
-    python3 scripts/gen_kotlin_tables.py --reference ../tongue-training
+    python3 Tools/tongue/gen_kotlin_tables.py --reference ../tongue-training
 
 Generated, not transcribed, for the same reason as the Swift tables: the router
 is a frozen specification and hand-copying 47 Unicode ranges into a third
@@ -36,7 +36,7 @@ args.out.parent.mkdir(parents=True, exist_ok=True)
 args.out.write_text(f'''package ai.desertant.tongue
 
 // UAX#24 script routing, GENERATED from the Python reference by
-// scripts/gen_kotlin_tables.py. Do not hand-edit: regenerate instead, so the
+// Tools/tongue/gen_kotlin_tables.py. Do not hand-edit: regenerate instead, so the
 // three ports and the reference cannot drift.
 
 internal data class Range(val start: Int, val end: Int, val script: String)

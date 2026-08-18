@@ -1,7 +1,7 @@
 """Generate Sources/Tongue/ScriptTables.swift from the Python reference.
 
 Run from the SDK root with the training repo alongside:
-    python3 scripts/gen_swift_tables.py --reference ../tongue-training
+    python3 Tools/tongue/gen_swift_tables.py --reference ../tongue-training
 
 The tables are generated rather than transcribed so the SDK and the reference
 cannot drift by hand-editing. `Japanese` is included as a pseudo-script: it owns
@@ -40,7 +40,7 @@ narrowing = ",\n        ".join(
 args.out.write_text(f'''import Foundation
 
 // UAX#24 script routing, GENERATED from the Python reference by
-// scripts/gen_swift_tables.py. Do not hand-edit: regenerate instead, so the SDK
+// Tools/tongue/gen_swift_tables.py. Do not hand-edit: regenerate instead, so the SDK
 // and the reference cannot drift.
 
 public enum Script: String, Sendable, CaseIterable {{

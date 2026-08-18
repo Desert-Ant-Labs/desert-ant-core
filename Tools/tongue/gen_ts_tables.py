@@ -1,6 +1,6 @@
 """Generate src/script-tables.ts from the Python reference.
 
-    python3 scripts/gen_ts_tables.py --reference ../tongue-training
+    python3 Tools/tongue/gen_ts_tables.py --reference ../tongue-training
 
 Generated for the same reason as the Swift and Kotlin tables: the router is a
 frozen specification, and hand-copying 47 Unicode ranges into a fourth language
@@ -33,7 +33,7 @@ narrowing = ",\n  ".join(
 
 args.out.parent.mkdir(parents=True, exist_ok=True)
 args.out.write_text(f'''// UAX#24 script routing, GENERATED from the Python reference by
-// scripts/gen_ts_tables.py. Do not hand-edit: regenerate instead, so the ports
+// Tools/tongue/gen_ts_tables.py. Do not hand-edit: regenerate instead, so the ports
 // and the reference cannot drift.
 
 /** Sorted, non-overlapping ranges; looked up by binary search. */
