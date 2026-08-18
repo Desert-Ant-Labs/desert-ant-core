@@ -21,6 +21,9 @@ dependencies {
     implementation("com.android.tools.build:gradle:8.7.3")
     implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.21")
     implementation("com.vanniktech:gradle-maven-publish-plugin:0.34.0")
+    // The jvm-model-sdk convention builds its javadoc jar with Dokka: a Kotlin
+    // source set gives the Java javadoc tool nothing to document.
+    implementation("org.jetbrains.dokka:dokka-gradle-plugin:2.0.0")
 }
 
 gradlePlugin {
@@ -30,6 +33,12 @@ gradlePlugin {
             implementationClass = "ai.desertant.gradle.ModelSdkPlugin"
             displayName = "Desert Ant model SDK (Android)"
             description = "Android library + publish convention for Desert Ant Labs model SDKs."
+        }
+        create("jvmModelSdk") {
+            id = "ai.desertant.jvm-model-sdk"
+            implementationClass = "ai.desertant.gradle.JvmModelSdkPlugin"
+            displayName = "Desert Ant model SDK (pure Kotlin, JVM)"
+            description = "JVM library + publish convention for pure-Kotlin Desert Ant Labs model SDKs."
         }
         create("publish") {
             id = "ai.desertant.publish"
