@@ -12,7 +12,7 @@ public enum AlignModel: ModelDeclaration {
     // TODO: pin to a tagged revision once the align model repo is tagged.
     public static let revision = "main"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
-    public static let sdkVersion = "1.1.0"
+    public static let sdkVersion = "1.2.0"
     public static let summary = "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).

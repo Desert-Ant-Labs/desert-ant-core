@@ -16,7 +16,7 @@ public enum TongueModel: ModelDeclaration {
     public static let revision = "main"
     /// Matches packages/tongue-node/package.json and
     /// packages/tongue-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
-    public static let sdkVersion = "1.1.0"
+    public static let sdkVersion = "1.2.0"
     public static let summary = "On-device language identification for short text across 84 languages."
 
     /// The int8 embedding table and head; `Model.swift` documents the layout.
