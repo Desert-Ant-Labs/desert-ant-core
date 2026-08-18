@@ -1,6 +1,6 @@
 """Generate detection_vectors.json: the head's output, pinned.
 
-    python3 scripts/gen_detection_vectors.py --reference ../tongue-training
+    python3 Tools/tongue/gen_detection_vectors.py --reference ../tongue-training
 
 The normalizer, hasher and router each have vectors. The head did not, so no test
 in any port asserted a single probability — which is how three ports came to
@@ -156,7 +156,7 @@ def main() -> int:
 
     payload = {
         "_comment": (
-            "Head output, pinned. Written by scripts/gen_detection_vectors.py, a fourth "
+            "Head output, pinned. Written by Tools/tongue/gen_detection_vectors.py, a fourth "
             "implementation of the documented algorithm (sorted bucket order, float32 "
             "multiply and add, float32 softmax shift) reading the shipped weights. "
             "Probabilities are compared with a tolerance because exp() differs in the "
