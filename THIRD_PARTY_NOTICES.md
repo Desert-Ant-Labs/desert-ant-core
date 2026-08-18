@@ -64,6 +64,42 @@ them in when each model's provenance is confirmed by whoever trained it.
 
 ---
 
+## Tongue
+
+Trained from scratch; derives from no third-party model. The training and
+evaluation corpora below are licensed by their respective projects, and those
+licenses apply to that data. Every source used for training is CC0, CC BY, or a
+permissive software license; share-alike and non-commercial sources are excluded
+by policy, and the corpus build enforces the exclusion and records a provenance
+manifest of every file kept and dropped.
+
+### Training data
+- **Tatoeba** sentence and link exports — [tatoeba.org](https://tatoeba.org) —
+  **CC BY 2.0 FR**, © Tatoeba contributors. The primary corpus.
+- **Common Voice** sentence collections —
+  [common-voice/common-voice](https://github.com/common-voice/common-voice)
+  (`server/data`) — **CC0 1.0**. Files derived from Wikipedia or Europarl are
+  excluded (share-alike upstreams).
+- **Wikidata Lexemes** — [wikidata.org](https://www.wikidata.org) lexeme dumps —
+  **CC0 1.0**.
+- **Hunspell dictionaries** —
+  [wooorm/dictionaries](https://github.com/wooorm/dictionaries) — per-dictionary
+  permissive terms (MIT / BSD / Apache-2.0).
+- **Universal Dependencies treebanks** —
+  [universaldependencies.org](https://universaldependencies.org) — **CC BY 4.0**,
+  verified per treebank; share-alike and non-commercial treebanks excluded.
+
+### Evaluation only — never used for training
+- **FLORES-200** — NLLB Team et al. — CC BY-SA 4.0 — held out.
+- **WiLI-2018** — ODC-BY 1.0 — held out.
+- **eld benchmark** —
+  [nitotm/efficient-language-detector](https://github.com/nitotm/efficient-language-detector)
+  — Apache-2.0 — held out. Leipzig / Wortschatz corpora are excluded from
+  training in every form, because another detector's published test set is drawn
+  from that collection.
+
+---
+
 ## Android platform libraries
 
 Android regex uses `java.util.regex.Pattern` and JSON parsing uses the Kotlin
