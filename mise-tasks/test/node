@@ -16,6 +16,12 @@ arch=$(dal_arch)
 
 for model in $(dal_select "${usage_model:-all}" node); do
     dir="packages/$model-node"
+    # A pure package has no native or wasm core; its suite is self-contained.
+    if dal_node_pure "$model"; then
+        echo "== $model (pure) =="
+        ( cd "$dir" && npm test )
+        continue
+    fi
     [ -d "$dir/native/$key" ] || {
         echo "error: $dir/native/$key is missing; run 'mise run build:node-native $model' first" >&2
         exit 1
