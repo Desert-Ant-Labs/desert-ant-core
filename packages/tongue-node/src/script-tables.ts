@@ -1,0 +1,95 @@
+// UAX#24 script routing, GENERATED from the Python reference by
+// scripts/gen_ts_tables.py. Do not hand-edit: regenerate instead, so the ports
+// and the reference cannot drift.
+
+/** Sorted, non-overlapping ranges; looked up by binary search. */
+export const RANGES: ReadonlyArray<readonly [number, number, string]> = [
+  [0x0041, 0x005A, "Latin"],
+  [0x0061, 0x007A, "Latin"],
+  [0x00C0, 0x024F, "Latin"],
+  [0x0370, 0x03FF, "Greek"],
+  [0x0400, 0x052F, "Cyrillic"],
+  [0x0530, 0x058F, "Armenian"],
+  [0x0590, 0x05FF, "Hebrew"],
+  [0x0600, 0x06FF, "Arabic"],
+  [0x0700, 0x074F, "Syriac"],
+  [0x0750, 0x077F, "Arabic"],
+  [0x0780, 0x07BF, "Thaana"],
+  [0x08A0, 0x08FF, "Arabic"],
+  [0x0900, 0x097F, "Devanagari"],
+  [0x0980, 0x09FF, "Bengali"],
+  [0x0A00, 0x0A7F, "Gurmukhi"],
+  [0x0A80, 0x0AFF, "Gujarati"],
+  [0x0B00, 0x0B7F, "Oriya"],
+  [0x0B80, 0x0BFF, "Tamil"],
+  [0x0C00, 0x0C7F, "Telugu"],
+  [0x0C80, 0x0CFF, "Kannada"],
+  [0x0D00, 0x0D7F, "Malayalam"],
+  [0x0D80, 0x0DFF, "Sinhala"],
+  [0x0E00, 0x0E7F, "Thai"],
+  [0x0E80, 0x0EFF, "Lao"],
+  [0x0F00, 0x0FFF, "Tibetan"],
+  [0x1000, 0x109F, "Myanmar"],
+  [0x10A0, 0x10FF, "Georgian"],
+  [0x1100, 0x11FF, "Hangul"],
+  [0x1200, 0x137F, "Ethiopic"],
+  [0x13A0, 0x13FF, "Cherokee"],
+  [0x1780, 0x17FF, "Khmer"],
+  [0x1800, 0x18AF, "Mongolian"],
+  [0x1F00, 0x1FFF, "Greek"],
+  [0x2D00, 0x2D2F, "Georgian"],
+  [0x2DE0, 0x2DFF, "Cyrillic"],
+  [0x3040, 0x309F, "Hiragana"],
+  [0x30A0, 0x30FF, "Katakana"],
+  [0x3130, 0x318F, "Hangul"],
+  [0x31F0, 0x31FF, "Katakana"],
+  [0x3400, 0x4DBF, "Han"],
+  [0x4E00, 0x9FFF, "Han"],
+  [0xA640, 0xA69F, "Cyrillic"],
+  [0xAB70, 0xABBF, "Cherokee"],
+  [0xAC00, 0xD7AF, "Hangul"],
+  [0xF900, 0xFAFF, "Han"],
+  [0xFB50, 0xFDFF, "Arabic"],
+  [0xFE70, 0xFEFF, "Arabic"],
+];
+
+/** Scripts only one language uses: presence settles the answer outright. */
+export const DECISIVE: Readonly<Record<string, string>> = {
+  Armenian: "hy",
+  Cherokee: "chr",
+  Ethiopic: "am",
+  Georgian: "ka",
+  Greek: "el",
+  Gujarati: "gu",
+  Gurmukhi: "pa",
+  Han: "zh",
+  Hangul: "ko",
+  Hebrew: "he",
+  Hiragana: "ja",
+  Kannada: "kn",
+  Katakana: "ja",
+  Khmer: "km",
+  Lao: "lo",
+  Malayalam: "ml",
+  Mongolian: "mn",
+  Myanmar: "my",
+  Oriya: "or",
+  Sinhala: "si",
+  Syriac: "syr",
+  Tamil: "ta",
+  Telugu: "te",
+  Thaana: "dv",
+  Thai: "th",
+  Tibetan: "bo",
+};
+
+/** Scripts several languages share: presence narrows the candidate set. */
+export const NARROWING: Readonly<Record<string, readonly string[]>> = {
+  Arabic: ["ar", "fa", "ur", "ug"],
+  Bengali: ["bn", "as"],
+  Cyrillic: ["ru", "uk", "bg", "sr", "mk", "be", "kk", "ky"],
+  Devanagari: ["hi", "mr", "ne"],
+};
+
+/** Reported by the router for the kana special case; owns no range. */
+export const JAPANESE = "Japanese";
