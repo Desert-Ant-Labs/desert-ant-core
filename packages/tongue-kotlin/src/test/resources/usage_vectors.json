@@ -1,0 +1,155 @@
+{
+  "_comment": "Turnstile contract, replayed by the Kotlin and JavaScript ports against their own hand-ported UsageClient. The behaviour is desert-ant-core's Sources/Usage/UsageClient.swift, which the Swift SDK uses directly rather than porting. See docs/USAGE.md. Flat parallel arrays, no nested objects, so both ports read it with the same minimal reader they use for the model vectors instead of taking a JSON dependency. sendCounts uses -1 for an omitted callCount. Epochs are realistic on purpose: the window test is now-lastActiveAt, so with lastActiveAt=0 a small fake clock would read as 'inside the window' and emit nothing.",
+  "windowMs": 86400000,
+  "cases": [
+    {
+      "name": "first start opens a turnstile with no calls",
+      "stateLastActiveAt": 0,
+      "stateCarry": 0,
+      "stepKinds": [
+        "start",
+        "flush"
+      ],
+      "stepAt": [
+        1700000000000,
+        1700000000000
+      ],
+      "stepN": [
+        0,
+        0
+      ],
+      "sendCounts": [
+        -1
+      ],
+      "finalLastActiveAt": 1700000000000,
+      "finalCarry": 0
+    },
+    {
+      "name": "calls before the first flush ride the turnstile",
+      "stateLastActiveAt": 0,
+      "stateCarry": 0,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700000000000,
+        1700000000000,
+        1700000000000
+      ],
+      "stepN": [
+        0,
+        3,
+        0
+      ],
+      "sendCounts": [
+        3
+      ],
+      "finalLastActiveAt": 1700000000000,
+      "finalCarry": 0
+    },
+    {
+      "name": "inside the window nothing is sent and calls carry",
+      "stateLastActiveAt": 1700000000000,
+      "stateCarry": 0,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700000001000,
+        1700000001000,
+        1700000001000
+      ],
+      "stepN": [
+        0,
+        2,
+        0
+      ],
+      "sendCounts": [],
+      "finalLastActiveAt": 1700000000000,
+      "finalCarry": 2
+    },
+    {
+      "name": "the next day emits once, with the carried calls added",
+      "stateLastActiveAt": 1700000000000,
+      "stateCarry": 2,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700086400000,
+        1700086400000,
+        1700086400000
+      ],
+      "stepN": [
+        0,
+        1,
+        0
+      ],
+      "sendCounts": [
+        3
+      ],
+      "finalLastActiveAt": 1700086400000,
+      "finalCarry": 0
+    },
+    {
+      "name": "late calls after the turnstile ride a delta load",
+      "stateLastActiveAt": 0,
+      "stateCarry": 0,
+      "stepKinds": [
+        "start",
+        "flush",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700000000000,
+        1700000000000,
+        1700000000500,
+        1700000000500
+      ],
+      "stepN": [
+        0,
+        0,
+        2,
+        0
+      ],
+      "sendCounts": [
+        -1,
+        2
+      ],
+      "finalLastActiveAt": 1700000000000,
+      "finalCarry": 0
+    },
+    {
+      "name": "a second start inside the window does not double-emit",
+      "stateLastActiveAt": 0,
+      "stateCarry": 0,
+      "stepKinds": [
+        "start",
+        "start",
+        "flush"
+      ],
+      "stepAt": [
+        1700000000000,
+        1700000000001,
+        1700000000001
+      ],
+      "stepN": [
+        0,
+        0,
+        0
+      ],
+      "sendCounts": [
+        -1
+      ],
+      "finalLastActiveAt": 1700000000000,
+      "finalCarry": 0
+    }
+  ]
+}
