@@ -78,9 +78,23 @@ jobs:
           sudo docker image prune --all --force || true
       - name: Swift toolchain system deps
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq --no-install-recommends \
-            libcurl4-openssl-dev libxml2-dev zlib1g-dev
+          # apt has wedged on a bad mirror here, sitting on `update` until the
+          # job's 6 h timeout rather than failing - one hung runner blocked two
+          # PRs at once. Bound each attempt and retry, so a bad mirror costs
+          # seconds and a retry instead of the run. Retrying rather than just
+          # `timeout-minutes`: that would still lose the run to a manual re-run,
+          # which is the toil this is here to remove.
+          for attempt in 1 2 3; do
+            if timeout 120 sudo apt-get update -qq \
+              && timeout 180 sudo apt-get install -y -qq --no-install-recommends \
+                   libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
+              exit 0
+            fi
+            echo "::warning::apt attempt $attempt timed out or failed; retrying"
+            sleep $((attempt * 10))
+          done
+          echo "::error::apt failed after 3 attempts"
+          exit 1
       - uses: jdx/mise-action@v4
       # v7 is the newest floating major tag this action publishes (its later
       # releases ship no vN alias), and it already runs on node24.
