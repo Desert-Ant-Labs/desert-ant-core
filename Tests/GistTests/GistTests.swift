@@ -9,12 +9,16 @@ import TestSupport
 /// same checkpoint, so the topics match.
 final class GistTests: XCTestCase {
 #if !os(WASI)
+    /// The tagger shared by every test here — see `GistFixture` for why the
+    /// suite loads the model exactly once.
+    private func gist() async throws -> Gist { try await GistFixture.loaded().gist }
+
     private func requireModelBacked() throws {
         try XCTSkipUnless(runsModelBackedTests, "model-backed tests do not run on iOS or Android")
     }
 
     private func slugs(_ text: String, topK: Int = 3) async throws -> [String] {
-        try await Gist().classify(text, topK: topK).map(\.slug)
+        try await gist().classify(text, topK: topK).map(\.slug)
     }
 
     func testEnglishTopics() async throws {
@@ -52,8 +56,7 @@ final class GistTests: XCTestCase {
     /// threshold, and never more than `topK`.
     func testRankingAndTopK() async throws {
         try requireModelBacked()
-        let gist = Gist()
-        let ranked = try await gist.classify("A one-pan roast chicken recipe for weeknights", topK: 5)
+        let ranked = try await gist().classify("A one-pan roast chicken recipe for weeknights", topK: 5)
         XCTAssertFalse(ranked.isEmpty)
         XCTAssertLessThanOrEqual(ranked.count, 5)
         XCTAssertEqual(ranked.map(\.score), ranked.map(\.score).sorted(by: >), "topics must be ranked")
@@ -62,14 +65,14 @@ final class GistTests: XCTestCase {
             XCTAssertTrue((0...1).contains(topic.score), "\(topic.slug) score out of range")
         }
         // An unrankable input still yields the single best topic.
-        let noise = try await gist.classify("asdfgh qwerty", topK: 3)
+        let noise = try await gist().classify("asdfgh qwerty", topK: 3)
         XCTAssertEqual(noise.count, 1, "got \(noise.map(\.slug))")
     }
 
     /// `scores` is the whole taxonomy, and it is a distribution over it.
     func testScoresCoverTheTaxonomy() async throws {
         try requireModelBacked()
-        let scores = try await Gist().scores(of: "How to start a podcast with just your iPhone")
+        let scores = try await gist().scores(of: "How to start a podcast with just your iPhone")
         XCTAssertEqual(scores.count, 36, "the taxonomy is 36 topics")
         for (slug, p) in scores {
             XCTAssertTrue((0...1).contains(p), "\(slug) = \(p) is not a probability")
@@ -81,10 +84,9 @@ final class GistTests: XCTestCase {
     /// wire format against a change made only on the Swift side.
     func testBindingPayloadCarriesTheTaxonomy() async throws {
         try requireModelBacked()
-        let gist = Gist()
         var input = FFIWriter()
         input.string("A one-pan roast chicken recipe for weeknights")
-        let bytes = await gist.run(input: FFIReader(input.bytes), options: FFIReader([]))
+        let bytes = try await gist().run(input: FFIReader(input.bytes), options: FFIReader([]))
         var r = FFIReader(try XCTUnwrap(bytes))
 
         let threshold = r.f64()

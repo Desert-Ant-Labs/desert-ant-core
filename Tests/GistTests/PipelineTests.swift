@@ -17,10 +17,11 @@ final class PipelineTests: XCTestCase {
 
     // The tokenizer and the 67 MB embedding table come from the Hub rather than
     // from committed fixtures — the same files a user gets, and the reason this
-    // suite is model-backed. Only the 53 KB oracle is a test resource.
+    // suite is model-backed. Only the 53 KB oracle is a test resource. Resolved
+    // through `GistFixture` so the whole target verifies those files once.
     func testSemanticAndLexicalStreams() async throws {
         try XCTSkipUnless(runsModelBackedTests, "model-backed tests do not run on iOS or Android")
-        let files = try await ModelFixture.files(GistModel.self)
+        let files = try await GistFixture.loaded().files
 
         let tok = try XCTUnwrap(Tokenizer(bytes: try files.read(GistModel.tokenizer)))
         let embedding = try Embedding(
