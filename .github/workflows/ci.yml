@@ -137,9 +137,14 @@ jobs:
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
+          #
+          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
+          # runner user, which cannot signal the root apt-get it is trying to
+          # stop (EPERM), so the hang survives its own timeout. -k follows up
+          # with SIGKILL for an apt wedged past SIGTERM.
           for attempt in 1 2 3; do
-            if timeout 120 sudo apt-get update -qq \
-              && timeout 180 sudo apt-get install -y -qq --no-install-recommends \
+            if sudo timeout -k 10 120 apt-get update -qq \
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
                    libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
               exit 0
             fi
@@ -190,9 +195,14 @@ jobs:
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
+          #
+          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
+          # runner user, which cannot signal the root apt-get it is trying to
+          # stop (EPERM), so the hang survives its own timeout. -k follows up
+          # with SIGKILL for an apt wedged past SIGTERM.
           for attempt in 1 2 3; do
-            if timeout 120 sudo apt-get update -qq \
-              && timeout 180 sudo apt-get install -y -qq --no-install-recommends \
+            if sudo timeout -k 10 120 apt-get update -qq \
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
                    libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
               exit 0
             fi
@@ -345,9 +355,14 @@ jobs:
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
+          #
+          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
+          # runner user, which cannot signal the root apt-get it is trying to
+          # stop (EPERM), so the hang survives its own timeout. -k follows up
+          # with SIGKILL for an apt wedged past SIGTERM.
           for attempt in 1 2 3; do
-            if timeout 120 sudo apt-get update -qq \
-              && timeout 180 sudo apt-get install -y -qq --no-install-recommends \
+            if sudo timeout -k 10 120 apt-get update -qq \
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
                    libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
               exit 0
             fi
