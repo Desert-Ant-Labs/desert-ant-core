@@ -11,7 +11,7 @@ public enum GistModel: ModelDeclaration {
     public static let revision = "v2.2.0"
     /// Matches packages/gist-node/package.json and packages/gist-kotlin/build.gradle.kts
     /// (ModelCatalogTests enforces it).
-    public static let sdkVersion = "1.2.0"
+    public static let sdkVersion = "3.0.0"
     public static let summary = "Multilingual on-device content topic tagging across a 36-topic taxonomy."
 
     /// The variant this declaration describes: the SDK default. The repo also
