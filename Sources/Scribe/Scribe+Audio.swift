@@ -10,11 +10,20 @@ public extension Scribe {
         path: String,
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
+        #if canImport(AVFoundation)
+        // Read and convert as we go. Decoding the file up front costs 230 MB of
+        // `Float` per hour of audio before the model has allocated anything.
+        var stream = try FileAudioStream(url: URL(fileURLWithPath: path),
+                                         sampleRate: sampleRate)
+        let duration = Double(stream.totalSamples ?? 0) / sampleRate
+        return try transcribe(stream: &stream, duration: duration, progress: progress)
+        #else
         let samples = try await AudioIO.decode(path: path, sampleRate: sampleRate)
         guard !samples.isEmpty else {
             throw ScribeError.invalidAudio("\(path) decoded to no audio")
         }
         return try transcribe(samples: samples, progress: progress)
+        #endif
     }
 
     /// Transcribe an audio file at `url`.

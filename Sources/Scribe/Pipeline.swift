@@ -17,20 +17,40 @@ final class Pipeline {
 
     /// Windows end at the quietest point in this much audio before the nominal
     /// boundary, so a window rarely stops in the middle of a word.
-    private static let boundarySearch = 3.0
+    /// Swept on half an hour of narration: 1 s puts boundaries inside speech and
+    /// costs 405 deletions, 3 s costs 34, and going wider buys little for the
+    /// windows it adds. Overridable so the sweep can be repeated.
+    private static let boundarySearch =
+        Double(ProcessInfo.processInfo.environment["SCRIBE_SEARCH"] ?? "") ?? 3.0
     /// Energy is measured over frames this long when looking for that point.
     private static let boundaryFrame = 0.02
+    /// A frame this far below the passage's median energy is a real pause.
+    private static let silenceFactor: Float = 0.05
+    /// Failing that, the best dip between words.
+    private static let valleyFactor: Float = 0.35
+    /// How much louder than the quietest candidate a boundary may still be.
+    private static let nearFloor: Float = 2.0
+    /// How much of a refused window to keep when giving it a second length.
+    /// Shortening by a second recovered every refused window that was tested.
+    private static let retryFraction = 0.93
+    /// How many retries may recover nothing before retrying is abandoned.
+    private static let futileRetryLimit = 8
+    /// A window this quiet relative to full scale is silence, and a recogniser
+    /// returning nothing for it is correct rather than refusing.
+    private static let speechFloor: Float = 1e-5
 
     /// How many windows are encoded before their decode runs. Bounds peak memory
     /// (each window's encoder output is ~240 KB) and gives progress somewhere to
     /// be reported from, while staying long enough that the decoder's lanes stay
     /// full for all but the last group.
-    private static let batchWindows = 64
+    private static let batchWindows =
+        Int(ProcessInfo.processInfo.environment["SCRIBE_BATCH_WINDOWS"] ?? "") ?? 64
 
     private let rows: Buffer
     private let melOut: Buffer
     private let keyBias: Buffer
     private let padMask: Buffer
+    private let melMask: Buffer
     private let encOut: Buffer
     private let embed: Buffer
     private let hIn: Buffer
@@ -57,6 +77,7 @@ final class Pipeline {
         melOut = try Buffer([1, c.nMels, 1, c.validFrames])
         keyBias = try Buffer([1, c.encFrames, 1, 1])
         padMask = try Buffer([1, 1, 1, c.encFrames])
+        melMask = try Buffer([1, 1, 1, c.validFrames])
         encOut = try Buffer([1, c.jointHidden, 1, c.encFrames])
         embed = try Buffer([lanes, c.predHidden, 1, 1])
         hIn = try Buffer([lanes, hidden, 1, 1])
@@ -73,7 +94,8 @@ final class Pipeline {
         padMask.ptr.update(repeating: 1, count: padMask.count)
 
         melProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "audio_rows": MLFeatureValue(multiArray: rows.array)])
+            "audio_rows": MLFeatureValue(multiArray: rows.array),
+            "mel_mask": MLFeatureValue(multiArray: melMask.array)])
         encoderProvider = try MLDictionaryFeatureProvider(dictionary: [
             "mel": MLFeatureValue(multiArray: melOut.array),
             "key_bias": MLFeatureValue(multiArray: keyBias.array),
@@ -125,6 +147,15 @@ final class Pipeline {
     private func encode(window: ArraySlice<Float>, validFrames: Int,
                         into destination: UnsafeMutablePointer<Element>) throws {
         frame(window)
+        // Normalization statistics must be taken over the frames that actually
+        // hold audio. A window is a fixed 15 s, so a five-second clip is two
+        // thirds padding, and including it drags the mean down and squashes the
+        // speech: the frontend then agrees with the reference implementation to
+        // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
+        let melFrames = configuration.validFrames
+        let melValid = max(1, min(melFrames, window.count / configuration.hopLength + 1))
+        melMask.ptr.update(repeating: 1, count: melValid)
+        for i in melValid..<melFrames { melMask.ptr[i] = 0 }
         _ = try assets.mel.prediction(from: melProvider, options: melOptions)
         let frames = configuration.encFrames
         let valid = max(1, min(frames, validFrames))
@@ -146,7 +177,7 @@ final class Pipeline {
     /// do not interact, so running several in lockstep amortises that fixed cost,
     /// and a lane that finishes takes the next pending window immediately rather
     /// than idling until the whole group is done.
-    private func decode(projections: [Element], valids: [Int],
+    private func decode(projections: [Element], valids: [Int], ends: inout [[Int]],
                         tokens: inout [[Int]], frames: inout [[Int]]) throws {
         let c = configuration
         let width = c.decodeWidth
@@ -225,6 +256,11 @@ final class Pipeline {
                     if best != blank {
                         tokens[window].append(best)
                         frames[window].append(position[lane] + offset)
+                        // How many frames the recogniser says this token spans.
+                        // It predicts one per token and the decode loop uses it
+                        // to advance; kept here because it is also the only
+                        // acoustic evidence available for where a word ends.
+                        ends[window].append(position[lane] + offset + duration)
                         (hIn.ptr + lane * hidden).update(from: hOut.ptr + lane * hidden, count: hidden)
                         (cIn.ptr + lane * hidden).update(from: cOut.ptr + lane * hidden, count: hidden)
                         label[lane] = best
@@ -246,6 +282,22 @@ final class Pipeline {
         }
     }
 
+    /// Does this window hold anything worth transcribing?
+    ///
+    /// Only used to tell a window the recogniser refused from one that is
+    /// genuinely silent, so that silence is not re-run pointlessly.
+    private func holdsSpeech(_ window: ArraySlice<Float>) -> Bool {
+        var sum: Float = 0
+        var count = 0
+        var i = window.startIndex
+        while i < window.endIndex {
+            sum += window[i] * window[i]
+            count += 1
+            i += 16   // every sixteenth sample is plenty for a level check
+        }
+        return count > 0 && sum / Float(count) > Self.speechFloor
+    }
+
     /// Where each window should start, in samples.
     ///
     /// A fixed 15 s grid cuts wherever it lands, and the model is measurably
@@ -260,72 +312,202 @@ final class Pipeline {
     /// each boundary is placed at the quietest point in the last few seconds of
     /// the window. Windows are therefore up to `nSamples` long and usually a
     /// little shorter, and each one starts where the speaker paused.
-    private func boundaries(_ samples: [Float]) -> [Int] {
+    /// Where the window after `start` should begin, given a way to read audio.
+    ///
+    /// Only ever looks inside `[start, start + nSamples]`, which is what lets a
+    /// long file be walked with a sliding buffer instead of being held whole.
+    private func nextBoundary(after start: Int, audio: (Int) -> Float) -> Int {
         let c = configuration
         let window = c.nSamples
         // A fixed grid is what this replaced. Kept switchable so the cost of
         // aligning to silence can be measured rather than estimated.
         if ProcessInfo.processInfo.environment["SCRIBE_FIXED_WINDOWS"] != nil {
-            return Array(Swift.stride(from: 0, to: Swift.max(1, samples.count), by: window))
+            return start + window
         }
         let search = Int(Self.boundarySearch * Double(c.sampleRate))
         let frame = max(1, Int(Self.boundaryFrame * Double(c.sampleRate)))
-        var starts: [Int] = [0]
-        var start = 0
-        while start + window < samples.count {
-            // Look for the lowest-energy frame in the tail of this window.
-            let from = start + window - search
-            var bestAt = start + window
-            var bestEnergy = Float.greatestFiniteMagnitude
-            var at = from
-            while at + frame <= start + window {
-                var sum: Float = 0
-                for i in at..<(at + frame) { sum += samples[i] * samples[i] }
-                if sum < bestEnergy { bestEnergy = sum; bestAt = at + frame / 2 }
-                at += frame
-            }
-            start = bestAt
-            starts.append(start)
+        let from = start + window - search
+        var scores: [(at: Int, energy: Float)] = []
+        var at = from
+        while at + frame <= start + window {
+            var sum: Float = 0
+            for i in at..<(at + frame) { sum += audio(i) * audio(i) }
+            scores.append((at + frame / 2, sum / Float(frame)))
+            at += frame
         }
-        return starts
+        guard !scores.isEmpty else { return start + window }
+        var bestAt = start + window
+        let floorEnergy = Swift.max(scores.map(\.energy).min() ?? 0, 1e-9)
+        let admissible = scores.filter { $0.energy <= Self.nearFloor * floorEnergy }
+        let pool = admissible.isEmpty ? scores : admissible
+        var bestScore = Float.greatestFiniteMagnitude
+        for candidate in pool {
+            let earliness = Float(start + window - candidate.at) / Float(search)
+            let score = candidate.energy * (1 + earliness)
+            if score <= bestScore { bestScore = score; bestAt = candidate.at }
+        }
+        return bestAt
     }
+
 
     // MARK: - Entry point
 
-    /// Transcribe mono 16 kHz samples, reporting progress as windows complete.
-    func run(samples: [Float], progress: (Double) -> Void) throws -> (String, [Word]) {
+    /// Transcribe a stream of mono 16 kHz samples.
+    ///
+    /// The audio is walked with a sliding buffer rather than held whole. Only
+    /// the batch being worked on has to be resident, so peak memory is set by
+    /// the batch size and not by the length of the recording: an hour of audio
+    /// is 230 MB of `Float`, and a video editor has a timeline and its own
+    /// buffers to fit alongside it.
+    func run(stream: inout some AudioStream, progress: (Double) -> Void) throws -> (String, [Word]) {
         let c = configuration
         let frames = c.encFrames
         let stride = c.jointHidden * frames
-        let starts = boundaries(samples)
-        let windowCount = starts.count
+        let window = c.nSamples
+
+        var buffer: [Float] = []
+        var origin = 0                    // absolute index of buffer[0]
+        var exhausted = false
+        var available: Int { origin + buffer.count }
+
+        /// Read until the buffer covers up to `absolute`, or the source ends.
+        func ensure(through absolute: Int) throws {
+            while !exhausted && available < absolute {
+                let wanted = Swift.max(absolute - available, c.sampleRate * 4)
+                if try stream.read(wanted, into: &buffer) == 0 { exhausted = true }
+            }
+        }
+        /// Release audio behind `absolute`; it is never looked at again.
+        ///
+        /// Rebuilt rather than trimmed in place: `removeFirst` keeps the array's
+        /// capacity, so the storage would stay as large as the largest span ever
+        /// held and none of this would give memory back.
+        func release(before absolute: Int) {
+            let drop = Swift.min(Swift.max(absolute - origin, 0), buffer.count)
+            guard drop > 0 else { return }
+            buffer = Array(buffer[drop...])
+            origin += drop
+        }
+        func slice(_ low: Int, _ high: Int) -> ArraySlice<Float> {
+            buffer[(low - origin)..<(high - origin)]
+        }
+        let total = stream.totalSamples
+        // Progress is how much audio has been read and encoded, which advances
+        // in order through the file. Reporting from the splice pass as well sent
+        // it back to the start of the batch each time, since the two passes walk
+        // the same windows.
+        func reported(_ at: Int) -> Double {
+            guard let total, total > 0 else { return 0 }
+            return Swift.min(1, Double(at + window) / Double(total))
+        }
 
         var words: [Word] = []
-        var done = 0
+        var futileRetries = 0
+        var starts: [Int] = [0]
+        var processed = 0
 
-        for start in Swift.stride(from: 0, to: windowCount, by: Self.batchWindows) {
-            let group = start..<min(start + Self.batchWindows, windowCount)
+        while true {
+            // Extend the boundary list to fill a batch, reading only as far as
+            // each decision needs. This has to happen before the loop decides
+            // it is finished: checking `processed < starts.count` first stops
+            // after a single batch, which silently truncated any file longer
+            // than one, and left the transcript reading perfectly well.
+            while starts.count - processed < Self.batchWindows {
+                let last = starts[starts.count - 1]
+                try ensure(through: last + window)
+                guard available > last + window else { break }
+                starts.append(nextBoundary(after: last) { buffer[$0 - origin] })
+            }
+            guard processed < starts.count else { break }
+            let group = processed..<Swift.min(processed + Self.batchWindows, starts.count)
+            // Everything before this batch is finished with. Releasing here
+            // rather than after the batch matters: at that point the boundary
+            // list has already been extended to exactly the batch that was just
+            // processed, so the release never fired and the buffer grew with the
+            // file -- 5.8 MB for every minute of audio.
+            release(before: starts[group.lowerBound])
+            try ensure(through: starts[group.upperBound - 1] + window)
             var projections = [Element](repeating: 0, count: group.count * stride)
             var valids = [Int](repeating: frames, count: group.count)
 
             try projections.withUnsafeMutableBufferPointer { buffer in
                 for (i, w) in group.enumerated() {
                     let low = starts[w]
-                    let high = Swift.min(low + c.nSamples, samples.count)
+                    let high = Swift.min(low + c.nSamples, available)
                     // ceil(samples / hop / 8): rounding this down loses the final frame.
                     valids[i] = Swift.max(1, Swift.min(
                         frames, (high - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
-                    try encode(window: samples[low..<high], validFrames: valids[i],
+                    try encode(window: slice(low, high), validFrames: valids[i],
                                into: buffer.baseAddress! + i * stride)
-                    done += 1
-                    progress(Double(done) / Double(windowCount * 2))
+                    progress(reported(low))
                 }
             }
 
             var tokens = [[Int]](repeating: [], count: group.count)
             var emitFrames = [[Int]](repeating: [], count: group.count)
-            try decode(projections: projections, valids: valids,
+            var emitEnds = [[Int]](repeating: [], count: group.count)
+            try decode(projections: projections, valids: valids, ends: &emitEnds,
                        tokens: &tokens, frames: &emitFrames)
+
+            // Some windows come back empty even though they are full of speech.
+            // This is the recogniser's own behaviour and not this runtime's: the
+            // reference implementation refuses exactly the same crops, and on
+            // one ten-minute file about a quarter of all fifteen-second crops at
+            // half-second spacing produce nothing at all. It is not the audio
+            // level, and it is not where the crop starts relative to a word; the
+            // same seconds transcribe normally at a different crop length, and
+            // the boundary between working and refusing moves with the content.
+            //
+            // Nothing in the boundary search can steer around that, so a refused
+            // window is given the one thing that reliably changes the outcome: a
+            // different length. Every refused window tested recovered when its
+            // audio was shortened, and this costs a second pass only over the
+            // windows that produced nothing, which is normally none of them.
+            // Audio that is not speech at all -- music, room tone, a held
+            // note -- legitimately produces nothing from every window, and
+            // retrying all of them doubles the work to learn that. So a run of
+            // retries that recovers nothing switches retrying off, and any
+            // recovery switches it back on: the cost is bounded on material
+            // that has nothing to say, without giving up on a file that is
+            // quiet for a while and then starts talking.
+            let refused = futileRetries >= Self.futileRetryLimit ? [] :
+                group.enumerated().filter { i, w in
+                    tokens[i].isEmpty && holdsSpeech(slice(starts[w], Swift.min(starts[w] + c.nSamples, available)))
+                }
+            if !refused.isEmpty {
+                // Retried together rather than one at a time, for the same
+                // reason the first pass batches: a decode call costs about the
+                // same whatever it carries. Run singly, a file of pure
+                // non-speech -- where every window legitimately produces
+                // nothing and every one is retried -- ran at a third of its
+                // usual speed instead of half.
+                var retryProjections = [Element](repeating: 0, count: refused.count * stride)
+                var retryValids = [Int](repeating: frames, count: refused.count)
+                try retryProjections.withUnsafeMutableBufferPointer { buffer in
+                    for (slot, entry) in refused.enumerated() {
+                        let low = starts[entry.element]
+                        let high = Swift.min(low + c.nSamples, available)
+                        let shortened = low + Int(Self.retryFraction * Double(high - low))
+                        retryValids[slot] = Swift.max(1, Swift.min(
+                            frames, (shortened - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
+                        try encode(window: slice(low, shortened),
+                                   validFrames: retryValids[slot],
+                                   into: buffer.baseAddress! + slot * stride)
+                    }
+                }
+                var retryTokens = [[Int]](repeating: [], count: refused.count)
+                var retryFrames = [[Int]](repeating: [], count: refused.count)
+                var retryEnds = [[Int]](repeating: [], count: refused.count)
+                try decode(projections: retryProjections, valids: retryValids,
+                           ends: &retryEnds,
+                           tokens: &retryTokens, frames: &retryFrames)
+                for (slot, entry) in refused.enumerated() {
+                    tokens[entry.offset] = retryTokens[slot]
+                    emitFrames[entry.offset] = retryFrames[slot]
+                    emitEnds[entry.offset] = retryEnds[slot]
+                    if retryTokens[slot].isEmpty { futileRetries += 1 } else { futileRetries = 0 }
+                }
+            }
 
             for (i, w) in group.enumerated() {
                 // The window's position in the file is how much audio precedes
@@ -339,11 +521,17 @@ final class Pipeline {
                 // tail is what lets the splice align them; cutting purely on
                 // time duplicated any word whose two estimates straddled the
                 // seam, which is where "they they walked" came from.
-                let produced = timedWords(tokens: tokens[i], frames: emitFrames[i],
-                                          vocabulary: assets.vocabulary,
-                                          secondsPerFrame: c.secondsPerFrame,
-                                          timeOffset: Double(starts[w])
-                                              / Double(c.sampleRate))
+                let low = starts[w]
+                let high = Swift.min(low + c.nSamples, available)
+                let produced = refineEnds(
+                    timedWords(tokens: tokens[i], frames: emitFrames[i],
+                               ends: emitEnds[i],
+                               vocabulary: assets.vocabulary,
+                               secondsPerFrame: c.secondsPerFrame,
+                               timeOffset: Double(low) / Double(c.sampleRate)),
+                    samples: slice(low, high),
+                    windowStart: Double(low) / Double(c.sampleRate),
+                    sampleRate: Double(c.sampleRate))
                 if words.isEmpty {
                     words = produced
                 } else {
@@ -351,10 +539,10 @@ final class Pipeline {
                                           boundary: Double(starts[w]) / Double(c.sampleRate),
                                           overlap: Self.boundarySearch)
                 }
-                done += 1
-                progress(Double(done) / Double(windowCount * 2))
             }
+            processed = group.upperBound
         }
+        words = clampMonotonic(words)
         return (words.map(\.text).joined(separator: " "), words)
     }
 }

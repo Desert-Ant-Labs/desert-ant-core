@@ -112,13 +112,28 @@ public actor Scribe {
         progress: @Sendable (Progress) -> Void = { _ in }
     ) throws -> Result {
         guard !samples.isEmpty else { throw ScribeError.invalidAudio("no samples") }
+        var stream = ArrayAudioStream(samples)
+        return try transcribe(stream: &stream,
+                              duration: Double(samples.count) / sampleRate,
+                              progress: progress)
+    }
+
+    /// Transcribe from a source that is read as it goes, so that a long
+    /// recording does not have to be resident all at once.
+    func transcribe(
+        stream: inout some AudioStream,
+        duration: Double,
+        progress: @Sendable (Progress) -> Void
+    ) throws -> Result {
         let started = Date()
-        let (text, words) = try pipeline.run(samples: samples) {
+        let (text, words) = try pipeline.run(stream: &stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))
         }
         progress(Progress(fractionCompleted: 1))
-        return Result(text: text, words: words,
-                      duration: Double(samples.count) / sampleRate,
+        guard !words.isEmpty || duration > 0 else {
+            throw ScribeError.invalidAudio("no samples")
+        }
+        return Result(text: text, words: words, duration: duration,
                       processingTime: Date().timeIntervalSince(started))
     }
 }

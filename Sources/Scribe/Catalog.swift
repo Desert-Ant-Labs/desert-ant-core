@@ -15,7 +15,8 @@ public enum ScribeModel: ModelDeclaration {
     public static let id = "scribe"
     public static let product = "Scribe"
     public static let revision = "main"
-    public static let sdkVersion = "1.0.5"
+    /// Matches VERSION (check:version enforces it; this repo releases as one).
+    public static let sdkVersion = "3.0.0"
     public static let summary =
         "On-device speech recognition: transcripts with word-level timestamps, 25 languages."
 

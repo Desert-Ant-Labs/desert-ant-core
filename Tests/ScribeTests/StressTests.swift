@@ -78,7 +78,32 @@ struct ScribeStress {
                   + "\(pad(String(format: "%.0f", result.realtimeFactor), 7)) "
                   + "\(pad(String(result.words.count), 7)) "
                   + String(format: "%.1fs", gap))
-            #expect(gap < 15, "\(file.lastPathComponent): \(gap) s without a word suggests a window decoded to nothing")
+            // A window is 15 s, so a gap approaching that means one produced
+            // nothing. The bar is deliberately below the window length: at 15 s
+            // a lost window passes by a tenth of a second and the defect ships.
+            #expect(gap < 8, "\(file.lastPathComponent): \(gap) s without a word suggests a window decoded to nothing")
+
+            // Ends have to be usable for cutting: after the word starts, before
+            // the file ends, and never running past where the next word begins.
+            for (a, b) in zip(result.words, result.words.dropFirst()) {
+                #expect(a.end >= a.start, "\(file.lastPathComponent): \(a.text) ends before it starts")
+                #expect(a.end <= b.start + 1e-6,
+                        "\(file.lastPathComponent): \(a.text) runs past the start of \(b.text)")
+            }
+            if let last = result.words.last {
+                #expect(last.end <= duration + 1,
+                        "\(file.lastPathComponent): last word ends after the audio does")
+            }
+
+            // Speech runs at a few words a second, so anything under one word
+            // per two seconds means audio went missing rather than that the
+            // speaker was terse. Without this, a bug that dropped everything
+            // past the first batch of windows halved a half-hour transcript and
+            // the suite stayed green, because what remained read perfectly.
+            if !result.words.isEmpty {
+                #expect(Double(result.words.count) / duration > 0.5,
+                        "\(file.lastPathComponent): \(result.words.count) words in \(duration) s is too few to be the whole file")
+            }
         }
     }
 
@@ -155,9 +180,75 @@ struct ScribeStress {
             #expect(!result.words.isEmpty, "\(rate) Hz produced nothing")
         }
     }
+
+    /// Transcribe every file in a directory, reporting throughput and dumping
+    /// the text for scoring. Set SCRIBE_BENCH to the directory.
+    ///
+    /// The files this is aimed at are long on purpose. A ten-minute file
+    /// crosses about forty window boundaries, so the merge logic is exercised
+    /// forty times per language rather than not at all, which is what a corpus
+    /// of ten-second utterances would measure.
+    @Test func benchmarkDirectory() async throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard let dir = environment["SCRIBE_BENCH"],
+              let models = environment["SCRIBE_MODEL_DIR"]
+        else { return }
+        let root = URL(fileURLWithPath: dir)
+        let files = try FileManager.default
+            .contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
+            .filter { ["wav", "flac", "m4a", "mp3"].contains($0.pathExtension) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let scribe = try Scribe(modelDirectory: URL(fileURLWithPath: models))
+        for file in files {
+            // Deliberately does not decode the file here. Doing so to work out
+            // the duration would hold the whole recording in memory and hide
+            // the very thing the streaming path exists to avoid.
+            let result = try await scribe.transcribe(file)
+            let duration = result.duration
+            let name = file.deletingPathExtension().lastPathComponent
+            try? result.text.write(to: root.appendingPathComponent(name + ".hyp"),
+                                   atomically: true, encoding: .utf8)
+            if environment["SCRIBE_WORDS"] != nil {
+                let times = result.words.map {
+                    ["text": $0.text, "start": "\($0.start)", "end": "\($0.end)"]
+                }
+                if let data = try? JSONSerialization.data(withJSONObject: times) {
+                    try? data.write(to: root.appendingPathComponent(name + ".words"))
+                }
+            }
+            print("BENCH\t\(name)\t\(duration)\t\(result.processingTime)"
+                  + "\t\(result.realtimeFactor)\t\(result.words.count)")
+        }
+    }
 }
 
 private func pad(_ s: String, _ n: Int) -> String {
     s.count >= n ? s : s + String(repeating: " ", count: n - s.count)
+
+}
+
+@Suite("ScribeAudioStream")
+struct ScribeAudioStreamTests {
+    /// The streaming reader must deliver exactly what decoding the whole file
+    /// delivers. It is easy for a chunked reader to lose audio at a chunk
+    /// boundary and still look healthy, because the transcript stays readable.
+    @Test func streamMatchesWholeFileDecode() async throws {
+        guard let corpus = Corpus() else { return }
+        for file in corpus.files {
+            let whole = try await AudioIO.decode(path: file.path, sampleRate: 16000)
+            var stream = try FileAudioStream(url: file, sampleRate: 16000)
+            var streamed: [Float] = []
+            while try stream.read(1 << 16, into: &streamed) > 0 {}
+            let name = file.lastPathComponent
+            #expect(abs(streamed.count - whole.count) <= 16000 / 100,
+                    "\(name): streamed \(streamed.count) samples, whole file has \(whole.count)")
+            let n = Swift.min(streamed.count, whole.count)
+            var worst: Float = 0
+            for i in Swift.stride(from: 0, to: n, by: 7) {
+                worst = Swift.max(worst, abs(streamed[i] - whole[i]))
+            }
+            #expect(worst < 1e-3, "\(name): samples differ by \(worst)")
+        }
+    }
 }
 #endif
