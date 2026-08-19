@@ -18,7 +18,7 @@ final class TokenizerTests: XCTestCase {
     // is a test resource.
     func testMatchesPythonOracle() async throws {
         try XCTSkipUnless(runsModelBackedTests, "model-backed tests do not run on iOS or Android")
-        let files = try await ModelFixture.files(GistModel.self)
+        let files = try await GistFixture.loaded().files
         let tok = try XCTUnwrap(Tokenizer(bytes: try files.read(GistModel.tokenizer)))
 
         let oracleURL = try XCTUnwrap(Bundle.module.url(forResource: "gist-sdk-oracle", withExtension: "json"))
