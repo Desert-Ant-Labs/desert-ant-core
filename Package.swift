@@ -63,6 +63,14 @@ let models: [ModelPackage] = [
         name: "Uhm",
         dependencies: ["AudioIO", "AudioDSP"]
     ),
+    .init(
+        name: "Gist",
+        dependencies: [.product(name: "RealModule", package: "swift-numerics")],
+        testResources: [
+            .copy("Resources/gist-sdk-oracle.json"),
+            .copy("Resources/gist-feature-oracle.json"),
+        ]
+    ),
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
