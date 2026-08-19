@@ -41,9 +41,12 @@ dal_models_with() {
 # package declares `"desertant": {"pure": true}` (tongue is the first). Tasks
 # that stage or test native artifacts skip these; their suites still run
 # (test:node runs the package's own tests, Gradle runs the Kotlin ones).
+#
+# grep, not node: the release's native-build containers carry no JS toolchain,
+# and a guard that quietly returns false there sends a pure model into a native
+# build that cannot exist (v1.2.0 learned this the hard way).
 dal_node_pure() { # <model>
-    [ -f "packages/$1-node/package.json" ] || return 1
-    [ "$(node -p "require('./packages/$1-node/package.json').desertant?.pure ?? false")" = true ]
+    grep -q '"pure"[[:space:]]*:[[:space:]]*true' "packages/$1-node/package.json" 2> /dev/null
 }
 
 # "emo" -> "Emo". The Swift product/target name, and the native library prefix.
