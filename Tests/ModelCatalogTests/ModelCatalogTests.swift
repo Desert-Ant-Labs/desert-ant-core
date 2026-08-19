@@ -5,6 +5,7 @@ import DesertAnt
 @testable import Redact
 @testable import Clear
 @testable import Uhm
+@testable import Gist
 @testable import Tongue
 
 /// Every model in the monorepo. The list lives here rather than beside the
@@ -16,6 +17,7 @@ let catalog: [any ModelDeclaration.Type] = [
     RedactModel.self,
     ClearModel.self,
     UhmModel.self,
+    GistModel.self,
     TongueModel.self,
 ]
 
