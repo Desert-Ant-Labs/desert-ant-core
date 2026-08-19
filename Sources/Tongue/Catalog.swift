@@ -1,8 +1,9 @@
 // This model's catalog declaration. Tongue is bundled, not downloaded: the
 // whole model is 2 MB of int8 weights plus a metadata JSON, shipped inside
 // every package (a SwiftPM target resource, the npm package's dist/, the jar's
-// resources). No Hugging Face repo exists, so no ModelStore path ever resolves
-// this manifest, and there is no HubDownloadTests here on purpose.
+// resources). The Hub repo desert-ant-labs/tongue mirrors the same bytes for
+// the website demo, but no ModelStore path in any SDK resolves this manifest,
+// and there is no HubDownloadTests here on purpose.
 
 import DesertAnt
 
@@ -10,10 +11,10 @@ import DesertAnt
 public enum TongueModel: ModelDeclaration {
     public static let id = "tongue"
     public static let product = "Tongue"
-    /// No Hub repo exists (the weights ship inside the packages), so there is
-    /// no v-tag to pin; `main` is the documented placeholder the catalog
-    /// invariants accept.
-    public static let revision = "main"
+    /// The Hub tag pinning the mirrored weights (sha256-identical to the
+    /// bundled copies). The SDKs never download them; the website demo does,
+    /// and pins this tag rather than trailing main.
+    public static let revision = "v1.0.0"
     /// Matches packages/tongue-node/package.json and
     /// packages/tongue-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.0.0"
