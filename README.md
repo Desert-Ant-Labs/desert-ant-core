@@ -38,6 +38,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
 | **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
 | **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | `ai.desertant:clear` | `@desert-ant-labs/clear` | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
+| **Gist** | Content topic tagging over a 36-topic taxonomy, 101 languages | `Gist` | `ai.desertant:gist` | `@desert-ant-labs/gist` | [Hugging Face](https://huggingface.co/desert-ant-labs/gist) |
 | **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
 | **Tongue** | Language identification for short text, 84 languages | `Tongue` | `ai.desertant:tongue` | `@desert-ant-labs/tongue` | Bundled (2 MB) |
 
