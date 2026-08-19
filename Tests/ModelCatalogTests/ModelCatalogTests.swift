@@ -8,6 +8,7 @@ import DesertAnt
 @testable import Gist
 @testable import Tongue
 @testable import Clips
+@testable import Shapes
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -21,6 +22,7 @@ let catalog: [any ModelDeclaration.Type] = [
     GistModel.self,
     TongueModel.self,
     ClipModel.self,
+    ShapesModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
@@ -114,6 +116,8 @@ struct ModelCatalogTests {
         #expect(RedactModel.artifact(for: .apple) == RedactModel.coreML)
         #expect(EmoModel.artifact(for: .android) == EmoModel.tflite)
         #expect(EmoModel.supports(.web))
+        #expect(ShapesModel.artifact(for: .apple) == ShapesModel.coreML)
+        #expect(ShapesModel.files[.linux] == [ShapesModel.tflite, ShapesModel.meta])
     }
 }
 
