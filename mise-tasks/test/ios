@@ -6,9 +6,22 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # The auto-generated "<package>-Package" scheme builds every target and runs
 # every suite, so this covers every model. -skipMacroValidation avoids the
 # swift-syntax macro fingerprint prompt (pulled in via JavaScriptKit's plugin).
-# Newest available iPhone simulator.
-device=$(xcrun simctl list devices available | grep -oE 'iPhone [0-9]+( Pro)?( Max)?' | tail -1)
-echo "Using simulator: ${device:?no iPhone simulator is available}"
+
+# The newest available iPhone simulator, selected by udid rather than by name.
+# A bare name lets xcodebuild default the destination to `OS:latest`, which
+# means the *SDK's* iOS version — and if that runtime is not installed it is a
+# hard "unable to find a destination" failure rather than a fallback to a
+# runtime that is. Picking the udid pins both the device and its runtime.
+device=$(xcrun simctl list devices available \
+    | awk '/^-- iOS /{ios=1; next} /^-- /{ios=0} ios && /^ *iPhone /{last=$0} END{print last}')
+udid=$(printf '%s' "$device" | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f-]{27}')
+[ -n "$udid" ] || {
+    echo "error: no iPhone simulator is available." >&2
+    echo "       Install a runtime with 'xcodebuild -downloadPlatform iOS'." >&2
+    exit 1
+}
+name=$(printf '%s' "${device%% (*}" | sed 's/^ *//')
+echo "Using simulator: $name ($udid)"
 
 # On CI, pin DerivedData and the SPM clone dir to repo-local paths so
 # actions/cache can persist them across runs; locally, leave Xcode's defaults
@@ -22,8 +35,16 @@ if [[ -n "${CI:-}" ]]; then
     )
 fi
 
+# Run the bundles in parallel. This package has 21 test targets, so the run is
+# 21 separate .xctest installs and launches on the simulator; the tests inside
+# them take ~37 s in total, while the launches around them cost ~105 s. Letting
+# xcodebuild clone the simulator and overlap them halves the phase (69 s -> 40 s
+# measured locally). The worker count is left to xcodebuild: pinning it to 8
+# measured no better than the default. Safe here because the model-backed tests
+# — the only ones that touch shared state, the model cache — are skipped on iOS.
 xcodebuild test \
     -scheme DesertAnt-Package \
-    -destination "platform=iOS Simulator,name=$device" \
+    -destination "platform=iOS Simulator,id=$udid" \
     -skipMacroValidation \
+    -parallel-testing-enabled YES \
     ${ci_flags[@]+"${ci_flags[@]}"}

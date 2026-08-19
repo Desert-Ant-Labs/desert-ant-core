@@ -73,12 +73,15 @@ jobs:
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
 
-      # The iOS simulator build compiles swift-syntax (via JavaScriptKit's
-      # macro plugin) from source, which dominates the job. test:ios pins
-      # DerivedData and the SPM clones to .build/ when $CI is set, so this
-      # cache turns that into an incremental build. Package.resolved keys the
-      # dependency graph; restore-keys accept a stale cache, which xcodebuild
-      # then patches incrementally.
+      # test:ios pins DerivedData and the SPM clones to .build/ when $CI is set,
+      # so this cache turns the simulator build into an incremental one.
+      # Package.resolved keys the dependency graph; restore-keys accept a stale
+      # cache, which xcodebuild then patches incrementally.
+      #
+      # (This used to say swift-syntax dominated the job, via JavaScriptKit's
+      # macro plugin. That stopped being true when JavaScriptKit became opt-in
+      # behind DAL_WASM_BUILD, which test:ios does not set: swift-syntax no
+      # longer appears in the build log at all.)
       - name: Cache iOS DerivedData and SPM clones
         uses: actions/cache@v6
         with:
