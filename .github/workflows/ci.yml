@@ -131,7 +131,9 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
         run: |
-          # apt has wedged on a bad mirror here, sitting on `update` until the
+          # These three are already on the ubuntu-22.04 runner image, so the
+          # common path installs nothing and never touches the network. That
+          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
           # job's 6 h timeout rather than failing - one hung runner blocked two
           # PRs at once. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
@@ -142,10 +144,19 @@ jobs:
           # runner user, which cannot signal the root apt-get it is trying to
           # stop (EPERM), so the hang survives its own timeout. -k follows up
           # with SIGKILL for an apt wedged past SIGTERM.
+          pkgs="libcurl4-openssl-dev libxml2-dev zlib1g-dev"
+          missing=""
+          for p in $pkgs; do
+            dpkg -s "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          if [ -z "$missing" ]; then
+            echo "already on the runner image: $pkgs"
+            exit 0
+          fi
+          echo "missing:$missing"
           for attempt in 1 2 3; do
             if sudo timeout -k 10 120 apt-get update -qq \
-              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
-                   libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends $missing; then
               exit 0
             fi
             echo "::warning::apt attempt $attempt timed out or failed; retrying"
@@ -189,7 +200,9 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
         run: |
-          # apt has wedged on a bad mirror here, sitting on `update` until the
+          # These three are already on the ubuntu-22.04 runner image, so the
+          # common path installs nothing and never touches the network. That
+          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
           # job's 6 h timeout rather than failing - one hung runner blocked two
           # PRs at once. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
@@ -200,10 +213,19 @@ jobs:
           # runner user, which cannot signal the root apt-get it is trying to
           # stop (EPERM), so the hang survives its own timeout. -k follows up
           # with SIGKILL for an apt wedged past SIGTERM.
+          pkgs="libcurl4-openssl-dev libxml2-dev zlib1g-dev"
+          missing=""
+          for p in $pkgs; do
+            dpkg -s "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          if [ -z "$missing" ]; then
+            echo "already on the runner image: $pkgs"
+            exit 0
+          fi
+          echo "missing:$missing"
           for attempt in 1 2 3; do
             if sudo timeout -k 10 120 apt-get update -qq \
-              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
-                   libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends $missing; then
               exit 0
             fi
             echo "::warning::apt attempt $attempt timed out or failed; retrying"
@@ -349,7 +371,9 @@ jobs:
 
       - name: Swift toolchain system deps
         run: |
-          # apt has wedged on a bad mirror here, sitting on `update` until the
+          # These three are already on the ubuntu-22.04 runner image, so the
+          # common path installs nothing and never touches the network. That
+          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
           # job's 6 h timeout rather than failing - one hung runner blocked two
           # PRs at once. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
@@ -360,10 +384,19 @@ jobs:
           # runner user, which cannot signal the root apt-get it is trying to
           # stop (EPERM), so the hang survives its own timeout. -k follows up
           # with SIGKILL for an apt wedged past SIGTERM.
+          pkgs="libcurl4-openssl-dev libxml2-dev zlib1g-dev"
+          missing=""
+          for p in $pkgs; do
+            dpkg -s "$p" > /dev/null 2>&1 || missing="$missing $p"
+          done
+          if [ -z "$missing" ]; then
+            echo "already on the runner image: $pkgs"
+            exit 0
+          fi
+          echo "missing:$missing"
           for attempt in 1 2 3; do
             if sudo timeout -k 10 120 apt-get update -qq \
-              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends \
-                   libcurl4-openssl-dev libxml2-dev zlib1g-dev; then
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends $missing; then
               exit 0
             fi
             echo "::warning::apt attempt $attempt timed out or failed; retrying"
