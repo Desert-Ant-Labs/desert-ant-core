@@ -128,6 +128,12 @@ let models: [ModelPackage] = [
             .copy("Resources/gist-feature-oracle.json"),
         ]
     ),
+    // The geometric fitters and snapping replace `simd` (Apple-only) with a
+    // portable V2, so their transcendental math comes from swift-numerics.
+    .init(
+        name: "Shapes",
+        dependencies: [.product(name: "RealModule", package: "swift-numerics")]
+    ),
 ] + [
     // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
     // without the `MLX` trait its MLX dependencies are pruned and the target compiles as a
