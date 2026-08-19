@@ -197,6 +197,8 @@ jobs:
           cp -a /tmp/natives/. packages/
           find packages/*-node/native -type f | sort
           for dir in packages/*-node; do
+            # A pure package (dal_node_pure in Tools/dal.sh) ships no native core.
+            grep -q '"pure"[[:space:]]*:[[:space:]]*true' "$dir/package.json" && continue
             for target in linux-x64 linux-arm64 darwin-arm64; do
               [ -d "$dir/native/$target" ] || { echo "::error::$dir is missing the $target native"; exit 1; }
             done
@@ -204,6 +206,10 @@ jobs:
 
       # The browser half of every package.
       - run: mise run build:wasm
+
+      # A pure package's `prepare` builds its dist from TypeScript at publish
+      # time, which needs the workspace devDependencies on the PATH.
+      - run: mise run npm-install
 
       - name: Publish
         if: needs.gate.outputs.publish == 'true'
