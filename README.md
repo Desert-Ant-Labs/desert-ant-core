@@ -41,6 +41,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Gist** | Content topic tagging over a 36-topic taxonomy, 101 languages | `Gist` | `ai.desertant:gist` | `@desert-ant-labs/gist` | [Hugging Face](https://huggingface.co/desert-ant-labs/gist) |
 | **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
 | **Tongue** | Language identification for short text, 84 languages | `Tongue` | `ai.desertant:tongue` | `@desert-ant-labs/tongue` | Bundled (2 MB) |
+| **Shapes** | Single-stroke shape recognition: one hand-drawn stroke to clean vector geometry | `Shapes` | `ai.desertant:shapes` | `@desert-ant-labs/shapes` | [Hugging Face](https://huggingface.co/desert-ant-labs/shapes) |
 
 Each model behaves the same on every platform, so you can build a feature once
 and ship it everywhere. New models are added regularly; the current set is always
@@ -160,6 +161,31 @@ detection.candidates        // [Prediction(language: "de", probability: 0.999…
 detection.isTooCloseToCall  // false
 ```
 
+**Shapes**
+
+```swift
+import Shapes
+
+let shapes = Shapes()
+if let shape = try await shapes.recognize(points: strokePoints) {
+    switch shape {
+    case let .rectangle(corners): ...       // [Point]
+    case let .ellipse(center, semiMajor, semiMinor, rotation): ...
+    default: break
+    }
+}
+```
+
+`recognize` accepts `[Point]` or, on Apple platforms, `[CGPoint]` and PencilKit
+`PKStroke`; `Shape.path` gives a renderable `CGPath`. On iOS and visionOS, live
+snapping on a PencilKit canvas is one line - pausing mid-stroke previews the
+recognized shape, lifting the pen swaps it in, and the swap is registered with
+the canvas's undo manager:
+
+```swift
+canvasView.enableShapeSnapping()
+```
+
 **Download ahead of time**
 
 Any model can be fetched before first use, for example during onboarding:
@@ -266,6 +292,20 @@ detection.language                               // "de"
 detection.isTooCloseToCall                       // false
 ```
 
+```kotlin
+import ai.desertant.shapes.Point
+import ai.desertant.shapes.Shape
+import ai.desertant.shapes.Shapes
+
+Shapes(context).use { shapes ->
+    when (val shape = shapes.recognize(strokePoints)) {   // Shape? (null if rejected)
+        is Shape.Rectangle -> shape.corners
+        is Shape.Ellipse -> shape.center
+        else -> {}
+    }
+}
+```
+
 Download before first use, or point at your own directory:
 
 ```kotlin
@@ -348,6 +388,15 @@ so a copy script can `require.resolve` them under pnpm and Yarn PnP too:
 
 ```ts
 const tongue = await Tongue.load({ from: "/models/tongue" });
+```
+
+```ts
+import { Shapes } from "@desert-ant-labs/shapes";
+
+const shapes = await Shapes.load();
+const shape = await shapes.recognize(points);   // [{x, y}, ...] or [x0, y0, ...]
+if (shape?.kind === "ellipse") shape.center;    // null when the stroke is rejected
+shapes.dispose();
 ```
 
 Self-host the model files or track download progress:

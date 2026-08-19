@@ -5,6 +5,7 @@ import TestSupport
 @_spi(ClearBindings) @testable import Clear
 import Emo
 import Redact
+import Shapes
 
 /// The model-specific half of the cross-language binding: the payload schemas a
 /// host encodes and decodes. Each model owns its own adapter, so no model can
@@ -63,6 +64,7 @@ final class ClearBindingTests: XCTestCase {
         XCTAssertEqual(EmoBinding.id, "emo")
         XCTAssertEqual(RedactBinding.id, "redact")
         XCTAssertEqual(ClearBinding.id, "clear")
+        XCTAssertEqual(ShapesBinding.id, "shapes")
     }
 #endif
 }
