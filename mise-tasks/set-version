@@ -14,6 +14,11 @@ grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$version" \
 # cannot reference a file and therefore has to be rewritten.
 echo "$version" > VERSION
 
+# manifest.json restates it for consumers that read the registry alone. Edited
+# in place rather than reserialized, so the hand-formatted file keeps its shape.
+sed -i.bak -E 's|("sdkVersion": ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
+    manifest.json && rm -f manifest.json.bak
+
 # npm keeps package.json and its lockfile in sync.
 ( cd js && npm version "$version" --no-git-tag-version --allow-same-version > /dev/null )
 
@@ -48,4 +53,5 @@ sed -i.bak -E \
     README.md && rm -f README.md.bak
 
 mise run check:version > /dev/null
+mise run check:manifest > /dev/null
 echo "everything set to $version"

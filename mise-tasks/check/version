@@ -13,6 +13,7 @@ check() { # <found> <where>
 }
 
 check "$(node -p 'require("./js/package.json").version')" "js/package.json"
+check "$(node -p 'require("./manifest.json").sdkVersion')" "manifest.json"
 
 for model in $(dal_models); do
     product=$(dal_product "$model")
