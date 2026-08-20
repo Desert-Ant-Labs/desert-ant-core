@@ -136,6 +136,56 @@
       }
     },
     {
+      "id": "eye",
+      "name": "Eye",
+      "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
+      "category": "Image and video scoring",
+      "lifecycle": "beta",
+      "visibility": "internal",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/eye",
+        "url": "https://huggingface.co/desert-ant-labs/eye",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "face",
+      "name": "Face",
+      "summary": "On-device face matching across a photo library or through a video.",
+      "category": "Face matching",
+      "lifecycle": "beta",
+      "visibility": "internal",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/face",
+        "url": "https://huggingface.co/desert-ant-labs/face",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
       "id": "gist",
       "name": "Gist",
       "summary": "Multilingual on-device content topic tagging across a 36-topic taxonomy.",
@@ -173,6 +223,31 @@
       }
     },
     {
+      "id": "moderator",
+      "name": "Moderator",
+      "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
+      "category": "Content moderation",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/moderator",
+        "url": "https://huggingface.co/desert-ant-labs/moderator",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
       "id": "redact",
       "name": "Redact",
       "summary": "Multilingual on-device PII detection and redaction.",
@@ -204,6 +279,40 @@
         "space": "desert-ant-labs/redact-demo",
         "embed": "https://desert-ant-labs-redact-demo.static.hf.space",
         "page": "https://desertant.com/models/redact/"
+      }
+    },
+    {
+      "id": "schemer",
+      "name": "Schemer",
+      "summary": "On-device structured extraction into a caller-supplied JSON schema.",
+      "category": "Structured extraction",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/schemer",
+        "url": "https://huggingface.co/desert-ant-labs/schemer",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": {
+        "count": 13,
+        "codes": ["da", "de", "en", "es", "fr", "it", "ja", "nl", "no", "pl", "pt", "sv", "zh"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/schemer"
+      },
+      "demo": {
+        "space": "desert-ant-labs/schemer-demo",
+        "embed": "https://desert-ant-labs-schemer-demo.static.hf.space",
+        "page": "https://desertant.com/models/schemer/"
       }
     },
     {
@@ -300,6 +409,36 @@
       }
     },
     {
+      "id": "toxic",
+      "name": "Toxic",
+      "summary": "On-device hate-speech triage for European languages.",
+      "category": "Hate speech triage",
+      "lifecycle": "experimental",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "none" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/toxic",
+        "url": "https://huggingface.co/desert-ant-labs/toxic",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": {
+        "count": 23,
+        "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/toxic"
+      },
+      "demo": null
+    },
+    {
       "id": "uhm",
       "name": "Uhm",
       "summary": "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans.",
@@ -336,115 +475,6 @@
       }
     },
     {
-      "id": "moderator",
-      "name": "Moderator",
-      "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
-      "category": "Content moderation",
-      "lifecycle": "beta",
-      "visibility": "public",
-      "home": null,
-      "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
-      },
-      "weights": {
-        "source": "hub",
-        "repo": "desert-ant-labs/moderator",
-        "url": "https://huggingface.co/desert-ant-labs/moderator",
-        "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
-      },
-      "runtime": ["coreml"],
-      "variants": [],
-      "languages": null,
-      "demo": null
-    },
-    {
-      "id": "schemer",
-      "name": "Schemer",
-      "summary": "On-device structured extraction into a caller-supplied JSON schema.",
-      "category": "Structured extraction",
-      "lifecycle": "beta",
-      "visibility": "public",
-      "home": null,
-      "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
-      },
-      "weights": {
-        "source": "hub",
-        "repo": "desert-ant-labs/schemer",
-        "url": "https://huggingface.co/desert-ant-labs/schemer",
-        "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
-      },
-      "runtime": ["coreml"],
-      "variants": [],
-      "languages": {
-        "count": 13,
-        "codes": ["da", "de", "en", "es", "fr", "it", "ja", "nl", "no", "pl", "pt", "sv", "zh"],
-        "basis": "declared",
-        "source": "https://huggingface.co/desert-ant-labs/schemer"
-      },
-      "demo": {
-        "space": "desert-ant-labs/schemer-demo",
-        "embed": "https://desert-ant-labs-schemer-demo.static.hf.space",
-        "page": "https://desertant.com/models/schemer/"
-      }
-    },
-    {
-      "id": "eye",
-      "name": "Eye",
-      "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
-      "category": "Image and video scoring",
-      "lifecycle": "beta",
-      "visibility": "internal",
-      "home": null,
-      "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
-      },
-      "weights": {
-        "source": "hub",
-        "repo": "desert-ant-labs/eye",
-        "url": "https://huggingface.co/desert-ant-labs/eye",
-        "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
-      },
-      "runtime": ["coreml"],
-      "variants": [],
-      "languages": null,
-      "demo": null
-    },
-    {
-      "id": "face",
-      "name": "Face",
-      "summary": "On-device face matching across a photo library or through a video.",
-      "category": "Face matching",
-      "lifecycle": "beta",
-      "visibility": "internal",
-      "home": null,
-      "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
-      },
-      "weights": {
-        "source": "hub",
-        "repo": "desert-ant-labs/face",
-        "url": "https://huggingface.co/desert-ant-labs/face",
-        "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
-      },
-      "runtime": ["coreml"],
-      "variants": [],
-      "languages": null,
-      "demo": null
-    },
-    {
       "id": "who",
       "name": "Who",
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
@@ -467,36 +497,6 @@
       "runtime": ["coreml"],
       "variants": [],
       "languages": null,
-      "demo": null
-    },
-    {
-      "id": "toxic",
-      "name": "Toxic",
-      "summary": "On-device hate-speech triage for European languages.",
-      "category": "Hate speech triage",
-      "lifecycle": "experimental",
-      "visibility": "public",
-      "home": null,
-      "sdks": {
-        "swift": { "status": "none" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
-      },
-      "weights": {
-        "source": "hub",
-        "repo": "desert-ant-labs/toxic",
-        "url": "https://huggingface.co/desert-ant-labs/toxic",
-        "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
-      },
-      "runtime": ["coreml", "litert"],
-      "variants": [],
-      "languages": {
-        "count": 23,
-        "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
-        "basis": "declared",
-        "source": "https://huggingface.co/desert-ant-labs/toxic"
-      },
       "demo": null
     }
   ]
