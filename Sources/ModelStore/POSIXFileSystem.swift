@@ -62,6 +62,27 @@ public struct POSIXFileSystem: FileSystem {
         }
     }
 
+    /// Streams the file through the hasher a megabyte at a time, so verifying a
+    /// large model file costs one buffer instead of the whole file. The buffer
+    /// is reused across reads, so nothing here needs a release pool the way the
+    /// Foundation backend's autoreleased `Data` chunks do.
+    public func digest(_ path: String) throws -> (size: Int64, sha256: String) {
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { throw ModelStoreError.io("open(\(path))") }
+        defer { close(fd) }
+        var hasher = SHA256()
+        var buf = [UInt8](repeating: 0, count: 1 << 20)
+        var total: Int64 = 0
+        while true {
+            let n = buf.withUnsafeMutableBytes { posixRead(fd, $0.baseAddress, $0.count) }
+            if n < 0 { throw ModelStoreError.io("read(\(path))") }
+            if n == 0 { break }
+            total += Int64(n)
+            hasher.update(buf[0..<n])
+        }
+        return (total, SHA256.hex(hasher.finalize()))
+    }
+
     public func makeDirectory(_ path: String) throws {
         // mkdir -p: create each component, tolerating EEXIST.
         var partial = path.hasPrefix("/") ? "" : "."
