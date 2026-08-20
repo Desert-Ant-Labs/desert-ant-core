@@ -1,0 +1,503 @@
+{
+  "schemaVersion": 1,
+  "sdkVersion": "3.0.0",
+  "org": {
+    "name": "Desert Ant Labs",
+    "site": "https://desertant.com",
+    "github": "https://github.com/Desert-Ant-Labs",
+    "hub": "https://huggingface.co/desert-ant-labs",
+    "npmScope": "@desert-ant-labs",
+    "mavenGroup": "ai.desertant"
+  },
+  "license": {
+    "id": "desert-ant-labs-source-available-1.0",
+    "url": "https://license.desertant.com/1.0"
+  },
+  "models": [
+    {
+      "id": "align",
+      "name": "Align",
+      "summary": "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.",
+      "category": "Word timestamps",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Align", "platforms": ["apple"] },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/align",
+        "url": "https://huggingface.co/desert-ant-labs/align",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "clear",
+      "name": "Clear",
+      "summary": "On-device speech enhancement: denoise, dereverb, and loudness-normalize.",
+      "category": "Speech enhancement",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Clear", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:clear", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/clear", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/clear",
+        "url": "https://huggingface.co/desert-ant-labs/clear",
+        "revision": "v0.3.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [
+        { "id": "clear-studio", "default": true, "note": "Aggressive denoise and dereverb." },
+        { "id": "clear-natural", "default": false, "note": "Lighter touch, keeps more of the room." }
+      ],
+      "languages": null,
+      "demo": {
+        "space": "desert-ant-labs/clear-demo",
+        "embed": "https://desert-ant-labs-clear-demo.static.hf.space",
+        "page": "https://desertant.com/models/clear/"
+      }
+    },
+    {
+      "id": "clips",
+      "name": "Clips",
+      "summary": "On-device clip selection: a transcript's best non-overlapping moments, ranked.",
+      "category": "Clip selection",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Clips", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "planned" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/clips",
+        "url": "https://huggingface.co/desert-ant-labs/clips",
+        "revision": "v0.1.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": {
+        "count": null,
+        "codes": null,
+        "basis": "inherited",
+        "source": "https://huggingface.co/desert-ant-labs/clips"
+      },
+      "demo": null
+    },
+    {
+      "id": "emo",
+      "name": "Emo",
+      "summary": "Multilingual on-device emoji suggestion.",
+      "category": "Emoji suggestions",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Emo", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:emo", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/emo", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/emo",
+        "url": "https://huggingface.co/desert-ant-labs/emo",
+        "revision": "v0.7.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": {
+        "count": 22,
+        "codes": ["ar", "cs", "da", "de", "en", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pl", "pt", "ru", "sv", "th", "tr", "uk", "vi", "zh"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/emo"
+      },
+      "demo": {
+        "space": "desert-ant-labs/emo-demo",
+        "embed": null,
+        "page": "https://desertant.com/models/emo/"
+      }
+    },
+    {
+      "id": "gist",
+      "name": "Gist",
+      "summary": "Multilingual on-device content topic tagging across a 36-topic taxonomy.",
+      "category": "Content topic tagging",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Gist", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:gist", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/gist", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/gist",
+        "url": "https://huggingface.co/desert-ant-labs/gist",
+        "revision": "v2.2.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [
+        { "id": "multilingual", "default": true, "note": "36 topics, 101 languages, ~74 MB." },
+        { "id": "english", "default": false, "note": "Same 36 topics, English/Latin only, ~15 MB." }
+      ],
+      "languages": {
+        "count": 101,
+        "codes": null,
+        "basis": "inherited",
+        "source": "https://huggingface.co/minishlab/potion-multilingual-128M"
+      },
+      "demo": {
+        "space": "desert-ant-labs/gist-demo",
+        "embed": null,
+        "page": "https://desertant.com/models/gist/"
+      }
+    },
+    {
+      "id": "redact",
+      "name": "Redact",
+      "summary": "Multilingual on-device PII detection and redaction.",
+      "category": "PII redaction",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Redact", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:redact", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/redact", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/redact",
+        "url": "https://huggingface.co/desert-ant-labs/redact",
+        "revision": "v0.4.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": {
+        "count": 27,
+        "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "is", "it", "lt", "lv", "mt", "nb", "nl", "nn", "pl", "pt", "ro", "sk", "sl", "sv"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/redact"
+      },
+      "demo": {
+        "space": "desert-ant-labs/redact-demo",
+        "embed": "https://desert-ant-labs-redact-demo.static.hf.space",
+        "page": "https://desertant.com/models/redact/"
+      }
+    },
+    {
+      "id": "shapes",
+      "name": "Shapes",
+      "summary": "On-device single-stroke shape recognition.",
+      "category": "Shape recognition",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Shapes", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:shapes", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/shapes", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/shapes",
+        "url": "https://huggingface.co/desert-ant-labs/shapes",
+        "revision": "v0.3.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": null,
+      "demo": {
+        "space": "desert-ant-labs/shapes-demo",
+        "embed": "https://desert-ant-labs-shapes-demo.static.hf.space",
+        "page": "https://desertant.com/models/shapes/"
+      }
+    },
+    {
+      "id": "title",
+      "name": "Title",
+      "summary": "On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.",
+      "category": "Titles and descriptions",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Title", "platforms": ["apple"] },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/title",
+        "url": "https://huggingface.co/desert-ant-labs/title",
+        "revision": "v0.1.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["mlx"],
+      "variants": [],
+      "languages": {
+        "count": null,
+        "codes": null,
+        "basis": "inherited",
+        "source": "https://huggingface.co/desert-ant-labs/title"
+      },
+      "demo": null
+    },
+    {
+      "id": "tongue",
+      "name": "Tongue",
+      "summary": "On-device language identification for short text across 84 languages.",
+      "category": "Language identification",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Tongue", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:tongue", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/tongue", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "bundled",
+        "repo": "desert-ant-labs/tongue",
+        "url": "https://huggingface.co/desert-ant-labs/tongue",
+        "revision": "v1.0.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["pure"],
+      "variants": [],
+      "languages": {
+        "count": 84,
+        "codes": ["af", "am", "ar", "as", "az", "be", "bg", "bn", "bo", "ca", "chr", "cs", "cy", "da", "de", "dv", "el", "en", "eo", "es", "et", "eu", "fa", "fi", "fr", "ga", "gl", "gu", "he", "hi", "hr", "hu", "hy", "id", "is", "it", "ja", "ka", "kk", "km", "kn", "ko", "ku", "ky", "la", "lo", "lt", "lv", "mk", "ml", "mn", "mr", "ms", "my", "ne", "nl", "no", "or", "pa", "pl", "pt", "ro", "ru", "si", "sk", "sl", "sq", "sr", "st", "sv", "sw", "syr", "ta", "te", "th", "tl", "tr", "ug", "uk", "ur", "vi", "xh", "yo", "zh"],
+        "basis": "derived",
+        "source": "Sources/Tongue/Resources/tongue_meta.json"
+      },
+      "demo": {
+        "space": "desert-ant-labs/tongue-demo",
+        "embed": null,
+        "page": "https://desertant.com/models/tongue/"
+      }
+    },
+    {
+      "id": "uhm",
+      "name": "Uhm",
+      "summary": "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans.",
+      "category": "Filler-word detection",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Uhm", "platforms": ["apple"] },
+        "kotlin": { "status": "planned" },
+        "js": { "status": "planned" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/uhm",
+        "url": "https://huggingface.co/desert-ant-labs/uhm",
+        "revision": "612592c10ad7b2a51f3237725448a1aad212480b",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [
+        { "id": "high", "default": true, "note": "DistilHuBERT. The base tier is unpublished." }
+      ],
+      "languages": {
+        "count": 5,
+        "codes": ["de", "en", "es", "fr", "nl"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/uhm"
+      },
+      "demo": {
+        "space": "desert-ant-labs/uhm-demo",
+        "embed": "https://desert-ant-labs-uhm-demo.static.hf.space",
+        "page": "https://desertant.com/models/uhm/"
+      }
+    },
+    {
+      "id": "moderator",
+      "name": "Moderator",
+      "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
+      "category": "Content moderation",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/moderator",
+        "url": "https://huggingface.co/desert-ant-labs/moderator",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "schemer",
+      "name": "Schemer",
+      "summary": "On-device structured extraction into a caller-supplied JSON schema.",
+      "category": "Structured extraction",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/schemer",
+        "url": "https://huggingface.co/desert-ant-labs/schemer",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": {
+        "count": 13,
+        "codes": ["da", "de", "en", "es", "fr", "it", "ja", "nl", "no", "pl", "pt", "sv", "zh"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/schemer"
+      },
+      "demo": {
+        "space": "desert-ant-labs/schemer-demo",
+        "embed": "https://desert-ant-labs-schemer-demo.static.hf.space",
+        "page": "https://desertant.com/models/schemer/"
+      }
+    },
+    {
+      "id": "eye",
+      "name": "Eye",
+      "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
+      "category": "Image and video scoring",
+      "lifecycle": "beta",
+      "visibility": "internal",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/eye",
+        "url": "https://huggingface.co/desert-ant-labs/eye",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "face",
+      "name": "Face",
+      "summary": "On-device face matching across a photo library or through a video.",
+      "category": "Face matching",
+      "lifecycle": "beta",
+      "visibility": "internal",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/face",
+        "url": "https://huggingface.co/desert-ant-labs/face",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "who",
+      "name": "Who",
+      "summary": "On-device speaker labeling: per-person turns with timestamps.",
+      "category": "Speaker diarization",
+      "lifecycle": "beta",
+      "visibility": "internal",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "planned" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/who",
+        "url": "https://huggingface.co/desert-ant-labs/who",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "languages": null,
+      "demo": null
+    },
+    {
+      "id": "toxic",
+      "name": "Toxic",
+      "summary": "On-device hate-speech triage for European languages.",
+      "category": "Hate speech triage",
+      "lifecycle": "experimental",
+      "visibility": "public",
+      "home": null,
+      "sdks": {
+        "swift": { "status": "none" },
+        "kotlin": { "status": "none" },
+        "js": { "status": "none" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/toxic",
+        "url": "https://huggingface.co/desert-ant-labs/toxic",
+        "revision": "main",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "languages": {
+        "count": 23,
+        "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/toxic"
+      },
+      "demo": null
+    }
+  ]
+}

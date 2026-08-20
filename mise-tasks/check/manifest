@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+#MISE description="Verify manifest.json agrees with the catalog, the packages, and VERSION"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# manifest.json is the registry every other surface reads, so nothing in it may
+# be a second, hand-kept copy of a fact this repo already states. Models homed
+# here are checked field by field against Sources/<Product>/Catalog.swift, the
+# packages/ directory, and VERSION.
+
+export DAL_MODELS="$(dal_models | tr '\n' ' ')"
+
+node --input-type=module <<'NODE'
+import { readFileSync, existsSync } from "node:fs";
+
+const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
+const version = readFileSync("VERSION", "utf8").trim();
+
+let bad = 0;
+const fail = (where, message) => { console.error(`  ${where}: ${message}`); bad = 1; };
+const eq = (where, found, want, what) => {
+  if (found !== want) fail(where, `${what} is ${JSON.stringify(found)}, expected ${JSON.stringify(want)}`);
+};
+
+const LIFECYCLE = ["stable", "beta", "experimental", "deprecated"];
+const VISIBILITY = ["public", "internal"];
+const STATUS = ["live", "planned", "none"];
+const PLATFORMS = ["apple", "android", "linux", "windows", "web", "node"];
+const SOURCE = ["hub", "bundled", "none"];
+const RUNTIME = ["coreml", "litert", "mlx", "pure"];
+const BASIS = ["derived", "declared", "inherited"];
+
+eq("manifest.json", manifest.schemaVersion, 1, "schemaVersion");
+eq("manifest.json", manifest.sdkVersion, version, "sdkVersion");
+
+const models = manifest.models;
+const ids = models.map((m) => m.id);
+if (new Set(ids).size !== ids.length) fail("manifest.json", "duplicate model ids");
+
+for (const m of models) {
+  const at = `${m.id}`;
+  if (m.id !== m.id.toLowerCase() || !m.id) fail(at, "id must be lowercase and non-empty");
+  if (m.name?.[0] !== m.name?.[0]?.toUpperCase()) fail(at, "name must be capitalized");
+  if (!m.summary?.endsWith(".")) fail(at, "summary must be one sentence ending in a period");
+  if (!LIFECYCLE.includes(m.lifecycle)) fail(at, `lifecycle ${m.lifecycle}`);
+  if (!VISIBILITY.includes(m.visibility)) fail(at, `visibility ${m.visibility}`);
+  if (!m.runtime.every((r) => RUNTIME.includes(r))) fail(at, `runtime ${m.runtime}`);
+  if (!SOURCE.includes(m.weights.source)) fail(at, `weights.source ${m.weights.source}`);
+  if (m.weights.repo && m.weights.url !== `https://huggingface.co/${m.weights.repo}`)
+    fail(at, "weights.url does not match weights.repo");
+
+  for (const [sdk, decl] of Object.entries(m.sdks)) {
+    if (!STATUS.includes(decl.status)) fail(`${at}/${sdk}`, `status ${decl.status}`);
+    if (decl.status === "none" && decl.package) fail(`${at}/${sdk}`, "status none but a package is named");
+    if (decl.status === "live" && !decl.package) fail(`${at}/${sdk}`, "status live but no package");
+    if (decl.platforms && !decl.platforms.every((p) => PLATFORMS.includes(p)))
+      fail(`${at}/${sdk}`, `platforms ${decl.platforms}`);
+  }
+
+  // A model this repo does not build carries its own SDK version; one built
+  // here must not, because VERSION already governs it.
+  const ownVersion = Object.values(m.sdks).some((s) => s.version);
+  if (m.home === "desert-ant-core" && ownVersion) fail(at, "homed here, so it must not pin its own sdks.*.version");
+  if (m.home !== "desert-ant-core" && m.sdks.swift.status === "live" && !ownVersion)
+    fail(at, "not homed here, so each live SDK needs its own version");
+
+  const langs = m.languages;
+  if (langs) {
+    if (!BASIS.includes(langs.basis)) fail(at, `languages.basis ${langs.basis}`);
+    if (langs.basis === "inherited") {
+      if (langs.codes !== null) fail(at, "inherited coverage must not enumerate codes");
+    } else {
+      if (!Array.isArray(langs.codes)) fail(at, `languages.basis ${langs.basis} requires codes`);
+      else {
+        eq(at, langs.count, langs.codes.length, "languages.count");
+        const sorted = [...langs.codes].sort();
+        if (String(sorted) !== String(langs.codes)) fail(at, "languages.codes must be sorted");
+        if (new Set(langs.codes).size !== langs.codes.length) fail(at, "duplicate language codes");
+      }
+    }
+  }
+}
+
+// Models built here: the manifest must name every one of them, and only them.
+const here = new Set(models.filter((m) => m.home === "desert-ant-core").map((m) => m.id));
+const built = process.env.DAL_MODELS.split(" ").filter(Boolean);
+for (const id of built) if (!here.has(id)) fail(id, "has a Catalog.swift but no manifest entry");
+for (const id of here) if (!built.includes(id)) fail(id, "claims home desert-ant-core but has no Catalog.swift");
+
+for (const id of built.filter((id) => here.has(id))) {
+  const m = models.find((x) => x.id === id);
+  const product = id[0].toUpperCase() + id.slice(1);
+  const swift = readFileSync(`Sources/${product}/Catalog.swift`, "utf8");
+  // A declared string is one or more literals joined by `+` (title's summary
+  // wraps across lines), and a literal may escape its own quotes (uhm's has
+  // three). Collect every literal in the statement and unescape.
+  const declared = (field) => {
+    const statement = swift.match(new RegExp(`${field} =((?:\\s*\\+?\\s*"(?:[^"\\\\]|\\\\.)*")+)`));
+    if (!statement) return undefined;
+    return [...statement[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)]
+      .map((literal) => literal[1].replace(/\\(.)/g, "$1"))
+      .join("");
+  };
+
+  eq(id, m.name, declared("product"), "name");
+  eq(id, m.summary, declared("summary"), "summary");
+  eq(id, m.weights.revision, declared("revision"), "weights.revision");
+  eq(id, m.weights.repo, `desert-ant-labs/${id}`, "weights.repo");
+  eq(id, m.sdks.swift.package, product, "sdks.swift.package");
+
+  for (const [sdk, dir, name] of [
+    ["js", `packages/${id}-node`, `@desert-ant-labs/${id}`],
+    ["kotlin", `packages/${id}-kotlin`, `ai.desertant:${id}`],
+  ]) {
+    const ships = existsSync(dir);
+    if (ships && m.sdks[sdk].status !== "live") fail(`${id}/${sdk}`, `${dir} exists but status is ${m.sdks[sdk].status}`);
+    if (!ships && m.sdks[sdk].status === "live") fail(`${id}/${sdk}`, `status live but ${dir} does not exist`);
+    if (ships) eq(`${id}/${sdk}`, m.sdks[sdk].package, name, "package");
+  }
+}
+
+// Tongue's coverage is not a claim: the head's labels plus the script-decisive
+// codes are exactly what it can return.
+const meta = JSON.parse(readFileSync("Sources/Tongue/Resources/tongue_meta.json", "utf8"));
+const derived = [...new Set([...meta.labels, ...Object.values(meta.script_decisive)])].sort();
+const tongue = models.find((m) => m.id === "tongue").languages;
+if (String(tongue.codes) !== String(derived))
+  fail("tongue", `languages.codes disagree with tongue_meta.json (${derived.length} derived, ${tongue.codes.length} listed)`);
+
+if (bad) {
+  console.error("error: manifest.json disagrees with the repo");
+  process.exit(1);
+}
+console.log(`${models.length} models, ${here.size} built here`);
+NODE

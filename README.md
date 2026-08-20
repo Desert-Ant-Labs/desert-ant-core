@@ -42,11 +42,16 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
 | **Tongue** | Language identification for short text, 84 languages | `Tongue` | `ai.desertant:tongue` | `@desert-ant-labs/tongue` | Bundled (2 MB) |
 | **Shapes** | Single-stroke shape recognition: one hand-drawn stroke to clean vector geometry | `Shapes` | `ai.desertant:shapes` | `@desert-ant-labs/shapes` | [Hugging Face](https://huggingface.co/desert-ant-labs/shapes) |
+| **Uhm** | Filler-word detection: frame-precise "uh"/"um"/"hmm" spans | `Uhm` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/uhm) |
 
 Each model behaves the same on every platform, so you can build a feature once
-and ship it everywhere. New models are added regularly; the current set is always
-this table, and the weights live on [Hugging
-Face](https://huggingface.co/desert-ant-labs).
+and ship it everywhere. New models are added regularly, and the weights live on
+[Hugging Face](https://huggingface.co/desert-ant-labs).
+
+[`manifest.json`](manifest.json) is the machine-readable version of this table,
+covering every Desert Ant Labs model rather than only the ones built here: what
+each one is called, which SDKs are live, where its weights are, and which
+languages it covers. Tooling should read it instead of hard-coding a list.
 
 ## Swift
 
