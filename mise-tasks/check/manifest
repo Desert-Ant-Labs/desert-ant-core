@@ -37,6 +37,7 @@ eq("manifest.json", manifest.sdkVersion, version, "sdkVersion");
 const models = manifest.models;
 const ids = models.map((m) => m.id);
 if (new Set(ids).size !== ids.length) fail("manifest.json", "duplicate model ids");
+if (String(ids) !== String([...ids].sort())) fail("manifest.json", "models must be ordered by id, A-Z");
 
 for (const m of models) {
   const at = `${m.id}`;
