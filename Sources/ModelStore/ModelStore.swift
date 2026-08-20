@@ -63,24 +63,45 @@ public struct ModelStore: Sendable {
 
     // MARK: public API
 
-    /// Whether the model is fully present and intact. Reads the resolved
-    /// manifest written at download time (so it knows the exact files, folders
-    /// already expanded) and re-hashes each against its recorded SHA-256. A
-    /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
+    /// Whether the model is fully present. Reads the resolved manifest written
+    /// at download time (so it knows the exact files, folders already expanded)
+    /// and checks each is there at its recorded size. Fully offline.
+    ///
+    /// Sizes, not hashes. Every file is size- and SHA-256-verified before it is
+    /// moved into place, and the manifest is written last, so a model that has
+    /// a manifest was verified when it arrived. Re-hashing on every call cost
+    /// a read of the whole model — 111s for 555MB of clip and title weights on
+    /// an iPhone 17 Pro, paid on every cold start before the first edit could
+    /// begin, and once on the launch path where the watchdog killed the app for
+    /// it. Corruption after the fact is what ``verify(_:)`` is for, and what
+    /// the loaders failing already catches.
     public func isDownloaded(_ model: ModelSpec) -> Bool {
+        guard let manifest = validManifest(model) else { return false }
+        return manifest.entries.allSatisfy { entry in
+            isSafeRelativePath(entry.path) && fs.size(filePath(model, entry.path)) == entry.size
+        }
+    }
+
+    /// Whether every file still hashes to what the manifest recorded. This is
+    /// the expensive one: it reads the entire model.
+    public func verify(_ model: ModelSpec) -> Bool {
+        guard let manifest = validManifest(model) else { return false }
+        return manifest.entries.allSatisfy { entry in
+            guard isSafeRelativePath(entry.path), entry.size >= 0,
+                  entry.sha256.count == 64, entry.sha256.allSatisfy({ $0.isHexDigit }),
+                  let data = try? fs.read(filePath(model, entry.path)),
+                  Int64(data.count) == entry.size else { return false }
+            return SHA256.hexDigest(data) == entry.sha256
+        }
+    }
+
+    private func validManifest(_ model: ModelSpec) -> Manifest? {
         guard isValid(model),
               let bytes = try? fs.read(manifestPath(model)),
               let manifest = Manifest.parse(bytes),
               manifest.requested == model.files,
-              !manifest.entries.isEmpty else { return false }
-        for e in manifest.entries {
-            guard isSafeRelativePath(e.path), e.size >= 0,
-                  e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
-                  let data = try? fs.read(filePath(model, e.path)),
-                  Int64(data.count) == e.size,
-                  SHA256.hexDigest(data) == e.sha256 else { return false }
-        }
-        return true
+              !manifest.entries.isEmpty else { return nil }
+        return manifest
     }
 
     /// Ensure the model is present and valid, downloading only what is missing.
