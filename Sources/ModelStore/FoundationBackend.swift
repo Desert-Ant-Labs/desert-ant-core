@@ -133,6 +133,20 @@ public struct FoundationFileSystem: FileSystem {
         try Data(bytes).write(to: URL(fileURLWithPath: path), options: .atomic)
     }
 
+    /// Streams the file through the hasher a megabyte at a time, so verifying a
+    /// large model file costs one buffer instead of the whole file.
+    public func sha256Hex(_ path: String) throws -> String {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            throw ModelStoreError.io("open(\(path))")
+        }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        while let chunk = try handle.read(upToCount: 1 << 20), !chunk.isEmpty {
+            hasher.update(chunk)
+        }
+        return SHA256.hex(hasher.finalize())
+    }
+
     public func makeDirectory(_ path: String) throws {
         try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
     }

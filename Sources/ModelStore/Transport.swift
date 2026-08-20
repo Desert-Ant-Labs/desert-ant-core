@@ -55,12 +55,23 @@ public protocol FileSystem: Sendable {
     /// Names of the entries directly under `path` (not recursive). A missing
     /// or unreadable directory is `[]`.
     func listDirectory(_ path: String) -> [String]
+    /// Lowercase-hex SHA-256 of a file's contents.
+    ///
+    /// Separate from ``read(_:)`` because verification is the one place the
+    /// store touches whole model files, and a 270 MB weight blob must not be
+    /// resident just to be hashed. Backends that can stream override this; the
+    /// default falls back to reading the file in one go.
+    func sha256Hex(_ path: String) throws -> String
 }
 
 public extension FileSystem {
     /// Backends without directory enumeration (the wasm in-memory store) list
     /// nothing rather than failing to conform.
     func listDirectory(_ path: String) -> [String] { [] }
+
+    /// Whole-file fallback, for backends whose storage is already in memory
+    /// (wasm) or that cannot read incrementally.
+    func sha256Hex(_ path: String) throws -> String { SHA256.hexDigest(try read(path)) }
 }
 
 public enum ModelStoreError: Error, CustomStringConvertible {
