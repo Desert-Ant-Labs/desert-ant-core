@@ -27,6 +27,8 @@ import Darwin
 import Glibc
 #elseif canImport(Musl)
 import Musl
+#elseif os(Windows)
+import CRT
 #endif
 
 /// Owns the turnstile for one `Tongue`.

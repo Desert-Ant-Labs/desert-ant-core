@@ -11,6 +11,8 @@ import Glibc
 import Android
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif os(Windows)
+import CRT
 #endif
 
 /// A triangular mel filterbank plus the STFT that feeds it. Configured once and
