@@ -1,0 +1,55 @@
+name: Hub sync
+
+# Pushes the model cards and the org card to Hugging Face from manifest.json.
+# The only workflow in this repo that writes outside it, so it is deliberately
+# narrow: it runs on a manual dispatch, or on a push to main that actually
+# touched the registry or the renderer.
+#
+# Needs HF_TOKEN, a write token on the desert-ant-labs org.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print what would change and upload nothing"
+        type: boolean
+        default: true
+  push:
+    branches: [main]
+    paths:
+      - manifest.json
+      - Tools/manifest-docs.mjs
+      - mise-tasks/hub/**
+      - .github/workflows/hub-sync.yml
+
+# One writer at a time: two merges landing together must not race the Hub.
+concurrency:
+  group: hub-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: publish cards
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+      # The cards are only as good as the registry they come from.
+      - run: mise run check:manifest
+      - run: mise run check:links
+      # Without the secret this previews rather than failing, so merging to main
+      # before the token exists leaves main green instead of red.
+      - name: Publish
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          flag=""
+          if [ "$DRY_RUN" = "true" ] || [ -z "$HF_TOKEN" ]; then
+              flag="--dry-run"
+              [ -n "$HF_TOKEN" ] || echo "::notice::HF_TOKEN is not set - previewing only."
+          fi
+          mise run hub:publish $flag
