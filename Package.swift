@@ -208,6 +208,31 @@ let tongueTargets: [Target] = [
     ),
 ]
 
+// Scribe is Apple-only (Core ML, AVFoundation) and, like Align, gets no
+// Android/Node/Web products and no NativeBindings. It bundles nothing: its
+// Core ML models are downloaded on demand via Sources/Scribe/Catalog.swift. It
+// drives Core ML directly rather than going through `InferenceSession`, because
+// preallocated buffers, `outputBackings` and a lane-batched decode loop are not
+// expressible through a generic run(inputs:outputs:) call, and dropping them
+// costs roughly 127x on load and about a third of decode throughput.
+let scribeProducts: [Product] = [
+    .library(name: "Scribe", targets: ["Scribe"]),
+]
+
+let scribeTargets: [Target] = [
+    .target(
+        name: "Scribe",
+        dependencies: [
+            .byName(name: "DesertAnt"),
+            .byName(name: "AudioIO"),
+        ]
+    ),
+    .testTarget(
+        name: "ScribeTests",
+        dependencies: ["Scribe", "DesertAnt", "TestSupport"]
+    ),
+]
+
 // Keep arrays typed separately to avoid manifest type-checker timeouts.
 let products: [Product] = [
         .library(name: "DesertAnt", targets: ["DesertAnt"]),
@@ -460,7 +485,7 @@ let testTargets: [Target] = [
 
 let coreTargets: [Target] =
     libraryTargets + testTargets + modelTargets + modelTestTargets + alignTargets
-    + tongueTargets
+    + tongueTargets + scribeTargets
 
 let package = Package(
     name: "DesertAnt",
@@ -492,7 +517,7 @@ let package = Package(
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts + alignProducts,
+    products: products + modelProducts + alignProducts + scribeProducts,
     traits: [
         .trait(
             name: "MLX",
