@@ -127,6 +127,16 @@ export function renderCard(existing, model, org) {
   return `---\n${front}\n---\n\n${renderCardBody(model, org)}`;
 }
 
+/// Put markers around a table that predates them, so a hand-written page can be
+/// adopted without editing it by hand first. `header` is the start of its header
+/// row; the table runs to the next blank line.
+export function insertMarkers(text, header) {
+  if (text.includes(MARKERS.start)) return text;
+  const table = new RegExp(`^\\| ${header} \\|[\\s\\S]*?(?=\\n\\n)`, "m");
+  if (!table.test(text)) throw new Error(`no table starting "| ${header} |" to replace`);
+  return text.replace(table, `${MARKERS.start}\n${MARKERS.end}`);
+}
+
 /// Replace the marked block in `text`, leaving every hand-written line alone.
 export function replaceBlock(text, body) {
   const start = text.indexOf(MARKERS.start);
