@@ -18,6 +18,8 @@ import Android          // on Android the Android module *is* libc (getenv et al
 import Glibc
 #elseif canImport(Darwin)
 import Darwin
+#elseif os(Windows)
+import CRT
 #endif
 
 /// Whether the telemetry force-flush hooks are enabled.

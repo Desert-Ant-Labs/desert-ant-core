@@ -304,7 +304,7 @@ let libraryTargets: [Target] = [
             name: "Inference",
             dependencies: [
                 "ModelStore", "Usage",
-                .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
+                .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
                 // Unconditional even though JSHost is empty off wasm: PackageToJS
                 // walks target dependencies to collect the BridgeJS skeletons it
                 // must generate glue from, and a platform-conditional edge is
