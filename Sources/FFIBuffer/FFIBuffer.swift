@@ -19,6 +19,8 @@ import Glibc
 import Darwin
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif os(Windows)
+import CRT
 #endif
 
 /// Accumulates a typed payload, then emits it as a length-prefixed C buffer the

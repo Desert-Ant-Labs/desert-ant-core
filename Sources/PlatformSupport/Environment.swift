@@ -6,6 +6,8 @@ import Glibc
 import Darwin
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif os(Windows)
+import CRT
 #endif
 
 /// Read a process environment variable without importing Foundation or a
