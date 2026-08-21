@@ -48,6 +48,9 @@ depends = ["build:swift", "build:wasm", "build:node-native", "build:android"]
 description = "Run every check and test suite that needs no device or simulator"
 depends = [
     "check:version",
+    "check:manifest",
+    "check:links",
+    "check:docs",
     "check:isolation",
     "check:types",
     "check:swift-floor",
