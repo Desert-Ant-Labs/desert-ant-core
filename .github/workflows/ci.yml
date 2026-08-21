@@ -357,11 +357,11 @@ jobs:
     # would compile every test target, and the rest of the package is not yet
     # Windows-guarded, so the gate is Redact plus its own test target compiling
     # against their exact dependency closures.
-    name: Windows (Swift, Redact)
+    name: Windows (Swift + LiteRT)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: compnerd/gha-setup-swift@v3
+      - uses: compnerd/gha-setup-swift@v0.4.0
         with:
           branch: swift-6.2.1-release
           tag: 6.2.1-RELEASE
