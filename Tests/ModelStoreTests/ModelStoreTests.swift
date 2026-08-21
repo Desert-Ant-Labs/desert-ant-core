@@ -339,6 +339,7 @@ final class ModelStoreTests {
         #expect(XetPointer.readTokenURL(forResolveURL: "https://hub.test/resolve/main/f") == nil)
     }
 
+    #if os(Android) || canImport(Glibc) || canImport(Darwin)  // no POSIXFileSystem on Windows/wasm
     @Test func posixFileSystemBackend() async throws {
         // The Android FS backend is raw POSIX, identical on Linux.
         let payload = ["redact.tflite": [UInt8](repeating: 0x2b, count: 6000),
@@ -354,5 +355,6 @@ final class ModelStoreTests {
         try posix.write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0, count: 6000))
         #expect(!s.isDownloaded(m))
     }
+    #endif
 }
 #endif
