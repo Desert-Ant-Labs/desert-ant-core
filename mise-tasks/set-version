@@ -52,6 +52,11 @@ sed -i.bak -E \
     -e 's|(desert-ant-core\.git", from: ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
     README.md && rm -f README.md.bak
 
+# Everything generated from manifest.json, so a release cannot ship a stale
+# table because someone forgot the command.
+mise run docs:render > /dev/null
+
 mise run check:version > /dev/null
 mise run check:manifest > /dev/null
+mise run check:docs > /dev/null
 echo "everything set to $version"
