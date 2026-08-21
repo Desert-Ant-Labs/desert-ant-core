@@ -48,11 +48,39 @@ async function writeCard(kind, repo, content, summary) {
     headers: { ...auth, "Content-Type": "application/x-ndjson" },
     body,
   });
-  if (!res.ok) throw new Error(`COMMIT ${repo}: ${res.status} ${await res.text()}`);
+  if (res.ok) return;
+  const detail = await res.text();
+  // HF answers a token without write access by offering the pull-request route,
+  // which is the one error here that is a token problem rather than a bug.
+  if (res.status === 403 && detail.includes("create_pr")) {
+    throw new Error(
+      `${repo}: the token cannot write to this repo. A fine-grained token needs ` +
+        `"Write access to contents/settings of all repos under desert-ant-labs".`
+    );
+  }
+  throw new Error(`${repo}: ${res.status} ${detail}`);
+}
+
+/// Fail on a bad token before touching anything, and say whose it is.
+async function checkToken() {
+  const res = await fetch(`${API}/whoami-v2`, { headers: auth });
+  if (!res.ok) throw new Error(`HF_TOKEN is not valid (whoami: ${res.status})`);
+  const who = await res.json();
+  console.log(`authenticated as ${who.name} (${who.auth?.accessToken?.role ?? "fine-grained"})`);
+}
+
+if (!dryRun) {
+  try {
+    await checkToken();
+  } catch (error) {
+    console.error(`error: ${error.message}`);
+    process.exit(1);
+  }
 }
 
 const { models, org } = manifest();
 const summary = "Sync card from manifest.json";
+const failures = [];
 let changed = 0;
 let skipped = 0;
 
@@ -69,8 +97,15 @@ for (const model of models) {
     continue;
   }
   console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes`);
-  if (!dryRun) await writeCard("model", repo, next, summary);
-  changed++;
+  // One repo the token cannot reach must not strand the other thirteen. The
+  // publish is idempotent, so a rerun picks up whatever failed here.
+  try {
+    if (!dryRun) await writeCard("model", repo, next, summary);
+    changed++;
+  } catch (error) {
+    console.error(`    ${error.message}`);
+    failures.push(model.id);
+  }
 }
 
 // The org card is a Space repo whose prose is hand-written; only the table is
@@ -83,11 +118,20 @@ const marked = currentOrg.includes(MARKERS.start)
 const nextOrg = replaceBlock(marked, renderTable(models));
 if (nextOrg !== currentOrg) {
   console.log(`  org card: ${currentOrg.length} -> ${nextOrg.length} bytes`);
-  if (!dryRun) await writeCard("space", orgRepo, nextOrg, summary);
-  changed++;
+  try {
+    if (!dryRun) await writeCard("space", orgRepo, nextOrg, summary);
+    changed++;
+  } catch (error) {
+    console.error(`    ${error.message}`);
+    failures.push("org card");
+  }
 } else {
   skipped++;
 }
 
 console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current`);
+if (failures.length) {
+  console.error(`error: ${failures.length} failed: ${failures.join(", ")}`);
+  process.exit(1);
+}
 NODE
