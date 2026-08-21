@@ -350,6 +350,56 @@ jobs:
       # consumer's `next build`.
       - run: mise run test:bundles
 
+  windows:
+    # Experimental: Redact is the first (and so far only) model tested natively
+    # on Windows -- same LiteRT lane as Linux, with the runtime vendored from
+    # the win_amd64 ai-edge-litert wheel. `swift test` compiles every target in
+    # the package (all of which carry Windows import guards), but only
+    # RedactTests RUNS here; the other suites are not yet Windows-qualified.
+    name: Windows (Swift + LiteRT)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@v0.4.0
+        with:
+          branch: swift-6.2.1-release
+          tag: 6.2.1-RELEASE
+      # dumpbin/lib for the import-library step in vendor-litert.ps1.
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Vendor LiteRT (win_amd64 wheel)
+        shell: pwsh
+        run: Tools/windows/vendor-litert.ps1
+      # Proves Redact compiles against its exact dependency closure, mirroring
+      # mise-tasks/build/swift's one-model-at-a-time rationale.
+      - name: Build Redact
+        shell: pwsh
+        run: swift build --target Redact -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+
+      # Foundation's cachesDirectory is ~\AppData\Local on Windows, so the
+      # model store lives under it (see the macOS/Linux jobs for the pattern).
+      - name: Cache downloaded models
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\desert-ant-models
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
+          restore-keys: models-${{ runner.os }}-
+
+      # Separate build step so a frontend crash names its exact invocation
+      # (-v) instead of swift-driver's bare "error: fatalError", and -j 2
+      # bounds peak memory: the full test build is the largest compile this
+      # runner does, and a parallel spike is the usual suspect for a
+      # no-diagnostic crash on windows-latest.
+      - name: Build tests
+        shell: pwsh
+        run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+
+      - name: Test Redact
+        shell: pwsh
+        run: |
+          # libLiteRt.dll must be loadable at test run time.
+          $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
+          swift test --skip-build --filter RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+
   android:
     name: Android (natives, AARs, on-device)
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the

@@ -95,18 +95,16 @@ final class CallGroupRegistry: @unchecked Sendable {
 #else
 final class CallGroupRegistry: @unchecked Sendable {
     static let shared = CallGroupRegistry()
-    private var mutex = pthread_mutex_t()
+    private let mutex = PlatformMutex()
     private var groups: [String: InferenceCallGroup] = [:]
 
-    init() { pthread_mutex_init(&mutex, nil) }
-
     func group(_ id: String) -> InferenceCallGroup {
-        pthread_mutex_lock(&mutex); defer { pthread_mutex_unlock(&mutex) }
+        mutex.lock(); defer { mutex.unlock() }
         if let existing = groups[id] { return existing }
         let group = InferenceCallGroup(); groups[id] = group; return group
     }
     func end(_ id: String) {
-        pthread_mutex_lock(&mutex); defer { pthread_mutex_unlock(&mutex) }
+        mutex.lock(); defer { mutex.unlock() }
         groups[id] = nil
     }
 }
@@ -139,15 +137,14 @@ public final class InferenceCallGroup: @unchecked Sendable {
 }
 #else
 public final class InferenceCallGroup: @unchecked Sendable {
-    private var mutex = pthread_mutex_t()
+    private let mutex = PlatformMutex()
     private var counted: Set<ObjectIdentifier> = []
 
-    public init() { pthread_mutex_init(&mutex, nil) }
-    deinit { pthread_mutex_destroy(&mutex) }
+    public init() {}
 
     /// Mark `key` counted for this group; returns true only the first time.
     func markCounted(_ key: ObjectIdentifier) -> Bool {
-        pthread_mutex_lock(&mutex); defer { pthread_mutex_unlock(&mutex) }
+        mutex.lock(); defer { mutex.unlock() }
         return counted.insert(key).inserted
     }
 }

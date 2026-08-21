@@ -23,6 +23,8 @@ import Glibc
 import Darwin
 #elseif canImport(Musl)
 import Musl
+#elseif os(Windows)
+import CRT
 #endif
 
 /// Read a host-provided string from a JS global that may be a string or a

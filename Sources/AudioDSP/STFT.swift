@@ -12,6 +12,8 @@ import Glibc
 import Android
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif os(Windows)
+import CRT
 #endif
 
 /// A dense complex spectrogram in frame-major layout: `frames` rows of `bins`
