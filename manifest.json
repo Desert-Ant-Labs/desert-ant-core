@@ -17,6 +17,7 @@
     {
       "id": "align",
       "name": "Align",
+      "tagline": "Timestamps that land on the word.",
       "summary": "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.",
       "category": "Word timestamps",
       "lifecycle": "stable",
@@ -42,6 +43,7 @@
     {
       "id": "clear",
       "name": "Clear",
+      "tagline": "Studio sound, no cloud bill.",
       "summary": "On-device speech enhancement: denoise, dereverb, and loudness-normalize.",
       "category": "Speech enhancement",
       "lifecycle": "stable",
@@ -74,6 +76,7 @@
     {
       "id": "clips",
       "name": "Clips",
+      "tagline": "Find the moment worth posting.",
       "summary": "On-device clip selection: a transcript's best non-overlapping moments, ranked.",
       "category": "Clip selection",
       "lifecycle": "stable",
@@ -104,6 +107,7 @@
     {
       "id": "emo",
       "name": "Emo",
+      "tagline": "Faster than you can type.",
       "summary": "Multilingual on-device emoji suggestion.",
       "category": "Emoji suggestions",
       "lifecycle": "stable",
@@ -138,6 +142,7 @@
     {
       "id": "eye",
       "name": "Eye",
+      "tagline": "Forty shots. One keeper.",
       "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
       "category": "Image and video scoring",
       "lifecycle": "beta",
@@ -158,11 +163,16 @@
       "runtime": ["coreml"],
       "variants": [],
       "languages": null,
-      "demo": null
+      "demo": {
+        "space": null,
+        "embed": null,
+        "page": "https://desertant.com/models/eye/"
+      }
     },
     {
       "id": "face",
       "name": "Face",
+      "tagline": "People search, no server.",
       "summary": "On-device face matching across a photo library or through a video.",
       "category": "Face matching",
       "lifecycle": "beta",
@@ -183,11 +193,16 @@
       "runtime": ["coreml"],
       "variants": [],
       "languages": null,
-      "demo": null
+      "demo": {
+        "space": null,
+        "embed": null,
+        "page": "https://desertant.com/models/face/"
+      }
     },
     {
       "id": "gist",
       "name": "Gist",
+      "tagline": "Know what any text is about.",
       "summary": "Multilingual on-device content topic tagging across a 36-topic taxonomy.",
       "category": "Content topic tagging",
       "lifecycle": "stable",
@@ -225,6 +240,7 @@
     {
       "id": "moderator",
       "name": "Moderator",
+      "tagline": "Flag nudity before upload.",
       "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
       "category": "Content moderation",
       "lifecycle": "beta",
@@ -245,11 +261,16 @@
       "runtime": ["coreml"],
       "variants": [],
       "languages": null,
-      "demo": null
+      "demo": {
+        "space": null,
+        "embed": null,
+        "page": "https://desertant.com/models/moderator/"
+      }
     },
     {
       "id": "redact",
       "name": "Redact",
+      "tagline": "Personal data, gone before it moves.",
       "summary": "Multilingual on-device PII detection and redaction.",
       "category": "PII redaction",
       "lifecycle": "stable",
@@ -284,6 +305,7 @@
     {
       "id": "schemer",
       "name": "Schemer",
+      "tagline": "Typed JSON, no validation layer.",
       "summary": "On-device structured extraction into a caller-supplied JSON schema.",
       "category": "Structured extraction",
       "lifecycle": "beta",
@@ -318,6 +340,7 @@
     {
       "id": "shapes",
       "name": "Shapes",
+      "tagline": "Rough sketch. Perfect shape.",
       "summary": "On-device single-stroke shape recognition.",
       "category": "Shape recognition",
       "lifecycle": "stable",
@@ -347,6 +370,7 @@
     {
       "id": "title",
       "name": "Title",
+      "tagline": "Names what you just wrote.",
       "summary": "On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.",
       "category": "Titles and descriptions",
       "lifecycle": "stable",
@@ -377,6 +401,7 @@
     {
       "id": "tongue",
       "name": "Tongue",
+      "tagline": "Name the language from three words.",
       "summary": "On-device language identification for short text across 84 languages.",
       "category": "Language identification",
       "lifecycle": "stable",
@@ -411,6 +436,7 @@
     {
       "id": "toxic",
       "name": "Toxic",
+      "tagline": "Catch hate speech before it posts.",
       "summary": "On-device hate-speech triage for European languages.",
       "category": "Hate speech triage",
       "lifecycle": "experimental",
@@ -436,11 +462,16 @@
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/toxic"
       },
-      "demo": null
+      "demo": {
+        "space": "desert-ant-labs/toxic-demo",
+        "embed": null,
+        "page": "https://desertant.com/models/toxic/"
+      }
     },
     {
       "id": "uhm",
       "name": "Uhm",
+      "tagline": "An hour of audio in twelve seconds.",
       "summary": "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans.",
       "category": "Filler-word detection",
       "lifecycle": "stable",
@@ -477,6 +508,7 @@
     {
       "id": "who",
       "name": "Who",
+      "tagline": "An interview, ready to cut.",
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
       "category": "Speaker diarization",
       "lifecycle": "beta",
@@ -497,7 +529,11 @@
       "runtime": ["coreml"],
       "variants": [],
       "languages": null,
-      "demo": null
+      "demo": {
+        "space": null,
+        "embed": null,
+        "page": "https://desertant.com/models/who/"
+      }
     }
   ]
 }

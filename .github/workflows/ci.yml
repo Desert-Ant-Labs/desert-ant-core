@@ -37,6 +37,7 @@ jobs:
       # before release day.
       - run: mise run check:version
       - run: mise run check:manifest
+      - run: mise run check:links
       # The .d.ts files are the API every TypeScript consumer sees, and they are
       # hand-written. This job has no built core, so it checks that they compile;
       # the js job runs the same task after build:wasm, where it also proves the
