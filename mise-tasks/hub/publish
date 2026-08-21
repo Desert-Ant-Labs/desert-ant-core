@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+#MISE description="Publish the rendered cards and org card to the Hugging Face Hub"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+#USAGE flag "--dry-run" help="Print what would change and upload nothing"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Renders against what the Hub serves RIGHT NOW rather than against
+# docs/hub-cards/, so a card edited on the Hub since the archive was taken is
+# not silently reverted. Only the org card's prose survives that way, but that
+# is exactly the part that is hand-written.
+#
+# Needs HF_TOKEN with write scope on the org. A dry run needs no token: every
+# repo it reads is public.
+
+export DAL_DRY_RUN="${usage_dry_run:-false}"
+
+node --input-type=module <<'NODE'
+import { manifest, renderCard, renderTable, replaceBlock, MARKERS } from "./Tools/manifest-docs.mjs";
+
+const dryRun = process.env.DAL_DRY_RUN === "true";
+const token = process.env.HF_TOKEN;
+if (!dryRun && !token) {
+  console.error("error: HF_TOKEN is not set. Run with --dry-run to preview instead.");
+  process.exit(1);
+}
+
+const API = "https://huggingface.co/api";
+const auth = token ? { Authorization: `Bearer ${token}` } : {};
+
+async function readCard(kind, repo) {
+  const prefix = kind === "space" ? "spaces/" : "";
+  const res = await fetch(`https://huggingface.co/${prefix}${repo}/raw/main/README.md`, { headers: auth });
+  if (!res.ok) throw new Error(`GET ${repo}: ${res.status}`);
+  return res.text();
+}
+
+async function writeCard(kind, repo, content, summary) {
+  const body = [
+    JSON.stringify({ key: "header", value: { summary } }),
+    JSON.stringify({
+      key: "file",
+      value: { path: "README.md", content: Buffer.from(content).toString("base64"), encoding: "base64" },
+    }),
+  ].join("\n");
+  const res = await fetch(`${API}/${kind}s/${repo}/commit/main`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/x-ndjson" },
+    body,
+  });
+  if (!res.ok) throw new Error(`COMMIT ${repo}: ${res.status} ${await res.text()}`);
+}
+
+const { models, org } = manifest();
+const summary = "Sync card from manifest.json";
+let changed = 0;
+let skipped = 0;
+
+for (const model of models) {
+  if (model.visibility === "internal") {
+    console.log(`  ${model.id}: internal, left alone`);
+    continue;
+  }
+  const repo = model.weights.repo;
+  const current = await readCard("model", repo);
+  const next = renderCard(current, model, org);
+  if (next === current) {
+    skipped++;
+    continue;
+  }
+  console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes`);
+  if (!dryRun) await writeCard("model", repo, next, summary);
+  changed++;
+}
+
+// The org card is a Space repo whose prose is hand-written; only the table is
+// ours, and the markers go in on the first sync.
+const orgRepo = `${org.hub.split("/").pop()}/README`;
+const currentOrg = await readCard("space", orgRepo);
+const marked = currentOrg.includes(MARKERS.start)
+  ? currentOrg
+  : currentOrg.replace(/^\| Model \|[\s\S]*?(?=\n\n)/m, `${MARKERS.start}\n${MARKERS.end}`);
+const nextOrg = replaceBlock(marked, renderTable(models));
+if (nextOrg !== currentOrg) {
+  console.log(`  org card: ${currentOrg.length} -> ${nextOrg.length} bytes`);
+  if (!dryRun) await writeCard("space", orgRepo, nextOrg, summary);
+  changed++;
+} else {
+  skipped++;
+}
+
+console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current`);
+NODE
