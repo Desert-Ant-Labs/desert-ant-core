@@ -105,7 +105,9 @@ struct ModelPackage {
 
 let models: [ModelPackage] = [
     .init(name: "Emo"),
-    .init(name: "Clips", dependencies: ["Transcript"]),
+    .init(name: "Clips", dependencies: ["Transcript"],
+          testResources: [.copy("Fixtures/chapters_tiny.bin"),
+                          .copy("Fixtures/chapters_tiny.json")]),
     .init(
         name: "Clear",
         dependencies: ["AudioIO", "AudioDSP"],
