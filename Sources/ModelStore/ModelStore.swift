@@ -20,11 +20,19 @@ public struct ModelStore: Sendable {
     private let transport: ModelTransport
     private let fs: FileSystem
     private let endpoint: String
+    private let maxConcurrentDownloads: Int
 
-    public init(transport: ModelTransport, fileSystem: FileSystem, endpoint: String = "https://huggingface.co") {
+    /// - Parameter maxConcurrentDownloads: how many of a model's files transfer
+    ///   at once. A model repo is 10-25 files, and downloading them one after
+    ///   another leaves most of the link idle; a small bound gets the
+    ///   throughput without opening a socket per file on a phone.
+    public init(transport: ModelTransport, fileSystem: FileSystem,
+                endpoint: String = "https://huggingface.co",
+                maxConcurrentDownloads: Int = 4) {
         self.transport = transport
         self.fs = fileSystem
         self.endpoint = endpoint
+        self.maxConcurrentDownloads = max(1, maxConcurrentDownloads)
     }
 
     // MARK: paths / urls
@@ -74,11 +82,11 @@ public struct ModelStore: Sendable {
               manifest.requested == model.files,
               !manifest.entries.isEmpty else { return false }
         for e in manifest.entries {
+            let path = filePath(model, e.path)
             guard isSafeRelativePath(e.path), e.size >= 0,
                   e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
-                  let data = try? fs.read(filePath(model, e.path)),
-                  Int64(data.count) == e.size,
-                  SHA256.hexDigest(data) == e.sha256 else { return false }
+                  fs.size(path) == e.size,
+                  (try? fs.sha256Hex(path)) == e.sha256 else { return false }
         }
         return true
     }
@@ -88,7 +96,9 @@ public struct ModelStore: Sendable {
     /// files or folders (a trailing `/`), which the Hub tree call expands.
     /// Downloads go to a `.part` temp file, are size- and SHA256-verified, then
     /// atomically moved into place; the manifest is written last, so a crash
-    /// mid-download never yields a "downloaded" but broken model.
+    /// mid-download never yields a "downloaded" but broken model. Up to
+    /// `maxConcurrentDownloads` files transfer at once, and `progress` reports
+    /// one total across all of them.
     @discardableResult
     public func download(
         _ model: ModelSpec,
@@ -109,30 +119,34 @@ public struct ModelStore: Sendable {
         let resolved = try resolve(model.files, in: tree, repo: model.repo)
 
         let totalBytes = resolved.reduce(0) { $0 + $1.size }
-        var completedBytes: Int64 = 0
-        let report: @Sendable (Int64) -> Void = { done in
-            progress(DownloadProgress(completedBytes: done, totalBytes: totalBytes))
-        }
-        report(0)
+        let counter = DownloadProgressCounter(fileCount: resolved.count, totalBytes: totalBytes, report: progress)
+        progress(DownloadProgress(completedBytes: 0, totalBytes: totalBytes))
 
-        var manifest: [Manifest.Entry] = []
-        for e in resolved {
-            let dest = filePath(model, e.path)
-            // Skip a file already present and matching its LFS hash (resumes a
-            // partial prior run without re-downloading verified LFS files).
-            if let expected = e.sha256, fs.exists(dest), let data = try? fs.read(dest),
-               SHA256.hexDigest(data) == expected {
-                completedBytes += e.size
-                manifest.append(.init(path: e.path, size: e.size, sha256: expected))
-                report(completedBytes)
-                continue
+        // Files are independent (each has its own `.part` temp and its own
+        // destination), so they transfer concurrently, bounded by
+        // `maxConcurrentDownloads`. Results are placed back by index, so the
+        // manifest records the resolved order whatever order they finish in.
+        var slots = [Manifest.Entry?](repeating: nil, count: resolved.count)
+        try await withThrowingTaskGroup(of: (Int, Manifest.Entry).self) { group in
+            var next = 0
+            let inFlight = min(maxConcurrentDownloads, resolved.count)
+            while next < inFlight {
+                let index = next
+                group.addTask { (index, try await self.fetchOrReuse(model, resolved[index], index: index, counter: counter)) }
+                next += 1
             }
-            let base = completedBytes
-            let sha = try await fetch(model, e) { fileBytes in report(base + fileBytes) }
-            completedBytes += fs.size(dest) ?? e.size
-            manifest.append(.init(path: e.path, size: e.size, sha256: sha))
-            report(completedBytes)
+            // Start the next file only as one finishes, so at most `inFlight`
+            // transfers are ever open. A throw here exits the group, which
+            // cancels the rest.
+            while let (index, entry) = try await group.next() {
+                slots[index] = entry
+                guard next < resolved.count else { continue }
+                let index = next
+                group.addTask { (index, try await self.fetchOrReuse(model, resolved[index], index: index, counter: counter)) }
+                next += 1
+            }
         }
+        let manifest = slots.compactMap { $0 }
 
         try fs.makeDirectory(parentDir(manifestPath(model)))
         try fs.write(
@@ -208,6 +222,25 @@ public struct ModelStore: Sendable {
         return out
     }
 
+    /// One file's worth of work: reuse it if it is already present and intact,
+    /// otherwise download it. Reports its own cumulative bytes to `counter`,
+    /// and finishes on the file's full size so the total always reaches 100%
+    /// even for a transport that reports progress coarsely.
+    private func fetchOrReuse(_ model: ModelSpec, _ e: RemoteEntry, index: Int,
+                              counter: DownloadProgressCounter) async throws -> Manifest.Entry {
+        let dest = filePath(model, e.path)
+        // Skip a file already present and matching its LFS hash (resumes a
+        // partial prior run without re-downloading verified LFS files).
+        if let expected = e.sha256, fs.size(dest) == e.size,
+           (try? fs.sha256Hex(dest)) == expected {
+            counter.record(file: index, bytes: e.size)
+            return .init(path: e.path, size: e.size, sha256: expected)
+        }
+        let sha = try await fetch(model, e) { counter.record(file: index, bytes: $0) }
+        counter.record(file: index, bytes: e.size)
+        return .init(path: e.path, size: e.size, sha256: sha)
+    }
+
     /// Download one file to a temp path, verify size + (LFS) SHA-256, atomically
     /// move into place, and return the content SHA-256.
     private func fetch(_ model: ModelSpec, _ e: RemoteEntry,
@@ -230,8 +263,7 @@ public struct ModelStore: Sendable {
             fs.remove(part)
             throw ModelStoreError.integrityCheckFailed("\(e.path): size \(actual) != \(e.size)")
         }
-        let bytes = try fs.read(part)
-        let sha = SHA256.hexDigest(bytes)
+        let sha = try fs.sha256Hex(part)
         if let expected = e.sha256, sha != expected {
             fs.remove(part)
             throw ModelStoreError.integrityCheckFailed("\(e.path): sha256 mismatch")

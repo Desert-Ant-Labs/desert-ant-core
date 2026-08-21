@@ -68,6 +68,43 @@ final class LockedDouble: @unchecked Sendable {
     func get() -> Double { lock.withLock { value } }
 }
 
+/// Records how many downloads overlap, so the suite can prove files transfer
+/// concurrently and that the configured bound is respected. Each download
+/// sleeps briefly, which is what makes overlap observable at all.
+final class ConcurrencyProbeTransport: ModelTransport, @unchecked Sendable {
+    let files: [String: [UInt8]]
+    private let lock = NSLock()
+    private var active = 0
+    private(set) var peak = 0
+
+    init(_ files: [String: [UInt8]]) { self.files = files }
+
+    func tree(_ url: String) async throws -> [RemoteEntry] {
+        files.map { RemoteEntry(path: $0.key, size: Int64($0.value.count), sha256: SHA256.hexDigest($0.value)) }
+    }
+
+    func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
+        lock.withLock { active += 1; peak = max(peak, active) }
+        defer { lock.withLock { active -= 1 } }
+        guard let r = url.range(of: "/resolve/") else { throw ModelStoreError.io("bad url") }
+        let rest = url[r.upperBound...]
+        guard let slash = rest.firstIndex(of: "/") else { throw ModelStoreError.io("bad url") }
+        let path = String(rest[rest.index(after: slash)...])
+        guard let bytes = files[path] else { throw ModelStoreError.io("404 \(path)") }
+        try await Task.sleep(for: .milliseconds(50))
+        try FoundationFileSystem().write(destinationPath, bytes)
+        onBytes(Int64(bytes.count))
+    }
+}
+
+/// Every reported progress value, so the suite can assert monotonicity across
+/// concurrent files.
+final class ProgressLog: @unchecked Sendable {
+    private let lock = NSLock(); private var values: [Double] = []
+    func append(_ v: Double) { lock.withLock { values.append(v) } }
+    func all() -> [Double] { lock.withLock { values } }
+}
+
 final class ModelStoreTests {
     private let tmp: String
     private let endpoint = "https://hub.test"
@@ -283,6 +320,84 @@ final class ModelStoreTests {
 
         try posix.write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0, count: 6000))
         #expect(!s.isDownloaded(m))
+    }
+
+    @Test func filesDownloadConcurrently() async throws {
+        var payload: [String: [UInt8]] = [:]
+        for i in 0..<8 { payload["part\(i).bin"] = [UInt8](repeating: UInt8(i), count: 100 + i) }
+        let t = ConcurrencyProbeTransport(payload)
+        let s = ModelStore(transport: t, fileSystem: FoundationFileSystem(),
+                           endpoint: endpoint, maxConcurrentDownloads: 4)
+        let m = model(Array(payload.keys).sorted())
+
+        try await s.download(m)
+        #expect(t.peak > 1)   // sequential would peak at 1
+        #expect(t.peak <= 4)  // and the bound is respected
+        #expect(s.isDownloaded(m))
+    }
+
+    @Test func concurrencyBoundOfOneIsSequential() async throws {
+        var payload: [String: [UInt8]] = [:]
+        for i in 0..<4 { payload["part\(i).bin"] = [UInt8](repeating: UInt8(i), count: 64) }
+        let t = ConcurrencyProbeTransport(payload)
+        let s = ModelStore(transport: t, fileSystem: FoundationFileSystem(),
+                           endpoint: endpoint, maxConcurrentDownloads: 1)
+        try await s.download(model(Array(payload.keys).sorted()))
+        #expect(t.peak == 1)
+    }
+
+    @Test func concurrentProgressIsMonotonicAndCompletes() async throws {
+        var payload: [String: [UInt8]] = [:]
+        for i in 0..<6 { payload["part\(i).bin"] = [UInt8](repeating: UInt8(i), count: 1000 * (i + 1)) }
+        let s = ModelStore(transport: ConcurrencyProbeTransport(payload),
+                           fileSystem: FoundationFileSystem(), endpoint: endpoint)
+        let log = ProgressLog()
+        try await s.download(model(Array(payload.keys).sorted())) { log.append($0.fraction) }
+
+        let values = log.all()
+        #expect(values.first == 0)
+        #expect(abs((values.last ?? 0) - 1.0) <= 0.0001)
+        for (a, b) in zip(values, values.dropFirst()) { #expect(b >= a, "\(a) -> \(b)") }
+    }
+
+    @Test func downloadFailureStillPropagatesUnderConcurrency() async throws {
+        var payload: [String: [UInt8]] = [:]
+        for i in 0..<6 { payload["part\(i).bin"] = [UInt8](repeating: UInt8(i), count: 128) }
+        let s = store(DroppingTransport(payload))
+        let m = model(Array(payload.keys).sorted())
+        await #expect(throws: ModelStoreError.self) { try await s.download(m) }
+        #expect(!s.isDownloaded(m))
+        // No `.part` temp survives a failed run, whichever file lost the race.
+        let meta = s.location(of: m) + "/" + ModelStore.metadataDirectory
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: meta)) ?? [] {
+            #expect(!name.hasSuffix(".part"), "\(name)")
+        }
+    }
+
+    /// The streaming hash must agree with the one-shot hash, including for a
+    /// file that spans many read buffers and does not end on a block boundary.
+    @Test func streamingHashMatchesWholeFileHash() throws {
+        var bytes = [UInt8](); bytes.reserveCapacity(3_000_037)
+        for i in 0..<3_000_037 { bytes.append(UInt8(truncatingIfNeeded: i &* 31 &+ 7)) }
+        let expected = SHA256.hexDigest(bytes)
+
+        try FileManager.default.createDirectory(atPath: tmp, withIntermediateDirectories: true)
+        let path = tmp + "/big.bin"
+        let foundation = FoundationFileSystem()
+        try foundation.write(path, bytes)
+
+        #expect(try foundation.sha256Hex(path) == expected)
+        #expect(try POSIXFileSystem(cacheRoot: tmp).sha256Hex(path) == expected)
+
+        let empty = tmp + "/empty.bin"
+        try foundation.write(empty, [])
+        #expect(try foundation.sha256Hex(empty) == SHA256.hexDigest([]))
+        #expect(try POSIXFileSystem(cacheRoot: tmp).sha256Hex(empty) == SHA256.hexDigest([]))
+    }
+
+    @Test func streamingHashReportsMissingFiles() {
+        #expect(throws: ModelStoreError.self) { try FoundationFileSystem().sha256Hex(tmp + "/nope.bin") }
+        #expect(throws: ModelStoreError.self) { try POSIXFileSystem(cacheRoot: tmp).sha256Hex(tmp + "/nope.bin") }
     }
 }
 #endif
