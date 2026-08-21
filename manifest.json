@@ -37,6 +37,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["speech", "word-timestamps", "forced-alignment", "speech-recognition", "on-device", "core-ml", "multilingual"],
+        "pipelineTag": "automatic-speech-recognition",
+        "libraryName": null
+      },
       "languages": null,
       "demo": null
     },
@@ -66,6 +71,11 @@
         { "id": "clear-studio", "default": true, "note": "Aggressive denoise and dereverb." },
         { "id": "clear-natural", "default": false, "note": "Lighter touch, keeps more of the room." }
       ],
+      "hub": {
+        "tags": ["audio", "speech", "speech-enhancement", "speech-denoising", "noise-suppression", "dereverberation", "podcast", "on-device", "core-ml", "onnx", "ios", "android", "deepfilternet"],
+        "pipelineTag": "audio-to-audio",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": "desert-ant-labs/clear-demo",
@@ -96,6 +106,11 @@
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
+      "hub": {
+        "tags": ["text", "clip-selection", "text-ranking", "on-device", "core-ml", "litert", "tflite", "multilingual"],
+        "pipelineTag": "text-ranking",
+        "libraryName": null
+      },
       "languages": {
         "count": null,
         "codes": null,
@@ -127,6 +142,11 @@
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
+      "hub": {
+        "tags": ["text", "emoji", "text-classification", "on-device", "core-ml", "litert", "tflite", "multilingual"],
+        "pipelineTag": "text-classification",
+        "libraryName": null
+      },
       "languages": {
         "count": 22,
         "codes": ["ar", "cs", "da", "de", "en", "es", "fr", "hi", "id", "it", "ja", "ko", "nl", "pl", "pt", "ru", "sv", "th", "tr", "uk", "vi", "zh"],
@@ -162,6 +182,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["image", "video", "frame-scoring", "aesthetics", "clip", "on-device", "core-ml"],
+        "pipelineTag": "image-feature-extraction",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": null,
@@ -192,6 +217,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["image", "face-recognition", "face-matching", "embeddings", "on-device", "core-ml"],
+        "pipelineTag": "image-feature-extraction",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": null,
@@ -225,6 +255,11 @@
         { "id": "multilingual", "default": true, "note": "36 topics, 101 languages, ~74 MB." },
         { "id": "english", "default": false, "note": "Same 36 topics, English/Latin only, ~15 MB." }
       ],
+      "hub": {
+        "tags": ["text", "topic-classification", "content-classification", "multi-label", "on-device", "core-ml", "tflite", "litert", "multilingual", "model2vec"],
+        "pipelineTag": "text-classification",
+        "libraryName": "litert"
+      },
       "languages": {
         "count": 101,
         "codes": null,
@@ -260,6 +295,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["image", "image-classification", "content-moderation", "nsfw", "on-device", "core-ml", "onnx"],
+        "pipelineTag": "image-classification",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": null,
@@ -290,6 +330,11 @@
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
+      "hub": {
+        "tags": ["pii", "redaction", "token-classification", "on-device", "litert", "tflite", "core-ml", "multilingual"],
+        "pipelineTag": "token-classification",
+        "libraryName": null
+      },
       "languages": {
         "count": 27,
         "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "is", "it", "lt", "lv", "mt", "nb", "nl", "nn", "pl", "pt", "ro", "sk", "sl", "sv"],
@@ -325,6 +370,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["text", "structured-output", "schema", "json", "extraction", "multilingual", "on-device", "core-ml", "onnx"],
+        "pipelineTag": "other",
+        "libraryName": null
+      },
       "languages": {
         "count": 13,
         "codes": ["da", "de", "en", "es", "fr", "it", "ja", "nl", "no", "pl", "pt", "sv", "zh"],
@@ -360,6 +410,11 @@
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
+      "hub": {
+        "tags": ["strokes", "shapes", "sketches", "pen-input", "on-device", "core-ml", "litert", "tflite", "pencilkit"],
+        "pipelineTag": "image-classification",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": "desert-ant-labs/shapes-demo",
@@ -390,6 +445,11 @@
       },
       "runtime": ["mlx"],
       "variants": [],
+      "hub": {
+        "tags": ["text", "text-generation", "summarization", "on-device", "mlx", "multilingual"],
+        "pipelineTag": "text-generation",
+        "libraryName": null
+      },
       "languages": {
         "count": null,
         "codes": null,
@@ -421,6 +481,11 @@
       },
       "runtime": ["pure"],
       "variants": [],
+      "hub": {
+        "tags": ["language-identification", "language-detection", "langid", "text-classification", "on-device", "edge-ai", "mobile", "browser", "offline", "onnx", "multilingual"],
+        "pipelineTag": "text-classification",
+        "libraryName": null
+      },
       "languages": {
         "count": 84,
         "codes": ["af", "am", "ar", "as", "az", "be", "bg", "bn", "bo", "ca", "chr", "cs", "cy", "da", "de", "dv", "el", "en", "eo", "es", "et", "eu", "fa", "fi", "fr", "ga", "gl", "gu", "he", "hi", "hr", "hu", "hy", "id", "is", "it", "ja", "ka", "kk", "km", "kn", "ko", "ku", "ky", "la", "lo", "lt", "lv", "mk", "ml", "mn", "mr", "ms", "my", "ne", "nl", "no", "or", "pa", "pl", "pt", "ro", "ru", "si", "sk", "sl", "sq", "sr", "st", "sv", "sw", "syr", "ta", "te", "th", "tl", "tr", "ug", "uk", "ur", "vi", "xh", "yo", "zh"],
@@ -456,6 +521,11 @@
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
+      "hub": {
+        "tags": ["hate-speech", "hate-speech-detection", "toxicity-classification", "content-moderation", "offensive-language", "text-classification", "on-device", "edge-ai", "mobile", "ios", "android", "browser", "offline", "litert", "tflite", "core-ml", "onnx", "multilingual"],
+        "pipelineTag": "text-classification",
+        "libraryName": null
+      },
       "languages": {
         "count": 23,
         "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
@@ -493,6 +563,11 @@
       "variants": [
         { "id": "high", "default": true, "note": "DistilHuBERT. The base tier is unpublished." }
       ],
+      "hub": {
+        "tags": ["audio", "speech", "filler-detection", "disfluency", "on-device", "core-ml", "onnx"],
+        "pipelineTag": "audio-classification",
+        "libraryName": null
+      },
       "languages": {
         "count": 5,
         "codes": ["de", "en", "es", "fr", "nl"],
@@ -528,6 +603,11 @@
       },
       "runtime": ["coreml"],
       "variants": [],
+      "hub": {
+        "tags": ["audio", "speaker-diarization", "diarization", "speech", "on-device", "core-ml"],
+        "pipelineTag": "voice-activity-detection",
+        "libraryName": null
+      },
       "languages": null,
       "demo": {
         "space": null,

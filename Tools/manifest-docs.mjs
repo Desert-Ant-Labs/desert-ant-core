@@ -67,30 +67,35 @@ export function renderCardBody(model, org) {
   return [`# ${model.name}`, "", model.tagline, "", model.summary, "", ...links, ""].join("\n");
 }
 
-/// Front matter is HF's search index, not prose, so it survives the rewrite.
-/// Only the fields the manifest is authoritative for are replaced; `tags`,
-/// `pipeline_tag` and `library_name` are curated on the Hub and kept verbatim.
+/// Front matter is HF's search index, not prose, so it survives the rewrite —
+/// but every field in it is the manifest's, so a card cannot drift from the
+/// registry. Unknown keys still round-trip untouched.
 export function mergeFrontMatter(existing, model) {
   const owned = { license: "other" };
   owned.license_name = model.weights.license;
   owned.license_link = "https://license.desertant.com/1.0";
+  // `undefined` drops the key: a model the manifest says has no languages must
+  // not keep one from the card it is replacing (clear's claimed `en`, for a
+  // denoiser).
   const codes = model.languages?.codes;
-  if (codes) owned.language = codes;
-  else if (model.languages) owned.language = ["multilingual"];
+  owned.language = codes ?? (model.languages ? ["multilingual"] : undefined);
+  owned.tags = model.hub.tags;
+  if (model.hub.pipelineTag) owned.pipeline_tag = model.hub.pipelineTag;
+  if (model.hub.libraryName) owned.library_name = model.hub.libraryName;
 
   const blocks = parseBlocks(existing);
   const rendered = [];
   const seen = new Set();
   for (const [key, lines] of blocks) {
     if (key in owned) {
-      rendered.push(emit(key, owned[key]));
+      if (owned[key] !== undefined) rendered.push(emit(key, owned[key]));
       seen.add(key);
     } else {
       rendered.push(lines.join("\n"));
     }
   }
   for (const [key, value] of Object.entries(owned)) {
-    if (!seen.has(key)) rendered.push(emit(key, value));
+    if (!seen.has(key) && value !== undefined) rendered.push(emit(key, value));
   }
   return rendered.join("\n");
 }

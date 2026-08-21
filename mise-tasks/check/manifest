@@ -70,6 +70,16 @@ for (const m of models) {
   if (m.home !== "desert-ant-core" && m.sdks.swift.status === "live" && !ownVersion)
     fail(at, "not homed here, so each live SDK needs its own version");
 
+  // Front matter is what the Hub indexes on, so it is the manifest's to state.
+  const tags = m.hub?.tags;
+  if (!Array.isArray(tags) || !tags.length) fail(at, "hub.tags must be a non-empty list");
+  else {
+    if (new Set(tags).size !== tags.length) fail(at, "duplicate hub.tags");
+    const bad = tags.filter((t) => !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(t));
+    if (bad.length) fail(at, `hub.tags must be lowercase kebab-case: ${bad}`);
+    if (tags.includes("coreml")) fail(at, 'hub.tags: use "core-ml", not "coreml"');
+  }
+
   const langs = m.languages;
   if (langs) {
     if (!BASIS.includes(langs.basis)) fail(at, `languages.basis ${langs.basis}`);
