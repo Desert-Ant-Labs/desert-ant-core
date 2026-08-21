@@ -356,6 +356,33 @@ jobs:
       # consumer's `next build`.
       - run: mise run test:bundles
 
+  windows:
+    # Experimental: Redact is the first (and so far only) model built natively
+    # on Windows -- same LiteRT lane as Linux, with the runtime vendored from
+    # the win_amd64 ai-edge-litert wheel. Build-only for now: `swift test`
+    # would compile every test target, and the rest of the package is not yet
+    # Windows-guarded, so the gate is Redact plus its own test target compiling
+    # against their exact dependency closures.
+    name: Windows (Swift, Redact)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: compnerd/gha-setup-swift@v3
+        with:
+          branch: swift-6.2.1-release
+          tag: 6.2.1-RELEASE
+      # dumpbin/lib for the import-library step in vendor-litert.ps1.
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Vendor LiteRT (win_amd64 wheel)
+        shell: pwsh
+        run: Tools/windows/vendor-litert.ps1
+      - name: Build Redact
+        shell: pwsh
+        run: swift build --target Redact -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+      - name: Build RedactTests
+        shell: pwsh
+        run: swift build --target RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+
   android:
     name: Android (natives, AARs, on-device)
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the

@@ -29,7 +29,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
     // tensor buffers, so a run (and the output reads that follow it, which read
     // those same buffers) is not reentrant. Serialize the whole run+read so
     // concurrent callers on one session are safe.
-    private var lock = pthread_mutex_t()
+    private let lock = PlatformMutex()
 
     /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 =
     /// CPU, 2 = GPU, 4 = NPU. `.auto` (GPU|CPU) prefers the GPU and falls back
@@ -72,17 +72,15 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         }
         outputNames = outs
         outputIndex = Dictionary(uniqueKeysWithValues: outs.enumerated().map { ($1, $0) })
-        pthread_mutex_init(&lock, nil)
     }
 
     deinit {
         dal_lrt_free(session)
-        pthread_mutex_destroy(&lock)
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
-        pthread_mutex_lock(&lock)
-        defer { pthread_mutex_unlock(&lock) }
+        lock.lock()
+        defer { lock.unlock() }
         // Assemble input byte buffers in the model's declared input order.
         var buffers: [[UInt8]] = []
         buffers.reserveCapacity(inputNames.count)

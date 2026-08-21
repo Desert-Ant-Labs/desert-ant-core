@@ -228,6 +228,7 @@ rather than sysfs.
 |---|---|---|
 | iOS, macOS, tvOS, visionOS | Core ML | iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, Swift 6.2+ |
 | Android | LiteRT | API 24+, arm64-v8a and x86_64 |
+| Windows (experimental) | LiteRT | x64, Swift 6.2+; Redact only for now |
 | Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
 
