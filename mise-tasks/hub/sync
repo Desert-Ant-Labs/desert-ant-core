@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#MISE description="Render the Hub cards and org card from manifest.json (dry run)"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Renders into .build/hub/ and diffs against docs/hub-cards/, the archived copy
+# of what the Hub serves today. Nothing is uploaded: publishing is a separate
+# task, so the diff can be read before any of it reaches the Hub.
+#
+# Gated repos are absent from docs/hub-cards/ and are skipped here too - the
+# archive is the list of repos this can see.
+
+node --input-type=module <<'NODE'
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
+import { manifest, renderCard, renderTable, replaceBlock, MARKERS } from "./Tools/manifest-docs.mjs";
+
+const { models, org } = manifest();
+mkdirSync(".build/hub", { recursive: true });
+
+let rendered = 0;
+for (const model of models) {
+  // Internal models keep whatever card they have: eye and face are gated and
+  // unreachable, and who is public on the Hub but not something we advertise.
+  if (model.visibility === "internal") {
+    console.log(`  ${model.id}: internal, leaving its card alone`);
+    continue;
+  }
+  const archived = `docs/hub-cards/${model.id}.md`;
+  if (!existsSync(archived)) {
+    console.log(`  ${model.id}: no archived card, skipping`);
+    continue;
+  }
+  writeFileSync(`.build/hub/${model.id}.md`, renderCard(readFileSync(archived, "utf8"), model, org));
+  rendered++;
+}
+
+// The org card's prose stays hand-written; only the table is generated, so the
+// markers go in on the first sync and the rest of the file is left alone.
+let card = readFileSync("docs/hub-cards/_org.md", "utf8");
+if (!card.includes(MARKERS.start)) {
+  card = card.replace(/^\| Model \|[\s\S]*?(?=\n\n)/m, `${MARKERS.start}\n${MARKERS.end}`);
+}
+writeFileSync(".build/hub/_org.md", replaceBlock(card, renderTable(models)));
+
+console.log(`${rendered} model cards + org card rendered into .build/hub/`);
+NODE
+
+echo
+git --no-pager diff --no-index --stat docs/hub-cards .build/hub || true

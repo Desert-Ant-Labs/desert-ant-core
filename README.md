@@ -64,11 +64,6 @@ and ship it everywhere. New models are added regularly, and the weights live on
 coordinates ships from this repo; the rest are published weights whose SDKs are
 still in progress.
 
-The table is generated from [`manifest.json`](manifest.json) by `mise run
-docs:render` — edit the manifest, not the rows. It is the registry every surface
-reads: what each model is called, which SDKs are live, where its weights are,
-and which languages it covers.
-
 ## Swift
 
 ### Install
