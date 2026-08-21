@@ -390,12 +390,21 @@ jobs:
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
 
+      # Separate build step so a frontend crash names its exact invocation
+      # (-v) instead of swift-driver's bare "error: fatalError", and -j 2
+      # bounds peak memory: the full test build is the largest compile this
+      # runner does, and a parallel spike is the usual suspect for a
+      # no-diagnostic crash on windows-latest.
+      - name: Build tests
+        shell: pwsh
+        run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+
       - name: Test Redact
         shell: pwsh
         run: |
           # libLiteRt.dll must be loadable at test run time.
           $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
-          swift test --filter RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+          swift test --skip-build --filter RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
   android:
     name: Android (natives, AARs, on-device)
