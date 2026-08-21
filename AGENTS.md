@@ -25,6 +25,7 @@ SDK coordinates against `packages/`, and `sdkVersion` against `VERSION`. Adding 
 | README model table (between `<!-- models:start -->` markers) | `mise run docs:render` | `mise run check:docs` |
 | Hugging Face model cards | `mise run hub:publish` | published on merge to `main` |
 | Hugging Face org card table | `mise run hub:publish` | published on merge to `main` |
+| GitHub org profile table | `mise run github:profile` | published on merge to `main` |
 
 Editing any of these by hand is wasted work: the README table is reverted by the
 next render, and a Hub card edited on huggingface.co is overwritten by the next
@@ -74,10 +75,13 @@ manifest. They have nothing to do with `VERSION`.
 
 ## Hub publishing
 
-`.github/workflows/hub-sync.yml` publishes on any merge to `main` touching
+`.github/workflows/hub-sync.yml` publishes to Hugging Face and to the GitHub org
+profile (`Desert-Ant-Labs/.github`) on any merge to `main` touching
 `manifest.json`, `Tools/manifest-docs.mjs`, `mise-tasks/hub/**`, or the workflow
 itself. It needs the `HF_TOKEN` secret with write access to all repos under the
-`desert-ant-labs` org; without it the run previews instead of failing.
+`desert-ant-labs` org, and `ORG_PROFILE_TOKEN` with contents:write on
+`Desert-Ant-Labs/.github`. Without either, that half of the run previews instead
+of failing.
 
 A manual dispatch defaults to a dry run. Preview locally with
 `mise run hub:publish --dry-run`, which needs no token, or render the cards to

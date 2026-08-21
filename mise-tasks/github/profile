@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+#MISE description="Publish the model table to the GitHub org profile card"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+#USAGE flag "--dry-run" help="Print what would change and push nothing"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# github.com/Desert-Ant-Labs renders Desert-Ant-Labs/.github profile/README.md.
+# Same generated table as the repo README and the Hub org card, same markers,
+# and the prose around it stays hand-written.
+#
+# Needs a token with contents:write on that repo. The workflow's own
+# GITHUB_TOKEN cannot reach another repository, so this is a separate secret.
+
+export DAL_DRY_RUN="${usage_dry_run:-false}"
+
+node --input-type=module <<'NODE'
+import { manifest, renderTable, replaceBlock, insertMarkers } from "./Tools/manifest-docs.mjs";
+
+const dryRun = process.env.DAL_DRY_RUN === "true";
+const token = process.env.ORG_PROFILE_TOKEN || process.env.GH_TOKEN;
+if (!dryRun && !token) {
+  console.error("error: ORG_PROFILE_TOKEN is not set. Run with --dry-run to preview instead.");
+  process.exit(1);
+}
+
+const REPO = "Desert-Ant-Labs/.github";
+const PATH = "profile/README.md";
+const api = `https://api.github.com/repos/${REPO}/contents/${PATH}`;
+const headers = {
+  Accept: "application/vnd.github+json",
+  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+};
+
+const res = await fetch(api, { headers });
+if (!res.ok) {
+  console.error(`error: GET ${REPO}/${PATH}: ${res.status}`);
+  process.exit(1);
+}
+const file = await res.json();
+const current = Buffer.from(file.content, "base64").toString("utf8");
+
+const next = replaceBlock(insertMarkers(current, "Product"), renderTable(manifest().models));
+if (next === current) {
+  console.log("org profile is already current");
+  process.exit(0);
+}
+
+console.log(`org profile: ${current.length} -> ${next.length} bytes`);
+if (dryRun) process.exit(0);
+
+const write = await fetch(api, {
+  method: "PUT",
+  headers: { ...headers, "Content-Type": "application/json" },
+  body: JSON.stringify({
+    message: "Sync model table from manifest.json",
+    content: Buffer.from(next).toString("base64"),
+    sha: file.sha,
+  }),
+});
+if (!write.ok) {
+  const detail = await write.text();
+  if (write.status === 403 || write.status === 404) {
+    console.error(`error: the token cannot write to ${REPO}. It needs contents:write there.`);
+  } else {
+    console.error(`error: PUT ${REPO}: ${write.status} ${detail}`);
+  }
+  process.exit(1);
+}
+console.log("org profile published");
+NODE
