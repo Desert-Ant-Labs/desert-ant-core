@@ -229,10 +229,9 @@ public final class Clear: @unchecked Sendable {
     }
 
     /// `computeUnits` selects the Core ML compute units on Apple (ignored by the
-    /// LiteRT/JS backends). Default `.all`, letting Core ML place the work
-    /// itself; pass `.cpuOnly` if CPU-only benchmarks better for your model
-    /// and hardware (the palettized model has run ~2x faster on the CPU than
-    /// the Neural Engine or GPU on some M-series Macs).
+    /// LiteRT/JS backends). Default `.all`, letting Core ML place the
+    /// ANE-optimized graph on the Neural Engine. Pass `.cpuOnly` only when a
+    /// deployment needs an explicit CPU fallback.
     /// `concurrency` is the model-session pool size (see `defaultConcurrency`).
     ///
     /// Nothing is bundled with this package. To ship the model with your app,
