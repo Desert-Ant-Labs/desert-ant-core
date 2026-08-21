@@ -44,6 +44,10 @@ for (const m of models) {
   if (m.id !== m.id.toLowerCase() || !m.id) fail(at, "id must be lowercase and non-empty");
   if (m.name?.[0] !== m.name?.[0]?.toUpperCase()) fail(at, "name must be capitalized");
   if (!m.summary?.endsWith(".")) fail(at, "summary must be one sentence ending in a period");
+  // The tagline is the voice, the summary is the fact. Rendered in different
+  // places, so they must not collapse into each other.
+  if (!m.tagline?.endsWith(".")) fail(at, "tagline must end in a period");
+  if (m.tagline === m.summary) fail(at, "tagline must not restate the summary");
   if (!LIFECYCLE.includes(m.lifecycle)) fail(at, `lifecycle ${m.lifecycle}`);
   if (!VISIBILITY.includes(m.visibility)) fail(at, `visibility ${m.visibility}`);
   if (!m.runtime.every((r) => RUNTIME.includes(r))) fail(at, `runtime ${m.runtime}`);

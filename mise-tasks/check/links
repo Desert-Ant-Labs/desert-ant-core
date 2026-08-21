@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#MISE description="Verify every URL manifest.json publishes actually resolves"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Split from check:manifest because this one needs the network. The manifest is
+# about to be rendered into 16 Hub cards and two model tables, so one dead URL
+# here becomes a dead URL everywhere.
+
+node --input-type=module <<'NODE'
+import { readFileSync } from "node:fs";
+
+const models = JSON.parse(readFileSync("manifest.json", "utf8")).models;
+
+const targets = [];
+for (const m of models) {
+  // A gated repo answers 401 to anonymous requests, which is correct rather
+  // than broken, so it is not something this can check.
+  if (m.weights?.url && m.visibility !== "internal") targets.push([m.id, "weights.url", m.weights.url]);
+  if (m.demo?.page) targets.push([m.id, "demo.page", m.demo.page]);
+  if (m.demo?.embed) targets.push([m.id, "demo.embed", m.demo.embed]);
+  if (m.demo?.space) targets.push([m.id, "demo.space", `https://huggingface.co/spaces/${m.demo.space}`]);
+  if (m.languages?.source?.startsWith("http")) targets.push([m.id, "languages.source", m.languages.source]);
+}
+
+const results = await Promise.all(
+  targets.map(async ([id, field, url]) => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(15000) });
+        if (res.ok) return null;
+        if (attempt === 2) return `  ${id} ${field}: ${res.status} ${url}`;
+      } catch (error) {
+        if (attempt === 2) return `  ${id} ${field}: ${error.message} ${url}`;
+      }
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+    }
+  })
+);
+
+const dead = results.filter(Boolean);
+if (dead.length) {
+  console.error(dead.join("\n"));
+  console.error(`error: ${dead.length} of ${targets.length} manifest URLs do not resolve`);
+  process.exit(1);
+}
+console.log(`${targets.length} URLs resolve`);
+NODE
