@@ -1,11 +1,14 @@
-name: Hub sync
+name: Sync from manifest
 
-# Pushes the model cards and the org card to Hugging Face from manifest.json.
+# Pushes the model table and cards to every surface that publishes them:
+# Hugging Face model cards, the Hugging Face org card, and the GitHub org profile.
 # The only workflow in this repo that writes outside it, so it is deliberately
 # narrow: it runs on a manual dispatch, or on a push to main that actually
 # touched the registry or the renderer.
 #
-# Needs HF_TOKEN, a write token on the desert-ant-labs org.
+# Needs HF_TOKEN, a write token on the desert-ant-labs org, and
+# ORG_PROFILE_TOKEN, which needs contents:write on Desert-Ant-Labs/.github
+# (the workflow's own GITHUB_TOKEN cannot reach another repository).
 
 on:
   workflow_dispatch:
@@ -32,7 +35,7 @@ permissions:
 
 jobs:
   sync:
-    name: publish cards
+    name: publish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -53,3 +56,15 @@ jobs:
               [ -n "$HF_TOKEN" ] || echo "::notice::HF_TOKEN is not set - previewing only."
           fi
           mise run hub:publish $flag
+
+      - name: Publish the GitHub org profile
+        env:
+          ORG_PROFILE_TOKEN: ${{ secrets.ORG_PROFILE_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          flag=""
+          if [ "$DRY_RUN" = "true" ] || [ -z "$ORG_PROFILE_TOKEN" ]; then
+              flag="--dry-run"
+              [ -n "$ORG_PROFILE_TOKEN" ] || echo "::notice::ORG_PROFILE_TOKEN is not set - previewing only."
+          fi
+          mise run github:profile $flag
