@@ -37,25 +37,37 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 
 ## Models
 
-| Model | What it does | Swift | Android | Web and Node | Weights |
-|---|---|---|---|---|---|
-| **Emo** | Multilingual emoji suggestion from short text, 23 languages | `Emo` | `ai.desertant:emo` | `@desert-ant-labs/emo` | [Hugging Face](https://huggingface.co/desert-ant-labs/emo) |
-| **Redact** | PII detection and reversible redaction, 27 languages | `Redact` | `ai.desertant:redact` | `@desert-ant-labs/redact` | [Hugging Face](https://huggingface.co/desert-ant-labs/redact) |
-| **Clear** | Speech enhancement: denoise, dereverb, podcast-ready 48 kHz | `Clear` | `ai.desertant:clear` | `@desert-ant-labs/clear` | [Hugging Face](https://huggingface.co/desert-ant-labs/clear) |
-| **Gist** | Content topic tagging over a 36-topic taxonomy, 101 languages | `Gist` | `ai.desertant:gist` | `@desert-ant-labs/gist` | [Hugging Face](https://huggingface.co/desert-ant-labs/gist) |
-| **Align** | Word-timestamp refinement for Apple's `SpeechAnalyzer` pipeline, 9 languages | `Align` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/align) |
-| **Tongue** | Language identification for short text, 84 languages | `Tongue` | `ai.desertant:tongue` | `@desert-ant-labs/tongue` | Bundled (2 MB) |
-| **Shapes** | Single-stroke shape recognition: one hand-drawn stroke to clean vector geometry | `Shapes` | `ai.desertant:shapes` | `@desert-ant-labs/shapes` | [Hugging Face](https://huggingface.co/desert-ant-labs/shapes) |
-| **Uhm** | Filler-word detection: frame-precise "uh"/"um"/"hmm" spans | `Uhm` | Apple-only | Apple-only | [Hugging Face](https://huggingface.co/desert-ant-labs/uhm) |
+<!-- models:start -->
+| Model | What it does | SDKs | Weights | Status |
+| --- | --- | --- | --- | --- |
+| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | `Align` | [main](https://huggingface.co/desert-ant-labs/align) | Stable |
+| **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | `Clear` · `ai.desertant:clear` · `@desert-ant-labs/clear` | [v0.3.0](https://huggingface.co/desert-ant-labs/clear) | Stable |
+| **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | `Clips` | [v0.1.0](https://huggingface.co/desert-ant-labs/clips) | Stable |
+| **Emo** | Multilingual on-device emoji suggestion. | `Emo` · `ai.desertant:emo` · `@desert-ant-labs/emo` | [v0.7.0](https://huggingface.co/desert-ant-labs/emo) | Stable |
+| **Eye** | On-device frame scoring: which shot to keep from a burst or a clip. | — | — | Closed beta |
+| **Face** | On-device face matching across a photo library or through a video. | — | — | Closed beta |
+| **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | `Gist` · `ai.desertant:gist` · `@desert-ant-labs/gist` | [v2.2.0](https://huggingface.co/desert-ant-labs/gist) | Stable |
+| **Moderator** | On-device NSFW image detection, trained only on licensed and synthetic data. | — | [main](https://huggingface.co/desert-ant-labs/moderator) | Beta |
+| **Redact** | Multilingual on-device PII detection and redaction. | `Redact` · `ai.desertant:redact` · `@desert-ant-labs/redact` | [v0.4.0](https://huggingface.co/desert-ant-labs/redact) | Stable |
+| **Schemer** | On-device structured extraction into a caller-supplied JSON schema. | — | [main](https://huggingface.co/desert-ant-labs/schemer) | Beta |
+| **Shapes** | On-device single-stroke shape recognition. | `Shapes` · `ai.desertant:shapes` · `@desert-ant-labs/shapes` | [v0.3.0](https://huggingface.co/desert-ant-labs/shapes) | Stable |
+| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | `Title` | [v0.1.0](https://huggingface.co/desert-ant-labs/title) | Stable |
+| **Tongue** | On-device language identification for short text across 84 languages. | `Tongue` · `ai.desertant:tongue` · `@desert-ant-labs/tongue` | Bundled · [v1.0.0](https://huggingface.co/desert-ant-labs/tongue) | Stable |
+| **Toxic** | On-device hate-speech triage for European languages. | — | [main](https://huggingface.co/desert-ant-labs/toxic) | Experimental |
+| **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | `Uhm` | [612592c](https://huggingface.co/desert-ant-labs/uhm) | Stable |
+| **Who** | On-device speaker labeling: per-person turns with timestamps. | — | — | Closed beta |
+<!-- models:end -->
 
 Each model behaves the same on every platform, so you can build a feature once
 and ship it everywhere. New models are added regularly, and the weights live on
-[Hugging Face](https://huggingface.co/desert-ant-labs).
+[Hugging Face](https://huggingface.co/desert-ant-labs). A model with SDK
+coordinates ships from this repo; the rest are published weights whose SDKs are
+still in progress.
 
-[`manifest.json`](manifest.json) is the machine-readable version of this table,
-covering every Desert Ant Labs model rather than only the ones built here: what
-each one is called, which SDKs are live, where its weights are, and which
-languages it covers. Tooling should read it instead of hard-coding a list.
+The table is generated from [`manifest.json`](manifest.json) by `mise run
+docs:render` — edit the manifest, not the rows. It is the registry every surface
+reads: what each model is called, which SDKs are live, where its weights are,
+and which languages it covers.
 
 ## Swift
 
