@@ -1,5 +1,9 @@
 # Desert Ant Core
 
+![Swift](https://img.shields.io/badge/Swift-iOS%20%7C%20macOS%20%7C%20Linux-F05138?logo=swift&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?logo=kotlin&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-Node%20%7C%20Browser%20%7C%20WASM-3178C6?logo=typescript&logoColor=white)
+
 On-device AI SDKs for Swift, Kotlin, and JavaScript. Small, focused models that
 run directly on the user's phone, Mac, or browser tab, through Core ML on Apple,
 LiteRT (formerly TensorFlow Lite) on Android, and WebAssembly with LiteRT.js on
