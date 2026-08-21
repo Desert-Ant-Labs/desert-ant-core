@@ -357,12 +357,11 @@ jobs:
       - run: mise run test:bundles
 
   windows:
-    # Experimental: Redact is the first (and so far only) model built natively
+    # Experimental: Redact is the first (and so far only) model tested natively
     # on Windows -- same LiteRT lane as Linux, with the runtime vendored from
-    # the win_amd64 ai-edge-litert wheel. Build-only for now: `swift test`
-    # would compile every test target, and the rest of the package is not yet
-    # Windows-guarded, so the gate is Redact plus its own test target compiling
-    # against their exact dependency closures.
+    # the win_amd64 ai-edge-litert wheel. `swift test` compiles every target in
+    # the package (all of which carry Windows import guards), but only
+    # RedactTests RUNS here; the other suites are not yet Windows-qualified.
     name: Windows (Swift + LiteRT)
     runs-on: windows-latest
     steps:
@@ -376,12 +375,27 @@ jobs:
       - name: Vendor LiteRT (win_amd64 wheel)
         shell: pwsh
         run: Tools/windows/vendor-litert.ps1
+      # Proves Redact compiles against its exact dependency closure, mirroring
+      # mise-tasks/build/swift's one-model-at-a-time rationale.
       - name: Build Redact
         shell: pwsh
         run: swift build --target Redact -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
-      - name: Build RedactTests
+
+      # Foundation's cachesDirectory is ~\AppData\Local on Windows, so the
+      # model store lives under it (see the macOS/Linux jobs for the pattern).
+      - name: Cache downloaded models
+        uses: actions/cache@v6
+        with:
+          path: ~\AppData\Local\desert-ant-models
+          key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
+          restore-keys: models-${{ runner.os }}-
+
+      - name: Test Redact
         shell: pwsh
-        run: swift build --target RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: |
+          # libLiteRt.dll must be loadable at test run time.
+          $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
+          swift test --filter RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
   android:
     name: Android (natives, AARs, on-device)

@@ -12,6 +12,8 @@ import Glibc
 import Android
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif os(Windows)
+import CRT
 #endif
 #if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
