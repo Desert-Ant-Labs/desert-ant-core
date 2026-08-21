@@ -170,30 +170,59 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
             return (try? Tensor(element: .int32, shape: shape, bytes: bytes)) ?? Tensor(float32: [], shape: shape)
         }
         var out = [Float](repeating: 0, count: count)
-        if array.dataType == .float16, contiguous {
+        if array.dataType == .float16, let rows = rowContiguousLayout(array) {
+            // ANE commonly pads the innermost row (for example 200 values to
+            // a stride of 224). Convert each logical row from the raw buffer;
+            // NSNumber subscripting here costs several times the prediction.
             let src = array.dataPointer.assumingMemoryBound(to: UInt16.self)
-            var s = vImage_Buffer(data: .init(mutating: src), height: 1, width: vImagePixelCount(count), rowBytes: count * 2)
             out.withUnsafeMutableBufferPointer { dp in
-                var d = vImage_Buffer(data: dp.baseAddress!, height: 1, width: vImagePixelCount(count), rowBytes: count * 4)
-                vImageConvert_Planar16FtoPlanarF(&s, &d, 0)
+                for row in 0..<rows.count {
+                    var s = vImage_Buffer(
+                        data: .init(mutating: src + row * rows.stride), height: 1,
+                        width: vImagePixelCount(rows.length), rowBytes: rows.length * 2)
+                    var d = vImage_Buffer(
+                        data: dp.baseAddress! + row * rows.length, height: 1,
+                        width: vImagePixelCount(rows.length), rowBytes: rows.length * 4)
+                    vImageConvert_Planar16FtoPlanarF(&s, &d, 0)
+                }
             }
-        } else if array.dataType == .float32, contiguous {
-            out.withUnsafeMutableBufferPointer { $0.baseAddress!.update(from: array.dataPointer.assumingMemoryBound(to: Float.self), count: count) }
+        } else if array.dataType == .float32, let rows = rowContiguousLayout(array) {
+            let src = array.dataPointer.assumingMemoryBound(to: Float.self)
+            out.withUnsafeMutableBufferPointer { dp in
+                for row in 0..<rows.count {
+                    (dp.baseAddress! + row * rows.length)
+                        .update(from: src + row * rows.stride, count: rows.length)
+                }
+            }
         } else {
-            // Strided (ANE-padded inner dims) or float64: correct, slower path.
+            // Genuinely arbitrary strides or float64: correct, slower path.
             for i in 0..<count { out[i] = array[i].floatValue }
         }
         return Tensor(float32: out, shape: shape)
     }
 
     private func isContiguous(_ array: MLMultiArray) -> Bool {
-        let shape = array.shape.map(\.intValue), strides = array.strides.map(\.intValue)
-        var expected = 1
-        for i in (0..<shape.count).reversed() {
-            if strides[i] != expected { return false }
-            expected *= shape[i]
+        guard let rows = rowContiguousLayout(array) else { return false }
+        return rows.stride == rows.length
+    }
+
+    /// A dense sequence of fixed-stride innermost rows. Core ML may pad between
+    /// rows, but every higher dimension must still be a regular product of the
+    /// dimension below it.
+    private func rowContiguousLayout(_ array: MLMultiArray)
+        -> (count: Int, length: Int, stride: Int)? {
+        let shape = array.shape.map(\.intValue)
+        let strides = array.strides.map(\.intValue)
+        guard shape.count >= 2, strides.count == shape.count,
+              strides.last == 1 else { return nil }
+        let rowStride = strides[shape.count - 2]
+        guard rowStride >= shape.last! else { return nil }
+        if shape.count > 2 {
+            for i in 0..<(shape.count - 2) where strides[i] != shape[i + 1] * strides[i + 1] {
+                return nil
+            }
         }
-        return true
+        return (shape.dropLast().reduce(1, *), shape.last!, rowStride)
     }
 }
 
