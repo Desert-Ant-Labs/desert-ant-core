@@ -7,7 +7,7 @@ On-device single-stroke shape recognition.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/shapes) |
 | **Demo** | https://desertant.com/models/shapes/ |
 

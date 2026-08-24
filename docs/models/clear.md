@@ -7,7 +7,7 @@ On-device speech enhancement: denoise, dereverb, and loudness-normalize.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/clear) |
 | **Demo** | https://desertant.com/models/clear/ |
 

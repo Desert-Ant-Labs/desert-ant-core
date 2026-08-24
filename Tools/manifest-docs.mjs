@@ -26,14 +26,6 @@ function short(revision) {
   return isCommit ? revision.slice(0, 7) : revision;
 }
 
-/// Package coordinates for every SDK that ships, in Swift/Kotlin/JS order.
-function sdks(model) {
-  return SDKS.map((sdk) => model.sdks[sdk])
-    .filter((sdk) => sdk?.status === "live" && sdk.package)
-    .map((sdk) => `\`${sdk.package}\``)
-    .join(" · ");
-}
-
 /// The per-model page, which is the only documentation link a table carries.
 /// Absolute because two of the three surfaces that publish this table are not
 /// in this repo, so a relative path would resolve against the wrong root.
@@ -53,10 +45,10 @@ export function renderTable(models, org) {
   const preview = models.filter((m) => !ships(m));
 
   const main = [
-    "| Model | What it does | SDKs | Docs and examples |",
+    "| Model | What it does | Platform | Docs |",
     "| --- | --- | --- | --- |",
     ...shipping.map(
-      (m) => `| **${m.name}** | ${m.summary} | ${sdks(m)} | [${m.name} docs](${docsURL(m, org)}) |`
+      (m) => `| **${m.name}** | ${m.summary} | ${platforms(m, "short")} | [docs](${docsURL(m, org)}) |`
     ),
   ];
   if (!preview.length) return main.join("\n");
@@ -169,23 +161,34 @@ export function replaceBlock(text, body) {
 
 export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
 
+/// The page header has room to name the Apple OSes; a table cell does not.
 const PLATFORM_NAMES = {
-  apple: "iOS, macOS, tvOS, visionOS",
-  android: "Android",
-  linux: "Linux",
-  windows: "Windows",
-  web: "Browser",
-  node: "Node",
+  apple: { short: "Apple", long: "iOS, macOS, tvOS, visionOS" },
+  android: { short: "Android", long: "Android" },
+  linux: { short: "Linux", long: "Linux" },
+  windows: { short: "Windows", long: "Windows" },
+  web: { short: "Web", long: "Browser" },
+  node: { short: "Node", long: "Node" },
 };
 
-/// Every platform any live SDK claims, deduplicated, in declaration order.
-function platforms(model) {
+/// Rendered in this order rather than the order the SDKs happen to declare
+/// them, so every row reads the same way down the column.
+const PLATFORM_ORDER = ["apple", "android", "linux", "windows", "web", "node"];
+
+/// Every platform any live SDK claims, deduplicated and canonically ordered.
+function platformIDs(model) {
   const seen = new Set();
   for (const sdk of SDKS) {
     const decl = model.sdks[sdk];
     if (decl?.status === "live") for (const p of decl.platforms ?? []) seen.add(p);
   }
-  return [...seen].map((p) => PLATFORM_NAMES[p] ?? p).join(", ");
+  return PLATFORM_ORDER.filter((p) => seen.has(p));
+}
+
+function platforms(model, form = "long") {
+  return platformIDs(model)
+    .map((p) => PLATFORM_NAMES[p]?.[form] ?? p)
+    .join(form === "short" ? " · " : ", ");
 }
 
 /// The install snippet per SDK. Versions come from the manifest so a release
