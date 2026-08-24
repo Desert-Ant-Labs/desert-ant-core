@@ -2,7 +2,7 @@
 // GitHub README table and the Hugging Face org card cannot disagree: they are
 // the same function over the same file.
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 export const MARKERS = { start: "<!-- models:start -->", end: "<!-- models:end -->" };
 
@@ -10,20 +10,14 @@ export function manifest(root = ".") {
   return JSON.parse(readFileSync(`${root}/manifest.json`, "utf8"));
 }
 
-/// Lifecycle and visibility are separate facts; readers want one word.
-function status(model) {
-  if (model.lifecycle === "beta" && model.visibility === "internal") return "Closed beta";
-  return model.lifecycle[0].toUpperCase() + model.lifecycle.slice(1);
+/// A model ships when at least one SDK is live. That one fact drives the split:
+/// the main table is what a reader can install today, everything else is the
+/// closed-beta list underneath it.
+export function ships(model) {
+  return SDKS.some((sdk) => model.sdks[sdk]?.status === "live");
 }
 
-/// Package coordinates for every SDK that ships, in Swift/Kotlin/JS order.
-function sdks(model) {
-  const live = ["swift", "kotlin", "js"]
-    .map((sdk) => model.sdks[sdk])
-    .filter((sdk) => sdk?.status === "live" && sdk.package)
-    .map((sdk) => `\`${sdk.package}\``);
-  return live.length ? live.join(" · ") : "—";
-}
+const SDKS = ["swift", "kotlin", "js"];
 
 /// A commit pin is 40 characters of noise in a table cell; a tag is not.
 function short(revision) {
@@ -32,37 +26,65 @@ function short(revision) {
   return isCommit ? revision.slice(0, 7) : revision;
 }
 
-/// A gated repo has nothing a reader can open, so it gets no link at all.
-function weights(model, { linkInternal = false } = {}) {
-  const { source, url, revision } = model.weights;
-  if (model.visibility === "internal" && !linkInternal) return "—";
-  if (source === "bundled") return revision ? `Bundled · [${revision}](${url})` : "Bundled";
-  if (source === "none" || !url) return "—";
-  return `[${short(revision)}](${url})`;
+/// Package coordinates for every SDK that ships, in Swift/Kotlin/JS order.
+function sdks(model) {
+  return SDKS.map((sdk) => model.sdks[sdk])
+    .filter((sdk) => sdk?.status === "live" && sdk.package)
+    .map((sdk) => `\`${sdk.package}\``)
+    .join(" · ");
 }
 
-/// The table both surfaces publish. Rows follow the manifest's A-Z order.
-export function renderTable(models) {
-  const rows = models.map(
-    (m) => `| **${m.name}** | ${m.summary} | ${sdks(m)} | ${weights(m)} | ${status(m)} |`
-  );
+/// The per-model page, which is the only documentation link a table carries.
+/// Absolute because two of the three surfaces that publish this table are not
+/// in this repo, so a relative path would resolve against the wrong root.
+export function docsURL(model, org) {
+  return `${org.github}/desert-ant-core/blob/main/${docsPath(model)}`;
+}
+
+export function docsPath(model) {
+  return `docs/models/${model.id}.md`;
+}
+
+/// The tables every surface publishes: what you can install, then what is
+/// coming. Rows follow the manifest's A-Z order. One marked block holds both,
+/// so a surface adopting this needs no extra markers.
+export function renderTable(models, org) {
+  const shipping = models.filter(ships);
+  const preview = models.filter((m) => !ships(m));
+
+  const main = [
+    "| Model | What it does | SDKs | Docs and examples |",
+    "| --- | --- | --- | --- |",
+    ...shipping.map(
+      (m) => `| **${m.name}** | ${m.summary} | ${sdks(m)} | [${m.name} docs](${docsURL(m, org)}) |`
+    ),
+  ];
+  if (!preview.length) return main.join("\n");
+
+  const rest = [
+    "| Model | What it does |",
+    "| --- | --- |",
+    ...preview.map((m) => `| **${m.name}** | ${m.summary} |`),
+  ];
   return [
-    "| Model | What it does | SDKs | Weights | Status |",
-    "| --- | --- | --- | --- | --- |",
-    ...rows,
+    ...main,
+    "",
+    "### In closed beta",
+    "",
+    "Weights exist and the models work, but no SDK ships them yet, so there is",
+    "nothing to install today. Ask us if you want early access.",
+    "",
+    ...rest,
   ].join("\n");
 }
 
-/// Where a model's canonical docs live. Models with no repo of their own point
-/// at the org, which is the honest answer rather than a link to nothing.
-function github(model, org) {
-  return model.home ? `${org.github}/${model.home}` : org.github;
-}
-
-/// The Hub card body: what the model is, and where the real docs are. Anything
-/// longer belongs on GitHub, which this links to.
+/// The Hub card body: what the model is, and where the real docs are. A reader
+/// who lands here wants the SDK, so a shipping model links straight at its page
+/// of install lines and examples rather than at a repo root to go hunting in.
 export function renderCardBody(model, org) {
-  const links = [`- **SDKs and documentation:** ${github(model, org)}`];
+  const links = ships(model)
+    ? [`- **SDKs, install and examples:** ${docsURL(model, org)}`]
+    : [`- **GitHub:** ${model.home ? `${org.github}/${model.home}` : org.github}`];
   if (model.demo?.page) links.push(`- **Website:** ${model.demo.page}`);
   return [`# ${model.name}`, "", model.tagline, "", model.summary, "", ...links, ""].join("\n");
 }
@@ -143,4 +165,142 @@ export function replaceBlock(text, body) {
   const end = text.indexOf(MARKERS.end);
   if (start === -1 || end === -1) throw new Error(`missing ${MARKERS.start} / ${MARKERS.end} markers`);
   return text.slice(0, start) + `${MARKERS.start}\n${body}\n` + text.slice(end);
+}
+
+export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
+
+const PLATFORM_NAMES = {
+  apple: "iOS, macOS, tvOS, visionOS",
+  android: "Android",
+  linux: "Linux",
+  windows: "Windows",
+  web: "Browser",
+  node: "Node",
+};
+
+/// Every platform any live SDK claims, deduplicated, in declaration order.
+function platforms(model) {
+  const seen = new Set();
+  for (const sdk of SDKS) {
+    const decl = model.sdks[sdk];
+    if (decl?.status === "live") for (const p of decl.platforms ?? []) seen.add(p);
+  }
+  return [...seen].map((p) => PLATFORM_NAMES[p] ?? p).join(", ");
+}
+
+/// The install snippet per SDK. Versions come from the manifest so a release
+/// bump rewrites all ten pages instead of leaving stale coordinates behind.
+function install(model, version) {
+  const out = [];
+  const { swift, kotlin, js } = model.sdks;
+
+  if (swift?.status === "live") {
+    // MLX is behind a package trait, and a build that omits it compiles against
+    // a stub with no public initializer, so the coordinate alone is not enough.
+    const mlx = model.runtime.includes("mlx");
+    out.push(
+      "**Swift** ([requirements](../../README.md#swift))",
+      "",
+      "```swift",
+      mlx
+        ? `.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "${version}",
+        traits: ["MLX"])`
+        : `.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "${version}")`,
+      "```",
+      "",
+      `Then add the \`${swift.package}\` product to your target.` +
+        (mlx ? " The `MLX` trait is required: without it the module compiles as a stub." : ""),
+      ""
+    );
+  }
+  if (kotlin?.status === "live") {
+    out.push(
+      "**Kotlin** ([requirements](../../README.md#android))",
+      "",
+      "```kotlin",
+      `implementation("${kotlin.package}:${version}")`,
+      "```",
+      ""
+    );
+  }
+  if (js?.status === "live") {
+    // A pure-JavaScript model has no inference runtime to bring along, so it is
+    // one install line rather than a browser/Node pair.
+    const lines = model.runtime.includes("pure")
+      ? [`npm i ${js.package}`]
+      : [
+          `npm i ${js.package} @litertjs/core   # browser`,
+          `npm i ${js.package}                  # Node, prebuilt native core`,
+        ];
+    out.push(
+      "**JavaScript** ([requirements](../../README.md#javascript-and-typescript))",
+      "",
+      "```bash",
+      ...lines,
+      "```",
+      ""
+    );
+  }
+  return out;
+}
+
+/// The generated half of a model page: identity, facts, and install lines. The
+/// usage examples below it are hand-written, because an example is a judgement
+/// about what a reader needs first and no manifest field holds that.
+export function renderModelHeader(model, org, version) {
+  const facts = [["Platforms", platforms(model)]];
+  if (model.languages?.count) facts.push(["Languages", String(model.languages.count)]);
+  facts.push([
+    "Weights",
+    model.weights.source === "bundled"
+      ? `Bundled with the SDK ([${short(model.weights.revision)}](${model.weights.url}))`
+      : `[${short(model.weights.revision)}](${model.weights.url})`,
+  ]);
+  if (model.demo?.page) facts.push(["Demo", model.demo.page]);
+
+  return [
+    `# ${model.name}`,
+    "",
+    model.tagline,
+    "",
+    model.summary,
+    "",
+    "| | |",
+    "| --- | --- |",
+    ...facts.map(([k, v]) => `| **${k}** | ${v} |`),
+    "",
+    "## Install",
+    "",
+    ...install(model, version),
+  ].join("\n").trimEnd();
+}
+
+/// Replace a marked block whichever markers it uses.
+export function replaceMarked(text, body, markers = MARKERS) {
+  const start = text.indexOf(markers.start);
+  const end = text.indexOf(markers.end);
+  if (start === -1 || end === -1) throw new Error(`missing ${markers.start} / ${markers.end} markers`);
+  return text.slice(0, start) + `${markers.start}\n${body}\n` + text.slice(end);
+}
+
+/// Every generated documentation file, as path -> full new contents. Render and
+/// check both go through this, so "what should be on disk" has one definition
+/// and the two can never disagree about it.
+export function renderAll(root = ".") {
+  const { models, org, sdkVersion } = manifest(root);
+  const out = {
+    "README.md": replaceMarked(readFileSync(`${root}/README.md`, "utf8"), renderTable(models, org)),
+  };
+  for (const model of models.filter(ships)) {
+    const path = docsPath(model);
+    if (!existsSync(`${root}/${path}`)) {
+      throw new Error(`${model.id} ships an SDK but ${path} does not exist`);
+    }
+    out[path] = replaceMarked(
+      readFileSync(`${root}/${path}`, "utf8"),
+      renderModelHeader(model, org, sdkVersion),
+      MODEL_MARKERS
+    );
+  }
+  return out;
 }

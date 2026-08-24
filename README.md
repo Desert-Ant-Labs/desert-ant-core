@@ -20,14 +20,8 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 
 - [Models](#models)
 - [Swift](#swift)
-  - [Install](#install)
-  - [Usage](#usage)
 - [Android](#android)
-  - [Install](#install-1)
-  - [Usage](#usage-1)
 - [JavaScript and TypeScript](#javascript-and-typescript)
-  - [Install](#install-2)
-  - [Usage](#usage-2)
 - [Model downloads and caching](#model-downloads-and-caching)
   - [Offline and airgapped](#offline-and-airgapped)
   - [AWS Lambda on arm64](#aws-lambda-on-arm64)
@@ -38,35 +32,44 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 ## Models
 
 <!-- models:start -->
-| Model | What it does | SDKs | Weights | Status |
-| --- | --- | --- | --- | --- |
-| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | `Align` | [main](https://huggingface.co/desert-ant-labs/align) | Stable |
-| **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | `Clear` · `ai.desertant:clear` · `@desert-ant-labs/clear` | [v0.3.0](https://huggingface.co/desert-ant-labs/clear) | Stable |
-| **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | `Clips` | [v0.1.0](https://huggingface.co/desert-ant-labs/clips) | Stable |
-| **Emo** | Multilingual on-device emoji suggestion. | `Emo` · `ai.desertant:emo` · `@desert-ant-labs/emo` | [v0.7.0](https://huggingface.co/desert-ant-labs/emo) | Stable |
-| **Eye** | On-device frame scoring: which shot to keep from a burst or a clip. | — | — | Closed beta |
-| **Face** | On-device face matching across a photo library or through a video. | — | — | Closed beta |
-| **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | `Gist` · `ai.desertant:gist` · `@desert-ant-labs/gist` | [v2.2.0](https://huggingface.co/desert-ant-labs/gist) | Stable |
-| **Moderator** | On-device NSFW image detection, trained only on licensed and synthetic data. | — | [main](https://huggingface.co/desert-ant-labs/moderator) | Beta |
-| **Redact** | Multilingual on-device PII detection and redaction. | `Redact` · `ai.desertant:redact` · `@desert-ant-labs/redact` | [v0.4.0](https://huggingface.co/desert-ant-labs/redact) | Stable |
-| **Schemer** | On-device structured extraction into a caller-supplied JSON schema. | — | [main](https://huggingface.co/desert-ant-labs/schemer) | Beta |
-| **Shapes** | On-device single-stroke shape recognition. | `Shapes` · `ai.desertant:shapes` · `@desert-ant-labs/shapes` | [v0.3.0](https://huggingface.co/desert-ant-labs/shapes) | Stable |
-| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | `Title` | [v0.1.0](https://huggingface.co/desert-ant-labs/title) | Stable |
-| **Tongue** | On-device language identification for short text across 84 languages. | `Tongue` · `ai.desertant:tongue` · `@desert-ant-labs/tongue` | Bundled · [v1.0.0](https://huggingface.co/desert-ant-labs/tongue) | Stable |
-| **Toxic** | On-device hate-speech triage for European languages. | — | [main](https://huggingface.co/desert-ant-labs/toxic) | Experimental |
-| **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | `Uhm` | [612592c](https://huggingface.co/desert-ant-labs/uhm) | Stable |
-| **Who** | On-device speaker labeling: per-person turns with timestamps. | — | — | Closed beta |
+| Model | What it does | SDKs | Docs and examples |
+| --- | --- | --- | --- |
+| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | `Align` | [Align docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) |
+| **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | `Clear` · `ai.desertant:clear` · `@desert-ant-labs/clear` | [Clear docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clear.md) |
+| **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | `Clips` | [Clips docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clips.md) |
+| **Emo** | Multilingual on-device emoji suggestion. | `Emo` · `ai.desertant:emo` · `@desert-ant-labs/emo` | [Emo docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/emo.md) |
+| **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | `Gist` · `ai.desertant:gist` · `@desert-ant-labs/gist` | [Gist docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/gist.md) |
+| **Redact** | Multilingual on-device PII detection and redaction. | `Redact` · `ai.desertant:redact` · `@desert-ant-labs/redact` | [Redact docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/redact.md) |
+| **Shapes** | On-device single-stroke shape recognition. | `Shapes` · `ai.desertant:shapes` · `@desert-ant-labs/shapes` | [Shapes docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/shapes.md) |
+| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | `Title` | [Title docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) |
+| **Tongue** | On-device language identification for short text across 84 languages. | `Tongue` · `ai.desertant:tongue` · `@desert-ant-labs/tongue` | [Tongue docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) |
+| **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | `Uhm` | [Uhm docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) |
+
+### In closed beta
+
+Weights exist and the models work, but no SDK ships them yet, so there is
+nothing to install today. Ask us if you want early access.
+
+| Model | What it does |
+| --- | --- |
+| **Eye** | On-device frame scoring: which shot to keep from a burst or a clip. |
+| **Face** | On-device face matching across a photo library or through a video. |
+| **Moderator** | On-device NSFW image detection, trained only on licensed and synthetic data. |
+| **Schemer** | On-device structured extraction into a caller-supplied JSON schema. |
+| **Toxic** | On-device hate-speech triage for European languages. |
+| **Who** | On-device speaker labeling: per-person turns with timestamps. |
 <!-- models:end -->
 
 Each model behaves the same on every platform, so you can build a feature once
 and ship it everywhere. New models are added regularly, and the weights live on
-[Hugging Face](https://huggingface.co/desert-ant-labs). A model with SDK
-coordinates ships from this repo; the rest are published weights whose SDKs are
-still in progress.
+[Hugging Face](https://huggingface.co/desert-ant-labs).
+
+**Every model's own page is where its examples are**, one page per model in
+[`docs/models/`](docs/models/), covering install and usage on every platform it
+supports. The rest of this file is what they have in common: platform
+requirements, and how model files are downloaded and cached.
 
 ## Swift
-
-### Install
 
 Requirements: iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, and Swift 6.2+ (Xcode 26).
 The floor is the Core ML models', not the code's: they are built for this
@@ -80,153 +83,9 @@ Add the package with Swift Package Manager:
 
 Then add a product per model you want, named as in the table above. You only pay
 for what you add, so an Emo-only app carries nothing from the other models.
-
-### Usage
-
-Create one instance and reuse it. Construction is cheap and non-blocking; the
-model loads on first use, or earlier if you call `download`.
-
-**Emo**
-
-```swift
-import Emo
-
-let emo = Emo()
-let suggestions = try await emo.suggestions(for: "Pay my bills")
-// [EmoSuggestion(emoji: "💰", confidence: ...), ...]
-
-let toned = try await emo.suggestions(for: "go for a run", limit: 1, skinTone: .medium)
-// 🏃🏽
-```
-
-**Redact**
-
-Redaction is reversible. Mask personal data before sending text to an LLM, then
-restore the originals in the reply, on device.
-
-```swift
-import Redact
-
-let redact = Redact()
-let result = try await redact.redaction(of: "Email Anna Kovács at anna@example.hu.")
-
-print(result.redactedText)
-// Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
-
-for item in result.items {
-    print(item.label.displayName, item.original, item.placeholder, item.confidence)
-}
-
-let reply = try await myLLM.rewrite(result.redactedText)
-let restored = result.restore(reply)
-```
-
-Filter by category, or raise the confidence floor:
-
-```swift
-let options = Options(minimumConfidence: 0.7, labels: [.email, .phone, .creditCard])
-let contactOnly = try await redact.redaction(of: text, options: options)
-```
-
-**Clear**
-
-```swift
-import Clear
-
-let clear = Clear()
-let result = try await clear.enhance(path: "in.wav", to: "out.wav")
-print(result.realtimeFactor, result.measuredLUFS ?? 0)
-```
-
-Without a filesystem, enhance in memory and get WAV bytes back:
-
-```swift
-let (result, wav) = try await clear.enhance(bytes: recording)
-```
-
-The output is mono by default, whatever goes in. The model is mono, so keeping
-a stereo pair costs an inference pass per channel - about 1.8x a mono run - so
-it is opt-in:
-
-```swift
-let stereo = try await clear.enhance(channels: [left, right], sampleRate: 48_000,
-                                     options: .init(channelMode: .preserve))
-stereo.channels.count                       // 2
-stereo.measuredTruePeakDBFS                 // what the master actually peaks at
-stereo.phaseTimings.modelPredictSec         // where the time went
-```
-
-Mastering is joint - one gain and one limiter envelope across the channels - so
-it never moves the stereo image. `Mastering.balanceChannelsLUFS` is the
-exception, for a pair whose sides were recorded at different levels.
-
-**Tongue**
-
-Nothing to download and nothing async: the 2 MB model ships inside the package,
-and a detection is pure arithmetic.
-
-```swift
-import Tongue
-
-let tongue = try Tongue()                      // loads the bundled 2 MB model
-let detection = tongue.detect("kann ich das haben")
-
-detection.language          // "de"
-detection.reliability       // .confident
-detection.candidates        // [Prediction(language: "de", probability: 0.999…), …]
-detection.isTooCloseToCall  // false
-```
-
-**Shapes**
-
-```swift
-import Shapes
-
-let shapes = Shapes()
-if let shape = try await shapes.recognize(points: strokePoints) {
-    switch shape {
-    case let .rectangle(corners): ...       // [Point]
-    case let .ellipse(center, semiMajor, semiMinor, rotation): ...
-    default: break
-    }
-}
-```
-
-`recognize` accepts `[Point]` or, on Apple platforms, `[CGPoint]` and PencilKit
-`PKStroke`; `Shape.path` gives a renderable `CGPath`. On iOS and visionOS, live
-snapping on a PencilKit canvas is one line - pausing mid-stroke previews the
-recognized shape, lifting the pen swaps it in, and the swap is registered with
-the canvas's undo manager:
-
-```swift
-canvasView.enableShapeSnapping()
-```
-
-**Download ahead of time**
-
-Any model can be fetched before first use, for example during onboarding:
-
-```swift
-let emo = Emo()
-if !emo.isDownloaded() {
-    try await emo.download { fraction in
-        print("\(Int(fraction * 100))%")
-    }
-}
-```
-
-**Ship the model with your app**
-
-Point a model at a directory you populated and it is used as-is, offline, with
-nothing downloaded:
-
-```swift
-let emo = Emo(directory: myModelDirectory)
-```
+Each model's page has the exact product and an example.
 
 ## Android
-
-### Install
 
 Requirements: Android API 24+, arm64-v8a and x86_64. Adding a second model does
 not double the size it adds to your app.
@@ -250,90 +109,10 @@ dependencies {
 ```
 
 One dependency per model, using the coordinates from the table above. Tongue is
-a plain jar rather than an AAR — a pure Kotlin port with no native libraries —
-so it also runs on a bare JVM (17+).
-
-### Usage
-
-`suggestions`, `redaction`, `enhance`, and `download` are suspending functions. A
-model owns native resources, so close it when you are done, or let `use { }` do it.
-
-```kotlin
-import ai.desertant.emo.Emo
-import ai.desertant.emo.EmojiSkinTone
-
-Emo(context).use { emo ->
-    val suggestions = emo.suggestions("Pay my bills")               // List<EmoSuggestion>
-    val toned = emo.suggestions("go for a run", limit = 1, skinTone = EmojiSkinTone.MEDIUM)
-}
-```
-
-```kotlin
-import ai.desertant.redact.Redact
-
-Redact(context).use { redact ->
-    val result = redact.redaction("Email Anna Kovács at anna@example.hu.")
-    println(result.redactedText)                 // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
-    val restored = result.restore(llmReply)
-}
-```
-
-```kotlin
-import ai.desertant.clear.Clear
-import ai.desertant.clear.LoudnessPreset
-import ai.desertant.clear.Mastering
-import ai.desertant.clear.Options
-
-Clear(context).use { clear ->
-    val result = clear.enhance(samples, 48_000.0)            // 48 kHz out
-    result.measuredTruePeakDbfs                              // what the master actually peaks at
-
-    val forSpotify = Options(mastering = Mastering.of(LoudnessPreset.SPOTIFY))
-    val louder = clear.enhance(samples, 48_000.0, forSpotify)
-
-    // Mono out by default; ask to keep the pair, at an inference pass each.
-    val stereo = clear.enhance(listOf(left, right), 48_000.0,
-                               Options(channelMode = ChannelMode.PRESERVE))
-    stereo.channelCount                                      // 2
-}
-```
-
-```kotlin
-import ai.desertant.tongue.Tongue
-
-// Android: pass the Context. On a bare JVM call Tongue.bundled().
-val tongue = Tongue.bundled(context)
-val detection = tongue.detect("kann ich das haben")
-detection.language                               // "de"
-detection.isTooCloseToCall                       // false
-```
-
-```kotlin
-import ai.desertant.shapes.Point
-import ai.desertant.shapes.Shape
-import ai.desertant.shapes.Shapes
-
-Shapes(context).use { shapes ->
-    when (val shape = shapes.recognize(strokePoints)) {   // Shape? (null if rejected)
-        is Shape.Rectangle -> shape.corners
-        is Shape.Ellipse -> shape.center
-        else -> {}
-    }
-}
-```
-
-Download before first use, or point at your own directory:
-
-```kotlin
-val emo = Emo(context)
-if (!emo.isDownloaded()) emo.download()
-
-val offline = Emo(context, directory = myModelDir)   // adopted as-is, nothing downloaded
-```
+a plain jar rather than an AAR, a pure Kotlin port with no native libraries, so
+it also runs on a bare JVM (17+).
 
 ## JavaScript and TypeScript
-
-### Install
 
 Each model is its own package, so install the ones you use:
 
@@ -344,7 +123,7 @@ npm i @desert-ant-labs/emo @litertjs/core
 # Server-side inference in Node (prebuilt native core, no extra install):
 npm i @desert-ant-labs/emo
 
-# Tongue is pure JavaScript — no wasm, no LiteRT.js, no native core:
+# Tongue is pure JavaScript, no wasm, no LiteRT.js, no native core:
 npm i @desert-ant-labs/tongue
 ```
 
@@ -353,85 +132,6 @@ bundles cleanly for every target of a multi-target bundler such as Next.js,
 Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
 frameworks run in Node. For inference in plain Node, import the `/native`
 subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
-
-### Usage
-
-```ts
-import { Emo } from "@desert-ant-labs/emo";           // browser
-// import { Emo } from "@desert-ant-labs/emo/native"; // server-side Node
-
-const emo = await Emo.load();                                // downloads and caches on first use
-const suggestions = await emo.suggestions("Pay my bills");   // [{ emoji, confidence }, ...]
-emo.dispose();
-```
-
-```ts
-import { Redact } from "@desert-ant-labs/redact";
-
-const redact = await Redact.load();
-const result = await redact.redaction("Email Anna Kovács at anna@example.hu.");
-console.log(result.redactedText);   // Email [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1].
-const restored = result.restore(llmReply);
-redact.dispose();
-```
-
-```ts
-import { Clear } from "@desert-ant-labs/clear";
-
-const clear = await Clear.load();
-const result = await clear.enhance(samples, 48_000);   // Float32Array in, 48 kHz out
-result.measuredTruePeakDBFS;                           // what the master actually peaks at
-await clear.enhance(samples, 48_000, { targetLUFS: "spotify" });
-
-// One entry per channel, and ask to keep them: mono is the default.
-const stereo = await clear.enhance([left, right], 48_000, { channelMode: "preserve" });
-stereo.channelCount;                                   // 2
-clear.dispose();
-```
-
-```ts
-import { Tongue } from "@desert-ant-labs/tongue";      // one import everywhere
-
-const tongue = await Tongue.load();                    // Node: reads the bundled model
-const detection = tongue.detect("kann ich das haben");
-detection.language;                                    // "de"
-detection.isTooCloseToCall;                            // false
-```
-
-In a browser, serve tongue's two model files yourself (a bundler does not serve
-files out of `node_modules`) and pass `from`; both files are exported subpaths,
-so a copy script can `require.resolve` them under pnpm and Yarn PnP too:
-
-```ts
-const tongue = await Tongue.load({ from: "/models/tongue" });
-```
-
-```ts
-import { Shapes } from "@desert-ant-labs/shapes";
-
-const shapes = await Shapes.load();
-const shape = await shapes.recognize(points);   // [{x, y}, ...] or [x0, y0, ...]
-if (shape?.kind === "ellipse") shape.center;    // null when the stroke is rejected
-shapes.dispose();
-```
-
-Self-host the model files or track download progress:
-
-```ts
-const emo = await Emo.load({
-  modelBaseUrl: "/assets/emo/",                        // browser: serve the files yourself
-  directory: "/var/cache/emo",                         // Node: adopt or download here
-  onProgress: (fraction) => console.log(fraction),
-});
-```
-
-Bring your own LiteRT.js module, useful for custom bundler setups:
-
-```ts
-import * as litert from "@litertjs/core";
-
-const emo = await Emo.load({ litert, litertWasmDir: "/path/to/@litertjs/core/wasm/" });
-```
 
 ## Model downloads and caching
 
