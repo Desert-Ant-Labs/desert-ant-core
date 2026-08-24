@@ -165,7 +165,7 @@
       "tagline": "Forty shots. One keeper.",
       "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
       "category": "Image and video scoring",
-      "lifecycle": "beta",
+      "lifecycle": "closed-beta",
       "visibility": "internal",
       "home": null,
       "sdks": {
@@ -200,7 +200,7 @@
       "tagline": "People search, no server.",
       "summary": "On-device face matching across a photo library or through a video.",
       "category": "Face matching",
-      "lifecycle": "beta",
+      "lifecycle": "closed-beta",
       "visibility": "internal",
       "home": null,
       "sdks": {
@@ -278,7 +278,7 @@
       "tagline": "Flag nudity before upload.",
       "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
       "category": "Content moderation",
-      "lifecycle": "beta",
+      "lifecycle": "closed-beta",
       "visibility": "public",
       "home": null,
       "sdks": {
@@ -353,7 +353,7 @@
       "tagline": "Typed JSON, no validation layer.",
       "summary": "On-device structured extraction into a caller-supplied JSON schema.",
       "category": "Structured extraction",
-      "lifecycle": "beta",
+      "lifecycle": "closed-beta",
       "visibility": "public",
       "home": null,
       "sdks": {
@@ -504,7 +504,7 @@
       "tagline": "Catch hate speech before it posts.",
       "summary": "On-device hate-speech triage for European languages.",
       "category": "Hate speech triage",
-      "lifecycle": "experimental",
+      "lifecycle": "closed-beta",
       "visibility": "public",
       "home": null,
       "sdks": {
@@ -586,7 +586,7 @@
       "tagline": "An interview, ready to cut.",
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
       "category": "Speaker diarization",
-      "lifecycle": "beta",
+      "lifecycle": "closed-beta",
       "visibility": "internal",
       "home": null,
       "sdks": {

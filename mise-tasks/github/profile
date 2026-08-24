@@ -40,7 +40,7 @@ if (!res.ok) {
 const file = await res.json();
 const current = Buffer.from(file.content, "base64").toString("utf8");
 
-const next = replaceBlock(insertMarkers(current, "Product"), renderTable(manifest().models));
+const next = replaceBlock(insertMarkers(current, "Product"), renderTable(manifest().models, manifest().org));
 if (next === current) {
   console.log("org profile is already current");
   process.exit(0);

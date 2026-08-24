@@ -13,6 +13,7 @@ export DAL_MODELS="$(dal_models | tr '\n' ' ')"
 
 node --input-type=module <<'NODE'
 import { readFileSync, existsSync } from "node:fs";
+import { ships, docsPath } from "./Tools/manifest-docs.mjs";
 
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
 const version = readFileSync("VERSION", "utf8").trim();
@@ -23,7 +24,7 @@ const eq = (where, found, want, what) => {
   if (found !== want) fail(where, `${what} is ${JSON.stringify(found)}, expected ${JSON.stringify(want)}`);
 };
 
-const LIFECYCLE = ["stable", "beta", "experimental", "deprecated"];
+const LIFECYCLE = ["stable", "beta", "experimental", "closed-beta", "deprecated"];
 const VISIBILITY = ["public", "internal"];
 const STATUS = ["live", "planned", "none"];
 const PLATFORMS = ["apple", "android", "linux", "windows", "web", "node"];
@@ -61,6 +62,18 @@ for (const m of models) {
     if (decl.status === "live" && !decl.package) fail(`${at}/${sdk}`, "status live but no package");
     if (decl.platforms && !decl.platforms.every((p) => PLATFORMS.includes(p)))
       fail(`${at}/${sdk}`, `platforms ${decl.platforms}`);
+  }
+
+  // The tables split on whether anything is installable, and each half makes a
+  // claim about the models in it: the main table offers packages, the second
+  // says there is nothing to install yet. Neither may be a lie.
+  const page = docsPath(m);
+  if (ships(m)) {
+    if (m.lifecycle === "closed-beta") fail(at, "ships an SDK, so it is not closed beta");
+    if (!existsSync(page)) fail(at, `ships an SDK but ${page} is missing`);
+  } else {
+    if (m.lifecycle !== "closed-beta") fail(at, `no live SDK, so lifecycle must be closed-beta, not ${m.lifecycle}`);
+    if (existsSync(page)) fail(at, `${page} exists but no SDK ships this model`);
   }
 
   // A model this repo does not build carries its own SDK version; one built

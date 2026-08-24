@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
-#MISE description="Verify the README model table matches manifest.json"
+#MISE description="Verify the README table and the model pages match manifest.json"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# A generated table that nothing checks is a table that goes stale between
-# releases. This fails the PR instead of committing a fix behind your back.
+# Generated blocks that nothing checks go stale between releases. This fails the
+# PR instead of committing a fix behind your back.
 
 node --input-type=module <<'NODE'
 import { readFileSync } from "node:fs";
-import { manifest, renderTable, replaceBlock } from "./Tools/manifest-docs.mjs";
+import { renderAll } from "./Tools/manifest-docs.mjs";
 
-const current = readFileSync("README.md", "utf8");
-if (replaceBlock(current, renderTable(manifest().models)) !== current) {
-  console.error("error: README.md model table is stale. Run `mise run docs:render`.");
+const stale = Object.entries(renderAll())
+  .filter(([path, text]) => readFileSync(path, "utf8") !== text)
+  .map(([path]) => path);
+
+if (stale.length) {
+  console.error(`error: stale generated blocks in ${stale.join(", ")}. Run \`mise run docs:render\`.`);
   process.exit(1);
 }
-console.log("README.md model table is current");
+console.log("README.md and the model pages are current");
 NODE
