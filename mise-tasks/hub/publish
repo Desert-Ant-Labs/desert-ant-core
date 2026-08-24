@@ -115,7 +115,7 @@ const currentOrg = await readCard("space", orgRepo);
 const marked = currentOrg.includes(MARKERS.start)
   ? currentOrg
   : currentOrg.replace(/^\| Model \|[\s\S]*?(?=\n\n)/m, `${MARKERS.start}\n${MARKERS.end}`);
-const nextOrg = replaceBlock(marked, renderTable(models));
+const nextOrg = replaceBlock(marked, renderTable(models, org));
 if (nextOrg !== currentOrg) {
   console.log(`  org card: ${currentOrg.length} -> ${nextOrg.length} bytes`);
   try {

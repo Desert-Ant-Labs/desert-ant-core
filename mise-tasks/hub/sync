@@ -41,7 +41,7 @@ let card = readFileSync("docs/hub-cards/_org.md", "utf8");
 if (!card.includes(MARKERS.start)) {
   card = card.replace(/^\| Model \|[\s\S]*?(?=\n\n)/m, `${MARKERS.start}\n${MARKERS.end}`);
 }
-writeFileSync(".build/hub/_org.md", replaceBlock(card, renderTable(models)));
+writeFileSync(".build/hub/_org.md", replaceBlock(card, renderTable(models, org)));
 
 console.log(`${rendered} model cards + org card rendered into .build/hub/`);
 NODE

@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-#MISE description="Render manifest.json into the README model table"
+#MISE description="Render manifest.json into the README table and the model pages"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 node --input-type=module <<'NODE'
-import { readFileSync, writeFileSync } from "node:fs";
-import { manifest, renderTable, replaceBlock } from "./Tools/manifest-docs.mjs";
+import { writeFileSync } from "node:fs";
+import { renderAll } from "./Tools/manifest-docs.mjs";
 
-const rendered = replaceBlock(readFileSync("README.md", "utf8"), renderTable(manifest().models));
-writeFileSync("README.md", rendered);
-console.log("README.md model table rendered");
+const files = renderAll();
+for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
+console.log(`rendered ${Object.keys(files).length} files: README.md and ${Object.keys(files).length - 1} model pages`);
 NODE
