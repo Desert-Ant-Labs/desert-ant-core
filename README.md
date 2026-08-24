@@ -32,18 +32,18 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 ## Models
 
 <!-- models:start -->
-| Model | What it does | SDKs | Docs and examples |
+| Model | What it does | Platform | Docs |
 | --- | --- | --- | --- |
-| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | `Align` | [Align docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) |
-| **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | `Clear` · `ai.desertant:clear` · `@desert-ant-labs/clear` | [Clear docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clear.md) |
-| **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | `Clips` | [Clips docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clips.md) |
-| **Emo** | Multilingual on-device emoji suggestion. | `Emo` · `ai.desertant:emo` · `@desert-ant-labs/emo` | [Emo docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/emo.md) |
-| **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | `Gist` · `ai.desertant:gist` · `@desert-ant-labs/gist` | [Gist docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/gist.md) |
-| **Redact** | Multilingual on-device PII detection and redaction. | `Redact` · `ai.desertant:redact` · `@desert-ant-labs/redact` | [Redact docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/redact.md) |
-| **Shapes** | On-device single-stroke shape recognition. | `Shapes` · `ai.desertant:shapes` · `@desert-ant-labs/shapes` | [Shapes docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/shapes.md) |
-| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | `Title` | [Title docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) |
-| **Tongue** | On-device language identification for short text across 84 languages. | `Tongue` · `ai.desertant:tongue` · `@desert-ant-labs/tongue` | [Tongue docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) |
-| **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | `Uhm` | [Uhm docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) |
+| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) |
+| **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clear.md) |
+| **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | Apple · Linux · Windows | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clips.md) |
+| **Emo** | Multilingual on-device emoji suggestion. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/emo.md) |
+| **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/gist.md) |
+| **Redact** | Multilingual on-device PII detection and redaction. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/redact.md) |
+| **Shapes** | On-device single-stroke shape recognition. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/shapes.md) |
+| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) |
+| **Tongue** | On-device language identification for short text across 84 languages. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) |
+| **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) |
 
 ### In closed beta
 

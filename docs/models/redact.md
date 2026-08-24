@@ -7,7 +7,7 @@ Multilingual on-device PII detection and redaction.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 27 |
 | **Weights** | [v0.4.0](https://huggingface.co/desert-ant-labs/redact) |
 | **Demo** | https://desertant.com/models/redact/ |

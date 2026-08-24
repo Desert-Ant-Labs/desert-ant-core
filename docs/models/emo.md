@@ -7,7 +7,7 @@ Multilingual on-device emoji suggestion.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 22 |
 | **Weights** | [v0.7.0](https://huggingface.co/desert-ant-labs/emo) |
 | **Demo** | https://desertant.com/models/emo/ |

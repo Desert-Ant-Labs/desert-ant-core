@@ -7,7 +7,7 @@ On-device language identification for short text across 84 languages.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 84 |
 | **Weights** | Bundled with the SDK ([v1.0.0](https://huggingface.co/desert-ant-labs/tongue)) |
 | **Demo** | https://desertant.com/models/tongue/ |

@@ -23,6 +23,7 @@ on:
       - manifest.json
       - Tools/manifest-docs.mjs
       - mise-tasks/hub/**
+      - mise-tasks/github/**
       - .github/workflows/hub-sync.yml
 
 # One writer at a time: two merges landing together must not race the Hub.
@@ -53,7 +54,7 @@ jobs:
           flag=""
           if [ "$DRY_RUN" = "true" ] || [ -z "$HF_TOKEN" ]; then
               flag="--dry-run"
-              [ -n "$HF_TOKEN" ] || echo "::notice::HF_TOKEN is not set - previewing only."
+              [ -n "$HF_TOKEN" ] || echo "::warning::HF_TOKEN is not set, so the Hub was NOT updated."
           fi
           mise run hub:publish $flag
 
@@ -65,6 +66,6 @@ jobs:
           flag=""
           if [ "$DRY_RUN" = "true" ] || [ -z "$ORG_PROFILE_TOKEN" ]; then
               flag="--dry-run"
-              [ -n "$ORG_PROFILE_TOKEN" ] || echo "::notice::ORG_PROFILE_TOKEN is not set - previewing only."
+              [ -n "$ORG_PROFILE_TOKEN" ] || echo "::warning::ORG_PROFILE_TOKEN is not set, so the GitHub org profile was NOT updated."
           fi
           mise run github:profile $flag

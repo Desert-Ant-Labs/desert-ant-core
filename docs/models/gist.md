@@ -7,7 +7,7 @@ Multilingual on-device content topic tagging across a 36-topic taxonomy.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Android, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 101 |
 | **Weights** | [v2.2.0](https://huggingface.co/desert-ant-labs/gist) |
 | **Demo** | https://desertant.com/models/gist/ |
