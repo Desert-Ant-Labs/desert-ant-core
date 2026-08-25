@@ -120,6 +120,50 @@
       "demo": null
     },
     {
+      "id": "ear",
+      "name": "Ear",
+      "tagline": "Name the language from thirty seconds.",
+      "summary": "On-device spoken language identification across 99 languages.",
+      "category": "Language identification",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Ear", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:ear", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/ear", "platforms": ["web", "node"] }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/ear",
+        "url": "https://huggingface.co/desert-ant-labs/ear",
+        "revision": "v0.1.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": ["coreml", "litert"],
+      "variants": [],
+      "hub": {
+        "tags": ["language-identification", "language-detection", "langid", "spoken-language-identification", "audio-classification", "speech", "on-device", "edge-ai", "mobile", "offline", "core-ml", "apple-neural-engine", "litert", "multilingual"],
+        "pipelineTag": "audio-classification",
+        "libraryName": null
+      },
+      "languages": {
+        "count": 99,
+        "codes": [
+          "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da",
+          "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi",
+          "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb",
+          "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn",
+          "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq",
+          "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi",
+          "yi", "yo", "zh"
+        ],
+        "basis": "declared",
+        "source": null
+      },
+      "demo": null
+    },
+    {
       "id": "emo",
       "name": "Emo",
       "tagline": "Faster than you can type.",

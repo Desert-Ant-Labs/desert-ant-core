@@ -121,6 +121,11 @@ let models: [ModelPackage] = [
         dependencies: ["AudioIO", "AudioDSP"]
     ),
     .init(
+        name: "Ear",
+        dependencies: ["AudioIO", "AudioDSP"],
+        testResources: [.copy("Resources/ear_frontend_golden.json")]
+    ),
+    .init(
         name: "Gist",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
         testResources: [

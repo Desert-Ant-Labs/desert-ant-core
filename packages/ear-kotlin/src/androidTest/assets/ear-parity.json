@@ -1,0 +1,12 @@
+{
+  "note": "Reference output for deterministic synthetic audio, produced by the Swift SDK. The Android binding must reproduce it through JNI.",
+  "sampleCount": 640000,
+  "sampleRate": 16000,
+  "windows": 2,
+  "isReliable": false,
+  "candidates": [
+    {"language": "nn", "probability": 0.41125326358589914},
+    {"language": "en", "probability": 0.17857330874244465},
+    {"language": "la", "probability": 0.07404718008757472}
+  ]
+}
