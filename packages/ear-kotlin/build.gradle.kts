@@ -1,0 +1,11 @@
+// Android library (AAR) for Ear: ai.desertant:ear. Everything structural - AGP,
+// Kotlin, publishing, the ai.desertant:core dependency, and the Swift JNI
+// cross-compile - lives in the shared ai.desertant.model-sdk convention plugin
+// (gradle-plugin/). The version comes from VERSION at the repo root, so the only
+// thing left here is what is genuinely Ear's.
+plugins { id("ai.desertant.model-sdk") }
+
+desertAntSdk {
+    description = "On-device spoken language identification for Android: name the " +
+        "language of a recording before you transcribe it."
+}

@@ -37,6 +37,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) |
 | **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clear.md) |
 | **Clips** | On-device clip selection: a transcript's best non-overlapping moments, ranked. | Apple · Linux · Windows | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clips.md) |
+| **Ear** | On-device spoken language identification across 99 languages. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/ear.md) |
 | **Emo** | Multilingual on-device emoji suggestion. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/emo.md) |
 | **Gist** | Multilingual on-device content topic tagging across a 36-topic taxonomy. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/gist.md) |
 | **Redact** | Multilingual on-device PII detection and redaction. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/redact.md) |
