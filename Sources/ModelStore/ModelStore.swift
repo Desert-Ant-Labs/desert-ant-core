@@ -76,9 +76,9 @@ public struct ModelStore: Sendable {
         for e in manifest.entries {
             guard isSafeRelativePath(e.path), e.size >= 0,
                   e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
-                  let data = try? fs.read(filePath(model, e.path)),
-                  Int64(data.count) == e.size,
-                  SHA256.hexDigest(data) == e.sha256 else { return false }
+                  let d = try? fs.digest(filePath(model, e.path)),
+                  d.size == e.size,
+                  d.sha256 == e.sha256 else { return false }
         }
         return true
     }

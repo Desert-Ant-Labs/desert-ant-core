@@ -107,6 +107,20 @@ public struct FoundationTransport: ModelTransport {
 }
 
 /// `FileManager`-backed filesystem.
+
+/// `autoreleasepool` where it exists, a plain call where it does not. The chunks
+/// a streaming hash reads are autoreleased on Darwin, so without a pool per
+/// iteration they stay live to the end of the loop and peak memory tracks the
+/// file size regardless of the chunking.
+@inline(__always)
+func withReleasePool<T>(_ body: () throws -> T) rethrows -> T {
+    #if canImport(ObjectiveC)
+    return try autoreleasepool(invoking: body)
+    #else
+    return try body()
+    #endif
+}
+
 public struct FoundationFileSystem: FileSystem {
     private let cacheRoot: String?
 
@@ -127,6 +141,28 @@ public struct FoundationFileSystem: FileSystem {
 
     public func read(_ path: String) throws -> [UInt8] {
         [UInt8](try Data(contentsOf: URL(fileURLWithPath: path)))
+    }
+
+    /// Hash in 1 MB chunks so peak memory does not track the file size.
+    public func digest(_ path: String) throws -> (size: Int64, sha256: String) {
+        guard let handle = FileHandle(forReadingAtPath: path) else {
+            throw ModelStoreError.io("cannot open \(path)")
+        }
+        defer { try? handle.close() }
+        var hasher = SHA256()
+        var total: Int64 = 0
+        var done = false
+        while !done {
+            try withReleasePool {
+                let chunk = try handle.read(upToCount: 1 << 20) ?? Data()
+                if chunk.isEmpty { done = true; return }
+                total += Int64(chunk.count)
+                chunk.withUnsafeBytes { raw in
+                    hasher.update(raw.bindMemory(to: UInt8.self))
+                }
+            }
+        }
+        return (total, SHA256.hex(hasher.finalize()))
     }
 
     public func write(_ path: String, _ bytes: [UInt8]) throws {
