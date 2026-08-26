@@ -125,7 +125,7 @@
       "tagline": "Name the language from thirty seconds.",
       "summary": "On-device spoken language identification across 99 languages.",
       "category": "Language identification",
-      "lifecycle": "beta",
+      "lifecycle": "stable",
       "visibility": "public",
       "home": "desert-ant-core",
       "sdks": {
