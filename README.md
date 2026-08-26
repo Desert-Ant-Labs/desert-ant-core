@@ -45,6 +45,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) |
 | **Tongue** | On-device language identification for short text across 84 languages. | Apple · Android · Linux · Windows · Web · Node | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) |
 | **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) |
+| **Voz** | On-device speech recognition: transcripts with word-level timestamps, 25 languages. | Apple | [docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md) |
 
 ### In closed beta
 

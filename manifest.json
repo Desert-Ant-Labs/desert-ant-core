@@ -625,6 +625,89 @@
       }
     },
     {
+      "id": "voz",
+      "name": "Voz",
+      "tagline": "Every word, with the time it was said.",
+      "summary": "On-device speech recognition: transcripts with word-level timestamps, 25 languages.",
+      "category": "Speech recognition",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": {
+          "status": "live",
+          "package": "Voz",
+          "platforms": [
+            "apple"
+          ]
+        },
+        "kotlin": {
+          "status": "none"
+        },
+        "js": {
+          "status": "none"
+        }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/voz",
+        "url": "https://huggingface.co/desert-ant-labs/voz",
+        "revision": "v0.1.0",
+        "license": "desert-ant-labs-source-available-1.0"
+      },
+      "runtime": [
+        "coreml"
+      ],
+      "variants": [],
+      "hub": {
+        "tags": [
+          "speech",
+          "speech-recognition",
+          "transcription",
+          "word-timestamps",
+          "on-device",
+          "core-ml",
+          "apple-neural-engine",
+          "multilingual"
+        ],
+        "pipelineTag": "automatic-speech-recognition",
+        "libraryName": null
+      },
+      "languages": {
+        "count": 25,
+        "codes": [
+          "bg",
+          "cs",
+          "da",
+          "de",
+          "el",
+          "en",
+          "es",
+          "et",
+          "fi",
+          "fr",
+          "hr",
+          "hu",
+          "it",
+          "lt",
+          "lv",
+          "mt",
+          "nl",
+          "pl",
+          "pt",
+          "ro",
+          "ru",
+          "sk",
+          "sl",
+          "sv",
+          "uk"
+        ],
+        "basis": "declared",
+        "source": null
+      },
+      "demo": null
+    },
+    {
       "id": "who",
       "name": "Who",
       "tagline": "An interview, ready to cut.",
