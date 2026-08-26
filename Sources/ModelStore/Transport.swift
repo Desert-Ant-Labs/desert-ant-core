@@ -55,6 +55,22 @@ public protocol FileSystem: Sendable {
     /// Names of the entries directly under `path` (not recursive). A missing
     /// or unreadable directory is `[]`.
     func listDirectory(_ path: String) -> [String]
+    /// Size and SHA256 of a file without holding it in memory.
+    ///
+    /// Verification used to read each file whole to hash it, which costs the
+    /// size of the largest file twice over (once for the `Data`, once for the
+    /// `[UInt8]` copy). That is invisible for a 14 MB model and not for a
+    /// 449 MB one: checking Voz cost 914 MB, against the 91 MB running it
+    /// actually needs, and every model paid it on every launch.
+    func digest(_ path: String) throws -> (size: Int64, sha256: String)
+}
+
+public extension FileSystem {
+    /// Backends that cannot stream fall back to the whole-file read.
+    func digest(_ path: String) throws -> (size: Int64, sha256: String) {
+        let bytes = try read(path)
+        return (Int64(bytes.count), SHA256.hexDigest(bytes))
+    }
 }
 
 public extension FileSystem {
