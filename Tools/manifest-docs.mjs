@@ -47,16 +47,21 @@ export function renderTable(models, org) {
   const main = [
     "| Model | What it does | Platform | Docs |",
     "| --- | --- | --- | --- |",
+    // Two links, because they answer different questions. The SDK page says how
+    // to install and call it; the card says what the model is. A single "docs"
+    // link had to pick one, and picked the one the org card is not about.
     ...shipping.map(
-      (m) => `| **${m.name}** | ${m.summary} | ${platforms(m, "short")} | [docs](${docsURL(m, org)}) |`
+      (m) =>
+        `| **${m.name}** | ${m.summary} | ${platforms(m, "short")} | ` +
+        `[SDK](${docsURL(m, org)}) [Model](${m.weights.url}) |`
     ),
   ];
   if (!preview.length) return main.join("\n");
 
   const rest = [
-    "| Model | What it does |",
-    "| --- | --- |",
-    ...preview.map((m) => `| **${m.name}** | ${m.summary} |`),
+    "| Model | What it does | Docs |",
+    "| --- | --- | --- |",
+    ...preview.map((m) => `| **${m.name}** | ${m.summary} | [Model](${m.weights.url}) |`),
   ];
   return [
     ...main,
@@ -136,9 +141,45 @@ export function splitCard(text) {
   return match ? { frontMatter: match[1], body: match[2] } : { frontMatter: "", body: text };
 }
 
-export function renderCard(existing, model, org) {
-  const front = mergeFrontMatter(splitCard(existing).frontMatter, model);
-  return `---\n${front}\n---\n\n${renderCardBody(model, org)}`;
+/// The card is TWO halves and only the first is ours. Identity comes from the
+/// manifest so a card cannot drift from the registry; everything below the
+/// markers is the model's own documentation, written on the Hub by whoever has
+/// the numbers, and is carried across untouched.
+///
+/// It did not used to be. This returned front matter plus `renderCardBody` and
+/// nothing else, so every sync replaced each card whole. Two runs, 2026-08-21
+/// and 2026-08-24, took clear from 168 lines to 29, redact from 194 to 52 and
+/// emo from 115 to 47, and redact's benchmark section went with them. The org
+/// card survived both because it alone went through `replaceMarked`.
+///
+/// AN UNMARKED CARD IS REFUSED, NOT ADOPTED. Guessing where the generated half
+/// ends means either duplicating the heading or deleting an intro that carries
+/// figures the manifest does not hold, and redact's two deployable sizes live
+/// exactly there. This incident was an automated rewrite being too clever, so
+/// the migration is a person adding the markers once, and until they do the
+/// card is left alone.
+export function renderCard(existing, model, org, version) {
+  const { frontMatter, body } = splitCard(existing);
+  if (!body.includes(CARD_MARKERS.start)) throw new UnmarkedCard(model.id);
+  const front = mergeFrontMatter(frontMatter, model);
+  let next = replaceMarked(body, renderCardBody(model, org), CARD_MARKERS);
+  if (next.includes(CARD_INSTALL_MARKERS.start)) {
+    next = replaceMarked(next, renderCardInstall(model, org, version), CARD_INSTALL_MARKERS);
+  }
+  if (next.includes(CARD_FOOTER_MARKERS.start)) {
+    next = replaceMarked(next, renderCardFooter(model, org), CARD_FOOTER_MARKERS);
+  }
+  return `---\n${front}\n---\n\n${next.trimStart()}`;
+}
+
+/// Distinguishable from a network or token failure, because it is neither: the
+/// card is fine and the sync has no mandate over it yet.
+export class UnmarkedCard extends Error {
+  constructor(id) {
+    super(`${id}: no card-header block, so the sync cannot tell which half is generated`);
+    this.name = "UnmarkedCard";
+    this.id = id;
+  }
 }
 
 /// Put markers around a table that predates them, so a hand-written page can be
@@ -160,6 +201,27 @@ export function replaceBlock(text, body) {
 }
 
 export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
+
+/// The Hub's markers are NOT the model page's. A card is read and edited on a
+/// site where every block is about the model, so `model:start` names nothing and
+/// warns nobody. These name the block and say what to do instead, in the marker
+/// itself rather than in a comment above it that a careless edit would drop.
+export const CARD_MARKERS = {
+  start: "<!-- card-header:start (generated from manifest.json, edit below this block) -->",
+  end: "<!-- card-header:end -->",
+};
+
+/// Two more generated blocks, each INDEPENDENT of the others. A card opts into
+/// one by having its markers; a card without them keeps whatever it has. Making
+/// them all-or-nothing would break every card the day the feature landed.
+export const CARD_INSTALL_MARKERS = {
+  start: "<!-- card-install:start (generated from manifest.json, edit below this block) -->",
+  end: "<!-- card-install:end -->",
+};
+export const CARD_FOOTER_MARKERS = {
+  start: "<!-- card-footer:start (generated from manifest.json, edit above this block) -->",
+  end: "<!-- card-footer:end -->",
+};
 
 /// The page header has room to name the Apple OSes; a table cell does not.
 const PLATFORM_NAMES = {
@@ -276,6 +338,66 @@ export function renderModelHeader(model, org, version) {
     "",
     ...install(model, version),
   ].join("\n").trimEnd();
+}
+
+/// The card's install half. Same source as the model page's, so a release bump
+/// rewrites both, but with ABSOLUTE links: `install()` emits `../../README.md`,
+/// which resolves inside this repo and 404s on huggingface.co.
+export function renderCardInstall(model, org, version) {
+  const facts = [["Platforms", platforms(model)]];
+  if (model.languages?.count) facts.push(["Languages", String(model.languages.count)]);
+  facts.push(["Weights", `[${short(model.weights.revision)}](${model.weights.url})`]);
+  const lines = [
+    "| | |",
+    "| --- | --- |",
+    ...facts.map(([k, v]) => `| **${k}** | ${v} |`),
+    "",
+    "## Install",
+    "",
+    ...install(model, version),
+  ];
+  return lines
+    .join("\n")
+    .replaceAll("../../README.md", `${org.github}/desert-ant-core/blob/main/README.md`)
+    .trimEnd();
+}
+
+/// The boilerplate every card ends with and no two cards agreed on. Measured
+/// 2026-08-28 across eight cards: four different shapes. Three had no copyright
+/// line, four had no notices link, one had no licensing address and no License
+/// section at all.
+///
+/// `Built on` and `Citation` are deliberately NOT here. Those are per-model, and
+/// generating them would be this same mistake in a smaller box.
+export function renderCardFooter(model, org) {
+  const summary = model.summary.replace(/\.$/, "");
+  return [
+    "## License",
+    "",
+    `[${org.name} Source-Available License](https://license.desertant.com/1.0). Free for most`,
+    "apps, and a commercial license is required at scale. Full terms are at the link.",
+    "Licensing: <licensing@desertant.com>.",
+    "",
+    "See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).",
+    "",
+    // Three cards of fourteen had one, and the other eleven left a reader with
+    // nothing to paste. Every field here is already in the manifest, so the
+    // block is uniform and cannot go stale against the repo it points at.
+    "## Citation",
+    "",
+    "```bibtex",
+    `@software{${model.id}_2026,`,
+    `  title  = {${model.name}: ${summary}},`,
+    `  author = {${org.name}},`,
+    "  year   = {2026},",
+    `  url    = {${model.weights.url}},`,
+    "}",
+    "```",
+    "",
+    "---",
+    "",
+    `© 2026 ${org.name} · <${org.site}>`,
+  ].join("\n");
 }
 
 /// Replace a marked block whichever markers it uses.

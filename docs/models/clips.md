@@ -1,9 +1,9 @@
 <!-- model:start -->
 # Clips
 
-Find the moment worth posting.
+Video and audio highlights in seconds.
 
-On-device clip selection: a transcript's best non-overlapping moments, ranked.
+Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device.
 
 | | |
 | --- | --- |
@@ -70,6 +70,20 @@ let cards = try await titles.cards(for: moments)   // index-aligned with moments
 
 The weights are fetched from the Hub on first use and cached. See
 [model downloads and caching](../../README.md#model-downloads-and-caching).
+
+## Maximum video length
+
+There's no context window. Clips never reads a transcript whole: sentences run through the
+selector in batches of 16 and each candidate clip is scored on its own, so length is bounded by
+time rather than by a token limit. The longest we've run is an 835 sentence podcast.
+
+| transcript | iPhone 17 Pro | iPhone 15 Pro |
+|---|---:|---:|
+| 404 sentences, 25 minutes of video, 12 clips | **9.19s** | **10.22s** |
+| 57 sentences | 2.23s | |
+| per candidate, encoder only | 2.78ms | 3.13ms |
+
+Measured on device at batch 16, pinned to `.cpuAndNeuralEngine`.
 
 ## Files
 
