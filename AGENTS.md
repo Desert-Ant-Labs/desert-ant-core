@@ -24,20 +24,20 @@ SDK coordinates against `packages/`, and `sdkVersion` against `VERSION`. Adding 
 | --- | --- | --- |
 | README model table (between `<!-- models:start -->` markers) | `mise run docs:render` | `mise run check:docs` |
 | Model page headers (between `<!-- model:start -->` markers) | `mise run docs:render` | `mise run check:docs` |
-| Hugging Face model cards | `mise run hub:publish` | published on merge to `main` |
+| Hugging Face card identity (between `<!-- model:start -->` markers) | `mise run hub:publish` | published on merge to `main` |
 | Hugging Face org card table | `mise run hub:publish` | published on merge to `main` |
 | GitHub org profile table | `mise run github:profile` | published on merge to `main` |
 
 Editing any of these by hand is wasted work: the README table is reverted by the
-next render, and a Hub card edited on huggingface.co is overwritten by the next
-sync. The org card's prose is hand-written and preserved; only its table is
-generated.
+next render, and a card's identity block is rewritten by the next sync. Only the
+marked blocks are ours. A Hub card's documentation and the org card's prose are
+hand-written and preserved.
 
 ## Model pages
 
-`docs/models/<id>.md` is a model's documentation, and the only place SDK usage
-examples live. Every table on every surface links to it, and a Hub card is
-little more than a pointer to one. The README covers what the models have in
+`docs/models/<id>.md` is how to USE a model through the SDK, and the only place
+usage examples live. What a model IS lives on its Hub card: specs, taxonomy,
+benchmarks, limits. Cards link here rather than repeating it. The README covers what the models have in
 common (platform requirements, downloads and caching) and nothing per-model.
 
 A page is two halves. The block between the `<!-- model:start -->` markers is
@@ -49,8 +49,23 @@ first is a judgement no manifest field holds.
 A model with a live SDK must have a page, and a model without one must not:
 `check:manifest` fails either way round.
 
-`docs/hub-cards/` is an archive of what the Hub served before the first sync. It
-is history, not input. Nothing reads it at publish time.
+## Hub cards
+
+A model card is written and versioned on the Hub, not here. That repo has commit
+history, and the numbers on a card come from the training repo rather than from
+this one, so this repo has no way to verify a figure it would hold.
+
+`hub:publish` syncs one thing: the identity block between `<!-- model:start -->`
+markers, from `manifest.json`. Everything below is left alone. **A card with no
+markers is refused, not adopted**, so bringing one under the sync means adding
+the markers on the Hub by hand, once.
+
+It did not work this way until 2026-08-27. `renderCard` returned the identity
+block and nothing else, so two syncs, on 08-21 and 08-24, replaced every public
+card whole: clear went from 168 lines to 29, redact from 194 to 52, emo from 115
+to 47, and redact's benchmark section went with them. `docs/hub-cards/` held an
+archived copy and is gone with the same commit, because the Hub's own history is
+the restore path and a second copy only drifts.
 
 ## Before you push
 

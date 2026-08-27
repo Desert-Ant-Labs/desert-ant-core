@@ -38,7 +38,7 @@ public enum ClipModel: ModelDeclaration {
     public static let osFloor = OSFloor.multifunction
 
     public static let sdkVersion = "3.0.0"
-    public static let summary = "On-device clip selection: a transcript's best non-overlapping moments, ranked."
+    public static let summary = "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device."
 
     /// The artifact family this SDK is built against, and the ONE place the
     /// shipping export is named. Every file name below derives from this stem, so

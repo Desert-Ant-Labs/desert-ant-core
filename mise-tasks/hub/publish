@@ -5,10 +5,9 @@
 #USAGE flag "--dry-run" help="Print what would change and upload nothing"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# Renders against what the Hub serves RIGHT NOW rather than against
-# docs/hub-cards/, so a card edited on the Hub since the archive was taken is
-# not silently reverted. Only the org card's prose survives that way, but that
-# is exactly the part that is hand-written.
+# Renders against what the Hub serves RIGHT NOW. The Hub is where a card is
+# written, so a sync reads the live card, replaces the identity block inside its
+# markers, and leaves the documentation below it untouched.
 #
 # Needs HF_TOKEN with write scope on the org. A dry run needs no token: every
 # repo it reads is public.
@@ -16,7 +15,7 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 export DAL_DRY_RUN="${usage_dry_run:-false}"
 
 node --input-type=module <<'NODE'
-import { manifest, renderCard, renderTable, replaceBlock, MARKERS } from "./Tools/manifest-docs.mjs";
+import { manifest, renderCard, renderTable, replaceBlock, MARKERS, CARD_MARKERS, UnmarkedCard } from "./Tools/manifest-docs.mjs";
 
 const dryRun = process.env.DAL_DRY_RUN === "true";
 const token = process.env.HF_TOKEN;
@@ -78,11 +77,18 @@ if (!dryRun) {
   }
 }
 
-const { models, org } = manifest();
+const { models, org, sdkVersion } = manifest();
 const summary = "Sync card from manifest.json";
 const failures = [];
+const unmarked = [];
 let changed = 0;
 let skipped = 0;
+
+//: A sync writes the identity block. It can never be the reason a card loses its
+//: documentation, and on 2026-08-21 and 2026-08-24 it was exactly that, on every
+//: card at once, printing a byte count nobody read. `renderCard` now refuses an
+//: unmarked card, so this is the second lock rather than the first.
+const SHRINK_FLOOR = 0.7;
 
 for (const model of models) {
   if (model.visibility === "internal") {
@@ -91,9 +97,22 @@ for (const model of models) {
   }
   const repo = model.weights.repo;
   const current = await readCard("model", repo);
-  const next = renderCard(current, model, org);
+  let next;
+  try {
+    next = renderCard(current, model, org, sdkVersion);
+  } catch (error) {
+    if (!(error instanceof UnmarkedCard)) throw error;
+    console.log(`  ${model.id}: no ${CARD_MARKERS.start.slice(0, 38)}... block, left alone`);
+    unmarked.push(model.id);
+    continue;
+  }
   if (next === current) {
     skipped++;
+    continue;
+  }
+  if (next.length < current.length * SHRINK_FLOOR) {
+    console.error(`  ${model.id}: REFUSED, ${current.length} -> ${next.length} bytes`);
+    failures.push(model.id);
     continue;
   }
   console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes`);
@@ -130,6 +149,12 @@ if (nextOrg !== currentOrg) {
 }
 
 console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current`);
+if (unmarked.length) {
+  console.log(
+    `${unmarked.length} card(s) have no generated block and were not touched: ${unmarked.join(", ")}. ` +
+      `Add card-header markers on the Hub around the heading, tagline and summary to bring one under the sync.`
+  );
+}
 if (failures.length) {
   console.error(`error: ${failures.length} failed: ${failures.join(", ")}`);
   process.exit(1);

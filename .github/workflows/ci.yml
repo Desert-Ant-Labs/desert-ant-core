@@ -39,7 +39,10 @@ jobs:
       - run: mise run check:manifest
       - run: mise run check:links
       - run: mise run check:docs
-      - run: mise run hub:sync
+      # hub:sync rendered against docs/hub-cards/, an archive that no longer exists.
+      # The dry run is the same check against what the Hub actually serves, and it
+      # needs no token: every repo it reads is public.
+      - run: mise run hub:publish --dry-run
       # The .d.ts files are the API every TypeScript consumer sees, and they are
       # hand-written. This job has no built core, so it checks that they compile;
       # the js job runs the same task after build:wasm, where it also proves the

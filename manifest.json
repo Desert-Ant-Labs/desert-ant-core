@@ -86,8 +86,8 @@
     {
       "id": "clips",
       "name": "Clips",
-      "tagline": "Find the moment worth posting.",
-      "summary": "On-device clip selection: a transcript's best non-overlapping moments, ranked.",
+      "tagline": "Video and audio highlights in seconds.",
+      "summary": "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device.",
       "category": "Clip selection",
       "lifecycle": "stable",
       "visibility": "public",
@@ -122,7 +122,7 @@
     {
       "id": "ear",
       "name": "Ear",
-      "tagline": "Name the language from thirty seconds.",
+      "tagline": "Name the language from thirty seconds of audio.",
       "summary": "On-device spoken language identification across 99 languages.",
       "category": "Language identification",
       "lifecycle": "stable",
