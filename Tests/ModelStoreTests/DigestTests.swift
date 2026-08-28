@@ -25,6 +25,12 @@ import Foundation
             let d = try fs.digest(path)
             #expect(d.size == Int64(size), "size wrong at \(size)")
             #expect(d.sha256 == SHA256.hexDigest(bytes), "digest differs from whole-file hash at \(size)")
+
+            // The POSIX backend streams through its own buffer, so it is a
+            // second implementation to hold to the same answer.
+            let p = try POSIXFileSystem(cacheRoot: NSTemporaryDirectory()).digest(path)
+            #expect(p.size == d.size, "POSIX size differs at \(size)")
+            #expect(p.sha256 == d.sha256, "POSIX digest differs at \(size)")
         }
     }
 
@@ -42,6 +48,9 @@ import Foundation
 
     @Test func missingFileThrows() {
         #expect(throws: (any Error).self) { try FoundationFileSystem().digest("/nonexistent/nope") }
+        #expect(throws: (any Error).self) {
+            try POSIXFileSystem(cacheRoot: NSTemporaryDirectory()).digest("/nonexistent/nope")
+        }
     }
 }
 #endif
