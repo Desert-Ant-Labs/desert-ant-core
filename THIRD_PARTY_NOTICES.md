@@ -106,3 +106,16 @@ Android regex uses `java.util.regex.Pattern` and JSON parsing uses the Kotlin
 host's native JSON, both through the JNI host. Android NFKC normalization uses
 the platform `libicu.so` exposed by the NDK (API 31+), so no regex, JSON, or
 Unicode normalization library is vendored or hand-rolled.
+
+---
+
+## Optional Swift package dependencies
+
+Neither is in a default build: each sits behind a package trait, so a consumer
+that does not ask for it never resolves or links it.
+
+- **swift-xet** - Hugging Face - **Apache-2.0**. Xet-protocol model downloads on
+  Apple platforms, behind the `Xet` trait. Pulls swift-nio, async-http-client and
+  swift-nio-transport-services (Apple, **Apache-2.0**).
+- **mlx-swift-lm** - Apple - **MIT**, and **swift-transformers** - Hugging Face -
+  **Apache-2.0**. MLX generation for Title, behind the `MLX` trait.

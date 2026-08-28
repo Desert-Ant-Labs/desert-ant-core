@@ -62,6 +62,21 @@ final class DroppingTransport: ModelTransport, @unchecked Sendable {
     }
 }
 
+/// Counts the end-of-model signal the store owes a stateful transport.
+final class SessionTransport: ModelTransport, @unchecked Sendable {
+    let inner: ModelTransport
+    private let lock = NSLock()
+    private var finishes = 0
+    var finishCount: Int { lock.withLock { finishes } }
+
+    init(_ inner: ModelTransport) { self.inner = inner }
+    func tree(_ url: String) async throws -> [RemoteEntry] { try await inner.tree(url) }
+    func download(_ url: String, to path: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
+        try await inner.download(url, to: path, onBytes: onBytes)
+    }
+    func finishDownloads() async { lock.withLock { finishes += 1 } }
+}
+
 final class LockedDouble: @unchecked Sendable {
     private let lock = NSLock(); private var value = 0.0
     func set(_ v: Double) { lock.withLock { value = v } }
@@ -267,6 +282,61 @@ final class ModelStoreTests {
         do { try await s.download(m); Issue.record("expected integrity failure") }
         catch let e as ModelStoreError { if case .integrityCheckFailed = e {} else { Issue.record("\(e)") } }
         #expect(!s.isDownloaded(m))
+    }
+
+    @Test func transportSessionEndsOnSuccessAndOnFailure() async throws {
+        let payload = ["redact.tflite": [UInt8](repeating: 0x41, count: 512)]
+        let ok = SessionTransport(MockTransport(payload))
+        try await store(ok).download(model(["redact.tflite"]))
+        #expect(ok.finishCount == 1)
+
+        // A different file, or the manifest just written would make this a
+        // cached no-op that never reaches the transport at all.
+        let dropped = SessionTransport(DroppingTransport(["labels.json": Array("{}".utf8)]))
+        _ = try? await store(dropped).download(model(["labels.json"]))
+        #expect(dropped.finishCount == 1)
+    }
+
+    @Test func xetPointerFromHubHeaders() {
+        let resolve = "https://huggingface.co/desert-ant-labs/redact/resolve/v0.4.0/redact.tflite"
+        let hash = String(repeating: "a1", count: 32)
+        let link = "<https://huggingface.co/api/models/desert-ant-labs/redact/xet-read-token/abc>;"
+            + " rel=\"xet-auth\", <https://cas-server.xethub.hf.co/v1/reconstructions/\(hash)>;"
+            + " rel=\"xet-reconstruction-info\""
+
+        let pointer = XetPointer.from(xetHash: hash, link: link, resolveURL: resolve)
+        #expect(pointer?.fileID == hash)
+        #expect(pointer?.refreshURL == "https://huggingface.co/api/models/desert-ant-labs/redact/xet-read-token/abc")
+
+        // No Link header: the token endpoint is derived from the resolve URL.
+        #expect(XetPointer.from(xetHash: hash, link: nil, resolveURL: resolve)?.refreshURL
+            == "https://huggingface.co/api/models/desert-ant-labs/redact/xet-read-token/v0.4.0")
+
+        // Not Xet-backed, or nonsense: no pointer, so the caller downloads the
+        // ordinary way rather than failing.
+        #expect(XetPointer.from(xetHash: nil, link: link, resolveURL: resolve) == nil)
+        #expect(XetPointer.from(xetHash: "short", link: link, resolveURL: resolve) == nil)
+        #expect(XetPointer.from(xetHash: String(repeating: "z", count: 64), link: link, resolveURL: resolve) == nil)
+        #expect(XetPointer.from(xetHash: hash, link: "<x>; rel=\"other\"", resolveURL: "not a url") == nil)
+    }
+
+    @Test func xetLinkParsingIgnoresCommasInsideURLs() {
+        // The Hub's signed CDN URLs carry commas in their query strings, so
+        // splitting the header on every comma finds the wrong target.
+        let link = "<https://cdn.test/x?p=a,b,c>; rel=\"xet-reconstruction-info\","
+            + "<https://hub.test/api/models/o/r/xet-read-token/main>;rel=xet-auth"
+        #expect(XetPointer.authURL(inLink: link) == "https://hub.test/api/models/o/r/xet-read-token/main")
+        #expect(XetPointer.authURL(inLink: "<https://hub.test/a>; rel=\"canonical\"") == nil)
+        // Only https targets: a token request must not be downgraded.
+        #expect(XetPointer.authURL(inLink: "<http://hub.test/a>; rel=\"xet-auth\"") == nil)
+    }
+
+    @Test func xetReadTokenURLFromResolveURL() {
+        #expect(XetPointer.readTokenURL(forResolveURL:
+            "https://hub.test/owner/repo/resolve/main/dir/file.bin")
+            == "https://hub.test/api/models/owner/repo/xet-read-token/main")
+        #expect(XetPointer.readTokenURL(forResolveURL: "https://hub.test/owner/repo/blob/main/f") == nil)
+        #expect(XetPointer.readTokenURL(forResolveURL: "https://hub.test/resolve/main/f") == nil)
     }
 
     @Test func posixFileSystemBackend() async throws {

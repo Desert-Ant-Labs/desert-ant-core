@@ -202,13 +202,26 @@ public extension StoredModel {
 }
 
 public extension ModelStore {
-    /// Default Apple/Linux store: URLSession + FileManager.
+    /// Default Apple/Linux store: URLSession + FileManager, or the Xet
+    /// transport where the `Xet` trait put it in the graph (Apple only; it keeps
+    /// URLSession underneath as its fallback).
     ///
     /// - Parameter cacheRoot: base for the managed cache layout. `nil` uses the
     ///   platform caches directory, which is the usual case on Apple and Linux.
     init(cacheRoot: String? = nil, endpoint: String = "https://huggingface.co") {
-        self.init(transport: FoundationTransport(),
+        self.init(transport: ModelStore.platformTransport(),
                   fileSystem: FoundationFileSystem(cacheRoot: cacheRoot), endpoint: endpoint)
+    }
+
+    /// The best transport this build has. `canImport` rather than a platform
+    /// check: the Xet module is in the graph only for an Apple build that
+    /// enabled the trait (see XetTransport.swift).
+    static func platformTransport() -> any ModelTransport {
+        #if canImport(Xet)
+        return acceleratedTransport()
+        #else
+        return FoundationTransport()
+        #endif
     }
 
     /// An explicit `cacheRoot` wins; `nil` falls back to FileManager's caches

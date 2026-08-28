@@ -153,6 +153,28 @@ inside each package, so nothing here applies to it and nothing downloads.)
 `isDownloaded()` answers whether a model is usable with no network, and
 `download()` fetches it ahead of time with progress.
 
+### Faster downloads on Apple platforms (the `Xet` trait)
+
+Our Hub repos are stored on [Xet](https://huggingface.co/docs/hub/en/xet/index),
+Hugging Face's content-addressed backend, which serves a file as deduplicated
+chunks fetched in parallel rather than one stream. Swift consumers can opt into
+it with a package trait:
+
+```swift
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0",
+        traits: ["Xet"])
+```
+
+Nothing else changes: the same files land in the same cache and are verified the
+same way, and anything not Xet-backed (or a CAS that is having a bad day) falls
+back to the ordinary HTTPS download. It is opt-in because it pulls
+[swift-xet](https://github.com/huggingface/swift-xet) and the NIO stack into the
+resolved graph, which no Linux, Android or web build has any use for. Those
+platforms, and the Node and Kotlin SDKs, keep the plain download path.
+
+Set `HF_TOKEN` in the environment for a gated or private repo; public models need
+no token.
+
 ### Offline and airgapped
 
 Model files are ordinary HTTPS downloads, so a directory can be populated from

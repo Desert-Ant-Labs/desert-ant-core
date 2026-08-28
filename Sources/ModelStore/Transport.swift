@@ -29,6 +29,11 @@ public protocol ModelTransport: Sendable {
     /// throw, and resolution falls back to the downloaded cache.
     func tags(_ url: String) async throws -> [String]
     func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws
+    /// Called once when the store stops downloading a model, on success and on
+    /// failure alike. A stateless transport ignores it; one that keeps
+    /// connections alive across a model's files (the Xet transport) releases
+    /// them here, so nothing outlives the download it was opened for.
+    func finishDownloads() async
 }
 
 public extension ModelTransport {
@@ -37,6 +42,9 @@ public extension ModelTransport {
     func tags(_ url: String) async throws -> [String] {
         throw ModelStoreError.io("tag listing not supported by this transport")
     }
+
+    /// Most transports hold nothing between files.
+    func finishDownloads() async {}
 }
 
 /// Filesystem seam: the small set of operations the store needs. `move` must be
