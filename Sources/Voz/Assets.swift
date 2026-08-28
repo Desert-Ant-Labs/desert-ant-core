@@ -10,7 +10,11 @@ struct Assets {
     /// copies a row without converting. The embedding stays outside the graph:
     /// a gather over an 8193 x 640 table has no Neural Engine kernel and is a
     /// table read the host does for free.
-    let embedding: [Element]
+    ///
+    /// Held as the mapped file rather than an array of its contents: the bytes
+    /// on disk are already exactly the layout the decode reads, so there is
+    /// nothing to convert. See ``withEmbedding(_:)``.
+    private let embeddingData: Data
     let mel: MLModel
     let encoder: MLModel
     let decodeStep: MLModel
@@ -37,9 +41,7 @@ struct Assets {
             throw VozError.invalidModel(
                 "embedding.f16 has \(raw.count) bytes, expected \(expected * 2)")
         }
-        embedding = raw.withUnsafeBytes { buf in
-            (0..<expected).map { buf.loadUnaligned(fromByteOffset: $0 * 2, as: Element.self) }
-        }
+        embeddingData = raw
 
         let mlConfiguration = MLModelConfiguration()
         mlConfiguration.computeUnits = computeUnits
@@ -62,6 +64,23 @@ struct Assets {
         guard decodeLanes > 0 else {
             throw VozError.invalidModel("decode step declares no lanes")
         }
+    }
+
+    /// The embedding table, in the mapped file's own memory.
+    ///
+    /// Reading it in place rather than materializing it: the file is 10.5 MB of
+    /// float16 in row-major order, which is what a decode step wants, so a copy
+    /// buys nothing. Building an array of it cost a 5,243,520-iteration loop
+    /// that an unoptimized build (a dependency's default) runs one element at a
+    /// time, and faulted the whole table in from disk when a decode reads only
+    /// the rows it emits. Measured on an M-series Mac, that loop was 620 ms of
+    /// the 780 ms load.
+    ///
+    /// Binding is well formed rather than lucky: a mapping starts on a page
+    /// boundary, and `Data` allocates with more alignment than a two byte
+    /// element needs, so neither backing can land this odd.
+    func withEmbedding<T>(_ body: (UnsafeBufferPointer<Element>) throws -> T) rethrows -> T {
+        try embeddingData.withUnsafeBytes { try body($0.bindMemory(to: Element.self)) }
     }
 }
 #endif
