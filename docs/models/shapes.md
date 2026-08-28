@@ -16,7 +16,7 @@ On-device single-stroke shape recognition.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add the `Shapes` product to your target.
@@ -24,7 +24,7 @@ Then add the `Shapes` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:shapes:3.0.0")
+implementation("ai.desertant:shapes:3.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

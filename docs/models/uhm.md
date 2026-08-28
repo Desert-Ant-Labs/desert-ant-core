@@ -17,7 +17,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add the `Uhm` product to your target.

@@ -17,7 +17,7 @@ Multilingual on-device content topic tagging across a 36-topic taxonomy.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add the `Gist` product to your target.
@@ -25,7 +25,7 @@ Then add the `Gist` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:gist:3.0.0")
+implementation("ai.desertant:gist:3.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

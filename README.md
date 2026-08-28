@@ -80,7 +80,7 @@ deployment target, and an older OS refuses to load them.
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add a product per model you want, named as in the table above. You only pay
@@ -103,10 +103,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:3.0.0")
-    implementation("ai.desertant:redact:3.0.0")
-    implementation("ai.desertant:clear:3.0.0")
-    implementation("ai.desertant:tongue:3.0.0")
+    implementation("ai.desertant:emo:3.1.0")
+    implementation("ai.desertant:redact:3.1.0")
+    implementation("ai.desertant:clear:3.1.0")
+    implementation("ai.desertant:tongue:3.1.0")
 }
 ```
 
@@ -161,7 +161,7 @@ chunks fetched in parallel rather than one stream. Swift consumers can opt into
 it with a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0",
         traits: ["Xet"])
 ```
 

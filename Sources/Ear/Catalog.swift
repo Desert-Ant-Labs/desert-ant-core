@@ -21,7 +21,7 @@ public enum EarModel: ModelDeclaration {
     /// change nobody is looking for when something starts behaving differently.
     public static let revision = "v0.1.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
-    public static let sdkVersion = "3.0.0"
+    public static let sdkVersion = "3.1.0"
     public static let summary = "On-device spoken language identification across 99 languages."
 
     /// Artifact names describe roles rather than the network behind them, so
