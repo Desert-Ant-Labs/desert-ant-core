@@ -222,7 +222,7 @@ final class Pipeline {
 
         while slot.contains(where: { $0 >= 0 }) {
             projections.withUnsafeBufferPointer { source in
-                assets.embedding.withUnsafeBufferPointer { table in
+                assets.withEmbedding { table in
                     for lane in 0..<lanes where slot[lane] >= 0 {
                         (embed.ptr + lane * c.predHidden)
                             .update(from: table.baseAddress! + label[lane] * c.predHidden,
