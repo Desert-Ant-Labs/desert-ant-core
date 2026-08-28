@@ -108,6 +108,31 @@ public struct ModelStore: Sendable {
         let tree = try await transport.tree(treeURL(model))
         let resolved = try resolve(model.files, in: tree, repo: model.repo)
 
+        let manifest: [Manifest.Entry]
+        do {
+            manifest = try await fetchAll(model, resolved, progress: progress)
+        } catch {
+            // The transport gets its end-of-model signal whether or not the
+            // model arrived, or a failed download leaks its connections.
+            await transport.finishDownloads()
+            throw error
+        }
+        await transport.finishDownloads()
+
+        try fs.makeDirectory(parentDir(manifestPath(model)))
+        try fs.write(
+            manifestPath(model),
+            Manifest(requested: model.files, entries: manifest).serialized()
+        )
+        return storedModel(for: model)
+    }
+
+    /// Fetch every resolved file, reporting one combined progress across them.
+    private func fetchAll(
+        _ model: ModelSpec,
+        _ resolved: [RemoteEntry],
+        progress: @Sendable @escaping (DownloadProgress) -> Void
+    ) async throws -> [Manifest.Entry] {
         let totalBytes = resolved.reduce(0) { $0 + $1.size }
         var completedBytes: Int64 = 0
         let report: @Sendable (Int64) -> Void = { done in
@@ -133,13 +158,7 @@ public struct ModelStore: Sendable {
             manifest.append(.init(path: e.path, size: e.size, sha256: sha))
             report(completedBytes)
         }
-
-        try fs.makeDirectory(parentDir(manifestPath(model)))
-        try fs.write(
-            manifestPath(model),
-            Manifest(requested: model.files, entries: manifest).serialized()
-        )
-        return storedModel(for: model)
+        return manifest
     }
 
     /// Directories of every revision of `repo` present in the managed cache,

@@ -78,6 +78,27 @@ let mlxProducts: [Target.Dependency] = [
     .product(name: "MLXHuggingFace", package: "mlx-swift-lm", condition: .when(traits: ["MLX"])),
 ]
 
+// Xet is opt-in for the graph reason above, not the macro one: swift-xet is pure Swift with no
+// plugin, but it pulls swift-nio, async-http-client and swift-nio-transport-services, and a
+// package dependency cannot carry a platform condition. Declared as a default trait it would
+// make every Linux, Android and wasm build clone and resolve the NIO stack for a transport only
+// Apple platforms ever construct (and Android's static-stdlib link has no appetite for NIO's C
+// targets). The PRODUCT edge below carries both conditions, so even with the trait enabled the
+// module is absent from a non-Apple build -- which is exactly what `#if canImport(Xet)` in
+// Sources/ModelStore/XetTransport.swift tests.
+//
+// A consumer opts in with:  .package(url: ..., traits: ["Xet"])
+// and gets chunk-deduplicated, parallel CAS downloads of the weights. Without it the store
+// keeps the single-stream URLSession path, which is also what the Xet transport falls back to,
+// so nothing about a model's files or their verification changes either way.
+let xetDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/huggingface/swift-xet.git", from: "0.2.3"),
+]
+let xetProducts: [Target.Dependency] = [
+    .product(name: "Xet", package: "swift-xet",
+             condition: .when(platforms: [.iOS, .macOS, .tvOS, .visionOS], traits: ["Xet"])),
+]
+
 let jsDependencies: [Package.Dependency] = noJavaScriptKit ? [] : [
     .package(url: "https://github.com/swiftwasm/JavaScriptKit", from: "0.56.1"),
 ]
@@ -405,7 +426,7 @@ let libraryTargets: [Target] = [
             dependencies: [
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 "JSHost",  // unconditional: see Inference
-            ] + jsWasi + jsEventLoop
+            ] + jsWasi + jsEventLoop + xetProducts
         ),
         .target(
             name: "HostBridge",
@@ -529,8 +550,13 @@ let package = Package(
             description: "MLX-backed generation (the Title model). Apple platforms only; "
                 + "pulls mlx-swift-lm and swift-transformers into the graph."
         ),
+        .trait(
+            name: "Xet",
+            description: "Download model weights over Hugging Face's Xet protocol. Apple "
+                + "platforms only; pulls swift-xet and the NIO stack into the graph."
+        ),
     ],
-    dependencies: jsDependencies + mlxDependencies + [
+    dependencies: jsDependencies + mlxDependencies + xetDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: coreTargets

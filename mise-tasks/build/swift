@@ -31,3 +31,18 @@ for model in $(dal_select "${usage_model:-all}"); do
         swift build --scratch-path .build-host --target "$product" -Xlinker "-L$litert"
     fi
 done
+
+# The Xet transport is behind `canImport(Xet)` (Sources/ModelStore/XetTransport.swift),
+# so not one line of it is compiled by anything above: without this, the faster
+# download path could break and only a consumer that enabled the trait would
+# find out. Apple-only, and once for the whole package rather than per model,
+# because it is shared code and not a model's own graph.
+#
+# Its own scratch directory, not .build-host: flipping traits back and forth in
+# one scratch path leaves the Xcode build system with a module cache it then
+# fails to scan ("clang dependency scanning failure"), and test:swift runs next
+# in .build-host without traits.
+if [ "$(uname)" = Darwin ] && [ "${usage_model:-all}" = all ]; then
+    echo "== ModelStore (Xet trait) =="
+    swift build --scratch-path .build-xet --traits Xet --target ModelStore
+fi
