@@ -15,7 +15,7 @@ Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add the `Align` product to your target.

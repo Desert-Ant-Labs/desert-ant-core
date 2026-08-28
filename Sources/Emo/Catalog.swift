@@ -11,7 +11,7 @@ public enum EmoModel: ModelDeclaration {
     public static let revision = "v0.7.0"
     /// Matches packages/emo-node/package.json and packages/emo-kotlin/build.gradle.kts
     /// (ModelCatalogTests enforces it).
-    public static let sdkVersion = "3.0.0"
+    public static let sdkVersion = "3.1.0"
     public static let summary = "Multilingual on-device emoji suggestion."
 
     /// Labels plus the featurizer/tokenizer constants.

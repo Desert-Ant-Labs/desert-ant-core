@@ -17,7 +17,7 @@ Multilingual on-device PII detection and redaction.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.1.0")
 ```
 
 Then add the `Redact` product to your target.
@@ -25,7 +25,7 @@ Then add the `Redact` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:redact:3.0.0")
+implementation("ai.desertant:redact:3.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

@@ -37,7 +37,7 @@ public enum ClipModel: ModelDeclaration {
     /// Emo, Clear and Redact keep the iOS 16 package floor they can actually run at.
     public static let osFloor = OSFloor.multifunction
 
-    public static let sdkVersion = "3.0.0"
+    public static let sdkVersion = "3.1.0"
     public static let summary = "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device."
 
     /// The artifact family this SDK is built against, and the ONE place the

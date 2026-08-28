@@ -11,7 +11,7 @@ public enum ShapesModel: ModelDeclaration {
     public static let revision = "v0.3.0"
     /// Matches packages/shapes-node/package.json and
     /// packages/shapes-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
-    public static let sdkVersion = "3.0.0"
+    public static let sdkVersion = "3.1.0"
     public static let summary = "On-device single-stroke shape recognition."
 
     /// Class order, calibrated gates, and the frozen preprocessing constants.

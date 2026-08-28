@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/shapes",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "On-device single-stroke shape recognition for JavaScript. Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -65,7 +65,7 @@
   ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
-    "@desert-ant-labs/core": "^3.0.0"
+    "@desert-ant-labs/core": "^3.1.0"
   },
   "optionalDependencies": {
     "koffi": "^2.9.0"
