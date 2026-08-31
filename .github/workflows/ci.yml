@@ -7,6 +7,7 @@ name: CI
 #   apple    Swift on macOS (Core ML) and on an iOS Simulator
 #   darwin-native  the prebuilt native the npm package ships, on the release runner
 #   linux    Swift on Linux (LiteRT)
+#   windows  Swift on Windows (LiteRT), every model the manifest declares for it
 #   js       wasm + native cores, then every npm package: Node, browser, SSR
 #   android  the Swift JNI natives, both AARs, and the on-device suites
 #   checks   version consistency and the core JS unit tests
@@ -357,11 +358,10 @@ jobs:
       - run: mise run test:bundles
 
   windows:
-    # Experimental: Redact is the first (and so far only) model tested natively
-    # on Windows -- same LiteRT lane as Linux, with the runtime vendored from
-    # the win_amd64 ai-edge-litert wheel. `swift test` compiles every target in
-    # the package (all of which carry Windows import guards), but only
-    # RedactTests RUNS here; the other suites are not yet Windows-qualified.
+    # Experimental: the same LiteRT lane as Linux, with the runtime vendored
+    # from the win_amd64 ai-edge-litert wheel. Every model whose manifest entry
+    # declares a `windows` Swift platform builds and tests here; Apple-only
+    # models (Core ML or MLX runtimes) never enter this job.
     name: Windows (Swift + LiteRT)
     runs-on: windows-latest
     steps:
@@ -375,11 +375,29 @@ jobs:
       - name: Vendor LiteRT (win_amd64 wheel)
         shell: pwsh
         run: Tools/windows/vendor-litert.ps1
-      # Proves Redact compiles against its exact dependency closure, mirroring
-      # mise-tasks/build/swift's one-model-at-a-time rationale.
-      - name: Build Redact
+      # The manifest is the registry (see AGENTS.md): a model tests on Windows
+      # exactly when its Swift SDK declares the platform. Products are the
+      # capitalized ids, matching Tools/dal.sh's dal_product.
+      - name: Select Windows models
+        id: models
         shell: pwsh
-        run: swift build --target Redact -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: |
+          $models = (Get-Content manifest.json | ConvertFrom-Json).models |
+            Where-Object { $_.home -eq 'desert-ant-core' -and $_.sdks.swift.platforms -contains 'windows' }
+          $products = $models | ForEach-Object { $_.id.Substring(0,1).ToUpper() + $_.id.Substring(1) }
+          Write-Host "Windows models: $($products -join ', ')"
+          "products=$($products -join ' ')" >> $env:GITHUB_OUTPUT
+
+      # One model at a time, mirroring mise-tasks/build/swift: each build proves
+      # the model compiles against its own dependency closure alone.
+      - name: Build models
+        shell: pwsh
+        run: |
+          foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
+            Write-Host "== $p =="
+            swift build --target $p -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       # Foundation's cachesDirectory is ~\AppData\Local on Windows, so the
       # model store lives under it (see the macOS/Linux jobs for the pattern).
@@ -399,12 +417,14 @@ jobs:
         shell: pwsh
         run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
-      - name: Test Redact
+      - name: Test models
         shell: pwsh
         run: |
           # libLiteRt.dll must be loadable at test run time.
           $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
-          swift test --skip-build --filter RedactTests -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+          $filters = '${{ steps.models.outputs.products }}'.Split(' ') |
+            ForEach-Object { @('--filter', "$($_)Tests") }
+          swift test --skip-build @filters -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
   android:
     name: Android (natives, AARs, on-device)
