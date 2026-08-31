@@ -15,6 +15,8 @@ import Glibc
 import Android
 #elseif canImport(WASILibc)
 import WASILibc
+#elseif canImport(CRT)
+import CRT
 #endif
 import AudioDSP
 import Foundation
