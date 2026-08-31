@@ -509,9 +509,36 @@ let vozTargets: [Target] = [
     ),
 ]
 
+// Cue is Apple-only (Core ML, AVFoundation) and, like Align and Voz, gets no
+// Android/Node/Web products and no NativeBindings. It bundles nothing: its Core
+// ML model and sidecar are downloaded on demand via Sources/Cue/Catalog.swift.
+let cueProducts: [Product] = [
+    .library(name: "Cue", targets: ["Cue"]),
+]
+
+let cueTargets: [Target] = [
+    .target(
+        name: "Cue",
+        dependencies: [
+            .byName(name: "DesertAnt"),
+            .byName(name: "AudioIO"),
+            .byName(name: "AudioDSP"),
+        ]
+    ),
+    .testTarget(
+        name: "CueTests",
+        dependencies: ["Cue", "DesertAnt", "TestSupport"],
+        resources: [
+            .copy("Resources/cue_golden.json"),
+            .copy("Resources/hello_en.wav"),
+            .copy("Resources/hello_zh.wav"),
+        ]
+    ),
+]
+
 let coreTargets: [Target] =
     libraryTargets + testTargets + modelTargets + modelTestTargets + alignTargets
-    + tongueTargets + vozTargets
+    + tongueTargets + vozTargets + cueTargets
 
 let package = Package(
     name: "DesertAnt",
@@ -543,7 +570,7 @@ let package = Package(
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts + alignProducts + vozProducts,
+    products: products + modelProducts + alignProducts + vozProducts + cueProducts,
     traits: [
         .trait(
             name: "MLX",
