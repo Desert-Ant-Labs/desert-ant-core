@@ -421,8 +421,13 @@ struct ClearTests {
         #expect(p.decodeResampleSec < 0.001)
         #expect(p.deliverySec == 0)
 
-        // The model is the expensive part of an enhance pass.
+        // The model is the expensive part of an enhance pass. Not claimed on
+        // Windows: with the scalar STFT fallback and an unoptimized test
+        // build, the forward STFT out-costs the small model there, which says
+        // nothing about the timing breakdown being wrong.
+        #if !os(Windows)
         #expect(p.modelPredictSec > p.stftForwardSec)
+        #endif
         // The stages are a breakdown of the run, so they cannot exceed it.
         #expect(p.totalSec <= result.processingSec)
         #expect(p.totalSec > result.processingSec * 0.5,
