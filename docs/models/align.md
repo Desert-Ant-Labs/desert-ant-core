@@ -8,7 +8,7 @@ Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
-| **Weights** | [main](https://huggingface.co/desert-ant-labs/align) |
+| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/align) |
 
 ## Install
 
@@ -88,7 +88,7 @@ let refiner = try await SpeechTimestampRefiner(locale: locale, directory: myFold
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `align_coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage: searches a 241-frame (2.4 s) context, fixed batch-16 |
+| `align_coarse.mlmodelc` | Compiled Core ML (FP32) | ~0.5 MB | Coarse stage: searches a 241-frame (2.4 s) context, fixed batch-16 |
 | `align_fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage: searches an 81-frame (0.8 s) crop centered on the coarse prediction |
 | `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |
 | `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator over coarse/fine uncertainty features |
@@ -115,7 +115,7 @@ A two-stage coarse-to-fine cascade over a log-mel spectrogram, refining one boun
 - **Structural fallback**: boundaries whose correction would be invalid, hit the search-window
   edge, or lack streaming context keep Apple's original timestamp.
 
-Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are about 117k per stage.
+Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are 121,141 per stage.
 
 ## Inputs and outputs
 
@@ -125,16 +125,52 @@ Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are abou
 
 ## Accuracy
 
-Evaluated on the exact Swift runtime and these bundled Core ML models over 223 clean and 210
-noisy group-held-out recordings across all nine languages, against forced-alignment references.
+Measured on the v1.0.0 cascade over group-held-out recordings, against forced-alignment
+references built with Qwen3-ForcedAligner (Apache-2.0) averaged with a MIT-licensed second
+aligner. Speakers in the evaluation splits do not appear in training.
 
-| Condition | Apple raw error | Align error | Reduction | Median | Within 50 ms |
-|---|---:|---:|---:|---:|---:|
-| Clean | 113.5 ms | 44.9 ms | 60% | 28.2 ms | 75.1% |
-| Noisy | 124.4 ms | 50.1 ms | 60% | 32.0 ms | 69.4% |
+### All nine languages
 
-Error is mean absolute distance from the reference boundary. Align roughly halves Apple's typical
-error and removes most of its large mistakes.
+| Condition | Apple raw error | Align error | Reduction |
+|---|---:|---:|---:|
+| Clean | 124.2 ms | 43.9 ms | 65% |
+| Noisy | 88.3 ms | 33.4 ms | 62% |
+
+Macro-averaged across the nine languages, so a language with more test data cannot carry the
+figure on its own.
+
+### Public benchmark, English
+
+A 500-clip sample of each official LibriSpeech `test-clean` and `test-other` split. No speaker
+here appears in training (67 training speakers against 67 evaluation speakers, zero overlap).
+
+| Engine | Split | Raw | Refined | Reduction | Within 50 ms |
+|---|---|---:|---:|---:|---|
+| Apple SpeechAnalyzer | test-clean | 106.4 ms | 20.2 ms | 81% | 37% to 95% |
+| Apple SpeechAnalyzer | test-other | 111.6 ms | 24.8 ms | 78% | 35% to 92% |
+
+The p90 is the figure to read for editing work: on `test-clean` it falls from 230.7 ms to
+33.0 ms, roughly one frame of 30fps video. Large errors are what a viewer notices when a
+caption slips or a clip cuts mid-word.
+
+### Against a human-annotated set
+
+258 word boundaries across 10 recordings, corrected by hand against the waveform rather than
+by another aligner. This is the only figure here not measured against machine references.
+
+| System | Error | Within 50 ms |
+|---|---:|---|
+| Raw Whisper | 100.8 ms | 43% |
+| WhisperX | 53.5 ms | 67% |
+| Align | 45.0 ms | 76% |
+
+### Core ML parity
+
+The shipped Core ML stages are checked against the PyTorch weights on real audio crops, on the
+decoded correction rather than raw logits: fine 0.27 ms mean and 1.98 ms p99, coarse 0.0001 ms
+mean and 0.0003 ms p99. The coarse stage ships FP32 because at FP16 its p99 reached 3.6 ms,
+above this repo's 3 ms acceptance threshold. FP16 rounding is amplified by the
+softmax-expectation decode when the predicted distribution is broad.
 
 ## Languages
 
@@ -147,8 +183,13 @@ outside this set is passed through unchanged.
   large, consistent reduction of Apple's timing error rather than sample-accurate ground truth.
 - A learned correction is not guaranteed to improve every boundary; the structural fallback keeps
   Apple's timestamp when a correction looks unsafe but cannot catch every plausible-looking error.
-- English, Italian, Japanese, and Korean are the weakest languages under the current reference
-  convention.
+- Japanese, Korean, and Chinese were previously the weakest languages by a wide margin. A
+  reference-building defect had emptied nearly all of their training data, and v1.0.0 rebuilds
+  it: those three now improve their proposals by 33%, 55%, and 51% respectively, where before
+  they made timings worse than the input.
+- Number timings are the weakest remaining case. On a small sample refinement moved digit
+  boundaries further from the reference than leaving them alone, so treat spoken numbers as
+  unimproved until a larger sample settles it.
 
 ## Built on
 
