@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Uhm
 
-An hour of audio in 12 seconds.
+Find and remove every filler word.
 
 On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 

@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Redact
 
-Personal data, gone before it moves.
+Filter PII on the device.
 
 Multilingual on-device PII detection and redaction.
 

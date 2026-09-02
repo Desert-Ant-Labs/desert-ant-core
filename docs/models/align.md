@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Align
 
-Timestamps that land on the word.
+Accurate word timestamps for any transcript.
 
 Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
 

@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Ear
 
-Name the language from thirty seconds of audio.
+Detect spoken language from 30 seconds audio.
 
 On-device spoken language identification across 99 languages.
 

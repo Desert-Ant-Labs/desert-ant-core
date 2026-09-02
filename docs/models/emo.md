@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Emo
 
-Faster than you can type.
+Suggest emoji faster than you can type.
 
 Multilingual on-device emoji suggestion.
 

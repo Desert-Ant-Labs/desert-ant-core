@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Tongue
 
-Name the language from three words.
+Detect language based on 3 words.
 
 On-device language identification for short text across 84 languages.
 

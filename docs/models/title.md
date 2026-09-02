@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Title
 
-Titles and descriptions in a split second.
+Suggest a title and description for any text.
 
 On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.
 

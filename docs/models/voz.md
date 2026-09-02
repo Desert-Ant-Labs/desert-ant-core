@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Voz
 
-Lightning-fast transcriptions, precisely timed.
+Transcribe 10 minutes in 2 seconds.
 
 On-device speech recognition: transcripts with word-level timestamps, 25 languages.
 
