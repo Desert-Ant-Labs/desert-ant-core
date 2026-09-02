@@ -9,8 +9,11 @@ import DesertAnt
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
-    // TODO: pin to a tagged revision once the align model repo is tagged.
-    public static let revision = "main"
+    /// Pinned, not "main". The SDK resolves weights by this revision, so tracking a
+    /// branch would change behaviour for every installed copy the moment new weights
+    /// land on the Hub. v1.0.0 is the multilingual cascade whose accuracy figures the
+    /// model page quotes; v0.1.0 tags the weights that shipped before it.
+    public static let revision = "v1.0.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.1.0"
     public static let summary = "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline."

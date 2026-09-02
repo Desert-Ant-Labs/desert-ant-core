@@ -32,7 +32,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/align",
         "url": "https://huggingface.co/desert-ant-labs/align",
-        "revision": "main",
+        "revision": "v1.0.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": ["coreml"],
