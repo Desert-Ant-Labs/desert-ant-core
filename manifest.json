@@ -17,7 +17,7 @@
     {
       "id": "align",
       "name": "Align",
-      "tagline": "Timestamps that land on the word.",
+      "tagline": "Accurate word timestamps for any transcript.",
       "summary": "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.",
       "category": "Word timestamps",
       "lifecycle": "stable",
@@ -86,7 +86,7 @@
     {
       "id": "clips",
       "name": "Clips",
-      "tagline": "Video and audio highlights in seconds.",
+      "tagline": "Create short videos and highlight clips.",
       "summary": "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device.",
       "category": "Clip selection",
       "lifecycle": "stable",
@@ -122,7 +122,7 @@
     {
       "id": "ear",
       "name": "Ear",
-      "tagline": "Name the language from thirty seconds of audio.",
+      "tagline": "Detect spoken language from 30 seconds audio.",
       "summary": "On-device spoken language identification across 99 languages.",
       "category": "Language identification",
       "lifecycle": "stable",
@@ -166,7 +166,7 @@
     {
       "id": "emo",
       "name": "Emo",
-      "tagline": "Faster than you can type.",
+      "tagline": "Suggest emoji faster than you can type.",
       "summary": "Multilingual on-device emoji suggestion.",
       "category": "Emoji suggestions",
       "lifecycle": "stable",
@@ -206,7 +206,7 @@
     {
       "id": "eye",
       "name": "Eye",
-      "tagline": "Forty shots. One keeper.",
+      "tagline": "Tag and rank images.",
       "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
       "category": "Image and video scoring",
       "lifecycle": "closed-beta",
@@ -241,7 +241,7 @@
     {
       "id": "face",
       "name": "Face",
-      "tagline": "People search, no server.",
+      "tagline": "Find people in photos, private on the device.",
       "summary": "On-device face matching across a photo library or through a video.",
       "category": "Face matching",
       "lifecycle": "closed-beta",
@@ -276,7 +276,7 @@
     {
       "id": "gist",
       "name": "Gist",
-      "tagline": "Know what any text is about.",
+      "tagline": "Generate topics and tags for posts and articles.",
       "summary": "Multilingual on-device content topic tagging across a 36-topic taxonomy.",
       "category": "Content topic tagging",
       "lifecycle": "stable",
@@ -319,7 +319,7 @@
     {
       "id": "moderator",
       "name": "Moderator",
-      "tagline": "Flag nudity before upload.",
+      "tagline": "Flag nudity before upload or display.",
       "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
       "category": "Content moderation",
       "lifecycle": "closed-beta",
@@ -354,7 +354,7 @@
     {
       "id": "redact",
       "name": "Redact",
-      "tagline": "Personal data, gone before it moves.",
+      "tagline": "Filter PII on the device.",
       "summary": "Multilingual on-device PII detection and redaction.",
       "category": "PII redaction",
       "lifecycle": "stable",
@@ -394,7 +394,7 @@
     {
       "id": "schemer",
       "name": "Schemer",
-      "tagline": "Typed JSON, no validation layer.",
+      "tagline": "Extract typed JSON from any text.",
       "summary": "On-device structured extraction into a caller-supplied JSON schema.",
       "category": "Structured extraction",
       "lifecycle": "closed-beta",
@@ -469,7 +469,7 @@
     {
       "id": "title",
       "name": "Title",
-      "tagline": "Titles and descriptions in a split second.",
+      "tagline": "Suggest a title and description for any text.",
       "summary": "On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.",
       "category": "Titles and descriptions",
       "lifecycle": "stable",
@@ -505,7 +505,7 @@
     {
       "id": "tongue",
       "name": "Tongue",
-      "tagline": "Name the language from three words.",
+      "tagline": "Detect language based on 3 words.",
       "summary": "On-device language identification for short text across 84 languages.",
       "category": "Language identification",
       "lifecycle": "stable",
@@ -585,7 +585,7 @@
     {
       "id": "uhm",
       "name": "Uhm",
-      "tagline": "An hour of audio in 12 seconds.",
+      "tagline": "Find and remove every filler word.",
       "summary": "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans.",
       "category": "Filler-word detection",
       "lifecycle": "stable",
@@ -627,7 +627,7 @@
     {
       "id": "voz",
       "name": "Voz",
-      "tagline": "Lightning-fast transcriptions, precisely timed.",
+      "tagline": "Transcribe 10 minutes in 2 seconds.",
       "summary": "On-device speech recognition: transcripts with word-level timestamps, 25 languages.",
       "category": "Speech recognition",
       "lifecycle": "stable",
@@ -710,7 +710,7 @@
     {
       "id": "who",
       "name": "Who",
-      "tagline": "An interview, ready to cut.",
+      "tagline": "Label who said what in audio and video.",
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
       "category": "Speaker diarization",
       "lifecycle": "closed-beta",

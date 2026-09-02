@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Gist
 
-Know what any text is about.
+Generate topics and tags for posts and articles.
 
 Multilingual on-device content topic tagging across a 36-topic taxonomy.
 

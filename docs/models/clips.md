@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Clips
 
-Video and audio highlights in seconds.
+Create short videos and highlight clips.
 
 Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device.
 
