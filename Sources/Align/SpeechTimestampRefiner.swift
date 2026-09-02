@@ -124,7 +124,12 @@ public final class SpeechTimestampRefiner: @unchecked Sendable {
     // MARK: offline
 
     /// Correct `words` using the provided audio. `samples` must be mono; resampled to 16 kHz.
-    func refine(_ words: [WordTiming], audio samples: [Float], sampleRate: Double = 16000) -> [WordTiming] {
+    ///
+    /// Public because the model is not tied to Apple's recogniser: it corrects the word timings of
+    /// any transcript, and is evaluated against Whisper and Parakeet output as well as
+    /// `SpeechAnalyzer`'s. Callers holding a transcript from elsewhere use this directly; the
+    /// `SpeechAnalyzer` pipeline is a convenience on top of it.
+    public func refine(_ words: [WordTiming], audio samples: [Float], sampleRate: Double = 16000) -> [WordTiming] {
         guard let langId = languageId, !words.isEmpty else { return words }
         let audio = sampleRate == Double(cfg.sample_rate) ? samples
             : Resampler.toRate(samples, from: sampleRate, to: Double(cfg.sample_rate))
