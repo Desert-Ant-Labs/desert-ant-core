@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Voz
 
-Every word, with the time it was said.
+Lightning-fast transcriptions, precisely timed.
 
 On-device speech recognition: transcripts with word-level timestamps, 25 languages.
 

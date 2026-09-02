@@ -1,7 +1,7 @@
 <!-- model:start -->
 # Title
 
-Names what you just wrote.
+Titles and descriptions in a split second.
 
 On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.
 
