@@ -82,22 +82,31 @@ jobs:
           restore-keys: models-${{ runner.os }}-
 
       # test:ios pins DerivedData and the SPM clones to .build/ when $CI is set,
-      # so this cache turns the simulator build into an incremental one.
+      # so these caches turn the simulator build into an incremental one.
       # Package.resolved keys the dependency graph; restore-keys accept a stale
-      # cache, which xcodebuild then patches incrementally.
+      # DerivedData, which xcodebuild then patches incrementally.
       #
       # (This used to say swift-syntax dominated the job, via JavaScriptKit's
       # macro plugin. That stopped being true when JavaScriptKit became opt-in
       # behind DAL_WASM_BUILD, which test:ios does not set: swift-syntax no
       # longer appears in the build log at all.)
-      - name: Cache iOS DerivedData and SPM clones
+      - name: Cache iOS DerivedData
         uses: actions/cache@v6
         with:
-          path: |
-            .build/ios-deriveddata
-            .build/ios-packages
+          path: .build/ios-deriveddata
           key: ios-deriveddata-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
           restore-keys: ios-deriveddata-${{ runner.os }}-
+
+      # No restore-keys here on purpose: test:ios resolves with
+      # -skipPackageUpdates, which trusts whatever state this dir holds. A
+      # stale fallback from an older dependency graph can pin revisions the
+      # cached clones no longer contain ("unable to read tree"), so a graph
+      # change must start from an empty dir and re-clone.
+      - name: Cache iOS SPM clones
+        uses: actions/cache@v6
+        with:
+          path: .build/ios-packages
+          key: ios-packages-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
 
       - run: mise run build:swift
       - run: mise run test:swift
