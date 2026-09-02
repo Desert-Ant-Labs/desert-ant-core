@@ -469,7 +469,7 @@
     {
       "id": "title",
       "name": "Title",
-      "tagline": "Names what you just wrote.",
+      "tagline": "Titles and descriptions in a split second.",
       "summary": "On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text.",
       "category": "Titles and descriptions",
       "lifecycle": "stable",
@@ -585,7 +585,7 @@
     {
       "id": "uhm",
       "name": "Uhm",
-      "tagline": "An hour of audio in twelve seconds.",
+      "tagline": "An hour of audio in 12 seconds.",
       "summary": "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans.",
       "category": "Filler-word detection",
       "lifecycle": "stable",
@@ -627,7 +627,7 @@
     {
       "id": "voz",
       "name": "Voz",
-      "tagline": "Every word, with the time it was said.",
+      "tagline": "Lightning-fast transcriptions, precisely timed.",
       "summary": "On-device speech recognition: transcripts with word-level timestamps, 25 languages.",
       "category": "Speech recognition",
       "lifecycle": "stable",
