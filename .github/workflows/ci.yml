@@ -90,8 +90,14 @@ jobs:
       # macro plugin. That stopped being true when JavaScriptKit became opt-in
       # behind DAL_WASM_BUILD, which test:ios does not set: swift-syntax no
       # longer appears in the build log at all.)
-      - name: Cache iOS DerivedData
-        uses: actions/cache@v6
+      #
+      # Restore and save are split so a failing run never writes the cache:
+      # actions/cache's post step saves regardless of job outcome, which once
+      # cached a half-resolved clone dir under the current key. actions/cache
+      # never overwrites an exact hit, so that poisoned entry replayed on every
+      # run until it was deleted by hand.
+      - name: Restore iOS DerivedData
+        uses: actions/cache/restore@v6
         with:
           path: .build/ios-deriveddata
           key: ios-deriveddata-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
@@ -102,8 +108,8 @@ jobs:
       # stale fallback from an older dependency graph can pin revisions the
       # cached clones no longer contain ("unable to read tree"), so a graph
       # change must start from an empty dir and re-clone.
-      - name: Cache iOS SPM clones
-        uses: actions/cache@v6
+      - name: Restore iOS SPM clones
+        uses: actions/cache/restore@v6
         with:
           path: .build/ios-packages
           key: ios-packages-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
@@ -111,6 +117,20 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
+
+      - name: Save iOS DerivedData
+        if: success()
+        uses: actions/cache/save@v6
+        with:
+          path: .build/ios-deriveddata
+          key: ios-deriveddata-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+
+      - name: Save iOS SPM clones
+        if: success()
+        uses: actions/cache/save@v6
+        with:
+          path: .build/ios-packages
+          key: ios-packages-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
 
   darwin-native:
     name: darwin native (npm)
