@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .build/ios-packages
-          key: ios-packages-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          key: ios-packages-v2-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
 
       - run: mise run build:swift
       - run: mise run test:swift
