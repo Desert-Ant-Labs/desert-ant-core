@@ -45,8 +45,15 @@ struct AlignTests {
         return URL(fileURLWithPath: files.rootPath, isDirectory: true)
     }
 
+    /// Parity fixtures are recorded and compared on the CPU. The ANE and CPU float16 paths
+    /// disagree, and where the model is unsure that becomes tens of milliseconds, so a
+    /// fixture recorded on a Mac with an ANE can never match a CI runner without one.
+    /// Production still uses the ANE; only these comparisons are pinned.
+    func pinComputeUnitsForParity() { StageModel.computeUnits = .cpuOnly }
+
     func makeRefiner(languageCode: String) async throws -> SpeechTimestampRefiner {
-        try SpeechTimestampRefiner(
+        pinComputeUnitsForParity()
+        return try SpeechTimestampRefiner(
             languageCode: languageCode,
             resourceDirectory: try await modelDirectory()
         )
