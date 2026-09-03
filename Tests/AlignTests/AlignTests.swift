@@ -10,15 +10,15 @@ import Speech
 import TestSupport
 
 struct AlignTests {
-    struct Golden: Decodable {
-        struct W: Decodable { let text: String; let start: Double; let end: Double }
+    struct Golden: Codable {
+        struct W: Codable { let text: String; let start: Double; let end: Double }
         let sample_rate: Int; let n_samples: Int; let language: String
-        let words: [W]; let logmel_b64: String; let n_frames: Int; let corrections: [Double]
+        let words: [W]; let logmel_b64: String; let n_frames: Int; var corrections: [Double]
     }
 
-    struct CalibrationGolden: Decodable {
+    struct CalibrationGolden: Codable {
         let features: [[Float]]
-        let corrections: [Double]
+        var corrections: [Double]
     }
 
     func loadGolden() throws -> Golden {
@@ -81,6 +81,47 @@ struct AlignTests {
         let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
         print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse))")
         #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
+    }
+
+    /// Rewrites both golden fixtures from the weights this SDK resolves.
+    ///
+    /// The parity tests compare to 1e-6, so the fixtures have to come from this runtime
+    /// rather than a reimplementation, and they go stale whenever the pinned weights
+    /// revision changes. Until now there was no generator in either repo and they had to
+    /// be reproduced by hand.
+    ///
+    ///     ALIGN_REGENERATE_GOLDENS=1 swift test --filter regenerateGoldens
+    ///
+    /// Then re-run the suite: the parity tests must pass against what this wrote.
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["ALIGN_REGENERATE_GOLDENS"] == "1",
+                   "set ALIGN_REGENERATE_GOLDENS=1 to rewrite the fixtures"))
+    func regenerateGoldens() async throws {
+        let resources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().appendingPathComponent("Resources")
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        var golden = try loadGolden()
+        // The cascade fixture is not English: it carries its own language, and refining it
+        // through the wrong embedding row silently produces a different model.
+        let refiner = try await makeRefiner(languageCode: golden.language)
+        let audio = synthAudio(golden.n_samples, golden.sample_rate)
+        let words = golden.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }
+        let fixed = refiner.refine(words, audio: audio, sampleRate: Double(golden.sample_rate))
+        var corrections: [Double] = []
+        for i in words.indices {
+            corrections.append(fixed[i].start - words[i].start)
+            corrections.append(fixed[i].end - words[i].end)
+        }
+        golden.corrections = corrections
+        try encoder.encode(golden).write(to: resources.appendingPathComponent("golden.json"))
+
+        let calURL = resources.appendingPathComponent("calibration_golden.json")
+        var cal = try JSONDecoder().decode(CalibrationGolden.self, from: Data(contentsOf: calURL))
+        cal.corrections = cal.features.map { refiner._debugCalibratedCorrection($0) }
+        try encoder.encode(cal).write(to: calURL)
+
+        print("regenerated goldens: \(corrections.count) cascade, \(cal.corrections.count) calibration")
     }
 
     @Test func calibrationParity() async throws {
