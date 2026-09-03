@@ -16,13 +16,21 @@ struct StagePrediction {
 }
 
 final class StageModel {
+    /// Overridden by the parity tests so a recorded fixture reproduces on any machine.
+    nonisolated(unsafe) static var computeUnits: MLComputeUnits = .cpuAndNeuralEngine
+
     let model: MLModel
     let width: Int
     private let outputName: String
 
     init(url: URL, width: Int) throws {
         let cfg = MLModelConfiguration()
-        cfg.computeUnits = .cpuAndNeuralEngine
+        // The Neural Engine in production. Tests pin this to .cpuOnly: Core ML's ANE and CPU
+        // paths do not agree bit for bit in float16, and on an input the model is unsure about
+        // the softmax-expectation decode turns that into tens of milliseconds. CI runners are
+        // virtualised and have no ANE, so a fixture recorded on a developer's Mac could never
+        // match one recorded there.
+        cfg.computeUnits = StageModel.computeUnits
         self.model = try MLModel(contentsOf: url, configuration: cfg)
         self.width = width
         self.outputName = model.modelDescription.outputDescriptionsByName.keys.first!
