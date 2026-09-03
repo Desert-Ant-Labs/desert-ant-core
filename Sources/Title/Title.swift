@@ -92,6 +92,45 @@ public actor Titles {
     private let model: ModelContainer
     private let maxTokens: Int
 
+    /// GPU gate. iOS revokes GPU submission rights when an app is backgrounded, and MLX
+    /// surfaces that as an uncatchable C++ `runtime_error` from a Metal completion handler —
+    /// a crash, not an error a caller can handle. `suspend()` before entering the background
+    /// and `resume()` on return. See the note on ``suspend()`` for why this cancels rather
+    /// than pauses.
+    private var suspended = false
+    private var resumeWaiters: [CheckedContinuation<Void, Never>] = []
+    private var inFlight: Task<String, Error>?
+
+    /// Stop submitting GPU work, now.
+    ///
+    /// Cancels the in-flight generation rather than pausing it: the token stream's producer
+    /// decodes at full speed independent of its consumer (the `AsyncStream` is unbounded), so
+    /// gating on the consumer side would not stop the GPU. Cancellation propagates through
+    /// the stream's `onTermination` into the decode loop, which checks it on every token —
+    /// GPU work stops within about one token. The interrupted call does not fail: it retries
+    /// from scratch after ``resume()``, which is cheap because generation is bounded at
+    /// `maxTokens` and prompt processing is a fraction of decode.
+    public func suspend() {
+        guard !suspended else { return }
+        suspended = true
+        inFlight?.cancel()
+    }
+
+    /// Allow GPU work again. Interrupted and queued generations proceed.
+    public func resume() {
+        guard suspended else { return }
+        suspended = false
+        let waiters = resumeWaiters
+        resumeWaiters = []
+        for waiter in waiters { waiter.resume() }
+    }
+
+    private func waitWhileSuspended() async {
+        while suspended {
+            await withCheckedContinuation { resumeWaiters.append($0) }
+        }
+    }
+
     /// - Parameters:
     ///   - directory: an MLX model folder — the files ``TitleModel/files`` declares. Nothing is
     ///     bundled with this package and nothing is downloaded here; point this at a folder you
@@ -133,6 +172,31 @@ public actor Titles {
     }
 
     private func generate(_ prompt: String) async throws -> String {
+        while true {
+            await waitWhileSuspended()
+            try Task.checkCancellation()
+
+            // Unstructured so `suspend()` can cancel it without cancelling the caller.
+            // Inherits this actor's isolation, so `decode` stays serialized.
+            let attempt = Task { try await self.decode(prompt) }
+            inFlight = attempt
+            defer { inFlight = nil }
+
+            do {
+                return try await withTaskCancellationHandler {
+                    try await attempt.value
+                } onCancel: {
+                    attempt.cancel()
+                }
+            } catch is CancellationError {
+                // Suspension cancelled it: wait out the background stint and retry.
+                // Anything else means the CALLER was cancelled — honor that.
+                guard suspended else { throw CancellationError() }
+            }
+        }
+    }
+
+    private func decode(_ prompt: String) async throws -> String {
         try await model.perform { context in
             let input = try await context.processor.prepare(
                 input: UserInput(messages: [["role": "user", "content": prompt]]))
@@ -153,6 +217,8 @@ public actor Titles {
                     text += chunk
                 }
             }
+            // A cancelled run ends the stream early with partial text; that is not a card.
+            try Task.checkCancellation()
             return text
         }
     }
