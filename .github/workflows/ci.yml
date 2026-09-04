@@ -29,8 +29,6 @@ permissions:
 
 jobs:
   checks:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: checks (versions, JS units)
     runs-on: ubuntu-latest
     steps:
@@ -62,8 +60,6 @@ jobs:
       - run: mise run test:js
 
   apple:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: Apple (macOS + iOS Simulator)
     runs-on: macos-26
     steps:
@@ -117,8 +113,6 @@ jobs:
       - run: mise run test:ios
 
   darwin-native:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: darwin native (npm)
     # The runner release.yml publishes the darwin-arm64 native from, so the
     # toolchain that ships is the one CI proves. It was macos-14 to keep the
@@ -148,8 +142,6 @@ jobs:
       - run: mise run build:node-native
 
   linux:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: Linux (Swift + LiteRT)
     runs-on: ubuntu-22.04 # glibc 2.35; the *published* natives build on 2.34 in release.yml
     steps:
@@ -218,8 +210,6 @@ jobs:
       - run: mise run test:swift
 
   js:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: JavaScript (wasm, Node native, browser/SSR bundles)
     # glibc 2.35, matching the floor the published Linux natives target.
     runs-on: ubuntu-22.04
@@ -418,12 +408,26 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
-      # Foundation's cachesDirectory is ~\AppData\Local on Windows, so the
-      # model store lives under it (see the macOS/Linux jobs for the pattern).
+      # The store roots at Foundation's cachesDirectory, and guessing where
+      # that lands on Windows is how this cache spent its life saving nothing
+      # ("~\AppData\Local\desert-ant-models" never existed, so every run
+      # re-downloaded every model). Ask Foundation itself instead.
+      - name: Locate model cache
+        id: modelcache
+        shell: pwsh
+        run: |
+          'import Foundation; print(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.path)' |
+            Out-File -Encoding ascii probe.swift
+          swiftc probe.swift -o probe.exe
+          $root = (./probe.exe | Select-Object -Last 1).Trim()
+          Remove-Item probe.swift, probe.exe
+          Write-Host "model cache root: $root\desert-ant-models"
+          "path=$root\desert-ant-models" >> $env:GITHUB_OUTPUT
+
       - name: Cache downloaded models
         uses: actions/cache@v6
         with:
-          path: ~\AppData\Local\desert-ant-models
+          path: ${{ steps.modelcache.outputs.path }}
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
 
@@ -436,8 +440,9 @@ jobs:
         shell: pwsh
         run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
-      # One invocation per model, timed, to attribute the post-test exit hang
-      # (tests finish in ~2 min, the step takes ~17) to a specific test target.
+      # One invocation per model, timed, so a slow target is named in the log
+      # instead of hiding in one 17-minute lump (which is how Ear's 992s went
+      # unnoticed: swift-testing output buffers apart from XCTest's).
       - name: Test models (per model, timed)
         timeout-minutes: 45
         shell: pwsh
@@ -456,8 +461,6 @@ jobs:
           if ($failed) { exit 1 }
 
   android:
-    # Temporarily disabled to isolate the Windows test-exit hang.
-    if: false
     name: Android (natives, AARs, on-device)
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
     # emulator has been flaky on 24.04. build:android-natives fetches the Swift
