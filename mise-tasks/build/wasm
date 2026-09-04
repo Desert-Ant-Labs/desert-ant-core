@@ -26,6 +26,15 @@ sdk=$(dal_wasm_sdk)
 # plugin needs the one default scratch path), but the wasm-opt passes are
 # independent single-threaded jobs of about a minute each, so they run in
 # parallel once every binary exists.
+# The js plugin invocations below are serial (the plugin needs the one default
+# scratch path), and each drives its own `swift build`. One whole-package build
+# first compiles every *Web product and its dependencies in a single parallel
+# pass with the same sdk, configuration and flags, so each plugin run finds
+# warm artifacts and is reduced to glue generation and packaging. The whole
+# graph is known to compile for wasm: test:wasi builds it entire.
+echo "== prebuild (all wasm targets) =="
+swift build --swift-sdk "$sdk" -c release -Xswiftc -Osize
+
 built=""
 for model in $(dal_select "${usage_model:-all}"); do
     product=$(dal_product "$model")

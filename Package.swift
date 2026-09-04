@@ -256,8 +256,14 @@ let products: [Product] = [
         .library(name: "HostBridge", targets: ["HostBridge"]),
         .library(name: "CHostBridge", targets: ["CHostBridge"]),
         .library(name: "WasmBindings", targets: ["WasmBindings"]),
-        .library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
 ]
+// Dynamic libraries cannot link for wasm32, and these products exist for the
+// Android and Node pipelines only. Declaring them in the wasm graph would fail
+// a whole-package `swift build --swift-sdk <wasm>` (which build:wasm runs as a
+// parallel prebuild), so they follow the same gate as the *Web products.
++ (noJavaScriptKit
+    ? [.library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"])]
+    : [])
 
 // `appleOnly` models (Title) have no `Web/` entry point, so they get no wasm product.
 let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
@@ -265,7 +271,7 @@ let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.ap
 }
 
 let modelProducts: [Product] = models.flatMap { model in
-    model.appleOnly
+    model.appleOnly || !noJavaScriptKit
         ? [.library(name: model.name, targets: [model.name])]
         : [
             .library(name: model.name, targets: [model.name]),
