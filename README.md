@@ -22,6 +22,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 - [Swift](#swift)
 - [Android](#android)
 - [JavaScript and TypeScript](#javascript-and-typescript)
+- [Command line](#command-line)
 - [Model downloads and caching](#model-downloads-and-caching)
   - [Offline and airgapped](#offline-and-airgapped)
   - [AWS Lambda on arm64](#aws-lambda-on-arm64)
@@ -134,6 +135,27 @@ bundles cleanly for every target of a multi-target bundler such as Next.js,
 Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
 frameworks run in Node. For inference in plain Node, import the `/native`
 subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
+
+## Command line
+
+Transcribe a recording, cut clips, clean up audio, or redact a text from the
+terminal, with the same models running on your own machine. The [Desert Ant
+CLI](https://github.com/Desert-Ant-Labs/desert-ant-cli) runs on macOS (Apple
+silicon) and Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Desert-Ant-Labs/desert-ant-cli/main/install.sh | sh
+```
+
+or `brew install desert-ant-labs/tap/desertant`. Then:
+
+```
+$ da redact "Email Anna at anna@example.hu or call 555-0100"
+Email [GIVEN_NAME_1] at [EMAIL_1] or call [PHONE_1]
+```
+
+mise, JSON output, chaining, and setup for coding agents are in the CLI's own
+README.
 
 ## Model downloads and caching
 
