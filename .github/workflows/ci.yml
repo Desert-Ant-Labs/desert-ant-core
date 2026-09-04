@@ -29,6 +29,8 @@ permissions:
 
 jobs:
   checks:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: checks (versions, JS units)
     runs-on: ubuntu-latest
     steps:
@@ -60,6 +62,8 @@ jobs:
       - run: mise run test:js
 
   apple:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: Apple (macOS + iOS Simulator)
     runs-on: macos-26
     steps:
@@ -113,6 +117,8 @@ jobs:
       - run: mise run test:ios
 
   darwin-native:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: darwin native (npm)
     # The runner release.yml publishes the darwin-arm64 native from, so the
     # toolchain that ships is the one CI proves. It was macos-14 to keep the
@@ -142,6 +148,8 @@ jobs:
       - run: mise run build:node-native
 
   linux:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: Linux (Swift + LiteRT)
     runs-on: ubuntu-22.04 # glibc 2.35; the *published* natives build on 2.34 in release.yml
     steps:
@@ -210,6 +218,8 @@ jobs:
       - run: mise run test:swift
 
   js:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: JavaScript (wasm, Node native, browser/SSR bundles)
     # glibc 2.35, matching the floor the published Linux natives target.
     runs-on: ubuntu-22.04
@@ -426,16 +436,28 @@ jobs:
         shell: pwsh
         run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
-      - name: Test models
+      # One invocation per model, timed, to attribute the post-test exit hang
+      # (tests finish in ~2 min, the step takes ~17) to a specific test target.
+      - name: Test models (per model, timed)
+        timeout-minutes: 45
         shell: pwsh
         run: |
           # libLiteRt.dll must be loadable at test run time.
           $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
-          $filters = '${{ steps.models.outputs.products }}'.Split(' ') |
-            ForEach-Object { @('--filter', "$($_)Tests") }
-          swift test --skip-build @filters -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+          $failed = $false
+          foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
+            Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            swift test --skip-build --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+            $sw.Stop()
+            Write-Host "== $p == done in $([int]$sw.Elapsed.TotalSeconds)s"
+          }
+          if ($failed) { exit 1 }
 
   android:
+    # Temporarily disabled to isolate the Windows test-exit hang.
+    if: false
     name: Android (natives, AARs, on-device)
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
     # emulator has been flaky on 24.04. build:android-natives fetches the Swift
