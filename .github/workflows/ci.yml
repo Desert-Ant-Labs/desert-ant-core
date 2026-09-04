@@ -108,6 +108,21 @@ jobs:
           path: .build/ios-packages
           key: ios-packages-v2-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
 
+      # build:swift and test:swift build into these scratch paths. Cold, they
+      # rebuild every dependency (including swift-syntax via Title's MLX trait
+      # in .build-mlx) on each push. Package.resolved is gitignored in this
+      # repo, so Package.swift is the key; restore-keys accept a stale scratch,
+      # which swift build then patches incrementally.
+      - name: Cache Swift scratch paths
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build-host
+            .build-mlx
+            .build-xet
+          key: swift-scratch-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          restore-keys: swift-scratch-${{ runner.os }}-
+
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
