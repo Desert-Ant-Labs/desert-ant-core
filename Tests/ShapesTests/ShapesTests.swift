@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import DesertAnt
 import TestSupport
 @testable import Shapes
@@ -8,84 +8,84 @@ import TestSupport
 /// Core ML artifact; on Linux/Windows the LiteRT artifact (via LiteRT). Both
 /// exports come from the same checkpoint and share one fixed-window signature, so
 /// the results match.
-final class ShapesTests: XCTestCase {
-    // The model-backed tests are wasm-guarded because the shared fixture does not
-    // exist there (the model store's filesystem and transport come from the JS host
-    // the app installs, which the bare test harness never does), and skipped off
-    // iOS/Android by `requireModelBacked`.
+///
+/// The model-backed tests are wasm-guarded because the shared fixture does not
+/// exist there (the model store's filesystem and transport come from the JS host
+/// the app installs, which the bare test harness never does), and skipped off
+/// iOS/Android by the `.modelBacked` trait. `.serialized` keeps the instances
+/// from resolving the same model concurrently, the house pattern for model
+/// suites (see Ear's SmokeTests).
+struct ShapesTests {
 #if !os(WASI)
-    /// Skip unless this is a platform where model-backed tests run.
-    private func requireModelBacked() throws {
-        try XCTSkipUnless(runsModelBackedTests, "model-backed tests do not run on iOS or Android")
-    }
+    @Suite(.serialized, .modelBacked)
+    struct ModelTests {
+        /// A recognizer over the cached model (offline after the fixture's download).
+        private func makeShapes() -> Shapes { Shapes() }
 
-    /// A recognizer over the cached model (offline after the fixture's download).
-    private func makeShapes() -> Shapes { Shapes() }
-
-    func testRecognizesCircleAsEllipseWithFit() async throws {
-        try requireModelBacked()
-        let recognized = try await makeShapes().recognize(points: Self.circle())
-        let shape = try XCTUnwrap(recognized)
-        guard case let .ellipse(center, major, minor, _) = shape else {
-            return XCTFail("expected ellipse geometry, got \(shape)")
+        @Test func recognizesCircleAsEllipseWithFit() async throws {
+            let recognized = try await makeShapes().recognize(points: ShapesTests.circle())
+            let shape = try #require(recognized)
+            guard case let .ellipse(center, major, minor, _) = shape else {
+                Issue.record("expected ellipse geometry, got \(shape)")
+                return
+            }
+            #expect(abs(center.x - 100) <= 8)
+            #expect(abs(center.y - 100) <= 8)
+            #expect(abs(major - 80) <= 12)
+            #expect(abs(minor - 80) <= 12)
         }
-        XCTAssertEqual(center.x, 100, accuracy: 8)
-        XCTAssertEqual(center.y, 100, accuracy: 8)
-        XCTAssertEqual(major, 80, accuracy: 12)
-        XCTAssertEqual(minor, 80, accuracy: 12)
-    }
 
-    func testRecognizesLineWithEndpoints() async throws {
-        try requireModelBacked()
-        let recognized = try await makeShapes().recognize(points: Self.diagonal())
-        let shape = try XCTUnwrap(recognized)
-        guard case let .line(a, b) = shape else {
-            return XCTFail("expected line geometry, got \(shape)")
+        @Test func recognizesLineWithEndpoints() async throws {
+            let recognized = try await makeShapes().recognize(points: ShapesTests.diagonal())
+            let shape = try #require(recognized)
+            guard case let .line(a, b) = shape else {
+                Issue.record("expected line geometry, got \(shape)")
+                return
+            }
+            #expect(hypot(a.x - b.x, a.y - b.y) > 100)
         }
-        XCTAssertGreaterThan(hypot(a.x - b.x, a.y - b.y), 100)
-    }
 
-    func testRecognizesTriangle() async throws {
-        try requireModelBacked()
-        let traced = Self.polygon([
-            Point(x: 0, y: 0), Point(x: 100, y: 0), Point(x: 50, y: 90),
-        ])
-        let recognized = try await makeShapes().recognize(points: traced)
-        let shape = try XCTUnwrap(recognized)
-        guard case let .triangle(vertices) = shape else {
-            return XCTFail("expected triangle geometry, got \(shape)")
+        @Test func recognizesTriangle() async throws {
+            let traced = ShapesTests.polygon([
+                Point(x: 0, y: 0), Point(x: 100, y: 0), Point(x: 50, y: 90),
+            ])
+            let recognized = try await makeShapes().recognize(points: traced)
+            let shape = try #require(recognized)
+            guard case let .triangle(vertices) = shape else {
+                Issue.record("expected triangle geometry, got \(shape)")
+                return
+            }
+            #expect(vertices.count == 3)
         }
-        XCTAssertEqual(vertices.count, 3)
-    }
 
-    /// A stroke too short to mean anything is rejected before the model runs.
-    func testDegenerateReturnsNil() async throws {
-        try requireModelBacked()
-        let result = try await makeShapes().recognize(points: [Point(x: 1, y: 1)])
-        XCTAssertNil(result)
-    }
+        /// A stroke too short to mean anything is rejected before the model runs.
+        @Test func degenerateReturnsNil() async throws {
+            let result = try await makeShapes().recognize(points: [Point(x: 1, y: 1)])
+            #expect(result == nil)
+        }
 
-    /// `minimumConfidence` raises the bar on top of each class's calibrated gate,
-    /// so `1` rejects everything the model could ever propose.
-    func testMinimumConfidenceRejects() async throws {
-        try requireModelBacked()
-        let options = Options(minimumConfidence: 1)
-        let result = try await makeShapes().recognize(points: Self.circle(), options: options)
-        XCTAssertNil(result)
-    }
+        /// `minimumConfidence` raises the bar on top of each class's calibrated gate,
+        /// so `1` rejects everything the model could ever propose.
+        @Test func minimumConfidenceRejects() async throws {
+            let options = Options(minimumConfidence: 1)
+            let result = try await makeShapes().recognize(points: ShapesTests.circle(), options: options)
+            #expect(result == nil)
+        }
 
-    /// A model directory the user populated is adopted offline, with no download.
-    func testPrepopulatedDirectoryIsAdopted() async throws {
-        try requireModelBacked()
-        let directory = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("shapes-local-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: directory) }
-        try await ModelFixture.populate(ShapesModel.self, into: directory)
+        /// A model directory the user populated is adopted offline, with no download.
+        @Test func prepopulatedDirectoryIsAdopted() async throws {
+            let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("shapes-local-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: directory) }
+            try await ModelFixture.populate(ShapesModel.self, into: directory)
 
-        let shapes = Shapes(directory: directory.path)
-        XCTAssertTrue(shapes.isDownloaded())
-        guard case .ellipse = try await shapes.recognize(points: Self.circle()) else {
-            return XCTFail("expected an ellipse from the adopted directory")
+            let shapes = Shapes(directory: directory.path)
+            #expect(shapes.isDownloaded())
+            let recognized = try await shapes.recognize(points: ShapesTests.circle())
+            guard case .ellipse = recognized else {
+                Issue.record("expected an ellipse from the adopted directory, got \(String(describing: recognized))")
+                return
+            }
         }
     }
 #endif

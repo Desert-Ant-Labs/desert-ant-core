@@ -1,5 +1,5 @@
 import Foundation
-import XCTest
+import Testing
 import DesertAnt
 import TestSupport
 @testable import Gist
@@ -10,22 +10,22 @@ import TestSupport
 
 /// The Swift Unigram tokenizer must reproduce the training (model2vec) tokenizer's
 /// ids exactly — the whole semantic stream depends on identical token ids.
-final class TokenizerTests: XCTestCase {
+@Suite(.modelBacked)
+struct TokenizerTests {
     struct Case: Decodable { let text: String; let ids: [Int] }
 
     // The tokenizer is a 4.6 MB model file, so it comes from the Hub like every
     // other artifact here rather than being committed. Only the oracle (1.4 KB)
     // is a test resource.
-    func testMatchesPythonOracle() async throws {
-        try XCTSkipUnless(runsModelBackedTests, "model-backed tests do not run on iOS or Android")
+    @Test func matchesPythonOracle() async throws {
         let files = try await GistFixture.loaded().files
-        let tok = try XCTUnwrap(Tokenizer(bytes: try files.read(GistModel.tokenizer)))
+        let tok = try #require(Tokenizer(bytes: try files.read(GistModel.tokenizer)))
 
-        let oracleURL = try XCTUnwrap(Bundle.module.url(forResource: "gist-sdk-oracle", withExtension: "json"))
+        let oracleURL = try #require(Bundle.module.url(forResource: "gist-sdk-oracle", withExtension: "json"))
         let cases = try JSONDecoder().decode([Case].self, from: try Data(contentsOf: oracleURL))
 
         for c in cases {
-            XCTAssertEqual(tok.encode(c.text), c.ids, "tokenizer mismatch for \"\(c.text)\"")
+            #expect(tok.encode(c.text) == c.ids, "tokenizer mismatch for \"\(c.text)\"")
         }
     }
 }

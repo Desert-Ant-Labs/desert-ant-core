@@ -1,19 +1,19 @@
-import XCTest
+import Testing
 @testable import Uhm
 
-final class UhmTests: XCTestCase {
+struct UhmTests {
 
-    func testBiasThresholds() {
-        XCTAssertEqual(Uhm.Bias.precision.minConfidence, 0.75)
-        XCTAssertEqual(Uhm.Bias.balanced.minConfidence, 0.65)
-        XCTAssertEqual(Uhm.Bias.recall.minConfidence, 0.50)
+    @Test func biasThresholds() {
+        #expect(Uhm.Bias.precision.minConfidence == 0.75)
+        #expect(Uhm.Bias.balanced.minConfidence == 0.65)
+        #expect(Uhm.Bias.recall.minConfidence == 0.50)
     }
 
-    func testDefaultOptions() {
+    @Test func defaultOptions() {
         let options = Uhm.Options.default
-        XCTAssertEqual(options.bias.minConfidence, 0.65)
-        XCTAssertTrue(options.includeTypes)
-        XCTAssertNil(options.minConfidence)
-        XCTAssertEqual(options.minDurationSec, 0.12)
+        #expect(options.bias.minConfidence == 0.65)
+        #expect(options.includeTypes)
+        #expect(options.minConfidence == nil)
+        #expect(options.minDurationSec == 0.12)
     }
 }
