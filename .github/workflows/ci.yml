@@ -405,8 +405,11 @@ jobs:
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p =="
             # Release to share artifacts with the test build below; the
-            # closure check itself is configuration-independent.
-            swift build --target $p -c release -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            # closure check itself is configuration-independent. -enable-testing
+            # matches the test build's flags: testability is debug-only by
+            # default, the suites use @testable, and a flag mismatch would both
+            # break that and fork the build plan into a second full compile.
+            swift build --target $p -c release -Xswiftc -enable-testing -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -444,7 +447,7 @@ jobs:
       # difference between this step taking minutes and taking seconds.
       - name: Build tests
         shell: pwsh
-        run: swift build --build-tests -c release -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: swift build --build-tests -c release -Xswiftc -enable-testing -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
       # One invocation per model, timed, so a slow target is named in the log
       # instead of hiding in one 17-minute lump (which is how Ear's 992s went
@@ -459,7 +462,7 @@ jobs:
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            swift test --skip-build -c release --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            swift test --skip-build -c release -Xswiftc -enable-testing --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { $failed = $true }
             $sw.Stop()
             Write-Host "== $p == done in $([int]$sw.Elapsed.TotalSeconds)s"
