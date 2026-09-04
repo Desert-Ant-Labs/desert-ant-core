@@ -404,7 +404,9 @@ jobs:
         run: |
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p =="
-            swift build --target $p -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            # Release to share artifacts with the test build below; the
+            # closure check itself is configuration-independent.
+            swift build --target $p -c release -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
