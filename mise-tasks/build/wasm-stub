@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+#MISE description="Stage a stub wasm dist for packages missing the real one (no Swift toolchain needed)"
+#MISE dir="{{config_root}}/js"
+#MISE tools={node="22"}
+
+# The counterpart of `mise run build:wasm` for machines without the wasm
+# toolchain: test:node asserts each package's default (browser) entry imports
+# cleanly in Node, which needs a dist/ with the right module shape but not a
+# working wasm binary. The stub is the same one the bundle matrix stages, and a
+# real dist is never overwritten.
+node test/bundle/run.mjs --stage-stub-dist

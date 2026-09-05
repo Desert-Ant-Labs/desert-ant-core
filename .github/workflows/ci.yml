@@ -224,8 +224,84 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
 
-  js:
-    name: JavaScript (wasm, Node native, browser/SSR bundles)
+  # The JavaScript surface is two nearly disjoint pipelines, split into two
+  # jobs so they run in parallel: the wasm half (default .build, the wasm SDK)
+  # and the native half (.build-host, the host toolchain). They meet only at
+  # test:node's SSR-import assertion, which needs a dist/ with the right module
+  # shape; the native job stages a stub via build:wasm-stub rather than paying
+  # for build:wasm twice, and the real dist's import is proven here by
+  # test:bundles and test:browser.
+  js-browser:
+    name: JavaScript (wasm, browser/SSR bundles)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+          key: swift-wasm-sdk-6.3.3
+
+      # The wasm builds this job runs from scratch otherwise: the wasm test
+      # build (test:wasi) and the wasm release builds (build:wasm) share the
+      # default .build - which also holds the swift-syntax macro host build
+      # JavaScriptKit's BridgeJS plugin needs, minutes on its own. The source
+      # hash keys an exact hit; restore-keys accept a stale cache SwiftPM then
+      # patches incrementally.
+      - name: Cache the Swift wasm build
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: js-wasm-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          restore-keys: js-wasm-build-${{ runner.os }}-
+
+      # test:browser fetches Chromium (~130 MB) through Playwright on every
+      # cold run; the lockfile pins the Playwright version, which decides the
+      # browser build it wants.
+      - name: Cache Playwright's Chromium
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      # npm ci runs several times (workspace install, test:bundles' packed
+      # installs); a warm ~/.npm turns those into cache reads.
+      - name: Cache the npm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      # Both wasm builds, release first: build:wasm's whole-package prebuild
+      # warms the scratch path test:wasi shares (host macro tooling, checkouts;
+      # the object code differs, debug vs release).
+      - run: mise run build:wasm
+
+      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
+      # actually execute under wasm, so this is the browser correctness check.
+      - run: mise run test:wasi
+
+      # check:types runs in the checks job too, but only this job has a built
+      # core, which is what makes the same task prove WasmCore in js/index.d.ts is
+      # identical to the ABI BridgeJS generated from the Swift @JS declarations,
+      # and that no package's dist is stale.
+      - run: mise run check:types
+
+      # The browser is the default entry of every model package, so it gets a
+      # real engine and real weights, not just a bundle that compiles.
+      - run: mise run test:browser
+
+      # Then the packages through the real bundlers, against the real dist.
+      # Every SSR break we ever shipped passed the unit tests and failed in a
+      # consumer's `next build`.
+      - run: mise run test:bundles
+
+  js-node:
+    name: JavaScript (Node native)
     # glibc 2.35, matching the floor the published Linux natives target.
     runs-on: ubuntu-22.04
     steps:
@@ -266,46 +342,25 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
       - uses: jdx/mise-action@v4
+      # uv unpacks the LiteRT wheel build:node-native links against. No cache:
+      # there is no uv.lock or requirements.txt to key one on, and asking for
+      # one warns that it can never be invalidated.
       - uses: astral-sh/setup-uv@v7
         with:
-          # uv only unpacks a wheel here; there is no uv.lock or
-          # requirements.txt to key a cache on, and asking for one warns
-          # that it can never be invalidated.
           enable-cache: false
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.swiftpm/swift-sdks
-            ~/.config/swiftpm/swift-sdks
-          key: swift-wasm-sdk-6.3.3
 
-      # The three Swift builds this job runs from scratch otherwise: the wasm
-      # test build (test:wasi) and the wasm release builds (build:wasm) share
-      # the default .build - which also holds the swift-syntax macro host build
-      # JavaScriptKit's BridgeJS plugin needs, minutes on its own - and
-      # build:node-native uses .build-host. The source hash keys an exact hit;
-      # restore-keys accept a stale cache SwiftPM then patches incrementally.
-      - name: Cache the Swift builds (wasm + native)
+      # build:node-native builds into .build-host from scratch otherwise. The
+      # source hash keys an exact hit; restore-keys accept a stale cache
+      # SwiftPM then patches incrementally.
+      - name: Cache the Swift native build
         uses: actions/cache@v6
         with:
-          path: |
-            .build
-            .build-host
-          key: js-swift-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
-          restore-keys: js-swift-build-${{ runner.os }}-
+          path: .build-host
+          key: js-native-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          restore-keys: js-native-build-${{ runner.os }}-
 
-      # test:browser fetches Chromium (~130 MB) through Playwright on every
-      # cold run; the lockfile pins the Playwright version, which decides the
-      # browser build it wants.
-      - name: Cache Playwright's Chromium
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      # npm ci runs several times (workspace install, test:bundles' packed
-      # installs); a warm ~/.npm turns those into cache reads.
+      # The node package suites run npm ci; a warm ~/.npm turns those into
+      # cache reads.
       - name: Cache the npm store
         uses: actions/cache@v6
         with:
@@ -327,21 +382,12 @@ jobs:
           key: models-js-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-js-${{ runner.os }}-
 
-      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
-      # actually execute under wasm, so this is the browser correctness check.
-      - run: mise run test:wasi
-
-      # Both halves of every npm package: the browser wasm core and the
-      # server-side native core. The package suites need both - they assert the
-      # native path does inference and the default (browser) entry still imports
-      # cleanly in Node, which is the SSR contract.
-      - run: mise run build:wasm
-
-      # check:types runs in the checks job too, but only this job has a built
-      # core, which is what makes the same task prove WasmCore in js/index.d.ts is
-      # identical to the ABI BridgeJS generated from the Swift @JS declarations,
-      # and that no package's dist is stale.
-      - run: mise run check:types
+      # test:node asserts the native path does inference and that the default
+      # (browser) entry still imports cleanly in Node, the SSR contract. The
+      # latter needs a dist/ with the right module shape, not a working wasm
+      # binary: the stub keeps this job free of the wasm toolchain, and the
+      # real dist is exercised in js-browser.
+      - run: mise run build:wasm-stub
 
       # These natives only feed test:node and are never published; the real
       # distribution floor (glibc 2.34, AWS Lambda's AL2023) is enforced by the
@@ -371,15 +417,6 @@ jobs:
                   node:22-slim node -e "process.stdout.write($read_cpu.trim())")
           echo "with shim, /sys/devices/system/cpu/possible = '$got'"
           [[ "$got" =~ ^0(-[0-9]+)?$ ]] || { echo "::error::unexpected cpu range '$got'"; exit 1; }
-
-      # The browser is the default entry of every model package, so it gets a
-      # real engine and real weights, not just a bundle that compiles.
-      - run: mise run test:browser
-
-      # Then the packages through the real bundlers, against the real dist.
-      # Every SSR break we ever shipped passed the unit tests and failed in a
-      # consumer's `next build`.
-      - run: mise run test:bundles
 
   windows:
     # Experimental: the same LiteRT lane as Linux, with the runtime vendored
