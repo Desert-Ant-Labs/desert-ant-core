@@ -7,10 +7,14 @@
 import Accelerate
 #endif
 
-enum Matmul {
+/// Public because a model's own frontend needs the same primitive the STFT
+/// does: `Cue`'s Kaldi filterbank cannot reuse `STFT` (Kaldi windows 400
+/// samples into a 512-point transform, and removes DC and preemphasises per
+/// frame first), but it should not carry a second copy of the matmul.
+public enum Matmul {
     /// `c[m x n] = alpha * a[m x k] @ b[k x n] + beta * c`, all row-major.
-    static func gemm(_ a: [Float], _ b: [Float], into c: inout [Float],
-                     m: Int, n: Int, k: Int, alpha: Float = 1, beta: Float = 0) {
+    public static func gemm(_ a: [Float], _ b: [Float], into c: inout [Float],
+                            m: Int, n: Int, k: Int, alpha: Float = 1, beta: Float = 0) {
         #if canImport(Accelerate)
         cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
                     Int32(m), Int32(n), Int32(k), alpha,

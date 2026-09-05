@@ -120,6 +120,42 @@
       "demo": null
     },
     {
+      "id": "cue",
+      "name": "Cue",
+      "tagline": "Know when someone is talking.",
+      "summary": "On-device voice activity detection: frame-precise speech spans, any language.",
+      "category": "Voice activity detection",
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
+      "sdks": {
+        "swift": { "status": "live", "package": "Cue", "platforms": ["apple"] },
+        "kotlin": { "status": "planned" },
+        "js": { "status": "planned" }
+      },
+      "weights": {
+        "source": "hub",
+        "repo": "desert-ant-labs/cue",
+        "url": "https://huggingface.co/desert-ant-labs/cue",
+        "revision": "v0.1.0",
+        "license": "apache-2.0"
+      },
+      "runtime": ["coreml"],
+      "variants": [],
+      "hub": {
+        "tags": ["audio", "speech", "voice-activity-detection", "vad", "on-device", "core-ml", "neural-engine", "offline"],
+        "pipelineTag": "voice-activity-detection",
+        "libraryName": null
+      },
+      "languages": {
+        "count": null,
+        "codes": null,
+        "basis": "inherited",
+        "source": "https://huggingface.co/FireRedTeam/FireRedVAD"
+      },
+      "demo": null
+    },
+    {
       "id": "ear",
       "name": "Ear",
       "tagline": "Detect spoken language from 30 seconds audio.",
