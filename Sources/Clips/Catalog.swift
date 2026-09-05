@@ -90,6 +90,18 @@ public enum ClipModel: ModelDeclaration {
     public static let selectorTFLite = "\(stem)-selector.tflite"
     public static let scorerTFLite = "\(stem)-scorer.tflite"
 
+    /// The chapter head: a flat weight file for the boundary model that turns the trunk's
+    /// per-sentence `pooled` output into chapter markers. Written by
+    /// `clips-training/python/export_chapters.py`.
+    ///
+    /// NOT in ``sidecars``, and that is the whole design. Chapters need two things the
+    /// published `v0.1.0` artifact does not have: this file, and a `select` function that
+    /// emits `pooled` as a fourth output. An SDK that required either would stop loading for
+    /// every existing clips consumer the moment it shipped. So both are optional, resolved
+    /// best-effort, and ``Clips/chapters(in:)`` throws ``ClipError/chaptersUnsupported`` when
+    /// the artifact predates them.
+    public static let chapterHead = "chapters.bin"
+
     /// Sidecars every platform needs alongside the artifacts.
     public static let sidecars = [tokenizer]
 

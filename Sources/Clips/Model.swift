@@ -76,9 +76,19 @@ final class Model: @unchecked Sendable {
     private var selectWidth: Int { selector.inputWidth("ids") ?? Self.seqLen }
     private var scoreWidth: Int { scorer.inputWidth("ids") ?? Self.scoreSeqLen }
 
+    /// The chapter head, when the resolved artifact carried one. Parsed once at load:
+    /// a malformed weight file should fail where the model is opened, not on the first
+    /// chapter request several seconds into a user's transcript.
+    let chapterModel: ChapterModel?
+
     init(assets: ModelAssets) throws {
         selector = assets.selector
         scorer = assets.scorer
+        if let bytes = assets.chapterHead {
+            chapterModel = ChapterModel(weights: try ChapterWeights.load(bytes: bytes))
+        } else {
+            chapterModel = nil
+        }
         guard let tokenizer = Tokenizer(bytes: assets.tokenizer) else {
             throw ClipError.modelNotFound
         }
@@ -139,6 +149,67 @@ final class Model: @unchecked Sendable {
             for r in 0..<slice.count { saliency.append(Double(values[r])) }
         }
         return saliency
+    }
+
+    /// Per-sentence `pooled` vectors: 768 trunk hidden plus the 5 discourse scalars.
+    ///
+    /// The SAME batched pass as ``perSentenceSaliency(_:)``, asking the graph for a fourth
+    /// output it already computes. `pooled` is the tensor the saliency, start and end heads
+    /// are applied to, so a chapters request costs one trunk pass and no more.
+    ///
+    /// A build whose `select` predates chapters has three outputs and no `pooled`. The
+    /// runtime surfaces that as a missing key rather than as zeros, and it is reported as
+    /// ``ClipError/chaptersUnsupported`` because "update the artifact" is a different remedy
+    /// from "prediction failed".
+    private func perSentencePooled(_ sentences: [String]) async throws -> [[Float]] {
+        var out: [[Float]] = []
+        out.reserveCapacity(sentences.count)
+        let n = sentences.count
+        for start in stride(from: 0, to: n, by: Self.batch) {
+            let slice = sentences[start..<min(start + Self.batch, n)]
+            var ids = [Int32](repeating: 0, count: Self.batch * selectWidth)
+            var mask = [Int32](repeating: 0, count: Self.batch * selectWidth)
+            var disc = [Float](repeating: 0, count: Self.batch * 5)
+            for (r, sentence) in slice.enumerated() {
+                write(sentence, row: r, ids: &ids, mask: &mask, width: selectWidth,
+                      truncateAt: Self.sentenceTokens)
+                let features = Pipeline.discourseFeatures(
+                    sentence, position: Double(start + r) / Double(max(n, 1)))
+                for (c, value) in features.enumerated() { disc[r * 5 + c] = value }
+            }
+            let result = try await selector.run(
+                inputs: ["ids": Tensor(int32: ids, shape: [Self.batch, selectWidth]),
+                         "mask": Tensor(int32: mask, shape: [Self.batch, selectWidth]),
+                         "disc": Tensor(float32: disc, shape: [Self.batch, 5])],
+                outputs: ["saliency", "start_p", "end_p", "pooled"])
+            guard result.count == 4, let values = result[3].float32Values,
+                  values.count >= slice.count * ChapterModel.pooledDim else {
+                throw ClipError.chaptersUnsupported
+            }
+            for r in 0..<slice.count {
+                let lo = r * ChapterModel.pooledDim
+                out.append(Array(values[lo..<(lo + ChapterModel.pooledDim)]))
+            }
+        }
+        return out
+    }
+
+    /// Chapters for a transcript, timings included.
+    func chapters(in transcript: [Sentence]) async throws -> [Chapter] {
+        guard let chapterModel else { throw ClipError.chaptersUnsupported }
+        guard transcript.count >= ChapterConstruction.minSentences else {
+            // Too short to divide. One chapter is the honest answer, not an empty list:
+            // the contract is that chapters tile the transcript.
+            return transcript.isEmpty ? [] : ChapterConstruction.chapters(
+                from: [0..<transcript.count], sentences: transcript)
+        }
+        let pooled = try await perSentencePooled(transcript.map(\.text))
+        let logits = chapterModel.boundaryLogits(pooled: pooled)
+        let cuts = ChapterConstruction.partition(
+            logits: logits,
+            starts: transcript.map(\.start),
+            ends: transcript.map(\.end))
+        return ChapterConstruction.chapters(from: cuts, sentences: transcript)
     }
 
     /// Per-span quality, batched.
