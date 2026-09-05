@@ -5,32 +5,57 @@
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# One model at a time, on purpose: building the package as a whole would not
-# prove that a model compiles against its own dependency graph alone, which is
-# what an app adding a single SDK actually gets. `mise run check:isolation`
-# proves the complementary half - that the graph contains nothing it shouldn't.
 dal_vendor_litert
 litert=$(dal_litert_dir)
 
-for model in $(dal_select "${usage_model:-all}"); do
+# The per-model loop below used to be the only mode, one serial `swift build
+# --target` per model, to prove each model compiles against its own dependency
+# graph alone. But in a shared scratch path the compile is identical either
+# way; what the loop actually caught was a model importing a module it never
+# declared, and `--explicit-target-dependency-import-check error` catches
+# exactly that inside a single whole-package build. So `all` is one parallel
+# build with the check on, and naming a model keeps the isolated per-target
+# build for diagnosis. `mise run check:isolation` still proves the
+# complementary half - that the graph contains nothing it shouldn't.
+if [ "${usage_model:-all}" = all ]; then
+    echo "== all targets =="
+    if [ "$(uname)" = Darwin ]; then
+        swift build --scratch-path .build-host \
+            --explicit-target-dependency-import-check error
+        # `Title` is MLX and its generation half only compiles behind the `MLX`
+        # package trait (see Package.swift), so the build above only covered its
+        # stub. Its own scratch path: flipping the trait on and off in
+        # .build-host re-resolves the graph twice per run (MLX pulls
+        # swift-syntax macro plugins), invalidating every shared target. Same
+        # reasoning as .build-xet below.
+        echo "== Title (MLX trait) =="
+        swift build --scratch-path .build-mlx --traits MLX --target Title
+    else
+        # MLX has no Linux port; `Title` is only its stub in this graph.
+        swift build --scratch-path .build-host \
+            --explicit-target-dependency-import-check error -Xlinker "-L$litert"
+    fi
+else
+for model in $(dal_select "$usage_model"); do
     product=$(dal_product "$model")
     echo "== $product =="
     # `--target`, not `--product`: the model libraries are automatic products,
     # which SwiftPM refuses to select and then silently builds everything.
     if [ "$(uname)" = Darwin ]; then
-        # `Title` is MLX and its generation half only compiles behind the `MLX`
-        # package trait (see Package.swift). Scoped to Title so the other models
-        # keep proving they build against a graph without mlx-swift-lm.
-        traits=(); [ "$product" = Title ] && traits=(--traits MLX)
+        # Title's MLX trait gets its own scratch path, see the comment above.
+        scratch=.build-host
+        traits=()
+        if [ "$product" = Title ]; then traits=(--traits MLX); scratch=.build-mlx; fi
         # `${traits[@]+...}`: bash 3.2 + `set -u` treats expanding an empty
         # array as an unbound variable; this expands to nothing instead.
-        swift build --scratch-path .build-host ${traits[@]+"${traits[@]}"} --target "$product"
+        swift build --scratch-path "$scratch" ${traits[@]+"${traits[@]}"} --target "$product"
     else
         # MLX has no Linux port; `Title` never enters the graph here.
         [ "$product" = Title ] && { echo "skip: MLX is Apple-only"; continue; }
         swift build --scratch-path .build-host --target "$product" -Xlinker "-L$litert"
     fi
 done
+fi
 
 # The Xet transport is behind `canImport(Xet)` (Sources/ModelStore/XetTransport.swift),
 # so not one line of it is compiled by anything above: without this, the faster

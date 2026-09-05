@@ -1,5 +1,5 @@
 #if !os(WASI)
-import XCTest
+import Testing
 import TestSupport
 @testable import Clips
 
@@ -11,8 +11,9 @@ import TestSupport
 /// `ClipModel` yet (see the `revision` note there), so there is nothing to
 /// download. The selection logic that does not need an artifact is covered
 /// unconditionally in `ClipTests.swift`.
-final class HubDownloadTests: XCTestCase {
-    func testDownloadThenSelect() async throws {
+@Suite(.hubIntegration)
+struct HubDownloadTests {
+    @Test func downloadThenSelect() async throws {
         try await HubDownloadScenario.run(
             ClipModel.self,
             make: { Clips(directory: $0) },
@@ -30,16 +31,16 @@ final class HubDownloadTests: XCTestCase {
                 "Most people quit before they get there.",
             ]
             let moments = try await clip.clips(in: transcript)
-            XCTAssertFalse(moments.isEmpty)
-            XCTAssertEqual(moments.map(\.score), moments.map(\.score).sorted(by: >))
-            XCTAssertTrue(moments.allSatisfy { (0...1).contains($0.percentile) })
+            #expect(!moments.isEmpty)
+            #expect(moments.map(\.score) == moments.map(\.score).sorted(by: >))
+            #expect(moments.allSatisfy { (0...1).contains($0.percentile) })
             for moment in moments {
-                XCTAssertEqual(moment.sentenceIDs, Array(moment.sentenceIDs.sorted()))
-                XCTAssertTrue(moment.sentenceIDs.allSatisfy { transcript.indices.contains($0) })
+                #expect(moment.sentenceIDs == Array(moment.sentenceIDs.sorted()))
+                #expect(moment.sentenceIDs.allSatisfy { transcript.indices.contains($0) })
             }
 
             let limited = try await cached.clips(in: transcript, limit: 1)
-            XCTAssertLessThanOrEqual(limited.count, 1)
+            #expect(limited.count <= 1)
         }
     }
 }

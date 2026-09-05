@@ -1,10 +1,11 @@
 #if !os(WASI)
-import XCTest
+import Testing
 import TestSupport
 @testable import Clear
 
-final class HubDownloadTests: XCTestCase {
-    func testDownloadThenEnhance() async throws {
+@Suite(.hubIntegration)
+struct HubDownloadTests {
+    @Test func downloadThenEnhance() async throws {
         try await HubDownloadScenario.run(
             ClearModel.self,
             make: { Clear(directory: $0) },
@@ -15,17 +16,17 @@ final class HubDownloadTests: XCTestCase {
             // chunks, cheap enough for a network-gated test.
             let noisy = noisyTone()
             let result = try await clear.enhance(samples: noisy, sampleRate: 48_000)
-            XCTAssertEqual(result.sampleRate, 48_000)
-            XCTAssertTrue(result.samples.allSatisfy { $0.isFinite })
-            XCTAssertNotNil(result.measuredLUFS)
+            #expect(result.sampleRate == 48_000)
+            #expect(result.samples.allSatisfy { $0.isFinite })
+            #expect(result.measuredLUFS != nil)
             // Downloaded through the store, so the artifact names its variant.
-            XCTAssertEqual(result.modelVariant, .clearStudio)
+            #expect(result.modelVariant == .clearStudio)
 
             // The cached instance loads the same files with no network.
             let again = try await cached.enhance(samples: noisy, sampleRate: 48_000,
                                                  options: .init(mastering: .bypass))
-            XCTAssertEqual(again.samples.count, result.samples.count)
-            XCTAssertNil(again.measuredLUFS)   // mastering bypassed
+            #expect(again.samples.count == result.samples.count)
+            #expect(again.measuredLUFS == nil)   // mastering bypassed
         }
     }
 }

@@ -108,6 +108,21 @@ jobs:
           path: .build/ios-packages
           key: ios-packages-v2-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
 
+      # build:swift and test:swift build into these scratch paths. Cold, they
+      # rebuild every dependency (including swift-syntax via Title's MLX trait
+      # in .build-mlx) on each push. Package.resolved is gitignored in this
+      # repo, so Package.swift is the key; restore-keys accept a stale scratch,
+      # which swift build then patches incrementally.
+      - name: Cache Swift scratch paths
+        uses: actions/cache@v6
+        with:
+          path: |
+            .build-host
+            .build-mlx
+            .build-xet
+          key: swift-scratch-${{ runner.os }}-${{ hashFiles('Package.swift') }}
+          restore-keys: swift-scratch-${{ runner.os }}-
+
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
@@ -209,8 +224,89 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
 
-  js:
-    name: JavaScript (wasm, Node native, browser/SSR bundles)
+  # The JavaScript surface is two nearly disjoint pipelines, split into two
+  # jobs so they run in parallel: the wasm half (default .build, the wasm SDK)
+  # and the native half (.build-host, the host toolchain). They meet only at
+  # test:node's SSR-import assertion, which needs a dist/ with the right module
+  # shape; the native job stages a stub via build:wasm-stub rather than paying
+  # for build:wasm twice, and the real dist's import is proven here by
+  # test:bundles and test:browser.
+  js-browser:
+    name: JavaScript (wasm, browser/SSR bundles)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+          key: swift-wasm-sdk-6.3.3
+
+      # The wasm builds this job runs from scratch otherwise: the wasm test
+      # build (test:wasi) and the wasm release builds (build:wasm) share the
+      # default .build - which also holds the swift-syntax macro host build
+      # JavaScriptKit's BridgeJS plugin needs, minutes on its own. The source
+      # hash keys an exact hit; restore-keys accept a stale cache SwiftPM then
+      # patches incrementally.
+      - name: Cache the Swift wasm build
+        uses: actions/cache@v6
+        with:
+          path: .build
+          key: js-wasm-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          # The second key is the pre-split combined cache (.build plus
+          # .build-host); worth restoring once so the rename does not force a
+          # cold rebuild, and removable after it ages out.
+          restore-keys: |
+            js-wasm-build-${{ runner.os }}-
+            js-swift-build-${{ runner.os }}-
+
+      # test:browser fetches Chromium (~130 MB) through Playwright on every
+      # cold run; the lockfile pins the Playwright version, which decides the
+      # browser build it wants.
+      - name: Cache Playwright's Chromium
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      # npm ci runs several times (workspace install, test:bundles' packed
+      # installs); a warm ~/.npm turns those into cache reads.
+      - name: Cache the npm store
+        uses: actions/cache@v6
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+
+      # Both wasm builds, release first: build:wasm's whole-package prebuild
+      # warms the scratch path test:wasi shares (host macro tooling, checkouts;
+      # the object code differs, debug vs release).
+      - run: mise run build:wasm
+
+      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
+      # actually execute under wasm, so this is the browser correctness check.
+      - run: mise run test:wasi
+
+      # check:types runs in the checks job too, but only this job has a built
+      # core, which is what makes the same task prove WasmCore in js/index.d.ts is
+      # identical to the ABI BridgeJS generated from the Swift @JS declarations,
+      # and that no package's dist is stale.
+      - run: mise run check:types
+
+      # The browser is the default entry of every model package, so it gets a
+      # real engine and real weights, not just a bundle that compiles.
+      - run: mise run test:browser
+
+      # Then the packages through the real bundlers, against the real dist.
+      # Every SSR break we ever shipped passed the unit tests and failed in a
+      # consumer's `next build`.
+      - run: mise run test:bundles
+
+  js-node:
+    name: JavaScript (Node native)
     # glibc 2.35, matching the floor the published Linux natives target.
     runs-on: ubuntu-22.04
     steps:
@@ -251,46 +347,29 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
       - uses: jdx/mise-action@v4
+      # uv unpacks the LiteRT wheel build:node-native links against. No cache:
+      # there is no uv.lock or requirements.txt to key one on, and asking for
+      # one warns that it can never be invalidated.
       - uses: astral-sh/setup-uv@v7
         with:
-          # uv only unpacks a wheel here; there is no uv.lock or
-          # requirements.txt to key a cache on, and asking for one warns
-          # that it can never be invalidated.
           enable-cache: false
-      - uses: actions/cache@v6
-        with:
-          path: |
-            ~/.swiftpm/swift-sdks
-            ~/.config/swiftpm/swift-sdks
-          key: swift-wasm-sdk-6.3.3
 
-      # The three Swift builds this job runs from scratch otherwise: the wasm
-      # test build (test:wasi) and the wasm release builds (build:wasm) share
-      # the default .build - which also holds the swift-syntax macro host build
-      # JavaScriptKit's BridgeJS plugin needs, minutes on its own - and
-      # build:node-native uses .build-host. The source hash keys an exact hit;
-      # restore-keys accept a stale cache SwiftPM then patches incrementally.
-      - name: Cache the Swift builds (wasm + native)
+      # build:node-native builds into .build-host from scratch otherwise. The
+      # source hash keys an exact hit; restore-keys accept a stale cache
+      # SwiftPM then patches incrementally.
+      - name: Cache the Swift native build
         uses: actions/cache@v6
         with:
-          path: |
-            .build
-            .build-host
-          key: js-swift-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
-          restore-keys: js-swift-build-${{ runner.os }}-
+          path: .build-host
+          key: js-native-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
+          # Same pre-split fallback as js-browser's cache, removable after it
+          # ages out.
+          restore-keys: |
+            js-native-build-${{ runner.os }}-
+            js-swift-build-${{ runner.os }}-
 
-      # test:browser fetches Chromium (~130 MB) through Playwright on every
-      # cold run; the lockfile pins the Playwright version, which decides the
-      # browser build it wants.
-      - name: Cache Playwright's Chromium
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: playwright-${{ runner.os }}-
-
-      # npm ci runs several times (workspace install, test:bundles' packed
-      # installs); a warm ~/.npm turns those into cache reads.
+      # The node package suites run npm ci; a warm ~/.npm turns those into
+      # cache reads.
       - name: Cache the npm store
         uses: actions/cache@v6
         with:
@@ -312,21 +391,12 @@ jobs:
           key: models-js-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-js-${{ runner.os }}-
 
-      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
-      # actually execute under wasm, so this is the browser correctness check.
-      - run: mise run test:wasi
-
-      # Both halves of every npm package: the browser wasm core and the
-      # server-side native core. The package suites need both - they assert the
-      # native path does inference and the default (browser) entry still imports
-      # cleanly in Node, which is the SSR contract.
-      - run: mise run build:wasm
-
-      # check:types runs in the checks job too, but only this job has a built
-      # core, which is what makes the same task prove WasmCore in js/index.d.ts is
-      # identical to the ABI BridgeJS generated from the Swift @JS declarations,
-      # and that no package's dist is stale.
-      - run: mise run check:types
+      # test:node asserts the native path does inference and that the default
+      # (browser) entry still imports cleanly in Node, the SSR contract. The
+      # latter needs a dist/ with the right module shape, not a working wasm
+      # binary: the stub keeps this job free of the wasm toolchain, and the
+      # real dist is exercised in js-browser.
+      - run: mise run build:wasm-stub
 
       # These natives only feed test:node and are never published; the real
       # distribution floor (glibc 2.34, AWS Lambda's AL2023) is enforced by the
@@ -356,15 +426,6 @@ jobs:
                   node:22-slim node -e "process.stdout.write($read_cpu.trim())")
           echo "with shim, /sys/devices/system/cpu/possible = '$got'"
           [[ "$got" =~ ^0(-[0-9]+)?$ ]] || { echo "::error::unexpected cpu range '$got'"; exit 1; }
-
-      # The browser is the default entry of every model package, so it gets a
-      # real engine and real weights, not just a bundle that compiles.
-      - run: mise run test:browser
-
-      # Then the packages through the real bundlers, against the real dist.
-      # Every SSR break we ever shipped passed the unit tests and failed in a
-      # consumer's `next build`.
-      - run: mise run test:bundles
 
   windows:
     # Experimental: the same LiteRT lane as Linux, with the runtime vendored
@@ -404,16 +465,35 @@ jobs:
         run: |
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p =="
-            swift build --target $p -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            # Release to share artifacts with the test build below; the
+            # closure check itself is configuration-independent. -enable-testing
+            # matches the test build's flags: testability is debug-only by
+            # default, the suites use @testable, and a flag mismatch would both
+            # break that and fork the build plan into a second full compile.
+            swift build --target $p -c release -Xswiftc -enable-testing -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
-      # Foundation's cachesDirectory is ~\AppData\Local on Windows, so the
-      # model store lives under it (see the macOS/Linux jobs for the pattern).
+      # The store roots at Foundation's cachesDirectory, and guessing where
+      # that lands on Windows is how this cache spent its life saving nothing
+      # ("~\AppData\Local\desert-ant-models" never existed, so every run
+      # re-downloaded every model). Ask Foundation itself instead.
+      - name: Locate model cache
+        id: modelcache
+        shell: pwsh
+        run: |
+          'import Foundation; print(FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!.path)' |
+            Out-File -Encoding ascii probe.swift
+          swiftc probe.swift -o probe.exe
+          $root = (./probe.exe | Select-Object -Last 1).Trim()
+          Remove-Item probe.swift, probe.exe
+          Write-Host "model cache root: $root\desert-ant-models"
+          "path=$root\desert-ant-models" >> $env:GITHUB_OUTPUT
+
       - name: Cache downloaded models
         uses: actions/cache@v6
         with:
-          path: ~\AppData\Local\desert-ant-models
+          path: ${{ steps.modelcache.outputs.path }}
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
 
@@ -422,18 +502,33 @@ jobs:
       # bounds peak memory: the full test build is the largest compile this
       # runner does, and a parallel spike is the usual suspect for a
       # no-diagnostic crash on windows-latest.
+      # Release, not debug: the DSP frontends are bounds-checked triple loops
+      # that run ~170x slower at -Onone. Measured on Ear: identify is 12-17 s
+      # per call in a debug build and ~100 ms in release, which is the
+      # difference between this step taking minutes and taking seconds.
       - name: Build tests
         shell: pwsh
-        run: swift build --build-tests -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: swift build --build-tests -c release -Xswiftc -enable-testing -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
-      - name: Test models
+      # One invocation per model, timed, so a slow target is named in the log
+      # instead of hiding in one 17-minute lump (which is how Ear's 992s went
+      # unnoticed: swift-testing output buffers apart from XCTest's).
+      - name: Test models (per model, timed)
+        timeout-minutes: 45
         shell: pwsh
         run: |
           # libLiteRt.dll must be loadable at test run time.
           $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
-          $filters = '${{ steps.models.outputs.products }}'.Split(' ') |
-            ForEach-Object { @('--filter', "$($_)Tests") }
-          swift test --skip-build @filters -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+          $failed = $false
+          foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
+            Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            swift test --skip-build -c release -Xswiftc -enable-testing --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            if ($LASTEXITCODE -ne 0) { $failed = $true }
+            $sw.Stop()
+            Write-Host "== $p == done in $([int]$sw.Elapsed.TotalSeconds)s"
+          }
+          if ($failed) { exit 1 }
 
   android:
     name: Android (natives, AARs, on-device)
