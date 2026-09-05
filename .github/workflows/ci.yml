@@ -255,7 +255,12 @@ jobs:
         with:
           path: .build
           key: js-wasm-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
-          restore-keys: js-wasm-build-${{ runner.os }}-
+          # The second key is the pre-split combined cache (.build plus
+          # .build-host); worth restoring once so the rename does not force a
+          # cold rebuild, and removable after it ages out.
+          restore-keys: |
+            js-wasm-build-${{ runner.os }}-
+            js-swift-build-${{ runner.os }}-
 
       # test:browser fetches Chromium (~130 MB) through Playwright on every
       # cold run; the lockfile pins the Playwright version, which decides the
@@ -357,7 +362,11 @@ jobs:
         with:
           path: .build-host
           key: js-native-build-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift', 'Sources/**') }}
-          restore-keys: js-native-build-${{ runner.os }}-
+          # Same pre-split fallback as js-browser's cache, removable after it
+          # ages out.
+          restore-keys: |
+            js-native-build-${{ runner.os }}-
+            js-swift-build-${{ runner.os }}-
 
       # The node package suites run npm ci; a warm ~/.npm turns those into
       # cache reads.
