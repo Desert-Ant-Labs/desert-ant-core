@@ -1,5 +1,5 @@
 // This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
+// each platform ships. The shared behavior (distribution, resolve, availability)
 // comes from `ModelDeclaration` in the catalog's shared half.
 
 import DesertAnt
@@ -30,6 +30,9 @@ public enum ClearModel: ModelDeclaration {
     /// (`DSP.swift`/`Features.swift`) carries the constants that would otherwise
     /// be a metadata file, so a platform ships exactly one artifact.
     public static let files: [ModelPlatform: [String]] = variant.files
+    /// Core AI export: preferred on iOS 27 and macOS 27, with `files` as the fallback.
+    public static let coreAI = variant.coreAI
+    public static let runtimeFiles: [ModelRuntime: [String]] = variant.runtimeFiles
 
     public static func artifact(for platform: ModelPlatform) -> String {
         variant.artifact(for: platform)

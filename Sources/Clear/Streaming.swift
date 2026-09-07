@@ -213,7 +213,8 @@ extension Clear {
                       durationSec: Double(totalFrames) / sampleRate,
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       measuredTruePeakDBFS: truePeakMeter?.dBFS,
-                      modelVariant: assets.variant, modelRevision: assets.revision)
+                      modelVariant: assets.variant, modelRevision: assets.revision,
+                      modelRuntime: assets.runtime)
     }
 }
 #endif

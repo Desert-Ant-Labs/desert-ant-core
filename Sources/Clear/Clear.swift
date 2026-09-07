@@ -142,6 +142,10 @@ public final class Clear: @unchecked Sendable {
         /// when nothing was downloaded (a local `modelPath`, explicit assets,
         /// or a self-hosted wasm model).
         public let modelRevision: String?
+        /// Which runtime ran the model: Core AI on iOS 27 and macOS 27 when
+        /// the asset loaded, Core ML otherwise on Apple, LiteRT elsewhere. Nil
+        /// when a wasm host supplied the session.
+        public let modelRuntime: ModelRuntime?
         /// Per-stage breakdown of this pass. See ``Clear/PhaseTimings``.
         public var phaseTimings = PhaseTimings()
         public var realtimeFactor: Double { processingSec > 0 ? durationSec / processingSec : 0 }
@@ -298,6 +302,7 @@ public final class Clear: @unchecked Sendable {
             },
             directory: directory, cacheRoot: cacheRoot) { files, distribution in
             try await .clear(files: files, variant: variant, revision: distribution.revision,
+                             runtime: distribution.runtime(of: files),
                              computeUnits: computeUnits, concurrency: concurrency)
         }
     }
@@ -515,7 +520,7 @@ public final class Clear: @unchecked Sendable {
                       processingSec: elapsedSeconds(since: start), measuredLUFS: measured,
                       measuredTruePeakDBFS: truePeak,
                       modelVariant: assets.variant, modelRevision: assets.revision,
-                      phaseTimings: phases)
+                      modelRuntime: assets.runtime, phaseTimings: phases)
     }
 
     /// Average the channels. Equal weights, which is the standard downmix and

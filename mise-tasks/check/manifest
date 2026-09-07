@@ -29,7 +29,7 @@ const VISIBILITY = ["public", "internal"];
 const STATUS = ["live", "planned", "none"];
 const PLATFORMS = ["apple", "android", "linux", "windows", "web", "node"];
 const SOURCE = ["hub", "bundled", "none"];
-const RUNTIME = ["coreml", "litert", "mlx", "pure"];
+const RUNTIME = ["coreml", "coreai", "litert", "mlx", "pure"];
 const BASIS = ["derived", "declared", "inherited"];
 
 eq("manifest.json", manifest.schemaVersion, 1, "schemaVersion");

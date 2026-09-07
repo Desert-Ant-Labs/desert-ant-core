@@ -66,13 +66,14 @@
         "revision": "v0.3.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
-      "runtime": ["coreml", "litert"],
+      "runtime": ["coreml", "coreai", "litert"],
       "variants": [
         { "id": "clear-studio", "default": true, "note": "Aggressive denoise and dereverb." },
         { "id": "clear-natural", "default": false, "note": "Lighter touch, keeps more of the room." }
       ],
       "hub": {
-        "tags": ["audio", "speech", "speech-enhancement", "speech-denoising", "noise-suppression", "dereverberation", "podcast", "on-device", "core-ml", "onnx", "ios", "android", "deepfilternet"],
+        "tags": ["audio", "speech", "speech-enhancement", "speech-denoising", "noise-suppression", "dereverberation", "podcast", "on-device", "core-ml",
+        "core-ai", "onnx", "ios", "android", "deepfilternet"],
         "pipelineTag": "audio-to-audio",
         "libraryName": null
       },

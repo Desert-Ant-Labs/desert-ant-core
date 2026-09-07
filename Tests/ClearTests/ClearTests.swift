@@ -130,13 +130,13 @@ struct ClearTests {
     @Test func resultSamplesIsTheFirstChannel() {
         let stereo = Clear.Result(channels: [[1, 2], [3, 4]], sampleRate: 48_000,
                                   durationSec: 0, processingSec: 0, measuredLUFS: nil,
-                                  measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil)
+                                  measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil, modelRuntime: nil)
         #expect(stereo.channelCount == 2)
         #expect(stereo.samples == [1, 2])
 
         let empty = Clear.Result(channels: [], sampleRate: 48_000,
                                  durationSec: 0, processingSec: 0, measuredLUFS: nil,
-                                 measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil)
+                                 measuredTruePeakDBFS: nil, modelVariant: nil, modelRevision: nil, modelRuntime: nil)
         #expect(empty.samples == [])
         #expect(empty.channelCount == 0)
     }
