@@ -443,6 +443,26 @@ ${config}};
 // ---------------------------------------------------------------- driver
 
 function main() {
+  // Writes a stub dist into each package that has no real one, in place. This
+  // is what lets test:node run on a machine (or CI job) with no Swift wasm
+  // toolchain: its SSR-import assertion needs dist/ to exist with the right
+  // module shape, and the real-dist import is proven by the bundle matrix and
+  // the browser suite where build:wasm has run.
+  if (has("stage-stub-dist")) {
+    if (!REPO) die("no packages/<model>-node found above the working directory");
+    for (const p of findPackages()) {
+      const dist = path.join(p.dir, "dist");
+      if (fs.existsSync(path.join(dist, "instantiate.js"))) {
+        log(`${p.name}: real dist present, leaving it alone`);
+        continue;
+      }
+      fs.rmSync(dist, { recursive: true, force: true });
+      fs.mkdirSync(dist, { recursive: true });
+      stubDist(dist, p);
+      log(`${p.name}: staged stub dist`);
+    }
+    return;
+  }
   if (has("list")) {
     for (const s of scenarios) log(`${s.name.padEnd(18)} ${s.what}`);
     return;

@@ -42,8 +42,14 @@ fi
 # measured locally). The worker count is left to xcodebuild: pinning it to 8
 # measured no better than the default. Safe here because the model-backed tests
 # — the only ones that touch shared state, the model cache — are skipped on iOS.
+# Release configuration, matching test:swift, see the comment there. Unlike
+# `swift test -c release`, xcodebuild only enables testability in Debug, so
+# without the override every @testable import fails with "module built
+# without '-enable-testing'".
 xcodebuild test \
     -scheme DesertAnt-Package \
+    -configuration Release \
+    ENABLE_TESTABILITY=YES \
     -destination "platform=iOS Simulator,id=$udid" \
     -skipMacroValidation \
     -parallel-testing-enabled YES \

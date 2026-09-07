@@ -11,13 +11,19 @@ dal_start_echo_server 8199
 
 # Own scratch dir: the Xcode toolchain's artifacts are incompatible with the
 # swift.org toolchain the wasm tasks use, so they must never share one.
+#
+# Release, matching build:swift, so the scratch path holds one configuration:
+# Core ML and the audio/tensor loops are ridiculously slow unoptimized, the
+# performance bounds in the suite only mean something optimized, and the
+# Windows job already tests release. swift test keeps testability (and with it
+# @testable) enabled in release, unlike a bare swift build.
 if [ "$(uname)" = Darwin ]; then
     # xcrun pins the Xcode toolchain even when a mise-managed swift is on PATH:
     # older mise ignores the tools os=["linux"] filter above, and the swift.org
     # toolchain cannot build against the Xcode SDK.
-    xcrun swift test --scratch-path .build-host
+    xcrun swift test --scratch-path .build-host -c release
 else
     litert=$(dal_litert_dir)
     LD_LIBRARY_PATH="$litert${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-        swift test --scratch-path .build-host -Xlinker "-L$litert"
+        swift test --scratch-path .build-host -c release -Xlinker "-L$litert"
 fi
