@@ -32,13 +32,16 @@ public protocol ModelDeclaration: Sendable {
     /// Repo-relative entries each platform needs. Directory artifacts (e.g. a
     /// Core ML `.mlmodelc`) end in `/`. A platform absent here is unsupported.
     static var files: [ModelPlatform: [String]] { get }
+    /// Repo-relative entries for a runtime other than the platform default (Core
+    /// AI on Apple). Empty for a model that ships one artifact per platform.
+    static var runtimeFiles: [ModelRuntime: [String]] { get }
 
     /// The oldest OS this model's ARTIFACT runs on. Defaults to the package floor, so a model
-    /// whose artifact imposes nothing extra says nothing. Override when the artifact does —
+    /// whose artifact imposes nothing extra says nothing. Override when the artifact does,
     /// and `ModelCatalogTests` checks the value against the compiled package rather than
     /// trusting it.
     static var osFloor: OSFloor { get }
-    /// The runnable artifact for `platform` — the file the inference session is
+    /// The runnable artifact for `platform`: the file the inference session is
     /// built from, as opposed to the sidecars around it.
     static func artifact(for platform: ModelPlatform) -> String
 }
@@ -50,6 +53,8 @@ public extension ModelDeclaration {
 
     static var osFloor: OSFloor { .packageFloor }
 
+    static var runtimeFiles: [ModelRuntime: [String]] { [:] }
+
     /// This SDK's usage identity, attached to every emitted telemetry body's
     /// `sdk` field so usage attributes to this model rather than to the core it
     /// is built on. Derived, so a model cannot forget to pass one (which silently
@@ -59,11 +64,11 @@ public extension ModelDeclaration {
     /// This model's Hub declaration: repo, pinned revision, per-platform files.
     /// The single value an SDK needs to download, adopt, or verify its model.
     static var distribution: ModelDistribution {
-        ModelDistribution(repo: repo, revision: revision, files: files)
+        ModelDistribution(repo: repo, revision: revision, files: files, runtimeFiles: runtimeFiles)
     }
 
     /// The runnable artifact on the platform being built for.
-    static var artifact: String { artifact(for: .current) }
+    static var artifact: String { artifact(for: ModelPlatform.current) }
 
     /// Whether this model ships anything for `platform`.
     static func supports(_ platform: ModelPlatform) -> Bool { files[platform] != nil }
@@ -86,7 +91,7 @@ public extension ModelDeclaration {
 
 /// The oldest OS each Apple platform needs to run a model's artifact.
 ///
-/// Data, not a comment. A model's OS requirement comes from the artifact it ships — a Core ML
+/// Data, not a comment. A model's OS requirement comes from the artifact it ships: a Core ML
 /// package records `specificationVersion` and an availability map, and refusing to load below
 /// it is the runtime's behaviour whatever the SDK claims. Declaring it here means the catalog
 /// can be checked against the artifact instead of against somebody's memory.
@@ -95,7 +100,7 @@ public extension ModelDeclaration {
 /// cannot be computed from a value, so a model that must not COMPILE below some version still
 /// annotates its own declarations. What this gives is the other three things:
 /// a runtime refusal with a legible reason, a catalog test that every model states a floor,
-/// and one place to read when writing the README — instead of three that drift apart, which is
+/// and one place to read when writing the README, instead of three that drift apart, which is
 /// how the manifest came to declare iOS 16 while the README promised iOS 18.
 public struct OSFloor: Sendable, Equatable {
     public let iOS: Int

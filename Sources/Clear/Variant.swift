@@ -32,14 +32,29 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     public var coreML: String { "\(rawValue).mlmodelc" }
     /// LiteRT export: Android/Linux/Windows, and LiteRT.js on the web.
     public var tflite: String { "\(rawValue).tflite" }
+    /// Core AI export (a directory on the Hub): iOS 27 and macOS 27.
+    public var coreAI: String { "\(rawValue).aimodel" }
 
     /// The runnable artifact for `platform`.
     public func artifact(for platform: ModelPlatform) -> String {
         platform == .apple ? coreML : tflite
     }
 
+    /// The runnable artifact for `runtime`.
+    public func artifact(for runtime: ModelRuntime) -> String {
+        switch runtime {
+        case .coreML: coreML
+        case .coreAI: coreAI
+        case .liteRT: tflite
+        }
+    }
+
+    /// Repo-relative entries for the Core AI runtime, preferred on iOS 27 and
+    /// macOS 27; `files` stands in below that or when the asset is absent.
+    public var runtimeFiles: [ModelRuntime: [String]] { [.coreAI: [coreAI + "/"]] }
+
     /// The artifact for the platform being built for.
-    public var artifact: String { artifact(for: .current) }
+    public var artifact: String { artifact(for: ModelPlatform.current) }
 
     /// Repo-relative entries each platform needs for this variant. Clear has no
     /// sidecars (the DSP front end carries what would be a metadata file), so a
@@ -63,7 +78,7 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     /// `v0.2.0`, a branch, or a commit hash) instead of the SDK's pinned one.
     /// Each revision caches separately, so switching never clobbers another.
     public func distribution(revision: String) -> ModelDistribution {
-        ModelDistribution(repo: ClearModel.repo, revision: revision, files: files)
+        ModelDistribution(repo: ClearModel.repo, revision: revision, files: files, runtimeFiles: runtimeFiles)
     }
 
     /// The variant an artifact path belongs to, by its file name

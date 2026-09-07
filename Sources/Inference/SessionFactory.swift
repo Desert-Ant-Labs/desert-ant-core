@@ -15,6 +15,14 @@ public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .al
                              functionName: String? = nil,
                              sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if canImport(CoreML)
+    if modelPath.hasSuffix(".aimodel") {
+        #if canImport(CoreAI)
+        if #available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *) {
+            return tracked(try CoreAISession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
+        }
+        #endif
+        throw InferenceError.sessionUnavailable("Core AI assets need iOS 27 / macOS 27")
+    }
     return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits,
                                      functionName: functionName), sdk: sdk)
     #elseif canImport(CLiteRt)

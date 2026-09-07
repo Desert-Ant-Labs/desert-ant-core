@@ -27,6 +27,7 @@
 //         }
 //     }
 
+import Foundation
 import ModelStore
 import PlatformSupport
 
@@ -98,10 +99,8 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
         // fraction (halved), [0.5, 1] is preparing/build. `download` and `load`
         // decode it back, so the Double API keeps its old meaning.
         loader = LazyLoader { progress in
-            let files = try await distribution.resolve(
-                cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
-            progress(0.5)
-            return try await build(files)
+            try await Self.load(distribution, directory: directory, cacheRoot: cacheRoot,
+                                progress: progress) { files, _ in try await build(files) }
         }
         availability = { distribution.isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot) }
     }
@@ -119,13 +118,40 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
         build: @escaping @Sendable (StoredModel, ModelDistribution) async throws -> Runtime
     ) {
         loader = LazyLoader { progress in
-            let distribution = try await resolve()
-            let files = try await distribution.resolve(
-                cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
-            progress(0.5)
-            return try await build(files, distribution)
+            try await Self.load(try await resolve(), directory: directory, cacheRoot: cacheRoot,
+                                progress: progress, build: build)
         }
         availability = isAvailable
+    }
+
+    /// Resolve and build, on the platform default runtime when the alternate one is not on the
+    /// Hub at this revision, not in `directory`, or fails to load. A failure is remembered for
+    /// the process, so the next load goes straight to the default.
+    private static func load(
+        _ distribution: ModelDistribution, directory: String?, cacheRoot: String?,
+        progress: @Sendable @escaping (Double) -> Void,
+        build: @Sendable (StoredModel, ModelDistribution) async throws -> Runtime
+    ) async throws -> Runtime {
+        var chosen = distribution
+        if distribution.hasFallback {
+            if RuntimeFallbacks.shared.failed(distribution, directory: directory) {
+                chosen = distribution.platformDefault
+            } else {
+                do {
+                    let files = try await distribution.resolve(
+                        cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
+                    progress(0.5)
+                    return try await build(files, distribution)
+                } catch {
+                    RuntimeFallbacks.shared.record(distribution, directory: directory)
+                    chosen = distribution.platformDefault
+                }
+            }
+        }
+        let files = try await chosen.resolve(
+            cacheDirectory: directory, cacheRoot: cacheRoot) { progress($0.fraction * 0.5) }
+        progress(0.5)
+        return try await build(files, chosen)
     }
 
     /// Wrap a runtime the caller already has the inputs for (the cross-language
@@ -162,4 +188,23 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
 
     /// The runtime, loading it on first use.
     public func value() async throws -> Runtime { try await loader.value() }
+}
+
+/// Alternate-runtime loads that failed in this process, keyed by repo, revision, and directory.
+private final class RuntimeFallbacks: @unchecked Sendable {
+    static let shared = RuntimeFallbacks()
+    private let lock = NSLock()
+    private var keys: Set<String> = []
+
+    private func key(_ distribution: ModelDistribution, directory: String?) -> String {
+        "\(distribution.repo)@\(distribution.revision)@\(directory ?? "")"
+    }
+
+    func failed(_ distribution: ModelDistribution, directory: String?) -> Bool {
+        lock.withLock { keys.contains(key(distribution, directory: directory)) }
+    }
+
+    func record(_ distribution: ModelDistribution, directory: String?) {
+        lock.withLock { _ = keys.insert(key(distribution, directory: directory)) }
+    }
 }

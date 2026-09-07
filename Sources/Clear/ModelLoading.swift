@@ -26,11 +26,16 @@ public struct ModelAssets: Sendable {
     /// `Result`. Nil for a local `modelPath`, explicit assets, or a wasm host
     /// (nothing was downloaded, so no revision applies).
     let revision: String?
+    /// Which runtime opened the artifact, reported on `Result`. Nil when only
+    /// the host knows (a wasm session).
+    let runtime: ModelRuntime?
 
-    init(sessions: [any InferenceSession], variant: ModelVariant? = nil, revision: String? = nil) {
+    init(sessions: [any InferenceSession], variant: ModelVariant? = nil, revision: String? = nil,
+         runtime: ModelRuntime? = nil) {
         self.sessions = sessions
         self.variant = variant
         self.revision = revision
+        self.runtime = runtime
     }
 
     /// Bindings entry point: build from an already-constructed session (e.g. the
@@ -50,20 +55,22 @@ public struct ModelAssets: Sendable {
                 try inferenceSession(modelPath: modelPath, computeUnits: computeUnits, sdk: ClearModel.sdkInfo)
             },
             variant: ModelVariant.inferred(fromPath: modelPath),
-            revision: revision)
+            revision: revision,
+            runtime: ModelRuntime.inferred(fromPath: modelPath))
     }
 
     /// Build from a resolved model directory: one session per worker over this
     /// platform's artifact.
     static func clear(files: StoredModel, variant: ModelVariant, revision: String? = nil,
+                      runtime: ModelRuntime = .platformDefault,
                       computeUnits: ComputeUnits, concurrency: Int) async throws -> ModelAssets {
         var sessions: [any InferenceSession] = []
         for _ in 0..<max(1, concurrency) {
             sessions.append(try await files.inferenceSession(
-                model: variant.artifact,
+                model: variant.artifact(for: runtime),
                 computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
         }
-        return ModelAssets(sessions: sessions, variant: variant, revision: revision)
+        return ModelAssets(sessions: sessions, variant: variant, revision: revision, runtime: runtime)
     }
 }
 
