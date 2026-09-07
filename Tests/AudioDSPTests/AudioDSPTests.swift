@@ -1,8 +1,8 @@
-import XCTest
+import Testing
 import Foundation
 @testable import AudioDSP
 
-final class AudioDSPTests: XCTestCase {
+struct AudioDSPTests {
     // Signal-to-error ratio in dB between a reference and a reconstruction.
     private func snr(_ ref: [Float], _ rec: [Float]) -> Double {
         let n = min(ref.count, rec.count)
@@ -19,23 +19,23 @@ final class AudioDSPTests: XCTestCase {
         (0..<n).map { Float(0.5 * sin(2 * .pi * freq * Double($0) / sr)) }
     }
 
-    func testHannPeriodic() {
+    @Test func hannPeriodic() {
         let w = Window.hann(4, periodic: true)
-        XCTAssertEqual(w[0], 0, accuracy: 1e-6)          // periodic Hann starts at 0
-        XCTAssertEqual(w.max()!, 1, accuracy: 1e-6)      // and reaches 1
+        #expect(abs(w[0]) <= 1e-6)               // periodic Hann starts at 0
+        #expect(abs(w.max()! - 1) <= 1e-6)       // and reaches 1
     }
 
-    func testSTFTRoundTripReconstructsSignal() {
+    @Test func stftRoundTripReconstructsSignal() {
         let x = tone(8000)
         let stft = STFT(nFFT: 400, hop: 100)
         let spec = stft.forward(x)
         let y = stft.inverse(spec, length: x.count)
-        XCTAssertEqual(y.count, x.count)
+        #expect(y.count == x.count)
         // Windowed COLA + real-DFT identity should reconstruct near-perfectly.
-        XCTAssertGreaterThan(snr(x, y), 60)
+        #expect(snr(x, y) > 60)
     }
 
-    func testSTFTMagnitudePhaseRebuild() {
+    @Test func stftMagnitudePhaseRebuild() {
         let x = tone(4000, freq: 220)
         let stft = STFT(nFFT: 256, hop: 64)
         let spec = stft.forward(x)
@@ -47,53 +47,53 @@ final class AudioDSPTests: XCTestCase {
             rebuilt.im[i] = mag[i] * sin(pha[i])
         }
         let y = stft.inverse(rebuilt, length: x.count)
-        XCTAssertGreaterThan(snr(x, y), 60)
+        #expect(snr(x, y) > 60)
     }
 
-    func testEnergyNormalizeIsInvertible() {
+    @Test func energyNormalizeIsInvertible() {
         let x = tone(2000).map { $0 * 3 }
         let (norm, gain) = VectorOps.energyNormalize(x)
         let restored = VectorOps.scaled(norm, by: 1 / gain)
-        XCTAssertGreaterThan(snr(x, restored), 100)   // float round-trip, not bit-exact
+        #expect(snr(x, restored) > 100)   // float round-trip, not bit-exact
         // Unit average power after normalization.
         let power = VectorOps.energy(norm) / Float(norm.count)
-        XCTAssertEqual(power, 1, accuracy: 1e-3)
+        #expect(abs(power - 1) <= 1e-3)
     }
 
-    func testStandardizeZeroMeanUnitStd() {
+    @Test func standardizeZeroMeanUnitStd() {
         let x: [Float] = (0..<1000).map { Float($0) }
         let z = VectorOps.standardize(x)
         let mean = z.reduce(0, +) / Float(z.count)
-        XCTAssertEqual(mean, 0, accuracy: 1e-3)
+        #expect(abs(mean) <= 1e-3)
     }
 
-    func testMelSpectrogramShape() {
+    @Test func melSpectrogramShape() {
         let mel = MelSpectrogram(sampleRate: 16000, nFFT: 400, hop: 160, mels: 80)
         let (values, frames, mels) = mel.logMel(tone(16000))
-        XCTAssertEqual(mels, 80)
-        XCTAssertGreaterThan(frames, 90)              // ~1 s at hop 160
-        XCTAssertEqual(values.count, frames * mels)
-        XCTAssertTrue(values.allSatisfy { $0.isFinite })
+        #expect(mels == 80)
+        #expect(frames > 90)              // ~1 s at hop 160
+        #expect(values.count == frames * mels)
+        #expect(values.allSatisfy { $0.isFinite })
     }
 
-    func testFramingWindows() {
+    @Test func framingWindows() {
         let w = Framing.windows(count: 250, window: 100, hop: 80)
-        XCTAssertEqual(w.first!.start, 0)
-        XCTAssertEqual(w.last!.end, 250)              // final window clamps to count
-        XCTAssertTrue(w.allSatisfy { $0.end <= 250 })
+        #expect(w.first!.start == 0)
+        #expect(w.last!.end == 250)       // final window clamps to count
+        #expect(w.allSatisfy { $0.end <= 250 })
     }
 
-    func testLoudnessNormalizeHitsTarget() {
+    @Test func loudnessNormalizeHitsTarget() throws {
         // 1 kHz tone at 48 kHz, ~3 s; normalize to -19 LUFS.
         let sr = 48_000.0
         let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }
         let before = Loudness.integratedLUFS(x, sampleRate: sr)
-        XCTAssertNotNil(before)
+        #expect(before != nil)
         let (y, measured) = Loudness.normalize(x, sampleRate: sr, targetLUFS: -19, maxGainDB: 30, peakCeilingDBFS: -1)
-        XCTAssertEqual(measured, before)
-        let after = Loudness.integratedLUFS(y, sampleRate: sr)!
-        XCTAssertEqual(after, -19, accuracy: 0.5)          // lands on target
-        XCTAssertTrue(y.allSatisfy { abs($0) <= 1 })       // never clips
+        #expect(measured == before)
+        let after = try #require(Loudness.integratedLUFS(y, sampleRate: sr))
+        #expect(abs(after - (-19)) <= 0.5)               // lands on target
+        #expect(y.allSatisfy { abs($0) <= 1 })           // never clips
     }
 
     // MARK: limiter
@@ -103,7 +103,7 @@ final class AudioDSPTests: XCTestCase {
     /// keep the transient under the ceiling the whole file has to come down,
     /// landing well below the requested loudness. The limiter takes the gain
     /// out of the transient alone, so the target survives.
-    func testLimiterHoldsLoudnessTargetThroughATransient() {
+    @Test func limiterHoldsLoudnessTargetThroughATransient() throws {
         let sr = 48_000.0
         let n = Int(3 * sr)
         var x = (0..<n).map { Float(0.05 * sin(2 * .pi * 1000 * Double($0) / sr)) }
@@ -112,7 +112,7 @@ final class AudioDSPTests: XCTestCase {
 
         let (y, measured) = Loudness.normalize(x, sampleRate: sr, targetLUFS: -19,
                                                maxGainDB: 30, peakCeilingDBFS: -1)
-        let after = Loudness.integratedLUFS(y, sampleRate: sr)!
+        let after = try #require(Loudness.integratedLUFS(y, sampleRate: sr))
         let ceiling = Float(pow(10, -1.0 / 20))
 
         // What the static backoff this replaced would have produced: one gain
@@ -121,58 +121,58 @@ final class AudioDSPTests: XCTestCase {
         var scaled = x.map { $0 * staticGain }
         let peak = scaled.map { abs($0) }.max()!
         if peak > ceiling { scaled = scaled.map { $0 * (ceiling / peak) } }
-        let staticAfter = Loudness.integratedLUFS(scaled, sampleRate: sr)!
+        let staticAfter = try #require(Loudness.integratedLUFS(scaled, sampleRate: sr))
 
         // The limiter lands near the target. It does not land exactly on it,
         // and cannot: the transient inflates the *input* measurement, so the
         // gain is chosen for a signal whose energy the limiter then removes.
-        XCTAssertEqual(after, -19, accuracy: 1.5)
+        #expect(abs(after - (-19)) <= 1.5)
         // The backoff misses by far more - that is the regression being fixed.
-        XCTAssertLessThan(staticAfter, after - 5)
+        #expect(staticAfter < after - 5)
 
         // And the ceiling still holds, which is all the backoff ever bought.
-        XCTAssertTrue(y.allSatisfy { abs($0) <= ceiling + 1e-4 },
-                      "peak \(y.map { abs($0) }.max()!) exceeds ceiling \(ceiling)")
+        #expect(y.allSatisfy { abs($0) <= ceiling + 1e-4 },
+                "peak \(y.map { abs($0) }.max()!) exceeds ceiling \(ceiling)")
     }
 
-    func testLimiterCeilingIsRespectedAndGainRecovers() {
+    @Test func limiterCeilingIsRespectedAndGainRecovers() {
         let sr = 48_000.0
         // Full-scale tone: every sample needs limiting.
         var channels = [(0..<Int(sr)).map { Float(0.99 * sin(2 * .pi * 200 * Double($0) / sr)) }]
         Limiter.apply(&channels, ceilingDBTP: -6, sampleRate: sr)
         let ceiling = Float(pow(10, -6.0 / 20))
-        XCTAssertTrue(channels[0].allSatisfy { abs($0) <= ceiling + 1e-4 })
+        #expect(channels[0].allSatisfy { abs($0) <= ceiling + 1e-4 })
 
         // After a lone transient the envelope must return to unity, otherwise
         // the release is not working and the tail stays ducked.
         var quiet = [[Float]](repeating: [Float](repeating: 0.01, count: Int(sr)), count: 1)
         quiet[0][100] = 0.99
         Limiter.apply(&quiet, ceilingDBTP: -6, sampleRate: sr)
-        XCTAssertEqual(quiet[0][Int(sr) - 1], 0.01, accuracy: 1e-4)
+        #expect(abs(quiet[0][Int(sr) - 1] - 0.01) <= 1e-4)
     }
 
     /// One envelope drives every channel: a peak in one channel must duck the
     /// other by the same amount, or the stereo image shifts while it limits.
-    func testLimiterGainIsJointAcrossChannels() {
+    @Test func limiterGainIsJointAcrossChannels() {
         let sr = 48_000.0
         let n = 4_800
         var channels = [[Float]](repeating: [Float](repeating: 0.5, count: n), count: 2)
         channels[0][2_000] = 0.99                       // peak in the left only
         let before = channels[1][2_000]
         Limiter.apply(&channels, ceilingDBTP: -6, sampleRate: sr)
-        XCTAssertLessThan(channels[1][2_000], before)   // right ducked too
-        XCTAssertEqual(channels[0][2_000] / 0.99, channels[1][2_000] / 0.5, accuracy: 1e-4)
+        #expect(channels[1][2_000] < before)            // right ducked too
+        #expect(abs(channels[0][2_000] / 0.99 - channels[1][2_000] / 0.5) <= 1e-4)
     }
 
     /// Inter-sample peaks sit between samples, so true peak is never below the
     /// sample peak and is strictly above it when a waveform straddles one.
-    func testTruePeakMeetsOrExceedsSamplePeak() {
+    @Test func truePeakMeetsOrExceedsSamplePeak() {
         let sr = 48_000.0
         let x = (0..<Int(sr)).map { Float(0.9 * sin(2 * .pi * 11_000 * Double($0) / sr)) }
         let samplePeak = 20 * log10(Double(x.map { abs($0) }.max()!))
         let truePeak = Limiter.truePeakDBFS([x])
-        XCTAssertGreaterThanOrEqual(truePeak, samplePeak - 1e-9)
-        XCTAssertEqual(Limiter.truePeakDBFS([[Float](repeating: 0, count: 100)]), -.infinity)
+        #expect(truePeak >= samplePeak - 1e-9)
+        #expect(Limiter.truePeakDBFS([[Float](repeating: 0, count: 100)]) == -.infinity)
     }
 
     /// The streaming limiter has to produce the same samples as the in-memory
@@ -180,7 +180,7 @@ final class AudioDSPTests: XCTestCase {
     /// file path would not match the same audio mastered in memory. Both the
     /// gain envelope and the held-back look-ahead tail have to cross chunk
     /// boundaries for that to hold.
-    func testStreamingLimiterMatchesWholeSignal() {
+    @Test func streamingLimiterMatchesWholeSignal() {
         let sr = 48_000.0
         let n = 40_000
         var x = (0..<n).map { Float(0.3 * sin(2 * .pi * 440 * Double($0) / sr)) }
@@ -201,9 +201,9 @@ final class AudioDSPTests: XCTestCase {
         if offset < n { chunked.append(contentsOf: streaming.process([Array(x[offset...])])[0]) }
         chunked.append(contentsOf: streaming.flush()[0])
 
-        XCTAssertEqual(chunked.count, whole[0].count)
+        #expect(chunked.count == whole[0].count)
         for i in 0..<chunked.count {
-            XCTAssertEqual(chunked[i], whole[0][i], accuracy: 1e-6, "sample \(i)")
+            #expect(abs(chunked[i] - whole[0][i]) <= 1e-6, "sample \(i)")
         }
     }
 
@@ -211,46 +211,46 @@ final class AudioDSPTests: XCTestCase {
 
     /// The mono path must not have moved: a one-channel meter has to agree with
     /// the mono entry point exactly, or every existing measurement shifted.
-    func testOneChannelMatchesTheMonoMeter() {
+    @Test func oneChannelMatchesTheMonoMeter() throws {
         let sr = 48_000.0
         let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }
-        let mono = Loudness.integratedLUFS(x, sampleRate: sr)!
-        let single = Loudness.integratedLUFS([x], sampleRate: sr)!
-        XCTAssertEqual(mono, single, accuracy: 1e-12)
+        let mono = try #require(Loudness.integratedLUFS(x, sampleRate: sr))
+        let single = try #require(Loudness.integratedLUFS([x], sampleRate: sr))
+        #expect(abs(mono - single) <= 1e-12)
     }
 
     /// BS.1770 sums the channels' mean squares, so the same signal in both
     /// channels is +3 dB louder than one alone - a stereo programme is not the
     /// average of its sides.
-    func testStereoSumsChannelsPerBS1770() {
+    @Test func stereoSumsChannelsPerBS1770() throws {
         let sr = 48_000.0
         let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }
-        let one = Loudness.integratedLUFS([x], sampleRate: sr)!
-        let two = Loudness.integratedLUFS([x, x], sampleRate: sr)!
-        XCTAssertEqual(two - one, 3.0103, accuracy: 0.01)
+        let one = try #require(Loudness.integratedLUFS([x], sampleRate: sr))
+        let two = try #require(Loudness.integratedLUFS([x, x], sampleRate: sr))
+        #expect(abs((two - one) - 3.0103) <= 0.01)
 
         // A silent right channel adds no energy, so the pair reads as the left.
         let silent = [Float](repeating: 0, count: x.count)
-        let half = Loudness.integratedLUFS([x, silent], sampleRate: sr)!
-        XCTAssertEqual(half, one, accuracy: 0.01)
+        let half = try #require(Loudness.integratedLUFS([x, silent], sampleRate: sr))
+        #expect(abs(half - one) <= 0.01)
     }
 
     /// Per-channel gating is what channel balancing corrects against, so each
     /// side has to report its own level, not the programme's.
-    func testPerChannelLoudnessReportsEachSide() {
+    @Test func perChannelLoudnessReportsEachSide() throws {
         let sr = 48_000.0
         let loud = (0..<Int(3 * sr)).map { Float(0.2 * sin(2 * .pi * 1000 * Double($0) / sr)) }
         let quiet = loud.map { $0 * 0.5 }        // -6 dB
-        let meter = Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true)!
+        let meter = try #require(Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true))
         meter.consume([loud, quiet])
         let each = meter.finalizePerChannel()
-        XCTAssertEqual(each.count, 2)
-        XCTAssertEqual(each[0]! - each[1]!, 6.0206, accuracy: 0.01)
+        #expect(each.count == 2)
+        #expect(abs((each[0]! - each[1]!) - 6.0206) <= 0.01)
     }
 
     /// Balancing lifts the quiet side to the target while the joint stages
     /// leave the corrected image alone.
-    func testChannelBalancingEqualisesTheSides() {
+    @Test func channelBalancingEqualisesTheSides() throws {
         let sr = 48_000.0
         let loud = (0..<Int(3 * sr)).map { Float(0.2 * sin(2 * .pi * 1000 * Double($0) / sr)) }
         var channels = [loud, loud.map { $0 * 0.5 }]
@@ -258,15 +258,15 @@ final class AudioDSPTests: XCTestCase {
                                   maxGainDB: 30, peakCeilingDBFS: -1,
                                   balanceChannelsLUFS: -20)
 
-        let after = Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true)!
+        let after = try #require(Loudness.StreamingMeter(sampleRate: sr, channels: 2, perChannel: true))
         after.consume(channels)
         let each = after.finalizePerChannel()
-        XCTAssertEqual(each[0]!, each[1]!, accuracy: 0.1)
+        #expect(abs(each[0]! - each[1]!) <= 0.1)
     }
 
     /// Without balancing, mastering is joint: both channels take the same gain,
     /// so their level difference survives untouched.
-    func testJointGainPreservesTheStereoImage() {
+    @Test func jointGainPreservesTheStereoImage() {
         let sr = 48_000.0
         let loud = (0..<Int(3 * sr)).map { Float(0.05 * sin(2 * .pi * 1000 * Double($0) / sr)) }
         var channels = [loud, loud.map { $0 * 0.5 }]
@@ -274,7 +274,7 @@ final class AudioDSPTests: XCTestCase {
                                   maxGainDB: 30, peakCeilingDBFS: -1)
         // The ratio between the sides is what the image is; it must not move.
         for i in stride(from: 1_000, to: 100_000, by: 10_000) where abs(channels[0][i]) > 1e-4 {
-            XCTAssertEqual(channels[1][i] / channels[0][i], 0.5, accuracy: 1e-3)
+            #expect(abs(channels[1][i] / channels[0][i] - 0.5) <= 1e-3)
         }
     }
 
@@ -283,7 +283,7 @@ final class AudioDSPTests: XCTestCase {
     /// The whole point of the streaming meter: chunked measurement has to agree
     /// with whole-signal measurement, whatever the chunk sizes are. The filter
     /// state and the 400 ms block grid both have to survive chunk boundaries.
-    func testStreamingMeterMatchesWholeSignal() {
+    @Test func streamingMeterMatchesWholeSignal() throws {
         let sr = 48_000.0
         var rng = SystemRandomNumberGenerator()
         for trial in 0..<4 {
@@ -293,63 +293,54 @@ final class AudioDSPTests: XCTestCase {
                 x[i] = 0.4 * Float(sin(2 * .pi * 220 * Double(i) / sr))
                     + Float.random(in: -0.05...0.05, using: &rng)
             }
-            let reference = Loudness.integratedLUFS(x, sampleRate: sr)
-            XCTAssertNotNil(reference, "n=\(n)")
+            let reference = try #require(Loudness.integratedLUFS(x, sampleRate: sr), "n=\(n)")
 
             // Deliberately awkward chunk sizes: not multiples of the block or
             // step, and one larger than a block.
             for chunk in [1_000, 4_800, 19_200, 50_000, 7_777] {
-                guard let meter = Loudness.StreamingMeter(sampleRate: sr) else {
-                    XCTFail("meter init"); return
-                }
+                let meter = try #require(Loudness.StreamingMeter(sampleRate: sr), "meter init")
                 var i = 0
                 while i < n {
                     let end = min(i + chunk, n)
                     meter.consume(Array(x[i..<end]))
                     i = end
                 }
-                let streamed = meter.finalize()
-                XCTAssertNotNil(streamed, "n=\(n) chunk=\(chunk)")
+                let streamed = try #require(meter.finalize(), "n=\(n) chunk=\(chunk)")
                 // Not bit-exact: vDSP_biquad rounds slightly differently
                 // depending on how long a span it is handed (vector tail
                 // handling), so an odd chunk size shifts the last bits. The
                 // observed spread is ~1e-5 dB, which is nothing against the
                 // 0.1 LU that matters for delivery targets.
-                XCTAssertEqual(reference!, streamed!, accuracy: 1e-4,
-                               "n=\(n) chunk=\(chunk)")
+                #expect(abs(reference - streamed) <= 1e-4, "n=\(n) chunk=\(chunk)")
             }
         }
     }
 
-    func testStreamingMeterTracksPeak() {
-        guard let meter = Loudness.StreamingMeter(sampleRate: 48_000) else {
-            XCTFail("meter init"); return
-        }
+    @Test func streamingMeterTracksPeak() throws {
+        let meter = try #require(Loudness.StreamingMeter(sampleRate: 48_000), "meter init")
         meter.consume([0.1, -0.7, 0.3])
         meter.consume([0.2, -0.25])
-        XCTAssertEqual(meter.peak, 0.7, accuracy: 1e-6)
+        #expect(abs(meter.peak - 0.7) <= 1e-6)
     }
 
-    func testStreamingMeterMemoryIsBounded() {
-        guard let meter = Loudness.StreamingMeter(sampleRate: 48_000) else {
-            XCTFail("meter init"); return
-        }
+    @Test func streamingMeterMemoryIsBounded() throws {
+        let meter = try #require(Loudness.StreamingMeter(sampleRate: 48_000), "meter init")
         // 10 minutes fed in 1 s pieces; the meter must not be accumulating the
         // signal itself.
         let second = [Float](repeating: 0.2, count: 48_000)
         for _ in 0..<600 { meter.consume(second) }
-        XCTAssertNotNil(meter.finalize())
+        #expect(meter.finalize() != nil)
     }
 
-    func testLoudnessSilenceIsNil() {
-        XCTAssertNil(Loudness.integratedLUFS([Float](repeating: 0, count: 48_000), sampleRate: 48_000))
+    @Test func loudnessSilenceIsNil() {
+        #expect(Loudness.integratedLUFS([Float](repeating: 0, count: 48_000), sampleRate: 48_000) == nil)
     }
 
-    func testOverlapAccumulatorAverages() {
+    @Test func overlapAccumulatorAverages() {
         var acc = OverlapAccumulator(length: 4)
         acc.add([1, 1], at: 0)
         acc.add([3, 3], at: 1)   // index 1 and 2 now overlap
         let avg = acc.average()
-        XCTAssertEqual(avg, [1, 2, 3, 0])
+        #expect(avg == [1, 2, 3, 0])
     }
 }

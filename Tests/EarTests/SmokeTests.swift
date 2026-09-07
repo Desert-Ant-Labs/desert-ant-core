@@ -77,13 +77,14 @@ struct SmokeTests {
         #expect(!languages.contains("nb"))
     }
 
-    @Test func rateConversionDoesNotChangeTheAnswer() async throws {
+    @Test func rateConversionStillProducesAVerdict() async throws {
         // Callers hand us whatever their file decoded to. The resampler runs
-        // before the frontend, so a rate mismatch must not change the verdict.
-        let ear = try await ear()
-        let native = try await ear.identify(samples: Self.audio(), sampleRate: 16000)
-        let resampled = try await ear.identify(samples: Self.audio(), sampleRate: 44100)
-        #expect(native.language != nil)
+        // before the frontend, so a rate mismatch must not break the pipeline.
+        // The verdict on synthetic noise means nothing, so there is nothing to
+        // compare against the 16 kHz run (resolvesTheModelAndRunsIt covers that
+        // path); what this buys is the resampler seam producing a distribution.
+        // One inference, not two: each is minutes on the Windows CPU runner.
+        let resampled = try await ear().identify(samples: Self.audio(), sampleRate: 44100)
         #expect(resampled.language != nil)
         #expect(resampled.windows >= 1)
     }

@@ -26,6 +26,16 @@ sdk=$(dal_wasm_sdk)
 # plugin needs the one default scratch path), but the wasm-opt passes are
 # independent single-threaded jobs of about a minute each, so they run in
 # parallel once every binary exists.
+# No whole-package prebuild, on purpose. It looked like the obvious win (one
+# parallel pass instead of serial per-model builds), but the js plugin adds
+# its own global flags to every build it drives (-static-stdlib, the reactor
+# exec model, the __main_argc_argv export), and SwiftPM keys its build
+# database on the exact command line: a prebuild in any other configuration
+# is rebuilt by the plugin loop and rebuilds it back next run, the whole
+# graph twice per invocation. The flags cannot be matched from the CLI
+# either, -Xswiftc is global and -static-stdlib breaks the host macro tools.
+# With one configuration in the scratch path, the first plugin run builds
+# the shared graph once and the rest are incremental.
 built=""
 for model in $(dal_select "${usage_model:-all}"); do
     product=$(dal_product "$model")
@@ -38,8 +48,12 @@ for model in $(dal_select "${usage_model:-all}"); do
     #
     # --allow-writing-to-package-directory: the plugin writes $out under .build/,
     # which SwiftPM's plugin sandbox blocks on macOS without it.
+    #
+    # --no-optimize: the plugin would run its own wasm-opt pass per model,
+    # serially; the parallel pass below covers every binary with a fuller flag
+    # set, so the plugin's is wasted work.
     swift package -Xswiftc -Osize --swift-sdk "$sdk" --allow-writing-to-package-directory \
-        js --product "${product}Web" -c release --output "$out"
+        js --product "${product}Web" -c release --no-optimize --output "$out"
     built="$built $model"
 done
 
