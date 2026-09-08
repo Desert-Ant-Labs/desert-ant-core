@@ -103,16 +103,17 @@ jobs:
           key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
           restore-keys: ios-deriveddata-v2-${{ runner.os }}-
 
-      # No restore-keys here on purpose: test:ios resolves with
-      # -skipPackageUpdates, which trusts whatever state this dir holds. A
-      # stale fallback from an older dependency graph can pin revisions the
-      # cached clones no longer contain ("unable to read tree"), so a graph
-      # change must start from an empty dir and re-clone.
+      # Package.resolved is gitignored, so it cannot key this (hashFiles skips
+      # a missing file and the key silently collapses to Package.swift). test:ios
+      # now resolves without -skipPackageUpdates, so a reused clone dir is
+      # patched to the current graph rather than trusted whole; restore-keys
+      # hand over the previous clone and xcodebuild fetches whatever drifted.
       - name: Cache iOS SPM clones
         uses: actions/cache@v6
         with:
           path: .build/ios-packages
-          key: ios-packages-v2-${{ runner.os }}-${{ hashFiles('Package.resolved', 'Package.swift') }}
+          key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ios-packages-v3-${{ runner.os }}-
 
       # build:swift and test:swift build into these scratch paths. Cold, they
       # rebuild every dependency (including swift-syntax via Title's MLX trait

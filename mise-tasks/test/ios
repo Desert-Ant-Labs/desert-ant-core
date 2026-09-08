@@ -31,8 +31,13 @@ if [[ -n "${CI:-}" ]]; then
     ci_flags=(
         -derivedDataPath .build/ios-deriveddata
         -clonedSourcePackagesDirPath .build/ios-packages
-        -skipPackageUpdates
     )
+    # No -skipPackageUpdates: it trusts the cached clone dir as-is, but the
+    # cache key hashes Package.resolved, which is gitignored here, so the key
+    # is really just Package.swift and never sees the graph re-resolve to a
+    # revision the cached clones lack ("unable to read tree"). Letting
+    # xcodebuild resolve normally reuses matching clones and fetches whatever
+    # drifted, the same way the DerivedData cache is patched incrementally.
 fi
 
 # Run the bundles in parallel. This package has 21 test targets, so the run is
