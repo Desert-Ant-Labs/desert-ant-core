@@ -11,7 +11,9 @@ import Shapes
 /// host encodes and decodes. Each model owns its own adapter, so no model can
 /// reach another's.
 #if !os(WASI)
-@Suite(.modelBacked)
+// Serialized like every other model-backed suite, see ShapesBindingTests for
+// the LiteRT global-registry race that concurrent session creation trips.
+@Suite(.serialized, .modelBacked)
 struct ClearBindingTests {
     /// The enhancer, or nil where no runtime can load the artifact. Swift
     /// Testing has no runtime skip, so a host without a runtime returns early

@@ -9,7 +9,11 @@ import TestSupport
 /// the first model whose input is geometry rather than text or audio - proof that
 /// a new modality is a payload schema, not a new entry point in every language.
 #if !os(WASI)
-@Suite(.modelBacked)
+// Serialized like every other model-backed suite: the tests each build a
+// `Shapes()` and its LiteRT session, and concurrent session creation races
+// LiteRT's global registry (the run intermittently returns a NULL buffer,
+// which the binding surfaces as a nil payload and the contract tests reject).
+@Suite(.serialized, .modelBacked)
 struct ShapesBindingTests {
     /// A recognizer over the cached model, reached through the binding only.
     private func recognizer() -> Shapes { Shapes() }
