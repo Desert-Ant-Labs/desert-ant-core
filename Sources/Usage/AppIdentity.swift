@@ -51,6 +51,25 @@ public func hostProvidedAppId() -> String? {
 #endif
 }
 
+/// Whether usage tracking is switched off before any client is built.
+///
+/// Core deliberately leaves no untracked path through `Inference`, and this does
+/// not weaken that for a shipped app: it exists because our own suites run on
+/// networked CI, where every model load would otherwise post a real turnstile
+/// event, and because a fire-and-forget send left in flight as a short-lived
+/// process exits (a test runner, a CLI) is what raced Node's teardown into a
+/// SIGSEGV. On WASI the browser build is the TypeScript port, so there is
+/// nothing to read.
+public func usageDisabled() -> Bool {
+#if os(WASI)
+    return false
+#else
+    guard let raw = getenv("DAL_USAGE_DISABLED") else { return false }
+    let value = String(cString: raw)
+    return !value.isEmpty && value != "0"
+#endif
+}
+
 /// A host-provided publishable API key. On WASI reads `globalThis.__dalApiKey`
 /// (string or function); elsewhere reads the `DAL_API_KEY` environment
 /// variable. `nil` when unset.

@@ -28,7 +28,7 @@
   "browser": "./browser.js",
   "types": "./index.d.ts",
   "scripts": {
-    "test": "node --test test/redact.test.mjs test/browser-in-node.test.mjs"
+    "test": "DAL_USAGE_DISABLED=1 node --test test/redact.test.mjs test/browser-in-node.test.mjs"
   },
   "exports": {
     ".": {

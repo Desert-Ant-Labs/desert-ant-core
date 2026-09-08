@@ -11,7 +11,11 @@ import Usage
 /// session factory; the derived app identity + native storage come from
 /// `makeClient`.
 func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
-    TrackedSession(wrapping: session, sdk: sdk)
+    // Off means the raw session: no client, no debounce task, and no
+    // fire-and-forget send that could still be in flight when a short-lived
+    // process exits (which is what raced the node test runner's teardown into
+    // a SIGSEGV). See `usageDisabled()`.
+    usageDisabled() ? session : TrackedSession(wrapping: session, sdk: sdk)
 }
 
 /// An `InferenceSession` that records a usage call per `run` and batches sends.
