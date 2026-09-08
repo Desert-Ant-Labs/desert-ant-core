@@ -27,7 +27,7 @@
   "browser": "./browser.js",
   "types": "./index.d.ts",
   "scripts": {
-    "test": "node --test test/shapes.test.mjs"
+    "test": "DAL_USAGE_DISABLED=1 node --test test/shapes.test.mjs"
   },
   "exports": {
     ".": {

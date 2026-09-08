@@ -29,7 +29,7 @@
   "browser": "./browser.js",
   "types": "./index.d.ts",
   "scripts": {
-    "test": "node --test test/ear.test.mjs"
+    "test": "DAL_USAGE_DISABLED=1 node --test test/ear.test.mjs"
   },
   "exports": {
     ".": {

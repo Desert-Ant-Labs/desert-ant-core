@@ -18,19 +18,6 @@
 
 import Usage
 
-// getenv, the same way core's AppIdentity reads its host overrides.
-#if os(Android)
-import Android
-#elseif canImport(Darwin)
-import Darwin
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#elseif os(Windows)
-import CRT
-#endif
-
 /// Owns the turnstile for one `Tongue`.
 ///
 /// An actor rather than a lock: `UsageClient` is not `Sendable`, and the platforms
@@ -72,22 +59,5 @@ func makeTurnstile() -> UsageTurnstile? {
     usageDisabled() ? nil : UsageTurnstile(client: makeClient())
 }
 
-/// Opt-out, honoured before a client is ever built.
-///
-/// Core deliberately leaves no untracked path through `Inference`, and nothing
-/// here weakens that for a shipped app. This exists because *our own* suites run
-/// on networked CI: without it, `mise run test` would post real load events from
-/// every build. `mise.toml` sets it for every task in this repo and
-/// `.github/workflows/ci.yml` for every job, and it is
-/// documented so an operator running the SDK in a sealed environment has an
-/// answer that is not "patch the library".
-func usageDisabled() -> Bool {
-#if os(WASI)
-    // The browser build is the TypeScript port, not this one; nothing to read.
-    return false
-#else
-    guard let raw = getenv("DAL_USAGE_DISABLED") else { return false }
-    let value = String(cString: raw)
-    return !value.isEmpty && value != "0"
-#endif
-}
+// `usageDisabled()` is core's, in `Usage` (this file already imports it). Tongue
+// used to carry its own copy; they never differed, so it is the shared one now.
