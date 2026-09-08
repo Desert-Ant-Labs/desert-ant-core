@@ -34,6 +34,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # One version across the repo is only a property if something checks it
       # before release day.
       - run: mise run check:version
@@ -68,6 +70,8 @@ jobs:
         with:
           xcode-version: 26.6
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
 
       # No model artifact is committed, so the model-backed suites download the
       # pinned revision on a cold cache. Cache the store so that happens once
@@ -154,6 +158,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # v7 is the newest floating major tag this action publishes (its later
       # releases ship no vN alias), and it already runs on node24.
       - uses: astral-sh/setup-uv@v7
@@ -205,6 +211,8 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # `mise run` vendors libLiteRt.so out of the ai-edge-litert wheel with uv.
       - uses: astral-sh/setup-uv@v7
         with:
@@ -245,6 +253,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # The Swift toolchain, node and binaryen are pinned in the task headers,
       # not mise.toml, so mise-action's own cache never covers them and mise
       # re-extracts them on every run. The download is seconds; the damage is
@@ -371,6 +381,8 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # Same reasoning as js-browser's mise install cache: keep the pinned
       # toolchains' mtimes stable so SwiftPM's fingerprints survive across runs.
       - name: Cache mise tool installs
@@ -626,6 +638,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
 
       # The snapshot toolchain (~1.2 GB), the Android SDK bundles (~330 MB), and
       # the NDK install on demand; cache them so only the first run pays.

@@ -41,6 +41,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # The cards are only as good as the registry they come from.
       - run: mise run check:manifest
       - run: mise run check:links

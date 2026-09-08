@@ -45,6 +45,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       - id: gate
         run: |
           set -euo pipefail
@@ -112,6 +114,8 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       # v7 is the newest floating major tag this action publishes (its later
       # releases ship no vN alias), and it already runs on node24.
       - uses: astral-sh/setup-uv@v7
@@ -183,6 +187,8 @@ jobs:
             git tar gzip libcurl-devel libxml2-devel zlib-devel binutils file
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       - uses: astral-sh/setup-uv@v7
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
@@ -205,6 +211,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       - uses: astral-sh/setup-uv@v7
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
@@ -255,6 +263,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
       - env:
           GH_TOKEN: ${{ github.token }}
         run: mise run publish:github
