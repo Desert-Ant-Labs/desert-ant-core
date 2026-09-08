@@ -95,6 +95,21 @@ public struct ModelStore: Sendable {
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
     ) async throws -> StoredModel {
         guard isValid(model) else { throw ModelStoreError.invalidSpec }
+        // Coalesce concurrent downloads of the same location: two callers
+        // racing one model would otherwise write the same `.part` temps and
+        // corrupt the result (see DownloadCoordinator). A caller that joins an
+        // in-flight download shares its outcome; its own `progress` closure is
+        // not driven, which no caller depends on for correctness.
+        return try await DownloadCoordinator.shared.run(location: location(of: model)) {
+            try await self.performDownload(model, progress: progress)
+        }
+    }
+
+    @discardableResult
+    private func performDownload(
+        _ model: ModelSpec,
+        progress: @Sendable @escaping (DownloadProgress) -> Void
+    ) async throws -> StoredModel {
         try fs.makeDirectory(location(of: model))
         if isDownloaded(model) {
             if let bytes = try? fs.read(manifestPath(model)), let m = Manifest.parse(bytes) {
