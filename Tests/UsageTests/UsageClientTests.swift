@@ -249,3 +249,49 @@ struct WireTests {
         #expect(parts[2].first == "4") // version nibble
     }
 }
+
+// Wire schema 2: session id, batch id, schema version (decision memo step 3b).
+struct UsageWireSchema2Tests {
+    @Test func turnstileAndDeltasShareOneSessionId() {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()                 // turnstile
+        h.client.recordCall(3)
+        h.client.flush()                 // delta
+        #expect(h.sent.count == 2)
+        let ids = h.events.map(\.sessionId)
+        #expect(ids.count == 2)
+        #expect(ids[0] != nil)
+        #expect(ids[0] == ids[1])
+        #expect(ids[0] == h.client.sessionId)
+    }
+
+    @Test func eachBodyHasItsOwnBatchIdAndDeclaresSchema2() {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        h.client.recordCall()
+        h.client.flush()
+        let batches = h.sent.map(\.body.batchId)
+        #expect(batches.allSatisfy { $0 != nil })
+        #expect(batches[0] != batches[1])
+        #expect(h.sent.allSatisfy { $0.body.schemaVersion == wireSchemaVersion })
+        #expect(wireSchemaVersion == 2)
+    }
+
+    @Test func twoClientsHaveDifferentSessionIds() {
+        let a = Harness(UsageState(lastActiveAt: 0))
+        let b = Harness(UsageState(lastActiveAt: 0))
+        #expect(a.client.sessionId != b.client.sessionId)
+    }
+
+    @Test func schema2FieldsAreOnTheWire() throws {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        let json = try buildBody(h.sent[0].body)
+        #expect(json.contains("\"batchId\":\""))
+        #expect(json.contains("\"schemaVersion\":2"))
+        #expect(json.contains("\"sessionId\":\""))
+    }
+}

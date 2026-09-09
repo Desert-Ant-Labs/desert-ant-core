@@ -9,7 +9,9 @@ import JavaScriptKit
 /// The shared ingest endpoint. Every SDK reports to the same place, so it is not
 /// part of the public API. A host may override it (tests/diagnostics) via
 /// `hostProvidedIngestEndpoint()`.
-private let defaultIngestEndpoint = "https://platform.desertant.ai/api/v1/ingest"
+// The dedicated telemetry host (docs/ingest-api.md). The former
+// platform.desertant.ai URL still 308-redirects, but every event paid that hop.
+private let defaultIngestEndpoint = "https://events.desertant.com/api/v1/ingest"
 private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
 /// A `send` transport that POSTs the serialized body to `endpoint`.
@@ -100,8 +102,10 @@ public func makeClient(
     let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
-    // Coalesce a continuously-running server's delta loads to hourly by default.
-    let resolvedEmitInterval = emitIntervalMs ?? (platform == "server" ? hourMs : 0)
+    // Coalesce delta loads by default: hourly on a continuously-running server,
+    // every quarter hour everywhere else — so rows per device per day are bounded
+    // on mobile and web too, not only on the server path.
+    let resolvedEmitInterval = emitIntervalMs ?? (platform == "server" ? hourMs : quarterHourMs)
     return UsageClient(ClientDeps(
         deviceId: device,
         key: resolvedKey,
