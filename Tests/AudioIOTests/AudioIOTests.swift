@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import TestSupport
 @testable import AudioIO
 
 struct AudioIOTests {
@@ -128,4 +129,67 @@ struct AudioIOTests {
         #expect(mono.count == 100)
         #expect(mono.allSatisfy { abs($0) < 1e-3 })
     }
+
+    // !os(WASI) like every decode test above: on wasm, decode delegates to the
+    // JS host (__DalAudioHost.decode), which the bare test harness never
+    // installs. Not CoreML-gated: the portable path mixes down too, and Linux
+    // should keep proving it.
+    #if !os(WASI)
+    @Test func fourteenChannelMixdown() async throws {
+        // A real 14-channel field capture found two bugs in the Apple decode
+        // path: beyond stereo AVAudioConverter has no downmix matrix and
+        // silently returned channel 0 as the "mixdown", and the whole-file
+        // single-buffer convert died with std::overflow_error once the file
+        // was large enough (2.2 GB) to overflow AVFoundation's 32-bit byte
+        // counts. The size half cannot be reproduced at fixture scale and is
+        // fixed by chunking; this guards the correctness half. Channel c
+        // carries a constant c/14, so the mono mixdown must be the average of
+        // 0/14...13/14 = 6.5/14, not channel 0's flat zero.
+        let sr = 16000
+        let channels = 14
+        var interleaved = [Float](repeating: 0, count: sr * channels)
+        for f in 0..<sr { for c in 0..<channels { interleaved[f * channels + c] = Float(c) / 14 } }
+        let wav = WAV.encode(interleaved, sampleRate: sr, channels: channels)
+        let mono = try await AudioIO.decode(bytes: wav, sampleRate: Double(sr))
+        #expect(mono.count == sr)
+        let expected = Float(6.5) / 14
+        #expect(mono.dropFirst(100).dropLast(100).allSatisfy { abs($0 - expected) < 2e-2 })
+    }
+    #endif
+
+
+
+    #if canImport(AVFoundation)
+    @Test(.longRunning) func multiGigabyteDecodeDoesNotOverflow() async throws {
+        // The crash half of the 14-channel story (the mixdown half is above):
+        // decoding a 2.2 GB capture died with std::overflow_error because the
+        // whole-file convert allocated input buffers for every frame at once,
+        // and frames x channels x 4 bytes crossed AVFoundation's 32-bit byte
+        // counts. The threshold is real (about 2.15 GB of 16-bit source), so a
+        // dense fixture cannot carry it; a sparse file of implicit zeros can,
+        // at no disk cost. Apple-gated: the portable path reads whole files
+        // into memory by design and never had the 32-bit limit.
+        let channels = 14, sr = 48000
+        let frames = 78_000_000  // x 14ch x 4B float32 = 4.37 GB > UInt32.max
+        let dataSize = frames * channels * 2
+        var hdr = [UInt8]()
+        func u16(_ v: Int) { hdr.append(UInt8(v & 0xFF)); hdr.append(UInt8((v >> 8) & 0xFF)) }
+        func u32(_ v: Int) { for s in 0..<4 { hdr.append(UInt8((v >> (8 * s)) & 0xFF)) } }
+        hdr.append(contentsOf: "RIFF".utf8); u32(36 + dataSize); hdr.append(contentsOf: "WAVE".utf8)
+        hdr.append(contentsOf: "fmt ".utf8); u32(16); u16(1); u16(channels); u32(sr)
+        u32(sr * channels * 2); u16(channels * 2); u16(16)
+        hdr.append(contentsOf: "data".utf8); u32(dataSize)
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dal-sparse-14ch-\(UUID().uuidString).wav").path
+        FileManager.default.createFile(atPath: path, contents: Data(hdr))
+        let fh = FileHandle(forWritingAtPath: path)!
+        try fh.truncate(atOffset: UInt64(44 + dataSize))
+        try fh.close()
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let mono = try await AudioIO.decode(path: path, sampleRate: 16000)
+        // 78M frames at 48 kHz resampled to 16 kHz: one third, unmixed length.
+        #expect(mono.count == frames / 3)
+        #expect(mono.prefix(1000).allSatisfy { $0 == 0 })
+    }
+    #endif
 }
