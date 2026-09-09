@@ -139,14 +139,14 @@ struct ClearStreamingTests {
     /// The acceptance criterion for the whole exercise: doubling the input must
     /// not double the peak.
     ///
-    /// Disabled on CI: `footprintMB()` reads the whole process's memory, and
-    /// Swift Testing runs suites concurrently, so another suite allocating
-    /// during the 240 s window inflates the peak (a run showed 323 MB against a
-    /// 33 MB baseline, 10x what any windowing regression would cause). The
-    /// measurement is only sound with the process to itself; run it locally
-    /// with `swift test --filter peakDoesNotGrowWithDuration`.
-    @Test(.modelBacked, .disabled(if: ProcessInfo.processInfo.environment["CI"] != nil,
-        "whole-process memory reading is unreliable under parallel suites"))
+    /// `.longRunning` (minutes of audio), and doubly unfit for the every-commit
+    /// matrix: `footprintMB()` reads the whole process's memory, and Swift
+    /// Testing runs suites concurrently, so another suite allocating during
+    /// the 240 s window inflates the peak (a run showed 323 MB against a 33 MB
+    /// baseline, 10x what any windowing regression would cause). A long-tests
+    /// lane runs a filtered process, which also gives this the process to
+    /// itself.
+    @Test(.modelBacked, .longRunning)
     func peakDoesNotGrowWithDuration() async throws {
         let clear = try await enhancer()
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
