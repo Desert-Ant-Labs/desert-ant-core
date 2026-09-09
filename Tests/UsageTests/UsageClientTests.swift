@@ -285,6 +285,35 @@ struct UsageWireSchema2Tests {
         #expect(a.client.sessionId != b.client.sessionId)
     }
 
+    @Test func aNewTurnstileOpensANewSession() {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        let first = h.events[0].sessionId
+        h.advance(dayMs)          // window elapsed: the next start() opens a new turnstile
+        h.client.start()
+        h.client.flush()
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].sessionId != nil)
+        #expect(h.events[1].sessionId != first)
+    }
+
+    @Test func firstDeltaIsNotHeldForAWholeInterval() {
+        let h = Harness(UsageState(lastActiveAt: 0), emitIntervalMs: quarterHourMs)
+        h.client.start()
+        h.client.flush()          // turnstile
+        h.client.recordCall(4)
+        h.advance(3_000)
+        h.client.flush()          // first delta: must go out now, not 15 min later
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].callCount == 4)
+        h.client.recordCall(1)
+        h.advance(3_000)
+        h.client.flush()          // second delta inside the interval: coalesced
+        #expect(h.sent.count == 2)
+        #expect(h.state.carryCallCount == 1)
+    }
+
     @Test func schema2FieldsAreOnTheWire() throws {
         let h = Harness(UsageState(lastActiveAt: 0))
         h.client.start()

@@ -9,8 +9,9 @@ import JavaScriptKit
 /// The shared ingest endpoint. Every SDK reports to the same place, so it is not
 /// part of the public API. A host may override it (tests/diagnostics) via
 /// `hostProvidedIngestEndpoint()`.
-// The dedicated telemetry host (docs/ingest-api.md). The former
-// platform.desertant.ai URL still 308-redirects, but every event paid that hop.
+// The dedicated telemetry host (docs/ingest-api.md). The former platform.*
+// URL is deprecated but still served (a cross-origin redirect cannot work for
+// browsers); new builds post to events.* directly.
 private let defaultIngestEndpoint = "https://events.desertant.com/api/v1/ingest"
 private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
@@ -99,7 +100,11 @@ public func makeClient(
 ) -> UsageClient {
     let resolvedAppId = appId ?? hostProvidedAppId() ?? defaultAppIdentifier()
     let resolvedKey = key ?? hostProvidedApiKey()
-    let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
+    // State is namespaced per attribution identity AND per SDK: several SDKs
+    // (emo, clear, shapes…) share one process and, with delta coalescing, park
+    // calls in `carryCallCount` for minutes at a time — a shared slot would lose
+    // updates between them (read-modify-write with no atomicity).
+    let namespace = "\(resolvedKey ?? resolvedAppId).\(sdk.name)"
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
     // Coalesce delta loads by default: hourly on a continuously-running server,

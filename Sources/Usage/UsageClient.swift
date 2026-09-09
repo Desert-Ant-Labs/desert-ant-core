@@ -99,12 +99,14 @@ public final class UsageClient {
     private var pending: IngestEvent? // queued turnstile, awaiting first flush
     private var emitted = false       // did we open a turnstile this session?
     private var lastEmitAt: Int64 = 0 // clock of the last actual send; gates delta coalescing
-    /// One id per client lifetime, carried on the turnstile and every delta (wire schema 2).
-    public let sessionId: String
+    /// The current session's id (wire schema 2): minted when a turnstile opens
+    /// and carried by that turnstile and every delta until the next turnstile —
+    /// so a long-lived client that re-opens the window (a new day, or a web tab
+    /// idle past 30 min) starts a new session id, not the same one forever.
+    public private(set) var sessionId: String = generateUUID()
 
     public init(_ deps: ClientDeps) {
         self.deps = deps
-        self.sessionId = generateUUID()
     }
 
     /// Host calls this once per inference/call to attribute to the turnstile.
@@ -149,7 +151,9 @@ public final class UsageClient {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
             sessionCalls = 0
-            lastEmitAt = deps.now()
+            // The coalescing gate starts counting from the first DELTA, not from
+            // the turnstile: a short session's calls must not wait a full interval.
+            lastEmitAt = 0
             deps.send(makeBody([ev]), opts)
             return
         }
@@ -195,6 +199,9 @@ public final class UsageClient {
     }
 
     private func queue(context: [String: String]? = nil) {
+        // A turnstile opens a session: new id, unless this is the first turnstile
+        // of this client and nothing has been sent under the initial id yet.
+        if emitted { sessionId = generateUUID() }
         pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext(), sessionId: sessionId)
         emitted = true
     }

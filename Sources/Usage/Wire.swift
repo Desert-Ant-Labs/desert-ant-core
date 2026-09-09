@@ -108,7 +108,8 @@ public let wireSchemaVersion = 2
 
 /// The request body posted to the ingest endpoint. Attribution is either a
 /// publishable `key` or — keyless, off-browser — the app identity in `app`.
-/// Field order on the wire follows declaration order.
+/// `buildBody` emits keys in sorted order (see the exact-JSON test), so the
+/// declaration order here is not the wire order.
 ///
 /// `batchId` (schema 2) is minted once per body. It is the delivery contract:
 /// a server can de-duplicate on (batchId, event index) whatever sits between
