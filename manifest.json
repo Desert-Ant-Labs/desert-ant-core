@@ -301,7 +301,7 @@
         { "id": "english", "default": false, "note": "Same 36 topics, English/Latin only, ~15 MB." }
       ],
       "hub": {
-        "tags": ["text", "topic-classification", "content-classification", "multi-label", "on-device", "core-ml", "tflite", "litert", "multilingual", "model2vec"],
+        "tags": ["text", "topic-classification", "content-classification", "multi-label", "on-device", "core-ml", "tflite", "litert", "multilingual"],
         "pipelineTag": "text-classification",
         "libraryName": "litert"
       },
