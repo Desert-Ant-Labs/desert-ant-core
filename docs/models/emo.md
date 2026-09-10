@@ -102,10 +102,10 @@ let offline = Emo(directory: myModelDirectory)   // adopted as-is, nothing downl
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `emo.tflite` | LiteRT / TFLite (int8) | ~10.2 MB | Fixed-window n-gram + masked semantic inputs, softmax `probabilities` output; runs on Android, Linux, Node, and the web (bundled by default in the Kotlin SDK; downloaded on demand by the JavaScript SDK) |
-| `emo.mlmodelc` | Compiled Core ML | ~4.6 MB | Mixed 4-/8-bit-palettized transformer, ready to load on Apple platforms (used by the Swift SDK) |
-| `emo_tokenizer.bin` | Pruned unigram tokenizer | ~0.75 MB | 48k SentencePiece pieces + scores; token ids = semantic-table rows |
-| `emo_meta.json` | JSON | tiny | emoji labels + n-gram hashing / fixed-window config the runtime needs |
+| `emo.tflite` | LiteRT / TFLite (int8) | ~10.2 MB | Runs on Android, Linux, Node, and the web (bundled by default in the Kotlin SDK; downloaded on demand by the JavaScript SDK) |
+| `emo.mlmodelc` | Compiled Core ML | ~4.6 MB | Ready to load on Apple platforms (used by the Swift SDK) |
+| `emo_tokenizer.bin` | Unigram tokenizer | ~0.75 MB | Tokenizer the runtime needs |
+| `emo_meta.json` | JSON | tiny | Emoji labels and runtime config |
 
 Older revisions (tags `v0.6.0` and earlier) carry `Emo.mlmodelc` and `emo.safetensors` for SDK versions that predate the unified cross-platform migration.
 
