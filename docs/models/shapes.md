@@ -106,17 +106,6 @@ The weights are fetched from the Hub on first use and cached. See
 
 Older revisions (tag `v0.1.0`) carry `shapes.onnx` for SDK versions that predate the LiteRT migration.
 
-## How it works
-
-Two stages, *the network proposes, geometry verifies*:
-
-1. **Classify**: the stroke is resampled and fed to a compact sequence classifier,
-   which predicts the shape type (or `none` to reject scribbles).
-2. **Fit + snap**: a classical geometric fitter produces clean vector parameters
-   (min-area box, moment/PCA ellipse, max-area triangle, …), then regularizes them
-   (snap to axes, circles, squares, and 15° rotation increments). A fit-residual
-   gate vetoes poor fits so non-shapes stay rejected.
-
 ## Inputs and outputs
 
 - **Input:** an ordered list of stroke points in canvas coordinates. Single stroke.
