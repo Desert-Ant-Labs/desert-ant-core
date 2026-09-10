@@ -92,9 +92,8 @@ Measured on device at batch 16, pinned to `.cpuAndNeuralEngine`.
 | `clips.mlmodelc/` | Compiled Core ML, int8 | Multifunction package. Function `select`: `ids`, `mask`, `disc` → `saliency`, `start_p`, `end_p`. Function `score`: `ids`, `mask` → `score` |
 | `clips-selector.tflite` | LiteRT, int8 weight-only | The selector, for Android, Linux and Windows |
 | `clips-scorer.tflite` | LiteRT, int8 weight-only | The scorer, for Android, Linux and Windows |
-| `clip_tokenizer.bin` | Unigram tokenizer | XLM-R SentencePiece pieces and scores, in the compact binary the runtime reads |
-| `clips_meta.json` | JSON | Graph widths, discourse-feature order and tokenizer ids a runtime needs |
-| `checkpoint/` | safetensors + PyTorch | The training checkpoint the exports were built from |
+| `clip_tokenizer.bin` | Unigram tokenizer | Tokenizer pieces and scores, in the compact binary the runtime reads |
+| `clips_meta.json` | JSON | Graph widths, input roles and feature order a runtime needs |
 
 ### Reaching a function in the Core ML package
 
@@ -107,30 +106,16 @@ the selector.
 
 The selector runs at 128 tokens, the scorer at 256, both at a fixed batch of 16 sentences.
 
-A single sentence is truncated to **64** tokens before it reaches the selector. That is the
-length the saliency heads were trained at and it is not the same thing as the graph width; a
-longer single sentence runs the heads off-distribution.
-
-### `checkpoint/`
-
-The exact checkpoint the exports come from, in the layout the training and export scripts
-read, rather than a flat repacked `.pt` that nothing can load. It holds the encoder as
-safetensors, the two head files, and `run_manifest.json` describing the run that produced it.
-
-There is no TensorFlow checkpoint. The LiteRT files are converted from PyTorch through
-StableHLO, so no TF SavedModel exists at any point.
+A single sentence is truncated to **64** tokens before it reaches the selector, which is not
+the same thing as the graph width.
 
 ## Status
 
-Internal testing. This card carries no quality or latency figures: the evaluation behind this
-checkpoint has not completed independent review, and an unreviewed number on a public card
-gets quoted as if it had been.
+Internal testing. This page carries no quality figures yet.
 
 > ### ⚠️ The `.tflite` files do not work with the Desert Ant SDK yet. Do not build on them.
 >
-> Found by review after publication, by loading the flatbuffers rather than reasoning about
-> them. The LiteRT exports are real and faithful conversions of the checkpoint, but the SDK's
-> LiteRT backend cannot drive them:
+> The SDK's LiteRT backend cannot drive them:
 >
 > - the graphs name their inputs `args_0`, `args_1`, `args_2` and their outputs `output_0…2`;
 >   the SDK asks for `ids`, `mask`, `disc` and `saliency`, `start_p`, `end_p`. There is no
@@ -140,18 +125,14 @@ gets quoted as if it had been.
 >   back to 128.
 >
 > They are left published because they are honest artifacts and someone driving LiteRT
-> directly can use them: the shapes and output order are in `clips_meta.json` and are
-> verified. They are **not** a working Android/Linux/Windows path today.
+> directly can use them: the shapes and output order are in `clips_meta.json`. They are
+> **not** a working Android/Linux/Windows path today.
 >
-> Also unresolved: at these widths this export was measured at ~2.1 GB peak RSS against a
-> 1.6 GB Android budget, and the training repo's own recommendation for LiteRT is fp16 rather
-> than this int8 build.
+> Also unresolved: this export was measured at ~2.1 GB peak RSS against a 1.6 GB Android
+> budget.
 
 **The two platforms are not equally evidenced.** The Core ML package has clips that were
-generated from it and judged. **No clip has ever been read from the LiteRT files, on any
-platform.** Their only gate is a synthetic random-token batch, and that gate's own manifest
-records `is_a_quality_result: false`. The two exports also use different int8 schemes, recorded
-per platform in `clips_meta.json`.
+generated from it and judged. **No clip has been read from the LiteRT files, on any platform.**
 
 ## Requirements
 
@@ -164,7 +145,7 @@ visionOS 2 / watchOS 11**, read off the compiled artifact. Reaching either graph
 Behaviour worth knowing before you build on it, stated without figures for the reason above:
 
 - **It under-emits on short video.** Given a short transcript it returns markedly fewer clips
-  than a strong teacher finds worth cutting. If your product needs a guaranteed number of
+  than expected. If your product needs a guaranteed number of
   clips from a two-minute video, measure before relying on it.
 - **It emits some dross**, most on podcast-length input. There is no confidence score to
   filter on yet: `Clip.score` ranks within one video and is not calibrated across videos.
@@ -176,13 +157,6 @@ Behaviour worth knowing before you build on it, stated without figures for the r
 - **Non-Latin scripts are under-tested.** The evaluation corpus is overwhelmingly Latin-script.
 - **Duration is a soft prior, not a rule.** Clips may come back shorter or longer than a
   typical Short.
-
-## Built on
-
-- [`FacebookAI/xlm-roberta-base`](https://huggingface.co/FacebookAI/xlm-roberta-base) (MIT):
-  the shared encoder trunk and its SentencePiece vocabulary.
-
-See [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/clips/blob/v0.1.0/THIRD_PARTY_NOTICES.md).
 
 ## License
 
