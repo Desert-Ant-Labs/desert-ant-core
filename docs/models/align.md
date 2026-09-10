@@ -93,29 +93,9 @@ let refiner = try await SpeechTimestampRefiner(locale: locale, directory: myFold
 | `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |
 | `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator over coarse/fine uncertainty features |
 | `refiner_config.json` | JSON | tiny | Frontend, lexical, and language config the runtime needs |
-| `coarse.pt` | PyTorch checkpoint | ~0.5 MB | Coarse-stage weights (for retraining / other runtimes) |
-| `fine.pt` | PyTorch checkpoint | ~0.5 MB | Fine-stage weights (for retraining / other runtimes) |
 
 The compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin`, and `refiner_config.json`
-are exactly what the Swift SDK bundles. The `.pt` checkpoints are the training-run weights.
-
-## Architecture
-
-A two-stage coarse-to-fine cascade over a log-mel spectrogram, refining one boundary at a time:
-
-- **Frontend**: an Accelerate/vDSP log-mel spectrogram of the same audio Apple transcribes.
-- **Coarse stage**: a compact convolutional model searches a 2.4 s context around Apple's
-  proposed boundary and predicts a distribution over frames.
-- **Fine stage**: a second model re-searches a 0.8 s crop recentered on the coarse prediction
-  for a tighter estimate.
-- **Lexical conditioning**: UTF-8 byte features of the neighboring words plus a language id let
-  a single model cover all nine languages.
-- **Calibrator**: a small gradient-boosted-tree policy maps coarse/fine uncertainty features to
-  a final correction, fit only on the validation split to reduce large regressions.
-- **Structural fallback**: boundaries whose correction would be invalid, hit the search-window
-  edge, or lack streaming context keep Apple's original timestamp.
-
-Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are 121,141 per stage.
+are exactly what the Swift SDK downloads.
 
 ## Inputs and outputs
 
@@ -125,9 +105,7 @@ Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are 121,
 
 ## Accuracy
 
-Measured on the v1.0.0 cascade over group-held-out recordings, against forced-alignment
-references built with Qwen3-ForcedAligner (Apache-2.0) averaged with a MIT-licensed second
-aligner. Speakers in the evaluation splits do not appear in training.
+Measured on v1.0.0 over held-out recordings.
 
 ### All nine languages
 
@@ -141,8 +119,7 @@ figure on its own.
 
 ### Public benchmark, English
 
-A 500-clip sample of each official LibriSpeech `test-clean` and `test-other` split. No speaker
-here appears in training (67 training speakers against 67 evaluation speakers, zero overlap).
+A 500-clip sample of each official LibriSpeech `test-clean` and `test-other` split.
 
 | Engine | Split | Raw | Refined | Reduction | Within 50 ms |
 |---|---|---:|---:|---:|---|
@@ -164,18 +141,6 @@ by another aligner. This is the only figure here not measured against machine re
 | WhisperX | 53.5 ms | 67% |
 | Align | 45.0 ms | 76% |
 
-### Core ML parity
-
-The shipped Core ML stages are checked against the PyTorch weights on real audio crops, on the
-decoded correction rather than raw logits: fine 0.27 ms mean and 1.98 ms p99, coarse 0.41 ms mean
-and 3.56 ms p99.
-
-Both stages ship FP16. The coarse p99 is above this repo's 3 ms acceptance threshold, and that is
-a known, bounded gap rather than an oversight: `StageModel` binds its input and output buffers as
-`Float16`, so an FP32 export is not loadable by this runtime at all. The mean deviation is 0.41 ms
-against a 20.2 ms accuracy figure. Closing the p99 properly means teaching the runtime to read the
-output dtype from the model, not swapping the export.
-
 ## Languages
 
 English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chinese. A locale
@@ -187,23 +152,11 @@ outside this set is passed through unchanged.
   large, consistent reduction of Apple's timing error rather than sample-accurate ground truth.
 - A learned correction is not guaranteed to improve every boundary; the structural fallback keeps
   Apple's timestamp when a correction looks unsafe but cannot catch every plausible-looking error.
-- Japanese, Korean, and Chinese were previously the weakest languages by a wide margin. A
-  reference-building defect had emptied nearly all of their training data, and v1.0.0 rebuilds
-  it: those three now improve their proposals by 33%, 55%, and 51% respectively, where before
-  they made timings worse than the input.
+- Japanese, Korean, and Chinese were the weakest languages before v1.0.0. They now improve their
+  proposals by 33%, 55%, and 51%.
 - Number timings are the weakest remaining case. On a small sample refinement moved digit
   boundaries further from the reference than leaving them alone, so treat spoken numbers as
   unimproved until a larger sample settles it.
-
-## Built on
-
-- [FLEURS](https://huggingface.co/datasets/google/fleurs) (CC BY 4.0): multilingual training audio.
-- [Qwen3-ForcedAligner-0.6B](https://huggingface.co/Qwen/Qwen3-ForcedAligner-0.6B) (Apache-2.0):
-  primary word-boundary references for all nine languages.
-- OWSM-CTC v4 1B (CC BY 4.0): gross alignment-outlier check where validation agreement is stable.
-- Genuine Apple `SpeechAnalyzer` proposals collected on macOS 26.
-
-See [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/align/blob/main/THIRD_PARTY_NOTICES.md). None of these systems are redistributed here.
 
 ## License
 
