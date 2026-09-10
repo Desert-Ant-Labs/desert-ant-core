@@ -52,8 +52,9 @@ enum ClearDSP {
 enum Gemm {
     static func mul(_ a: [Float], _ b: [Float], into c: inout [Float], m: Int, n: Int, k: Int) {
         #if canImport(Accelerate)
-        cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-                    Int32(m), Int32(n), Int32(k), 1, a, Int32(k), b, Int32(n), 0, &c, Int32(n))
+        // vDSP_mmul, not the deprecated cblas_sgemm; see AudioDSP's Matmul for
+        // why the -DACCELERATE_NEW_LAPACK route is closed to this package.
+        vDSP_mmul(a, 1, b, 1, &c, 1, vDSP_Length(m), vDSP_Length(n), vDSP_Length(k))
         #else
         for i in 0..<m {
             let ar = i * k, cr = i * n
