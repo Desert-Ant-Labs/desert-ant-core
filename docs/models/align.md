@@ -88,11 +88,11 @@ let refiner = try await SpeechTimestampRefiner(locale: locale, directory: myFold
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `align_coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage: searches a 241-frame (2.4 s) context, fixed batch-16 |
-| `align_fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage: searches an 81-frame (0.8 s) crop centered on the coarse prediction |
+| `align_coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage |
+| `align_fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage |
 | `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |
-| `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator over coarse/fine uncertainty features |
-| `refiner_config.json` | JSON | tiny | Frontend, lexical, and language config the runtime needs |
+| `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator |
+| `refiner_config.json` | JSON | tiny | Runtime config |
 
 The compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin`, and `refiner_config.json`
 are exactly what the Swift SDK downloads.
@@ -126,9 +126,12 @@ A 500-clip sample of each official LibriSpeech `test-clean` and `test-other` spl
 | Apple SpeechAnalyzer | test-clean | 106.4 ms | 20.2 ms | 81% | 37% to 95% |
 | Apple SpeechAnalyzer | test-other | 111.6 ms | 24.8 ms | 78% | 35% to 92% |
 
-The p90 is the figure to read for editing work: on `test-clean` it falls from 230.7 ms to
-33.0 ms, roughly one frame of 30fps video. Large errors are what a viewer notices when a
+The p90 is the figure to read for editing work. Large errors are what a viewer notices when a
 caption slips or a clip cuts mid-word.
+
+| Split | Raw p90 | Refined p90 |
+|---|---:|---:|
+| test-clean | 230.7 ms | 33.0 ms, roughly one frame of 30fps video |
 
 ### Against a human-annotated set
 
