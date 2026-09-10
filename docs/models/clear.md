@@ -115,7 +115,7 @@ The weights are fetched from the Hub on first use and cached. See
 
 ## Sound
 
-Trained to deliver a **rich, present, close-miked podcast sound**.
+Delivers a **rich, present, close-miked podcast sound**.
 
 - **Denoised.**
   HVAC, keyboard clicks, mouse rustle, mic bumps, room hum, laptop
@@ -130,15 +130,11 @@ Trained to deliver a **rich, present, close-miked podcast sound**.
 - **Sibilance-safe.**
   No harsh peaks introduced when cleaning up S / T / F consonants.
 - **No pumping or musical-noise artefacts.**
-  Trained with a large detail-preservation loss so breaths, plosives
-  and vocal texture stay intact.
+  Breaths, plosives and vocal texture stay intact.
 
 ## Variants
 
-Two variants ship. Their Core ML artifacts share the exact planar
-`spec / feat_erb / feat_spec → spec_enhanced` I/O contract and use a fixed
-batch of four independent two-second chunks. The ONNX artifacts retain their
-original DFN3 layout.
+Two variants ship.
 
 ### clear-studio
 
@@ -150,10 +146,9 @@ recordings, and anything that wants a clean broadcast feel.
 
 | File | Purpose | Size |
 |---|---|---:|
-| `clear-studio.mlmodelc` | ANE-optimized Core ML (fp16 compute + 6-bit weight palette, iOS 16 target) | 9.0 MB |
+| `clear-studio.mlmodelc` | Core ML for the Apple Neural Engine (iOS 16 model format) | 9.0 MB |
 | `clear-studio.mlmodelc.zip` | Same compiled model, zipped | 8.6 MB |
-| `clear-studio.onnx` | Android / cross-platform ONNX (fp16 weights, fp32 I/O) | 24 MB |
-| `clear-studio.pt` | PyTorch checkpoint, for research and re-export | 46 MB |
+| `clear-studio.onnx` | Cross-platform ONNX | 24 MB |
 
 ### clear-natural
 
@@ -165,10 +160,9 @@ absolute silence would sound wrong.
 
 | File | Purpose | Size |
 |---|---|---:|
-| `clear-natural.mlmodelc` | ANE-optimized Core ML (fp16 compute + 6-bit weight palette, iOS 16 target) | 9.0 MB |
+| `clear-natural.mlmodelc` | Core ML for the Apple Neural Engine (iOS 16 model format) | 9.0 MB |
 | `clear-natural.mlmodelc.zip` | Same compiled model, zipped | 8.6 MB |
-| `clear-natural.onnx` | Android / cross-platform ONNX | 24 MB |
-| `clear-natural.pt` | PyTorch checkpoint | 46 MB |
+| `clear-natural.onnx` | Cross-platform ONNX | 24 MB |
 
 ## Performance
 
@@ -219,6 +213,5 @@ recording into studio sound · messy recording in clean audio out ·
 podcast audio · voice cleanup · meeting recorder cleanup · bluetooth
 microphone cleanup · mobile device audio · built-in microphone ·
 on-device audio · edge ML · Core ML · ONNX · iOS speech enhancement ·
-Android speech enhancement · real-time speech enhancement · DFN3 ·
-DeepFilterNet · studio sound · podcast sound · TCN · distilled model ·
-Apple Neural Engine · ANE
+Android speech enhancement · real-time speech enhancement ·
+studio sound · podcast sound · Apple Neural Engine · ANE
