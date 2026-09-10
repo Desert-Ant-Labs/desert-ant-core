@@ -102,9 +102,7 @@ The weights are fetched from the Hub on first use and cached. See
 | `shapes.tflite` | LiteRT / TFLite (fp32) | ~1.3 MB | Fixed `[1,256,3]` features + `[1,256]` mask window; runs on Android, Linux, Node, and the web (bundled by default in the Kotlin SDK; downloaded on demand by the JavaScript SDK) |
 | `shapes.mlmodelc` | Compiled Core ML | ~0.2 MB | 4-bit-palettized classifier, ready to load on Apple platforms (used by the Swift SDK) |
 | `shapes_meta.json` | JSON | tiny | classes, preprocessing constants, model dims, and snap gates |
-| `shapes.safetensors` | safetensors | ~0.2 MB | packed portable weights (reference) |
-
-Older revisions (tag `v0.1.0`) carry `shapes.onnx` for SDK versions that predate the LiteRT migration.
+| `shapes.safetensors` | safetensors | ~0.2 MB | Packed weights for SDK versions before the LiteRT migration (tag `v0.1.0`) |
 
 ## Inputs and outputs
 
