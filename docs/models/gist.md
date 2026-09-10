@@ -109,30 +109,12 @@ let gist = Gist(variant: .english)
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `gist_embedding.i8` + `.json` | int8 static embedding | ~64 MB | 101-language potion embedding (261,349 tokens × 256 dims), the semantic feature extractor |
+| `gist_embedding.i8` + `.json` | int8 static embedding | ~64 MB | 101-language static embedding, the semantic feature extractor |
 | `gist.mlmodelc` | Core ML | ~6 MB | The classifier head: fused features → 36 topic probabilities |
-| `gist.tflite` | LiteRT | ~13 MB | The same head, float32. Larger than the Core ML export because a float16 graph is not runnable: standard LiteRT/TFLite kernels cannot prepare one whose tensors are all float16, which broke the browser, Android and Linux runtimes until v2.2.0 |
+| `gist.tflite` | LiteRT | ~13 MB | The same head, float32 |
 | `gist_tokenizer.bin` | Unigram | ~4 MB | The multilingual tokenizer |
 | `gist_config.json` | JSON | tiny | Slugs, feature dims, threshold |
 | `taxonomy.json` | JSON | ~8 KB | The 36 topics (slug, name, description, IAB + Apple category) |
-
-## Architecture
-
-A compact two-stream classifier, with no large encoder:
-
-- **Semantic stream**: a frozen multilingual static embedding (Model2Vec
-  [`potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M), distilled
-  from BAAI `bge-m3`), pruned per-script and int8-quantized. Tokenize (Unigram), gather the token
-  rows, mean-pool, L2-normalize. Cross-lingual by construction across **101 languages**.
-- **Lexical stream**: word and character n-grams hashed into a fixed vector, capturing proper nouns
-  and exact tokens the semantic embedding smears (names, brands, gear).
-- **Head**: a small MLP fusing the two streams (`[1, 8448]`) into a sigmoid over the **36-topic
-  taxonomy**, trained with class balancing so it does not default to over-represented topics.
-
-Distilled: open instruct LLMs (Apache/MIT) label the training text; a small student learns to
-reproduce it. Multi-label targets teach the co-occurrences (a tutorial is `technology` *and*
-`creator-economy`). Everything except the head is pure host-side code, so the same pipeline runs
-identically on Apple (Core ML), Android/Linux (LiteRT), and the web (WebAssembly + LiteRT.js).
 
 ## Inputs and outputs
 
@@ -156,11 +138,9 @@ Five topics have no dedicated IAB 2.2 node and are flagged as gist extensions
 
 ## Languages
 
-Cross-lingual by construction: the multilingual static embedding shares one representation space
-across **101 languages**, so topic tagging transfers across all of them. A diverse 15-language spot
-check (across Latin, Cyrillic, Arabic, CJK, Devanagari, Hebrew, Thai, and Greek scripts) gives
-**88% top-3**, with CJK, Arabic, and Cyrillic scripts matching or beating the Latin ones, so topic
-classification is largely language-agnostic in the shared embedding.
+Topic tagging covers **101 languages**. A diverse 15-language spot check (across Latin, Cyrillic,
+Arabic, CJK, Devanagari, Hebrew, Thai, and Greek scripts) gives **88% top-3**, with CJK, Arabic,
+and Cyrillic scripts matching or beating the Latin ones.
 
 ## Model variants
 
@@ -171,35 +151,27 @@ Two builds of the same 36-topic model live in this repo:
 | **Multilingual** (default) | repo root | ~74 MB | 101 languages |
 | **English-only** | [`en/`](https://huggingface.co/desert-ant-labs/gist/tree/v2.2.0/en) | **~15 MB** | English / Latin script only |
 
-The English build is a vocabulary prune of the same model, a smaller int8 embedding (32,251 tokens) and tokenizer with the **same classifier head**, so it is **topic-identical to the multilingual model on English input** (no retraining). It does not cover non-Latin scripts (CJK, Arabic, Cyrillic, …); use it only when the input is reliably English/Latin. The Swift SDK selects it with `Gist(variant: .english)`. The JS and Kotlin SDKs currently load the multilingual build only: variant selection has to cross the shared native ABI, which has no slot for it yet.
+The English build is the same model with a smaller embedding and tokenizer, so it is **topic-identical to the multilingual model on English input**. It does not cover non-Latin scripts (CJK, Arabic, Cyrillic, …); use it only when the input is reliably English/Latin. The Swift SDK selects it with `Gist(variant: .english)`. The JS and Kotlin SDKs currently load the multilingual build only: variant selection has to cross the shared native ABI, which has no slot for it yet.
 
 ## Evaluation
 
 Recall on a held-out set of **572 human-labeled real posts (36 topics)**, zero-shot for the
-LLMs and zero-shot classifiers. Embedding classifiers get a light logistic head trained on the same
-corpus; **recall@3** is the product metric (downstream aggregation consumes the top few topics).
+LLMs and zero-shot classifiers. Embedding classifiers get a light logistic head; **recall@3** is the
+product metric (downstream aggregation consumes the top few topics).
 
 | Model | Type | Size | recall@1 | recall@3 |
 |---|---|---:|---:|---:|
 | Qwen2.5-7B (cloud) | LLM zero-shot | server | **79%** | n/a |
 | multilingual-e5-small + head | transformer embed | 110 MB | 74% | 92% |
 | bge-small-en + head | transformer embed | 130 MB | 71% | 92% |
-| **gist** | **static embed + n-grams + MLP** | **~74 MB** | **71%** | **91%** |
+| **gist** | **on-device** | **~74 MB** | **71%** | **91%** |
 | all-MiniLM-L6-v2 + head | transformer embed | 90 MB | 68% | 90% |
-| potion + head | static embed | 30 MB | 65% | 89% |
 | mDeBERTa-v3-mnli-xnli | zero-shot NLI | 560 MB | 50% | 73% |
 | GLiClass-base | zero-shot | 400 MB | 44% | 65% |
 
 gist is **tied on recall@3** with the best small models, at a fraction of the size and one on-device
 pass, and it beats every zero-shot classifier decisively (they never learned the taxonomy or the
-distribution). Only a 7B cloud LLM clearly leads on recall@1. An MTEB cross-check confirms the
-transformer edge is genuine static-embedding tradeoff, not a quirk of this gold.
-
-## Built on
-
-- [`minishlab/potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M) (MIT): semantic embedding stream (per-script pruned, int8) + tokenizer lineage.
-- [`BAAI/bge-m3`](https://huggingface.co/BAAI/bge-m3) (MIT): teacher the static embedding was distilled from.
-- [Model2Vec](https://github.com/MinishLab/model2vec) (MIT): static-embedding distillation method.
+distribution). Only a 7B cloud LLM clearly leads on recall@1.
 
 ## License
 
