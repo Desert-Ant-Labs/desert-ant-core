@@ -139,7 +139,8 @@ let models: [ModelPackage] = [
     ),
     .init(
         name: "Uhm",
-        dependencies: ["AudioIO", "AudioDSP"]
+        dependencies: ["AudioIO", "AudioDSP"],
+        testDependencies: ["AudioIO"]
     ),
     .init(
         name: "Ear",
@@ -485,7 +486,7 @@ let testTargets: [Target] = [
             resources: [.copy("Resources/testmodel.tflite")]
         ),
         .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
-        .testTarget(name: "AudioIOTests", dependencies: ["AudioIO"]),
+        .testTarget(name: "AudioIOTests", dependencies: ["AudioIO", "TestSupport"]),
         .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
 ]
 

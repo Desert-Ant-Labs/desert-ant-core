@@ -21,9 +21,13 @@ if [ "$(uname)" = Darwin ]; then
     # xcrun pins the Xcode toolchain even when a mise-managed swift is on PATH:
     # older mise ignores the tools os=["linux"] filter above, and the swift.org
     # toolchain cannot build against the Xcode SDK.
-    xcrun swift test --scratch-path .build-host -c release
+    # --disable-xctest: every suite is Swift Testing since the XCTest
+    # conversion, but swift test still launches the empty XCTest harness per
+    # test target, printing an "Executed 0 tests" block ~28 times and paying
+    # ~0.14 s each. This drops that harness; Swift Testing is unaffected.
+    xcrun swift test --scratch-path .build-host -c release --disable-xctest
 else
     litert=$(dal_litert_dir)
     LD_LIBRARY_PATH="$litert${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-        swift test --scratch-path .build-host -c release -Xlinker "-L$litert"
+        swift test --scratch-path .build-host -c release --disable-xctest -Xlinker "-L$litert"
 fi
