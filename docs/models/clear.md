@@ -134,7 +134,10 @@ Delivers a **rich, present, close-miked podcast sound**.
 
 ## Variants
 
-Two variants ship.
+Two variants ship. They take the same input, produce the same output format
+and cost the same to run, so switching between them is a one-line change in
+the SDK. Pick by the sound you want, not by platform: both ship for every
+runtime.
 
 ### clear-studio
 
