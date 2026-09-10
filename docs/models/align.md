@@ -93,29 +93,9 @@ let refiner = try await SpeechTimestampRefiner(locale: locale, directory: myFold
 | `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |
 | `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator over coarse/fine uncertainty features |
 | `refiner_config.json` | JSON | tiny | Frontend, lexical, and language config the runtime needs |
-| `coarse.pt` | PyTorch checkpoint | ~0.5 MB | Coarse-stage weights (for retraining / other runtimes) |
-| `fine.pt` | PyTorch checkpoint | ~0.5 MB | Fine-stage weights (for retraining / other runtimes) |
 
 The compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin`, and `refiner_config.json`
-are exactly what the Swift SDK bundles. The `.pt` checkpoints are the training-run weights.
-
-## Architecture
-
-A two-stage coarse-to-fine cascade over a log-mel spectrogram, refining one boundary at a time:
-
-- **Frontend**: an Accelerate/vDSP log-mel spectrogram of the same audio Apple transcribes.
-- **Coarse stage**: a compact convolutional model searches a 2.4 s context around Apple's
-  proposed boundary and predicts a distribution over frames.
-- **Fine stage**: a second model re-searches a 0.8 s crop recentered on the coarse prediction
-  for a tighter estimate.
-- **Lexical conditioning**: UTF-8 byte features of the neighboring words plus a language id let
-  a single model cover all nine languages.
-- **Calibrator**: a small gradient-boosted-tree policy maps coarse/fine uncertainty features to
-  a final correction, fit only on the validation split to reduce large regressions.
-- **Structural fallback**: boundaries whose correction would be invalid, hit the search-window
-  edge, or lack streaming context keep Apple's original timestamp.
-
-Each stage runs fixed batch-16 on CPU + Neural Engine. Total parameters are 121,141 per stage.
+are exactly what the Swift SDK downloads.
 
 ## Inputs and outputs
 
