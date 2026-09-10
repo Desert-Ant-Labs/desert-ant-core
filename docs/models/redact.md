@@ -98,6 +98,10 @@ The weights are fetched from the Hub on first use and cached. See
 [model downloads and caching](../../README.md#model-downloads-and-caching) to
 prefetch them or to ship them with your app.
 
+### Runtime settings
+
+Recommended defaults: `min_score = 0.6`, `max_length = 256`, `stride = 64`.
+
 ## Taxonomy (20 public labels, plus `ORG`)
 
 `GIVEN_NAME`, `SURNAME`, `STREET_NAME`, `BUILDING_NUMBER`, `SECONDARY_ADDRESS`,
@@ -199,20 +203,6 @@ Latin, Greek and Cyrillic scripts.
 Coverage is not uniform: the largest EU languages are the strongest, and Maltese
 and Irish are the weakest of the 24. The per-language detection numbers are in
 the benchmark data.
-
-## Architecture
-
-- **Encoder:** Multilingual-MiniLM (XLM-R lineage) truncated to 6 layers with an
-  EU-script-trimmed vocab (~23 M params), fine-tuned for BIOES tagging.
-- **Deterministic layer:** a pure-stdlib post-processor owns high-confidence
-  structured labels (email, URL, IP/MAC, card, IBAN/BIC, VIN, SSN, routing,
-  tax id, government id, passport, driving licence, IMEI) with real validation
-  (Luhn, ISO-13616 IBAN, ISO-7064, per-country checksums) and reconciles them
-  with the model's contextual predictions. EU structured coverage includes
-  **checksum-validated national IDs for all 24 EU countries, all 27 EU VAT
-  numbers, IMEI, and per-country driving-licence numbers**. The same layer is
-  ported byte-for-byte to the JS and Swift runtimes (span-for-span parity).
-- Recommended runtime: `min_score = 0.6`, `max_length = 256`, `stride = 64`.
 
 ## License
 
