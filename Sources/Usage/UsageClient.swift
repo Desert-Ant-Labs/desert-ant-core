@@ -12,6 +12,10 @@ public let dayMs: Int64 = 24 * 60 * 60 * 1000
 public let webSessionMs: Int64 = 30 * 60 * 1000
 /// Default coalescing interval for a continuously-running `server` host's deltas.
 public let hourMs: Int64 = 60 * 60 * 1000
+/// Default coalescing interval for every other host's deltas (mobile, web). A
+/// session that keeps detecting sends one delta per quarter hour, not one per
+/// 3-second idle gap: bounds rows per device per day whatever the app does.
+public let quarterHourMs: Int64 = 15 * 60 * 1000
 
 /// Persisted per install, across sessions.
 public struct UsageState: Sendable, Equatable {
@@ -95,8 +99,15 @@ public final class UsageClient {
     private var pending: IngestEvent? // queued turnstile, awaiting first flush
     private var emitted = false       // did we open a turnstile this session?
     private var lastEmitAt: Int64 = 0 // clock of the last actual send; gates delta coalescing
+    /// The current session's id (wire schema 2): minted when a turnstile opens
+    /// and carried by that turnstile and every delta until the next turnstile —
+    /// so a long-lived client that re-opens the window (a new day, or a web tab
+    /// idle past 30 min) starts a new session id, not the same one forever.
+    public private(set) var sessionId: String = generateUUID()
 
-    public init(_ deps: ClientDeps) { self.deps = deps }
+    public init(_ deps: ClientDeps) {
+        self.deps = deps
+    }
 
     /// Host calls this once per inference/call to attribute to the turnstile.
     public func recordCall(_ n: Int = 1) {
@@ -140,7 +151,9 @@ public final class UsageClient {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
             sessionCalls = 0
-            lastEmitAt = deps.now()
+            // The coalescing gate starts counting from the first DELTA, not from
+            // the turnstile: a short session's calls must not wait a full interval.
+            lastEmitAt = 0
             deps.send(makeBody([ev]), opts)
             return
         }
@@ -157,7 +170,7 @@ public final class UsageClient {
                 }
                 return
             }
-            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext())
+            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext(), sessionId: sessionId)
             if deps.callCount == nil && st.carryCallCount != 0 {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
@@ -186,11 +199,18 @@ public final class UsageClient {
     }
 
     private func queue(context: [String: String]? = nil) {
-        pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext())
+        // A turnstile opens a session: new id, unless this is the first turnstile
+        // of this client and nothing has been sent under the initial id yet.
+        if emitted { sessionId = generateUUID() }
+        pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext(), sessionId: sessionId)
         emitted = true
     }
 
     private func makeBody(_ events: [IngestEvent]) -> IngestBody {
-        IngestBody(platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk, sentAt: iso8601(epochMs: deps.now()), events: events)
+        IngestBody(
+            platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk,
+            sentAt: iso8601(epochMs: deps.now()), events: events,
+            batchId: generateUUID(), schemaVersion: wireSchemaVersion
+        )
     }
 }

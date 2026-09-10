@@ -59,25 +59,34 @@ public struct SDKInfo: Codable, Sendable, Equatable {
 
 /// A single ingest event. `name` is always `"load"`; the optional fields are
 /// omitted from the wire when unset.
+///
+/// `sessionId` (schema 2) identifies the client session the event belongs to —
+/// one id per `UsageClient` lifetime, shared by the turnstile and every delta it
+/// emits. It is what makes session length / frequency representable server-side;
+/// without it one device with 50 deltas in a session is indistinguishable from
+/// one device with 50 sessions. Additive: old servers ignore it.
 public struct IngestEvent: Codable, Sendable, Equatable {
     public var name: String
     public var deviceId: String
     public var callCount: Int?
     public var timestamp: String?
     public var context: [String: String]?
+    public var sessionId: String?
 
     public init(
         name: String = "load",
         deviceId: String,
         callCount: Int? = nil,
         timestamp: String? = nil,
-        context: [String: String]? = nil
+        context: [String: String]? = nil,
+        sessionId: String? = nil
     ) {
         self.name = name
         self.deviceId = deviceId
         self.callCount = callCount
         self.timestamp = timestamp
         self.context = context
+        self.sessionId = sessionId
     }
 }
 
@@ -93,9 +102,20 @@ public struct AppInfo: Codable, Sendable, Equatable {
     }
 }
 
+/// Wire schema version this SDK emits. 1 = the original body; 2 adds
+/// `batchId`, `schemaVersion` and per-event `sessionId` (all additive).
+public let wireSchemaVersion = 2
+
 /// The request body posted to the ingest endpoint. Attribution is either a
 /// publishable `key` or — keyless, off-browser — the app identity in `app`.
-/// Field order on the wire follows declaration order.
+/// `buildBody` emits keys in sorted order (see the exact-JSON test), so the
+/// declaration order here is not the wire order.
+///
+/// `batchId` (schema 2) is minted once per body. It is the delivery contract:
+/// a server can de-duplicate on (batchId, event index) whatever sits between
+/// this SDK and its store, so a retry or a replay can never double-count —
+/// without any further SDK change. There is no retry in this SDK yet; when one
+/// ships it MUST resend the same body with the same batchId.
 public struct IngestBody: Codable, Sendable, Equatable {
     public var platform: String
     public var key: String?
@@ -103,6 +123,8 @@ public struct IngestBody: Codable, Sendable, Equatable {
     public var sdk: SDKInfo
     public var sentAt: String
     public var events: [IngestEvent]
+    public var batchId: String?
+    public var schemaVersion: Int?
 
     public init(
         platform: String = defaultPlatform,
@@ -110,7 +132,9 @@ public struct IngestBody: Codable, Sendable, Equatable {
         app: AppInfo? = nil,
         sdk: SDKInfo = SDKInfo(),
         sentAt: String,
-        events: [IngestEvent]
+        events: [IngestEvent],
+        batchId: String? = nil,
+        schemaVersion: Int? = nil
     ) {
         self.platform = platform
         self.key = key
@@ -118,6 +142,8 @@ public struct IngestBody: Codable, Sendable, Equatable {
         self.sdk = sdk
         self.sentAt = sentAt
         self.events = events
+        self.batchId = batchId
+        self.schemaVersion = schemaVersion
     }
 }
 
