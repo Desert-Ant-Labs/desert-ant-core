@@ -127,15 +127,6 @@ Indonesian, Thai, Vietnamese, Ukrainian, Swedish, Danish, Czech.
 - Emoji semantics are imprecise; near-ties at the top of the ranking are expected.
 - Per-language quality varies; lower-resource languages in the set are somewhat weaker.
 
-## Built on
-
-- [`minishlab/potion-multilingual-128M`](https://huggingface.co/minishlab/potion-multilingual-128M) (MIT): semantic embedding stream (PCA-reduced, vocab-pruned derivative) + tokenizer lineage.
-- [`BAAI/bge-m3`](https://huggingface.co/BAAI/bge-m3) (MIT): teacher the static embedding was distilled from.
-- [Model2Vec](https://github.com/MinishLab/model2vec) (MIT): static-embedding distillation method.
-- Unicode CLDR emoji annotations: multilingual keyword grounding in the training data.
-
-See [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/emo/blob/v0.7.0/THIRD_PARTY_NOTICES.md).
-
 ## License
 
 [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
