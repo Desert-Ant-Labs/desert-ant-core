@@ -73,7 +73,7 @@
       ],
       "hub": {
         "tags": ["audio", "speech", "speech-enhancement", "speech-denoising", "noise-suppression", "dereverberation", "podcast", "on-device", "core-ml",
-        "core-ai", "onnx", "ios", "android", "deepfilternet"],
+        "core-ai", "onnx", "ios", "android"],
         "pipelineTag": "audio-to-audio",
         "libraryName": null
       },
