@@ -82,7 +82,7 @@ public struct STFT: Sendable {
             for k in 0..<f {
                 let a = 2 * Float.pi * Float(k) * Float(t) / Float(n)
                 fc[t * f + k] = cosf(a)
-                fs[t * f + k] = sinf(a)
+                fs[t * f + k] = -sinf(a)
             }
         }
         self.fwdCos = fc
@@ -119,7 +119,7 @@ public struct STFT: Sendable {
         var re = [Float](repeating: 0, count: frames * f)
         var im = [Float](repeating: 0, count: frames * f)
         Matmul.gemm(windowed, fwdCos, into: &re, m: frames, n: f, k: n, alpha: 1)
-        Matmul.gemm(windowed, fwdSin, into: &im, m: frames, n: f, k: n, alpha: -1)
+        Matmul.gemm(windowed, fwdSin, into: &im, m: frames, n: f, k: n)
         return Spectrogram(re: re, im: im, frames: frames, bins: f)
     }
 
