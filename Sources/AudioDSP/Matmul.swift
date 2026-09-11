@@ -7,10 +7,14 @@
 import Accelerate
 #endif
 
-enum Matmul {
+/// Public because a model's own frontend needs the same primitive the STFT
+/// does: `Cue`'s Kaldi filterbank cannot reuse `STFT` (Kaldi windows 400
+/// samples into a 512-point transform, and removes DC and preemphasises per
+/// frame first), but it should not carry a second copy of the matmul.
+public enum Matmul {
     /// `c[m x n] = alpha * a[m x k] @ b[k x n] + beta * c`, all row-major.
-    static func gemm(_ a: [Float], _ b: [Float], into c: inout [Float],
-                     m: Int, n: Int, k: Int, alpha: Float = 1, beta: Float = 0) {
+    public static func gemm(_ a: [Float], _ b: [Float], into c: inout [Float],
+                            m: Int, n: Int, k: Int, alpha: Float = 1, beta: Float = 0) {
         #if canImport(Accelerate)
         // vDSP_mmul, not cblas_sgemm: the classic CBLAS interface is deprecated
         // since macOS 13.3 behind -DACCELERATE_NEW_LAPACK, and a Clang define

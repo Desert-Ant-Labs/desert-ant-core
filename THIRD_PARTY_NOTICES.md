@@ -57,6 +57,37 @@ Swift implementation are distributed under [`LICENSE.md`](LICENSE.md).
 
 ---
 
+## Cue
+
+Cue is a derivative work, not a model trained here: the published weights are
+FireRedVAD converted to Core ML, re-authored for the Neural Engine, and
+palettized to 4 bits. The architecture and the trained parameters are upstream's.
+
+### Model
+
+- **FireRedVAD** - FireRedTeam (Xiaohongshu) - **Apache-2.0**. DFSMN voice
+  activity detector. The `cue.mlmodelc` published to `desert-ant-labs/cue` is
+  derived from these weights and is redistributed under the same license.
+  Weights: https://huggingface.co/FireRedTeam/FireRedVAD
+  Source: https://github.com/FireRedTeam/FireRedVAD
+
+  Cite as:
+  Xu, Jia, Huang, Chen, Li, Liu, Xie, Tang, Hu. *FireRedASR2S: A
+  State-of-the-Art Industrial-Grade All-in-One Automatic Speech Recognition
+  System*, arXiv:2603.10420, 2026.
+
+### Test fixtures
+
+- `Tests/CueTests/Resources/hello_en.wav`, `hello_zh.wav` - FireRedTeam -
+  **Apache-2.0**. The upstream repository's sample audio, redistributed so the
+  Swift port can be pinned against the reference implementation's output on the
+  same input.
+
+The compression recipe, the Neural Engine re-authoring, the Kaldi filterbank
+port and the Swift implementation are distributed under [`LICENSE.md`](LICENSE.md).
+
+---
+
 ## Emo, Clear
 
 Not yet recorded here. Their notices live on their Hugging Face model cards; move
