@@ -9,7 +9,7 @@ import JavaScriptKit
 /// The shared ingest endpoint. Every SDK reports to the same place, so it is not
 /// part of the public API. A host may override it (tests/diagnostics) via
 /// `hostProvidedIngestEndpoint()`.
-private let defaultIngestEndpoint = "https://platform.desertant.ai/api/v1/ingest"
+private let defaultIngestEndpoint = "https://events.desertant.com/api/v1/ingest"
 private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
 /// A `send` transport that POSTs the serialized body to `endpoint`.

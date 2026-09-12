@@ -46,11 +46,41 @@ func resolveDeviceId(_ explicit: String?, _ storage: UsageStorage) -> String {
     explicit ?? hostProvidedDeviceId() ?? storage.persistentDeviceId()
 }
 
+/// Last-resort device id when storage holds none. On Linux prefer the host's
+/// stable /etc/machine-id, so a server fleet whose UserDefaults can't persist
+/// counts one device per host, not one per process; otherwise a random UUID.
+func fallbackDeviceId() -> String {
+#if os(Linux)
+    if let machineId = linuxMachineId() { return machineId }
+#endif
+    return generateUUID()
+}
+
+#if os(Linux)
+/// /etc/machine-id (a 128-bit host id) formatted as a UUID. `nil` if unreadable.
+private func linuxMachineId() -> String? {
+    for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        guard let raw = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
+        let hex = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hex.count == 32, hex.allSatisfy(\.isHexDigit) else { continue }
+        var i = hex.startIndex
+        var parts: [String] = []
+        for n in [8, 4, 4, 4, 12] {
+            let j = hex.index(i, offsetBy: n)
+            parts.append(String(hex[i..<j]))
+            i = j
+        }
+        return parts.joined(separator: "-")
+    }
+    return nil
+}
+#endif
+
 extension UsageStorage {
     /// The stable per-install device id, generated and persisted on first use.
     public func persistentDeviceId() -> String {
         if let existing = get(deviceIdKey), !existing.isEmpty { return existing }
-        let id = generateUUID()
+        let id = fallbackDeviceId()
         set(deviceIdKey, id)
         return id
     }
