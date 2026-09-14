@@ -27,7 +27,6 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
   - [Offline and airgapped](#offline-and-airgapped)
   - [AWS Lambda on arm64](#aws-lambda-on-arm64)
 - [Platform support](#platform-support)
-- [Contributing](#contributing)
 - [License](#license)
 
 ## Models
@@ -253,12 +252,6 @@ rather than sysfs.
 | Windows | LiteRT | x64, Swift 6.2+ |
 | Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
-
-## Contributing
-
-Every build, test, and release step is a mise task, so `mise run test` and
-`mise run build` do locally what CI does. See
-[docs/development.md](docs/development.md).
 
 ## License
 
