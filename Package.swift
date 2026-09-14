@@ -512,7 +512,7 @@ let vozTargets: [Target] = [
     ),
     .testTarget(
         name: "VozTests",
-        dependencies: ["Voz", "DesertAnt", "TestSupport"]
+        dependencies: ["Voz", "DesertAnt", "TestSupport", "AudioIO"]
     ),
 ]
 
