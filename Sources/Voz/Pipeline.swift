@@ -69,6 +69,10 @@ final class Pipeline {
     private let hOut: Buffer
     private let cOut: Buffer
 
+    /// Reused by ``refineWindow(_:validFrames:fromFrame:)``; the live path calls
+    /// it about once a second and should not allocate 240 KB each time.
+    private var refineScratch: [Element] = []
+
     private let melProvider: MLDictionaryFeatureProvider
     private let encoderProvider: MLDictionaryFeatureProvider
     private let stepProvider: MLDictionaryFeatureProvider
@@ -694,6 +698,62 @@ final class Pipeline {
         }
         words = clampMonotonic(words)
         return (words.map(\.text).joined(separator: " "), words)
+    }
+
+    /// Seconds of audio per encoder frame, for callers placing frame indices.
+    var secondsPerFrame: Double { configuration.secondsPerFrame }
+
+    // MARK: - Live refinement
+
+    /// Encode one window with full context, but decode only from `fromFrame`.
+    ///
+    /// The live refiner re-reads the tail of an utterance every second or so.
+    /// Nearly all of that window was settled by an earlier pass with at least
+    /// as much context, and re-decoding it is work whose answer is already
+    /// known: measured on a 15 s window, encoding is ~40 ms and decoding ~290
+    /// ms, because decode costs a dispatch per emitted token and the window
+    /// holds most of a minute's words.
+    ///
+    /// Encoding is deliberately NOT shortened. The frames that do get decoded
+    /// are only as good as the context the encoder saw, which is the whole
+    /// reason a second pass beats the streaming one.
+    ///
+    /// Returns words timed from the start of `window`.
+    func refineWindow(_ window: ArraySlice<Float>, validFrames: Int,
+                      fromFrame: Int) throws -> [Word] {
+        let c = configuration
+        let total = c.encFrames
+        let start = Swift.max(0, Swift.min(fromFrame, total - 1))
+        if refineScratch.count != c.jointHidden * total {
+            refineScratch = [Element](repeating: 0, count: c.jointHidden * total)
+        }
+        try refineScratch.withUnsafeMutableBufferPointer { buffer in
+            try encode(window: window, validFrames: validFrames,
+                       into: buffer.baseAddress!)
+        }
+        // Shift the projections so the decode's frame 0 is `start`. The decoder
+        // walks from 0 and carries its own prediction state, so this is exactly
+        // what a window beginning there would see, minus the context loss.
+        var shifted = [Element](repeating: 0, count: c.jointHidden * total)
+        let span = total - start
+        refineScratch.withUnsafeBufferPointer { source in
+            shifted.withUnsafeMutableBufferPointer { out in
+                for channel in 0..<c.jointHidden {
+                    out.baseAddress!.advanced(by: channel * total)
+                        .update(from: source.baseAddress! + channel * total + start,
+                                count: span)
+                }
+            }
+        }
+        var tokens: [[Int]] = [[]], frames: [[Int]] = [[]], ends: [[Int]] = [[]]
+        try decode(projections: shifted,
+                   valids: [Swift.max(1, Swift.min(span, validFrames - start))],
+                   ends: &ends, tokens: &tokens, frames: &frames)
+        return timedWords(tokens: tokens[0],
+                          frames: frames[0].map { $0 + start },
+                          ends: ends[0].map { $0 + start },
+                          vocabulary: assets.vocabulary,
+                          secondsPerFrame: c.secondsPerFrame, timeOffset: 0)
     }
 }
 #endif

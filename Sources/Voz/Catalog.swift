@@ -33,6 +33,26 @@ public enum VozModel: ModelDeclaration {
     public static let mel = "mel.mlmodelc"
     public static let decodeStep = "decoder.mlmodelc"
 
+    /// `encoder` and `decodeStep` are MULTIFUNCTION: one compiled program per
+    /// file holding both the file-transcription graph and the streaming one.
+    ///
+    /// The two differ in how they are wired, not in what they know: a window
+    /// against a chunk, centred convolutions against causal ones, a
+    /// window-sized relative-position table against a chunk-sized one. The
+    /// conformer trunk is the same tensors, so it is stored once and the
+    /// dictation path costs about 10 MB on top of the offline bundle instead of
+    /// a second download of comparable size.
+    ///
+    /// Reaching a function needs `MLModelConfiguration.functionName`, an iOS 18
+    /// feature, which is why ``Voz/Live`` carries an availability floor that
+    /// ``Voz`` does not. `offline` is the default function, so a caller that
+    /// never sets a name gets the mode that has always existed.
+    ///
+    /// The names are read from `meta.json` rather than assumed, so an export can
+    /// rename them; these are the fallbacks and the documentation.
+    public static let offlineFunction = "offline"
+    public static let realtimeFunction = "realtime"
+
     /// Sidecars: geometry the runtime refuses to hardcode (`meta.json`), the
     /// sentencepiece vocabulary, and the prediction network's embedding table,
     /// which is a host-side lookup rather than a graph op. The table ships as
