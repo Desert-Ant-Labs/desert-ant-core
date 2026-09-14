@@ -550,7 +550,7 @@ let package = Package(
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts + alignProducts + vozProducts,
+    products: products + modelProducts + alignProducts + tongueProducts + vozProducts,
     traits: [
         .trait(
             name: "MLX",
