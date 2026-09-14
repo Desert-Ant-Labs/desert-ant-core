@@ -54,6 +54,20 @@ private let geometry = """
     #expect(throws: VozError.self) { try c.validate() }
 }
 
+@Test func exactMultipleDecodesAFinalFrameItDoesNotAttend() throws {
+    let c = try JSONDecoder().decode(Configuration.self, from: Data(geometry.utf8))
+    // An exact multiple of 1,280 samples gets one more mel frame from the
+    // centered STFT, so the decoder gains an encoder frame that attention still
+    // masks. 239,360 is the last multiple below a full window, where the
+    // decoded count already reaches `enc_frames`.
+    let cases = [(88_319, 69, 69), (88_320, 70, 69), (88_321, 70, 70),
+                 (239_360, 188, 187), (240_000, 188, 188)]
+    for (samples, decoded, attended) in cases {
+        #expect(Pipeline.validEncoderFrames(sampleCount: samples, configuration: c) == decoded)
+        #expect(Pipeline.attendedEncoderFrames(sampleCount: samples, configuration: c) == attended)
+    }
+}
+
 @Test func wordsGroupOnSentencepieceBoundaries() {
     let vocab = ["\u{2581}hello", "\u{2581}wor", "ld", "<en-US>"]
     let words = timedWords(tokens: [0, 1, 2], frames: [1, 5, 7], ends: [4, 7, 9],
