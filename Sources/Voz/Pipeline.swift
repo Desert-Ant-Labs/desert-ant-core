@@ -124,6 +124,30 @@ final class Pipeline {
 
     // MARK: - Frontend
 
+    /// Mel frames that hold audio. NeMo's centered STFT gives `samples / hop + 1`.
+    private static func validMelFrames(sampleCount: Int, configuration: Configuration) -> Int {
+        max(1, min(configuration.validFrames, sampleCount / configuration.hopLength + 1))
+    }
+
+    /// Encoder frames that hold audio. Subsampling rounds up, so an exact
+    /// multiple of `hop * 8` samples still has a final encoder frame.
+    static func validEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
+        let melValid = validMelFrames(sampleCount: sampleCount, configuration: configuration)
+        return min(configuration.encFrames, (melValid + 7) / 8)
+    }
+
+    /// Encoder frames the window attends to. At an exact multiple of `hop * 8`
+    /// samples the final valid frame holds one mel frame of audio and seven of
+    /// padding, which the exported subsampling reads without a mask. Letting
+    /// attention reach that frame changes words anywhere in the window, so it
+    /// stays masked here. The decoder still reads it, so a word running into
+    /// the end of the window can finish there.
+    static func attendedEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
+        let samplesPerFrame = configuration.hopLength * 8
+        return max(1, min(configuration.encFrames,
+                          (sampleCount + samplesPerFrame - 1) / samplesPerFrame))
+    }
+
     /// Lay PCM out the way the mel model expects.
     ///
     /// NeMo's featurizer runs `stft(center=True)`, so the signal is zero-padded
@@ -153,7 +177,7 @@ final class Pipeline {
     }
 
     /// One window of audio to encoder projections, written into `destination`.
-    private func encode(window: ArraySlice<Float>, validFrames: Int,
+    private func encode(window: ArraySlice<Float>,
                         into destination: UnsafeMutablePointer<Element>) throws {
         frame(window)
         // Normalization statistics must be taken over the frames that actually
@@ -162,16 +186,17 @@ final class Pipeline {
         // speech: the frontend then agrees with the reference implementation to
         // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
         let melFrames = configuration.validFrames
-        let melValid = max(1, min(melFrames, window.count / configuration.hopLength + 1))
+        let melValid = Self.validMelFrames(sampleCount: window.count, configuration: configuration)
         melMask.ptr.update(repeating: 1, count: melValid)
         for i in melValid..<melFrames { melMask.ptr[i] = 0 }
         _ = try assets.mel.prediction(from: melProvider, options: melOptions)
         let frames = configuration.encFrames
-        let valid = max(1, min(frames, validFrames))
+        let attended = Self.attendedEncoderFrames(sampleCount: window.count,
+                                                  configuration: configuration)
         keyBias.zero()
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
-        for i in valid..<frames { keyBias.ptr[i] = Element(-40000) }
+        for i in attended..<frames { keyBias.ptr[i] = Element(-40000) }
         _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
         destination.update(from: encOut.ptr, count: configuration.jointHidden * frames)
     }
@@ -494,10 +519,9 @@ final class Pipeline {
                 for (i, w) in group.enumerated() {
                     let low = starts[w]
                     let high = Swift.min(low + c.nSamples, available)
-                    // ceil(samples / hop / 8): rounding this down loses the final frame.
-                    valids[i] = Swift.max(1, Swift.min(
-                        frames, (high - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
-                    try encode(window: slice(low, high), validFrames: valids[i],
+                    valids[i] = Self.validEncoderFrames(
+                        sampleCount: high - low, configuration: c)
+                    try encode(window: slice(low, high),
                                into: buffer.baseAddress! + i * stride)
                     progress(reported(low))
                 }
@@ -613,10 +637,9 @@ final class Pipeline {
                         let shortened = tokens[entry.offset].isEmpty
                             ? low + Int(Self.retryFraction * Double(high - low)) : high
                         retryStarts[slot] = low
-                        retryValids[slot] = Swift.max(1, Swift.min(
-                            frames, (shortened - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
+                        retryValids[slot] = Self.validEncoderFrames(
+                            sampleCount: shortened - low, configuration: c)
                         try encode(window: slice(low, shortened),
-                                   validFrames: retryValids[slot],
                                    into: out.baseAddress! + slot * stride)
                     }
                 }
