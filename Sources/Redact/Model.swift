@@ -45,6 +45,7 @@ final class Model: @unchecked Sendable {
     func detect(_ text: String, minScore: Double) async throws -> [Span] {
         let threshold = minScore.isFinite ? min(1, max(0, minScore)) : 0.6
         let det = Deterministic.detect(text, enabled: Deterministic.owned.union(["PHONE"]))
+        // PHONE stays visible so neural inference can refine the deterministic match.
         let masked = Pipeline.maskText(text, det.filter { Deterministic.owned.contains($0.label) })
         let ml = try await mlSpans(Pipeline.modelInput(for: masked), minScore: threshold)
         return Pipeline.cleanSpans(text, Pipeline.relabelByContext(text, Pipeline.resolve(det, ml)))

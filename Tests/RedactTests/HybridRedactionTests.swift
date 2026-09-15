@@ -41,6 +41,25 @@ struct HybridRedactionTests {
         #expect(await session.inputIDs == [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 2])
     }
 
+    @Test func neuralPhoneMatchReplacesTheOverlappingDeterministicMatch() async throws {
+        let redact = Redact(assets: ModelAssets(
+            tokenizer: tokenizer(),
+            labelsJSON: "{\"id2label\":{\"0\":\"O\",\"1\":\"B-PHONE\",\"2\":\"I-PHONE\",\"3\":\"E-PHONE\"}}",
+            session: PhoneSession()
+        ))
+        let result = try await redact.redaction(of: text, options: .init(labels: [.phone]))
+
+        let item = try #require(result.items.first)
+        #expect(result.items.count == 1)
+        #expect(item.label == .phone)
+        #expect(item.original == "+34 600 100 200")
+        #expect(item.confidence > 0.99 && item.confidence <= 1)
+        #expect(item.range.lowerBound.utf16Offset(in: text) == 8)
+        #expect(item.range.upperBound.utf16Offset(in: text) == 23)
+        #expect(result.redactedText == "😀 call [PHONE_1] or email me@x.com iban DE89370400440532013000 card 4539 1488 0343 6467")
+        #expect(result.restore(result.redactedText) == text)
+    }
+
     private func tokenizer() -> [UInt8] {
         let pieces = ["<unk>", "<s>", "</s>", "▁😀", "▁call", "▁+34", "▁600", "▁100", "▁200", "▁or", "▁email", "▁iban", "▁card"]
         var bytes: [UInt8] = [0x52, 0x44, 0x54, 0x4B, 1]
@@ -54,6 +73,24 @@ struct HybridRedactionTests {
         }
         for piece in pieces { bytes += piece.utf8 }
         return bytes
+    }
+}
+
+private struct PhoneSession: InferenceSession {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
+        let ids = try #require(inputs["input_ids"]?.int32Values)
+        var logits = [Float](repeating: 0, count: 256 * 4)
+        for (row, id) in ids.enumerated() {
+            let label: Int
+            switch id {
+            case 5: label = 1
+            case 6, 7: label = 2
+            case 8: label = 3
+            default: label = 0
+            }
+            logits[row * 4 + label] = 20
+        }
+        return [Tensor(float32: logits, shape: [1, 256, 4])]
     }
 }
 
