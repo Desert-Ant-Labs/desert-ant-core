@@ -29,5 +29,8 @@ final class Buffer {
     }
 
     func zero() { ptr.update(repeating: 0, count: count) }
+
+    /// The pipeline-facing view of this storage (see `EngineBuffer`).
+    var view: EngineBuffer<Element> { EngineBuffer(ptr: ptr, count: count) }
 }
 #endif

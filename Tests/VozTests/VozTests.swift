@@ -9,11 +9,24 @@ import Testing
 // that produces timestamps. Anything needing the weights lives in the
 // parakeet-ane repo's evaluation harness, which scores WER against a manifest.
 
-@Test func catalogDeclaresAppleOnly() {
+@Test func catalogDeclaresItsPlatforms() {
     #expect(VozModel.id == "voz")
     #expect(VozModel.repo == "desert-ant-labs/voz")
     #expect(VozModel.supports(.apple))
-    let unsupported: [ModelPlatform] = [.android, .linux, .windows, .web]
+    // LiteRT platforms ship the same three graphs as .tflite programs.
+    #expect(VozModel.supports(.android))
+    #expect(VozModel.supports(.linux))
+    for platform in VozModel.files.keys where platform != .apple {
+        let files = VozModel.files[platform] ?? []
+        #expect(files.contains("encoder.tflite"))
+        #expect(files.contains("mel.tflite"))
+        #expect(files.contains("decoder.tflite"))
+        // The LiteRT export ships its own geometry (float32, one lane).
+        #expect(files.contains("meta.litert.json"))
+        #expect(files.contains("vocab.json"))
+        #expect(files.contains("embedding.f16"))
+    }
+    let unsupported: [ModelPlatform] = [.windows, .web]
     for platform in unsupported {
         #expect(!VozModel.supports(platform), "voz has no \(platform) backend")
     }
@@ -63,8 +76,9 @@ private let geometry = """
     let cases = [(88_319, 69, 69), (88_320, 70, 69), (88_321, 70, 70),
                  (239_360, 188, 187), (240_000, 188, 188)]
     for (samples, decoded, attended) in cases {
-        #expect(Pipeline.validEncoderFrames(sampleCount: samples, configuration: c) == decoded)
-        #expect(Pipeline.attendedEncoderFrames(sampleCount: samples, configuration: c) == attended)
+        // Free functions since the pipeline went generic over its engine.
+        #expect(validEncoderFrames(sampleCount: samples, configuration: c) == decoded)
+        #expect(attendedEncoderFrames(sampleCount: samples, configuration: c) == attended)
     }
 }
 

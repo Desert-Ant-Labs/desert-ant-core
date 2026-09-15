@@ -17,6 +17,20 @@ if [ "$want" = core ]; then
     models=""
 else
     models=$(dal_select "$want" kotlin)
+    # Deferred models build only when a lane opts in (see dal.sh); naming one
+    # explicitly still builds it. Filtered here, once, so the assemble list and
+    # the AAR verification below cannot disagree about what was built.
+    if [ "$want" = all ]; then
+        kept=""
+        for model in $models; do
+            if dal_android_deferred "$model"; then
+                echo "== $model deferred (set DAL_LONG_TESTS=1 to include) =="
+            else
+                kept="$kept $model"
+            fi
+        done
+        models=$kept
+    fi
     projects=(":core:assembleRelease")
     for model in $models; do
         # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar with

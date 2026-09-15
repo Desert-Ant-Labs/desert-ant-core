@@ -32,6 +32,13 @@ struct DalLrtSession {
   int32_t* out_dims;   // num_outputs * LITERT_TENSOR_MAX_RANK
   size_t* out_bytes;
   void** out_copy;
+
+  // Input metadata (fixed shapes), so a caller can size its buffers from the
+  // artifact rather than from a constant (e.g. Voz reads its decode lane count
+  // off the decoder's embed input).
+  int* in_element;
+  int* in_rank;
+  int32_t* in_dims;    // num_inputs * LITERT_TENSOR_MAX_RANK
 };
 
 static void set_err(char* errbuf, int len, const char* msg) {
@@ -85,6 +92,9 @@ void dal_lrt_free(DalLrtSession* s) {
   free(s->out_rank);
   free(s->out_dims);
   free(s->out_bytes);
+  free(s->in_element);
+  free(s->in_rank);
+  free(s->in_dims);
   if (s->compiled) LiteRtDestroyCompiledModel(s->compiled);
   if (s->options) LiteRtDestroyOptions(s->options);
   if (s->model) LiteRtDestroyModel(s->model);
@@ -178,6 +188,9 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
   s->out_dims = (int32_t*)calloc((size_t)s->num_outputs * LITERT_TENSOR_MAX_RANK, sizeof(int32_t));
   s->out_bytes = (size_t*)calloc((size_t)s->num_outputs, sizeof(size_t));
   s->out_copy = (void**)calloc((size_t)s->num_outputs, sizeof(void*));
+  s->in_element = (int*)calloc((size_t)s->num_inputs, sizeof(int));
+  s->in_rank = (int*)calloc((size_t)s->num_inputs, sizeof(int));
+  s->in_dims = (int32_t*)calloc((size_t)s->num_inputs * LITERT_TENSOR_MAX_RANK, sizeof(int32_t));
 
   for (int i = 0; i < s->num_inputs; i++) {
     const char* name = NULL;
@@ -192,6 +205,10 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
         LiteRtGetRankedTensorType(tensor, &type) != kLiteRtStatusOk) {
       set_err(errbuf, errbuf_len, "reading input tensor type failed"); goto fail;
     }
+    s->in_element[i] = (int)type.element_type;
+    s->in_rank[i] = (int)type.layout.rank;
+    for (unsigned int d = 0; d < type.layout.rank && d < LITERT_TENSOR_MAX_RANK; d++)
+      s->in_dims[i * LITERT_TENSOR_MAX_RANK + d] = type.layout.dimensions[d];
     LiteRtTensorBufferRequirements reqs = NULL;
     if (LiteRtGetCompiledModelInputBufferRequirements(s->compiled, 0, (LiteRtParamIndex)i, &reqs)
             != kLiteRtStatusOk) {
@@ -248,6 +265,18 @@ const char* dal_lrt_input_name(const DalLrtSession* s, int i) {
 }
 const char* dal_lrt_output_name(const DalLrtSession* s, int i) {
   return (s && i >= 0 && i < s->num_outputs) ? s->output_names[i] : NULL;
+}
+
+int dal_lrt_input_element_type(const DalLrtSession* s, int i) {
+  return (s && i >= 0 && i < s->num_inputs) ? s->in_element[i] : 0;
+}
+int dal_lrt_input_rank(const DalLrtSession* s, int i) {
+  return (s && i >= 0 && i < s->num_inputs) ? s->in_rank[i] : 0;
+}
+void dal_lrt_input_dims(const DalLrtSession* s, int i, int32_t* dims_out) {
+  if (!s || i < 0 || i >= s->num_inputs || !dims_out) return;
+  for (int d = 0; d < s->in_rank[i]; d++)
+    dims_out[d] = s->in_dims[i * LITERT_TENSOR_MAX_RANK + d];
 }
 
 int dal_lrt_run(DalLrtSession* s, const void* const* inputs, const size_t* input_lens,
