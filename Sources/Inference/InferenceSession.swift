@@ -38,6 +38,34 @@ public protocol InferenceSession: Sendable {
     /// Most callers use the two-argument convenience below.
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor]
 
+    /// Run several independent inputs in one submission.
+    ///
+    /// The Neural Engine charges a fixed cost per dispatch - the host request,
+    /// the firmware round trip, the completion - and a caller handing it one
+    /// input at a time pays that per item while the engine idles through it. A
+    /// batch hands the runtime the whole queue at once, so it can run the items
+    /// back to back and, on a machine with more than one engine, across both.
+    ///
+    /// Measured on the models this package ships, Neural Engine only, ms per
+    /// item at a batch of four against one at a time:
+    ///
+    ///                  M5 (1 engine)   M3 Ultra (2 engines)
+    ///   uhm             79.3 -> 56.1    93.6 -> 36.6
+    ///   voz encoder     25.4 -> 25.1    30.3 -> 13.8
+    ///
+    /// Item i of a batch is bit-identical to predicting it alone; that was
+    /// checked on every compiled model here before this existed.
+    ///
+    /// The default is the loop it replaces, which is what the runtimes without a
+    /// batch path (LiteRT, the JS host) want anyway.
+    ///
+    /// A requirement rather than an extension: a method that only exists in an
+    /// extension binds statically, so every call through `any InferenceSession`
+    /// would reach the default below and no backend could ever replace it. That
+    /// is not hypothetical - it is what this looked like for its first hour, and
+    /// it measured exactly no difference.
+    func run(batch: [[String: Tensor]], outputs: [String]) async throws -> [[Tensor]]
+
     /// The last-dimension extent this graph was compiled at for a named input — its sequence
     /// width — or `nil` when the runtime cannot report shapes.
     ///
@@ -50,6 +78,15 @@ public protocol InferenceSession: Sendable {
 }
 
 public extension InferenceSession {
+    /// One at a time, which is what a runtime without a batch path (LiteRT, the
+    /// JS host) does anyway, and what every backend did before this existed.
+    func run(batch: [[String: Tensor]], outputs: [String]) async throws -> [[Tensor]] {
+        var results: [[Tensor]] = []
+        results.reserveCapacity(batch.count)
+        for inputs in batch { results.append(try await run(inputs: inputs, outputs: outputs)) }
+        return results
+    }
+
     /// Runtimes that cannot introspect their own shapes report nothing, and callers fall back
     /// to their own default. Returning `nil` rather than a guess keeps "I don't know" distinct
     /// from "it is 128".

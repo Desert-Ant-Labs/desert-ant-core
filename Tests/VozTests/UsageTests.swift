@@ -1,5 +1,6 @@
 #if canImport(CoreML)
 import DesertAnt
+import Foundation
 import Testing
 
 @testable import Voz
@@ -44,9 +45,13 @@ struct VozUsage {
         // The debounce coalesces the burst, so nothing has gone out yet.
         #expect(sink.sent.isEmpty)
 
-        // Wait past the 3 s debounce rather than reaching into the actor: what
-        // matters is that the burst leaves as one send carrying five calls.
-        try await Task.sleep(nanoseconds: 4_000_000_000)
+        // Wait for the debounce rather than for a fixed interval: it is three
+        // seconds, but a loaded CI machine schedules the actor's timer late and
+        // a fixed wait fails the run rather than the code.
+        let deadline = Date().addingTimeInterval(30)
+        while sink.sent.isEmpty, Date() < deadline {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
         #expect(sink.sent.count == 1)
         #expect(sink.calls == 5)
     }

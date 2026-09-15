@@ -20,8 +20,12 @@ struct Assets {
     let decodeStep: MLModel
     /// Windows decoded per dispatch, read from the model rather than assumed.
     let decodeLanes: Int
+    /// Where the model was loaded from, which identifies it to the batch-size
+    /// measurements.
+    let directory: URL
 
     init(directory: URL, computeUnits: MLComputeUnits) throws {
+        self.directory = directory
         let decoder = JSONDecoder()
         configuration = try decoder.decode(
             Configuration.self,

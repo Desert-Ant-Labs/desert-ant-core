@@ -113,6 +113,27 @@ actor TrackedSession: InferenceSession {
         return result
     }
 
+    /// Forwarded for the same reason `inputWidth` is: a wrapper that drops a
+    /// method silently inherits the protocol's default, and here that default is
+    /// the one-at-a-time loop this exists to replace. The batch would still be
+    /// correct and quietly lose every gain, on every SDK, because the factory
+    /// hands out nothing but wrapped sessions.
+    ///
+    /// Billed as one call, not as `batch.count`: a batch is one operation the
+    /// caller asked for, which is the same rule `InferenceContext.callGroup`
+    /// applies to a multi-run operation.
+    func run(batch: [[String: Tensor]], outputs: [String]) async throws -> [[Tensor]] {
+        startIfNeeded()
+        let client = clientFor(device(InferenceContext.deviceId ?? hostProvidedDeviceId()))
+        client.start()
+        if InferenceContext.callGroup?.markCounted(ObjectIdentifier(client)) ?? true {
+            client.recordCall()
+        }
+        let result = try await wrapped.run(batch: batch, outputs: outputs)
+        scheduleFlush()
+        return result
+    }
+
     /// Stamp the idle clock and send pending usage for every tracked device (e.g.
     /// on app background / page hide). No-op if inference never ran.
     func suspend() {

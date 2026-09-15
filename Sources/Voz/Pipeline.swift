@@ -1,6 +1,7 @@
 #if canImport(CoreML)
 import CoreML
 import Foundation
+import Inference
 
 /// Hands finished windows from the encoding thread to the decoding one.
 ///
@@ -140,6 +141,21 @@ final class Pipeline {
     private let hOut: Buffer
     private let cOut: Buffer
 
+    /// One mel copy, one attention bias and one feature provider per slot of an
+    /// encoder batch, built once. A batch needs every item's inputs to exist at
+    /// the same time, and allocating them per block showed up as a slowdown
+    /// larger than the batch's gain.
+    private let batchMel: [Buffer]
+    private let batchBias: [Buffer]
+    private let batchProviders: [MLDictionaryFeatureProvider]
+
+    /// Where the encoder model lives, which identifies it to the block-size
+    /// measurements. See ``BlockSize``.
+    private let encoderPath: URL
+    /// Nanoseconds inside the last encoder submission, which is what the block
+    /// size changes. Read by the calibration at load, and by nothing else.
+    private var lastSubmission: UInt64 = 0
+
     private let melProvider: MLDictionaryFeatureProvider
     private let encoderProvider: MLDictionaryFeatureProvider
     private let stepProvider: MLDictionaryFeatureProvider
@@ -149,6 +165,7 @@ final class Pipeline {
 
     init(assets: Assets) throws {
         self.assets = assets
+        encoderPath = assets.directory.appendingPathComponent(VozModel.encoder)
         let c = assets.configuration
         let lanes = assets.decodeLanes
         let hidden = c.predLayers * c.predHidden
@@ -180,6 +197,16 @@ final class Pipeline {
             "mel": MLFeatureValue(multiArray: melOut.array),
             "key_bias": MLFeatureValue(multiArray: keyBias.array),
             "pad_mask": MLFeatureValue(multiArray: padMask.array)])
+        let slots = BatchSize.candidates.max() ?? 1
+        batchMel = try (0..<slots).map { _ in try Buffer([1, c.nMels, 1, c.validFrames]) }
+        batchBias = try (0..<slots).map { _ in try Buffer([1, c.encFrames, 1, 1]) }
+        let pad = padMask
+        batchProviders = try zip(batchMel, batchBias).map { mel, bias in
+            try MLDictionaryFeatureProvider(dictionary: [
+                "mel": MLFeatureValue(multiArray: mel.array),
+                "key_bias": MLFeatureValue(multiArray: bias.array),
+                "pad_mask": MLFeatureValue(multiArray: pad.array)])
+        }
         stepProvider = try MLDictionaryFeatureProvider(dictionary: [
             "embed": MLFeatureValue(multiArray: embed.array),
             "h_in": MLFeatureValue(multiArray: hIn.array),
@@ -191,6 +218,7 @@ final class Pipeline {
         encoderOptions.outputBackings = ["enc_proj": encOut.array]
         stepOptions.outputBackings = [
             "logits": logitsOut.array, "h_out": hOut.array, "c_out": cOut.array]
+
     }
 
     // MARK: - Frontend
@@ -250,26 +278,104 @@ final class Pipeline {
     /// One window of audio to encoder projections, written into `destination`.
     private func encode(window: ArraySlice<Float>,
                         into destination: UnsafeMutablePointer<Element>) throws {
-        frame(window)
-        // Normalization statistics must be taken over the frames that actually
-        // hold audio. A window is a fixed 15 s, so a five-second clip is two
-        // thirds padding, and including it drags the mean down and squashes the
-        // speech: the frontend then agrees with the reference implementation to
-        // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
-        let melFrames = configuration.validFrames
-        let melValid = Self.validMelFrames(sampleCount: window.count, configuration: configuration)
-        melMask.ptr.update(repeating: 1, count: melValid)
-        for i in melValid..<melFrames { melMask.ptr[i] = 0 }
-        _ = try assets.mel.prediction(from: melProvider, options: melOptions)
-        let frames = configuration.encFrames
-        let attended = Self.attendedEncoderFrames(sampleCount: window.count,
-                                                  configuration: configuration)
-        keyBias.zero()
-        // A short window is mostly silence. Without this the encoder attends
-        // over it; -40000 is a float16-representable stand-in for -infinity.
-        for i in attended..<frames { keyBias.ptr[i] = Element(-40000) }
-        _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
-        destination.update(from: encOut.ptr, count: configuration.jointHidden * frames)
+        try encode(windows: [window], into: destination, stride: 0)
+    }
+
+    /// A block of windows: every mel, then one encoder submission.
+    ///
+    /// A 15 s window does not fill a Neural Engine on its own - most of a
+    /// dispatch is the host request and the firmware round trip - and on a
+    /// multi-die machine one submission is also how the runtime reaches the
+    /// second engine. Measured on this encoder: 30.3 ms a window one at a time
+    /// against 13.8 batched four at a time on an M3 Ultra, and 25.4 against 25.1
+    /// on an M5, which has one engine and nothing to gain.
+    ///
+    /// The mel stays per window - it writes the buffer the encoder reads, and
+    /// there is one of those - and its output is copied into the slot's own
+    /// staging array so the block's inputs all exist at once. At 4 ms a window
+    /// against the encoder's 30 that copy is not where the time is.
+    private func encode(windows: [ArraySlice<Float>],
+                        into destination: UnsafeMutablePointer<Element>,
+                        stride: Int) throws {
+        let c = configuration
+        let melFrames = c.validFrames
+        let frames = c.encFrames
+        let joint = c.jointHidden
+
+        for (slot, window) in windows.enumerated() {
+            frame(window)
+            // Normalization statistics must be taken over the frames that
+            // actually hold audio. A window is a fixed 15 s, so a five-second
+            // clip is two thirds padding, and including it drags the mean down
+            // and squashes the speech: the frontend then agrees with the
+            // reference implementation to 2.7 dB rather than 140 dB, and short
+            // clips lose accuracy badly.
+            let melValid = Self.validMelFrames(sampleCount: window.count, configuration: c)
+            melMask.ptr.update(repeating: 1, count: melValid)
+            for i in melValid..<melFrames { melMask.ptr[i] = 0 }
+            _ = try assets.mel.prediction(from: melProvider, options: melOptions)
+            batchMel[slot].ptr.update(from: melOut.ptr, count: melOut.count)
+
+            let attended = Self.attendedEncoderFrames(sampleCount: window.count,
+                                                      configuration: c)
+            batchBias[slot].zero()
+            // A short window is mostly silence. Without this the encoder attends
+            // over it; -40000 is a float16-representable stand-in for -infinity.
+            for i in attended..<frames { batchBias[slot].ptr[i] = Element(-40000) }
+        }
+
+        let submitted = DispatchTime.now().uptimeNanoseconds
+        defer { lastSubmission = DispatchTime.now().uptimeNanoseconds - submitted }
+        guard windows.count > 1 else {
+            // One window keeps the single call, whose output backing lands
+            // exactly where this wants it with no reshaping at all.
+            keyBias.ptr.update(from: batchBias[0].ptr, count: keyBias.count)
+            melOut.ptr.update(from: batchMel[0].ptr, count: melOut.count)
+            _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
+            destination.update(from: encOut.ptr, count: joint * frames)
+            return
+        }
+
+        let results = try assets.encoder.predictions(
+            from: MLArrayBatchProvider(array: Array(batchProviders[0..<windows.count])),
+            options: MLPredictionOptions())
+        for index in 0..<results.count {
+            guard let array = results.features(at: index)
+                .featureValue(for: "enc_proj")?.multiArrayValue else {
+                throw VozError.invalidModel("the encoder returned no enc_proj")
+            }
+            copy(array, to: destination + index * stride, channels: joint, frames: frames)
+        }
+    }
+
+    /// A batch result into our own layout.
+    ///
+    /// Not a flat copy: the Neural Engine pads the innermost axis of what it
+    /// returns - 188 frames come back at a stride of 192 - and a batch cannot
+    /// use `outputBackings` to avoid it the way a single call can. Reading it as
+    /// though it were dense costs four frames of every channel and shifts the
+    /// rest, which reads as a plausible transcript that is missing words: 1664
+    /// of 1701 on the first attempt at this.
+    private func copy(_ array: MLMultiArray, to destination: UnsafeMutablePointer<Element>,
+                      channels: Int, frames: Int) {
+        let strides = array.strides.map(\.intValue)
+        let source = array.dataPointer.assumingMemoryBound(to: Element.self)
+        // [1, channels, 1, frames]: the channel stride is what padding inflates.
+        let channelStride = strides.count > 1 ? strides[1] : frames
+        let frameStride = strides.last ?? 1
+        if frameStride == 1 && channelStride == frames {
+            destination.update(from: source, count: channels * frames)
+            return
+        }
+        for channel in 0..<channels {
+            let row = source + channel * channelStride
+            let out = destination + channel * frames
+            if frameStride == 1 {
+                out.update(from: row, count: frames)
+            } else {
+                for f in 0..<frames { out[f] = row[f * frameStride] }
+            }
+        }
     }
 
     // MARK: - Decode
@@ -608,6 +714,11 @@ final class Pipeline {
             // the two are on different processors this halves the group's cost;
             // where they are not, `overlapsDecode` is false and the work item
             // simply runs here once encoding is done.
+            // What this group will use, and what it cost, which is how the
+            // size for the next one is decided.
+            let blockSize = BatchSize.next(model: encoderPath.path)
+            let groupStarted = DispatchTime.now().uptimeNanoseconds
+
             let gate = WindowGate()
             let decoded = DecodeResult()
             let consume = DispatchWorkItem { [self] in
@@ -628,12 +739,24 @@ final class Pipeline {
             if Self.overlapsDecode { Self.decodeQueue.async(execute: consume) }
 
             do {
-                for (i, w) in group.enumerated() {
-                    let low = starts[w]
-                    try encode(window: slice(low, Swift.min(low + c.nSamples, available)),
-                               into: projections + i * stride)
-                    gate.produced()
-                    progress(reported(low))
+                // A block at a time, so the encoder gets one submission carrying
+                // several windows rather than one call each; the decode is
+                // signalled per window either way, and consumes them as they
+                // appear.
+                var next = 0
+                while next < group.count {
+                    let block = next..<Swift.min(next + blockSize, group.count)
+                    let windows = block.map { i -> ArraySlice<Float> in
+                        let low = starts[group.lowerBound + i]
+                        return slice(low, Swift.min(low + c.nSamples, available))
+                    }
+                    try encode(windows: windows,
+                               into: projections + block.lowerBound * stride, stride: stride)
+                    for i in block {
+                        gate.produced()
+                        progress(reported(starts[group.lowerBound + i]))
+                    }
+                    next = block.upperBound
                 }
             } catch {
                 // The windows the decode is waiting for are never coming.
@@ -642,6 +765,11 @@ final class Pipeline {
                 throw error
             }
             if Self.overlapsDecode { consume.wait() } else { consume.perform() }
+            // Timed here, with the decode joined: what matters is when the group
+            // is finished, not how fast its encoder submissions were.
+            BatchSize.record(model: encoderPath.path, size: blockSize,
+                             secondsPerItem: Double(DispatchTime.now().uptimeNanoseconds
+                                                    - groupStarted) / 1e9 / Double(group.count))
             if let error = decoded.error { throw error }
 
             var tokens = decoded.tokens

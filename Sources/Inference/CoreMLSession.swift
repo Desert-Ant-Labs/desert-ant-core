@@ -17,6 +17,9 @@ import PlatformSupport
 /// copied directly; `int64` inputs are rejected (Core ML has no int64 tensors).
 final class CoreMLSession: InferenceSession, @unchecked Sendable {
     private let model: MLModel
+    /// What the model was actually loaded with, after the environment and the
+    /// simulator have had their say. `run(batch:)` needs to know.
+    private let units: MLComputeUnits
     private let lock = NSLock()
     private var inArrays: [String: MLMultiArray] = [:]
     private var provider: MLDictionaryFeatureProvider?
@@ -47,6 +50,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
             }
             configuration.functionName = functionName
         }
+        units = configuration.computeUnits
         model = try MLModel(contentsOf: URL(fileURLWithPath: modelPath),
                             configuration: configuration)
     }
@@ -85,6 +89,75 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
             .inputDescriptionsByName[name]?.multiArrayConstraint?.shape,
               let last = shape.last?.intValue, last > 0 else { return nil }
         return last
+    }
+
+    /// One submission carrying every input, where that is faster than one call
+    /// each - see the protocol's `run(batch:outputs:)`.
+    ///
+    /// Not gated by platform. It is worth nothing on the phones measured - an
+    /// iPhone 16 Pro runs Voz's encoder at 31 ms a window alone and 41 in a
+    /// batch of four, because one engine and 60 GB/s are already saturated by a
+    /// single window - but the caller's batch size is chosen by measurement, so
+    /// such a device settles back on one and ends where it started. An iPad with
+    /// a desktop-class chip, or a phone with a second engine, would find the
+    /// same way a Mac does rather than waiting for this line to be revisited.
+    ///
+    /// `.all` is excluded because Core ML gets it wrong, not because it is slow:
+    /// a batch that the runtime splits across devices came back with items
+    /// duplicated - 17 of 24 windows in a Uhm run were copies of another
+    /// window's output, and its filler count changed. Pinned to one device the
+    /// same batch is identical to predicting each item alone, on every model
+    /// here.
+    func run(batch: [[String: Tensor]], outputs: [String]) async throws -> [[Tensor]] {
+        // `async` to match the requirement exactly. A synchronous method is a
+        // legal witness only when nothing else matches better, and here the
+        // protocol carries a default: the compiler took the default, silently,
+        // and every batch went back through the loop this exists to replace.
+        try predict(batch: batch, outputs: outputs)
+    }
+
+    private func predict(batch: [[String: Tensor]], outputs: [String]) throws -> [[Tensor]] {
+        // `.all` is excluded because Core ML gets it wrong, not because it is
+        // slow: a batch that the runtime splits across devices came back with
+        // items duplicated - 17 of 24 windows in a Uhm run were copies of
+        // another window's output, and the transcript-equivalent (its filler
+        // count) changed. Pinned to one device the same batch is identical to
+        // predicting each item alone, on every window. So a caller who wants
+        // batching pins; everyone else gets the loop, unchanged.
+        guard units != .all, batch.count > 1 else {
+            return try batch.map { try run(inputs: $0, outputs: outputs, deviceId: nil) }
+        }
+        lock.lock(); defer { lock.unlock() }
+        let desc = model.modelDescription.inputDescriptionsByName
+        // A provider per item, built fresh: the cached single-input arrays this
+        // session reuses belong to `run(inputs:)`, and a batch needs its own
+        // storage for every item at once anyway.
+        let providers = try batch.map { inputs -> MLDictionaryFeatureProvider in
+            var features: [String: Any] = [:]
+            for (name, tensor) in inputs {
+                let type = try dataType(for: tensor,
+                                        declared: desc[name]?.multiArrayConstraint?.dataType)
+                let array = try MLMultiArray(shape: tensor.shape.map { NSNumber(value: $0) },
+                                             dataType: type)
+                write(tensor, into: array)
+                features[name] = array
+            }
+            return try MLDictionaryFeatureProvider(dictionary: features)
+        }
+        if environmentVariable("DAL_TRACE_BATCH") != nil {
+            FileHandle.standardError.write(Data("BATCH n=\(batch.count)\n".utf8))
+        }
+        let predictions = try model.predictions(from: MLArrayBatchProvider(array: providers),
+                                                options: MLPredictionOptions())
+        return try (0..<predictions.count).map { index in
+            let features = predictions.features(at: index)
+            return try outputs.map { name in
+                guard let array = features.featureValue(for: name)?.multiArrayValue else {
+                    throw InferenceError.runFailed("the model returned no '\(name)'")
+                }
+                return readTensor(array)
+            }
+        }
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
