@@ -1,5 +1,3 @@
-#if canImport(CoreML)
-import CoreML
 import Foundation
 
 /// Hands finished windows from the encoding thread to the decoding one.
@@ -108,6 +106,11 @@ final class Pipeline {
     /// minutes of speech, +60% on an M3 Ultra, +13% on an M1, +2% on an M5 and
     /// +1% on an A18 Pro - and on the phone that 1% costs a core that would
     /// otherwise be idle, which a device on battery would rather keep.
+    ///
+    /// Never in a browser. The page has one thread, and the two halves are on
+    /// the same device anyway: the encoder holds WebGPU while the decode step
+    /// runs on WebNN, and ONNX Runtime Web rejects concurrent runs across
+    /// sessions with "Session already started".
     #if os(macOS)
     private static let overlapsByDefault = true
     #else
@@ -116,6 +119,7 @@ final class Pipeline {
     private static let overlapsDecode =
         ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
             ?? overlapsByDefault
+    #if !os(WASI)
     /// Where the decode runs while the encoder has the calling thread. The
     /// encoder stays put: it reads the streaming audio buffer, which `ensure`
     /// and `release` mutate between groups, and moving it would mean capturing
@@ -125,72 +129,36 @@ final class Pipeline {
     /// queue would make that one pipeline's wait into the other's.
     private static let decodeQueue = DispatchQueue(label: "voz.decode", qos: .userInitiated,
                                                    attributes: .concurrent)
+    #endif
 
-    private let rows: Buffer
-    private let melOut: Buffer
-    private let keyBias: Buffer
-    private let padMask: Buffer
-    private let melMask: Buffer
-    private let encOut: Buffer
-    private let embed: Buffer
-    private let hIn: Buffer
-    private let cIn: Buffer
-    private let encStep: Buffer
-    private let logitsOut: Buffer
-    private let hOut: Buffer
-    private let cOut: Buffer
+    private let engine: Engine
+    private let buffers: PipelineBuffers
+    private var rows: Buffer { buffers.rows }
+    private var melOut: Buffer { buffers.melOut }
+    private var keyBias: Buffer { buffers.keyBias }
+    private var padMask: Buffer { buffers.padMask }
+    private var melMask: Buffer { buffers.melMask }
+    private var encOut: Buffer { buffers.encOut }
+    private var embed: Buffer { buffers.embed }
+    private var hIn: Buffer { buffers.hIn }
+    private var cIn: Buffer { buffers.cIn }
+    private var encStep: Buffer { buffers.encStep }
+    private var logitsOut: Buffer { buffers.logitsOut }
+    private var hOut: Buffer { buffers.hOut }
+    private var cOut: Buffer { buffers.cOut }
+    /// Filled by an engine that reduces in the graph; empty otherwise.
+    private var tok: [Int32] = []
+    private var dur: [Int32] = []
 
-    private let melProvider: MLDictionaryFeatureProvider
-    private let encoderProvider: MLDictionaryFeatureProvider
-    private let stepProvider: MLDictionaryFeatureProvider
-    private let melOptions = MLPredictionOptions()
-    private let encoderOptions = MLPredictionOptions()
-    private let stepOptions = MLPredictionOptions()
-
-    init(assets: Assets) throws {
+    init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         self.assets = assets
-        let c = assets.configuration
-        let lanes = assets.decodeLanes
-        let hidden = c.predLayers * c.predHidden
-
-        rows = try Buffer([1, c.hopLength, 1, c.nRows])
-        melOut = try Buffer([1, c.nMels, 1, c.validFrames])
-        keyBias = try Buffer([1, c.encFrames, 1, 1])
-        padMask = try Buffer([1, 1, 1, c.encFrames])
-        melMask = try Buffer([1, 1, 1, c.validFrames])
-        encOut = try Buffer([1, c.jointHidden, 1, c.encFrames])
-        embed = try Buffer([lanes, c.predHidden, 1, 1])
-        hIn = try Buffer([lanes, hidden, 1, 1])
-        cIn = try Buffer([lanes, hidden, 1, 1])
-        encStep = try Buffer([lanes, c.jointHidden, 1, c.decodeWidth])
-        logitsOut = try Buffer([lanes, c.vocabSize + 1 + c.durations.count, 1, c.decodeWidth])
-        hOut = try Buffer([lanes, hidden, 1, 1])
-        cOut = try Buffer([lanes, hidden, 1, 1])
-
-        // pad_mask stays all ones on purpose. Zeroing the convolution input over
-        // padded frames makes those frames explode through the BatchNorm that
-        // follows, until their attention scores overpower the additive mask and
-        // silence the whole utterance. Masking attention alone is enough.
-        padMask.ptr.update(repeating: 1, count: padMask.count)
-
-        melProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "audio_rows": MLFeatureValue(multiArray: rows.array),
-            "mel_mask": MLFeatureValue(multiArray: melMask.array)])
-        encoderProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "mel": MLFeatureValue(multiArray: melOut.array),
-            "key_bias": MLFeatureValue(multiArray: keyBias.array),
-            "pad_mask": MLFeatureValue(multiArray: padMask.array)])
-        stepProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "embed": MLFeatureValue(multiArray: embed.array),
-            "h_in": MLFeatureValue(multiArray: hIn.array),
-            "c_in": MLFeatureValue(multiArray: cIn.array),
-            "enc_step": MLFeatureValue(multiArray: encStep.array)])
-        // Write predictions straight into our own storage instead of letting
-        // Core ML allocate a result per call.
-        melOptions.outputBackings = ["mel": melOut.array]
-        encoderOptions.outputBackings = ["enc_proj": encOut.array]
-        stepOptions.outputBackings = [
-            "logits": logitsOut.array, "h_out": hOut.array, "c_out": cOut.array]
+        self.engine = engine
+        self.buffers = buffers
+        if engine.reducesInGraph {
+            let lanes = engine.decodeLanes
+            tok = [Int32](repeating: 0, count: lanes * assets.configuration.decodeWidth)
+            dur = tok
+        }
     }
 
     // MARK: - Frontend
@@ -247,9 +215,13 @@ final class Pipeline {
         }
     }
 
-    /// One window of audio to encoder projections, written into `destination`.
+    /// One window of audio to encoder projections, left in `encOut`.
+    ///
+    /// The caller copies it where it belongs. It used to write straight into the
+    /// batch through a pointer, but `withUnsafeMutableBufferPointer` takes a
+    /// synchronous closure and running a model is now asynchronous.
     private func encode(window: ArraySlice<Float>,
-                        into destination: UnsafeMutablePointer<Element>) throws {
+                        isolation: isolated (any Actor)? = #isolation) async throws {
         frame(window)
         // Normalization statistics must be taken over the frames that actually
         // hold audio. A window is a fixed 15 s, so a five-second clip is two
@@ -260,7 +232,8 @@ final class Pipeline {
         let melValid = Self.validMelFrames(sampleCount: window.count, configuration: configuration)
         melMask.ptr.update(repeating: 1, count: melValid)
         for i in melValid..<melFrames { melMask.ptr[i] = 0 }
-        _ = try assets.mel.prediction(from: melProvider, options: melOptions)
+        try await engine.runMel(rows: rows, melMask: melMask, mel: melOut,
+                                isolation: isolation)
         let frames = configuration.encFrames
         let attended = Self.attendedEncoderFrames(sampleCount: window.count,
                                                   configuration: configuration)
@@ -268,8 +241,8 @@ final class Pipeline {
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
         for i in attended..<frames { keyBias.ptr[i] = Element(-40000) }
-        _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
-        destination.update(from: encOut.ptr, count: configuration.jointHidden * frames)
+        try await engine.runEncoder(mel: melOut, keyBias: keyBias, padMask: padMask,
+                                    encOut: encOut, isolation: isolation)
     }
 
     // MARK: - Decode
@@ -285,13 +258,17 @@ final class Pipeline {
     /// `awaitWindow` is called before a window is admitted to a lane, so a
     /// decode running alongside the encoder blocks on windows that do not exist
     /// yet. It is a no-op when the two run in sequence.
+    ///
+    /// `async` because an engine's model calls may be promises: the browser's
+    /// are. Core ML's complete synchronously, so on Apple this suspends nowhere.
     private func decode(projections: UnsafePointer<Element>, valids: [Int],
                         ends: inout [[Int]], tokens: inout [[Int]],
                         frames: inout [[Int]],
-                        awaitWindow: (Int) -> Void = { _ in }) throws {
+                        awaitWindow: (Int) -> Void = { _ in },
+                        isolation: isolated (any Actor)? = #isolation) async throws {
         let c = configuration
         let width = c.decodeWidth
-        let lanes = assets.decodeLanes
+        let lanes = engine.decodeLanes
         let joint = c.jointHidden
         let total = c.encFrames
         let vocab = c.vocabSize
@@ -340,7 +317,10 @@ final class Pipeline {
                     }
                 }
             }
-            _ = try assets.decodeStep.prediction(from: stepProvider, options: stepOptions)
+            try await engine.runDecodeStep(
+                embed: embed, hIn: hIn, cIn: cIn, encStep: encStep,
+                logits: logitsOut, tok: &tok, dur: &dur, hOut: hOut, cOut: cOut,
+                isolation: isolation)
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -349,17 +329,32 @@ final class Pipeline {
                 var offset = 0
                 var didEmit = false
                 while offset < span {
+                    // Either the engine reduced the logits for us or it handed
+                    // them over whole. Core ML does the latter because the
+                    // argmax is free over a shared page; across a copying
+                    // boundary it would be a quarter of a megabyte per call.
                     var best = 0
-                    var bestValue = Float(laneLogits[offset])
-                    for k in 1...vocab {
-                        let value = Float(laneLogits[k * width + offset])
-                        if value > bestValue { bestValue = value; best = k }
-                    }
                     var bestDuration = 0
-                    var bestDurationValue = Float(laneLogits[(vocab + 1) * width + offset])
-                    for k in 1..<c.durations.count {
-                        let value = Float(laneLogits[(vocab + 1 + k) * width + offset])
-                        if value > bestDurationValue { bestDurationValue = value; bestDuration = k }
+                    if engine.reducesInGraph {
+                        best = Int(tok[lane * width + offset])
+                        bestDuration = Int(dur[lane * width + offset])
+                    } else {
+                        var bestValue = Float(laneLogits[offset])
+                        for k in 1...vocab {
+                            let value = Float(laneLogits[k * width + offset])
+                            if value > bestValue { bestValue = value; best = k }
+                        }
+                        var bestDurationValue = Float(laneLogits[(vocab + 1) * width + offset])
+                        for k in 1..<c.durations.count {
+                            let value = Float(laneLogits[(vocab + 1 + k) * width + offset])
+                            if value > bestDurationValue {
+                                bestDurationValue = value
+                                bestDuration = k
+                            }
+                        }
+                    }
+                    guard bestDuration < c.durations.count else {
+                        throw VozError.invalidModel("decode step returned duration index \(bestDuration)")
                     }
                     let duration = c.durations[bestDuration]
                     if best != blank {
@@ -519,7 +514,8 @@ final class Pipeline {
     /// the batch size and not by the length of the recording: an hour of audio
     /// is 230 MB of `Float`, and a video editor has a timeline and its own
     /// buffers to fit alongside it.
-    func run(stream: inout some AudioStream, progress: (Double) -> Void) throws -> (String, [Word]) {
+    func run(stream: inout some AudioStream, progress: (Double) -> Void,
+             isolation: isolated (any Actor)? = #isolation) async throws -> (String, [Word]) {
         let c = configuration
         let frames = c.encFrames
         let stride = c.jointHidden * frames
@@ -610,14 +606,14 @@ final class Pipeline {
             // simply runs here once encoding is done.
             let gate = WindowGate()
             let decoded = DecodeResult()
-            let consume = DispatchWorkItem { [self] in
+            let run = { [self] (awaitWindow: @escaping (Int) -> Void) async in
                 var tokens = [[Int]](repeating: [], count: group.count)
                 var emitFrames = [[Int]](repeating: [], count: group.count)
                 var emitEnds = [[Int]](repeating: [], count: group.count)
                 do {
-                    try decode(projections: projections, valids: valids,
-                               ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
-                               awaitWindow: gate.wait)
+                    try await decode(projections: projections, valids: valids,
+                                     ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
+                                     awaitWindow: awaitWindow)
                 } catch {
                     decoded.error = error
                 }
@@ -625,23 +621,63 @@ final class Pipeline {
                 decoded.frames = emitFrames
                 decoded.ends = emitEnds
             }
+            #if !os(WASI)
+            // The decode is async because an engine's calls may be promises, and
+            // a work item cannot await, so it waits here while one runs. The
+            // thread it blocks is this queue's own, which exists to be blocked:
+            // the encoder has the calling thread throughout.
+            let consume = DispatchWorkItem {
+                let done = DispatchSemaphore(value: 0)
+                Task {
+                    await run(gate.wait)
+                    done.signal()
+                }
+                done.wait()
+            }
             if Self.overlapsDecode { Self.decodeQueue.async(execute: consume) }
+            #endif
 
             do {
+                // A batch is one call for several windows. Core ML's graph is a
+                // fixed shape, so its engine takes one and this is a window at a
+                // time; the browser's takes six, which is where most of its
+                // encoder speed came from.
+                let batch = engine.encodeBatch
+                var staged = 0
                 for (i, w) in group.enumerated() {
                     let low = starts[w]
-                    try encode(window: slice(low, Swift.min(low + c.nSamples, available)),
-                               into: projections + i * stride)
-                    gate.produced()
+                    stage(window: slice(low, Swift.min(low + c.nSamples, available)), lane: staged)
+                    staged += 1
+                    guard staged == batch || i == group.count - 1 else { continue }
+                    engine.stage(lanes: staged)
+                    try await encodeStaged()
+                    // Lane `l` of the batch holds window `i - staged + 1 + l`.
+                    let first = i - staged + 1
+                    for lane in 0..<staged {
+                        (projections + (first + lane) * stride)
+                            .update(from: encOut.ptr + lane * stride, count: stride)
+                    }
+                    // Only now do those windows exist for a decode that is
+                    // reading alongside this loop.
+                    for _ in 0..<staged { gate.produced() }
+                    staged = 0
                     progress(reported(low))
                 }
             } catch {
                 // The windows the decode is waiting for are never coming.
                 gate.abandon(group.count)
+                #if !os(WASI)
                 if Self.overlapsDecode { consume.wait() }
+                #endif
                 throw error
             }
+            #if os(WASI)
+            // One thread, so the decode runs here, after the encoder is done.
+            // `gate.wait` would be a deadlock rather than a wait.
+            await run({ _ in })
+            #else
             if Self.overlapsDecode { consume.wait() } else { consume.perform() }
+            #endif
             if let error = decoded.error { throw error }
 
             var tokens = decoded.tokens
@@ -715,7 +751,7 @@ final class Pipeline {
                 var retryProjections = [Element](repeating: 0, count: refused.count * stride)
                 var retryValids = [Int](repeating: frames, count: refused.count)
                 var retryStarts = [Int](repeating: 0, count: refused.count)
-                try retryProjections.withUnsafeMutableBufferPointer { out in
+                do {
                     for (slot, entry) in refused.enumerated() {
                         let windowStart = starts[entry.element]
                         // Where to run the window again. A window that produced
@@ -754,17 +790,20 @@ final class Pipeline {
                         retryStarts[slot] = low
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
-                        try encode(window: slice(low, shortened),
-                                   into: out.baseAddress! + slot * stride)
+                        try await encode(window: slice(low, shortened))
+                        retryProjections.withUnsafeMutableBufferPointer { out in
+                            (out.baseAddress! + slot * stride)
+                                .update(from: encOut.ptr, count: stride)
+                        }
                     }
                 }
                 var retryTokens = [[Int]](repeating: [], count: refused.count)
                 var retryFrames = [[Int]](repeating: [], count: refused.count)
                 var retryEnds = [[Int]](repeating: [], count: refused.count)
-                try retryProjections.withUnsafeBufferPointer { source in
-                    try decode(projections: source.baseAddress!, valids: retryValids,
-                               ends: &retryEnds,
-                               tokens: &retryTokens, frames: &retryFrames)
+                try await retryProjections.withUnsafeBufferPointer { source in
+                    try await decode(projections: source.baseAddress!, valids: retryValids,
+                                     ends: &retryEnds,
+                                     tokens: &retryTokens, frames: &retryFrames)
                 }
                 for (slot, entry) in refused.enumerated() {
                     if tokens[entry.offset].isEmpty {
@@ -836,4 +875,3 @@ final class Pipeline {
         return (words.map(\.text).joined(separator: " "), words)
     }
 }
-#endif

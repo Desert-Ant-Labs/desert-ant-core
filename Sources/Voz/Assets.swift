@@ -1,86 +1,55 @@
-#if canImport(CoreML)
-import CoreML
 import Foundation
 
-/// The loaded model: three Core ML programs plus the host-side tables.
+/// The model's host-side half: geometry, vocabulary, and the embedding table.
+///
+/// The three compiled programs are the engine's (`Engine+CoreML.swift`,
+/// `Engine+Wasm.swift`); what stays here is everything the pipeline reads
+/// itself, which is portable.
 struct Assets {
     let configuration: Configuration
     let vocabulary: [String]
-    /// Row-major `[vocab + 1, predHidden]`, already float16 so a decode step
-    /// copies a row without converting. The embedding stays outside the graph:
-    /// a gather over an 8193 x 640 table has no Neural Engine kernel and is a
-    /// table read the host does for free.
-    ///
-    /// Held as the mapped file rather than an array of its contents: the bytes
-    /// on disk are already exactly the layout the decode reads, so there is
-    /// nothing to convert. See ``withEmbedding(_:)``.
-    private let embeddingData: Data
-    let mel: MLModel
-    let encoder: MLModel
-    let decodeStep: MLModel
-    /// Windows decoded per dispatch, read from the model rather than assumed.
-    let decodeLanes: Int
+    /// Row-major `[vocab + 1, predHidden]` in the engine's element type, so a
+    /// decode step copies a row without converting. The embedding stays outside
+    /// the graph: a gather over an 8193 x 640 table has no Neural Engine kernel
+    /// and is a table read the host does for free.
+    private let embedding: [Element]
 
-    init(directory: URL, computeUnits: MLComputeUnits) throws {
+    /// Build from the sidecars, whatever fetched them.
+    ///
+    /// `embeddingBytes` is the raw `embedding.f16` file. On Apple that is
+    /// already the layout a decode reads and it is used as is; off Apple the
+    /// buffers are float32, so the table is widened once here rather than per
+    /// row per step.
+    init(meta: Data, vocab: Data, embeddingBytes: Data) throws {
         let decoder = JSONDecoder()
-        configuration = try decoder.decode(
-            Configuration.self,
-            from: try Data(contentsOf: directory.appendingPathComponent("meta.json")))
+        configuration = try decoder.decode(Configuration.self, from: meta)
         try configuration.validate()
-        vocabulary = try decoder.decode(
-            [String].self,
-            from: try Data(contentsOf: directory.appendingPathComponent("vocab.json")))
+        vocabulary = try decoder.decode([String].self, from: vocab)
         guard vocabulary.count >= configuration.vocabSize else {
             throw VozError.invalidModel("vocabulary is smaller than the model's vocab size")
         }
 
-        let raw = try Data(contentsOf: directory.appendingPathComponent("embedding.f16"),
-                           options: .mappedIfSafe)
         let expected = (configuration.vocabSize + 1) * configuration.predHidden
-        guard raw.count == expected * MemoryLayout<Element>.size else {
+        guard embeddingBytes.count == expected * 2 else {
             throw VozError.invalidModel(
-                "embedding.f16 has \(raw.count) bytes, expected \(expected * 2)")
+                "embedding.f16 has \(embeddingBytes.count) bytes, expected \(expected * 2)")
         }
-        embeddingData = raw
-
-        let mlConfiguration = MLModelConfiguration()
-        mlConfiguration.computeUnits = computeUnits
-        func load(_ name: String) throws -> MLModel {
-            let url = directory.appendingPathComponent(name)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw VozError.invalidModel("missing \(name) in \(directory.path)")
-            }
-            return try MLModel(contentsOf: url, configuration: mlConfiguration)
+        #if canImport(CoreML)
+        embedding = embeddingBytes.withUnsafeBytes { raw in
+            Array(raw.bindMemory(to: Element.self).prefix(expected))
         }
-        mel = try load(VozModel.mel)
-        encoder = try load(VozModel.encoder)
-        decodeStep = try load(VozModel.decodeStep)
-
-        guard let embed = decodeStep.modelDescription.inputDescriptionsByName["embed"],
-              let constraint = embed.multiArrayConstraint else {
-            throw VozError.invalidModel("decode step is missing its embed input")
+        #else
+        // float16 is what the file holds and float32 is what the wasm boundary
+        // carries, so the widening happens once, here.
+        embedding = embeddingBytes.withUnsafeBytes { raw -> [Element] in
+            let halves = raw.bindMemory(to: UInt16.self)
+            return (0..<expected).map { Element(Float16(bitPattern: halves[$0])) }
         }
-        decodeLanes = constraint.shape[0].intValue
-        guard decodeLanes > 0 else {
-            throw VozError.invalidModel("decode step declares no lanes")
-        }
+        #endif
     }
 
-    /// The embedding table, in the mapped file's own memory.
-    ///
-    /// Reading it in place rather than materializing it: the file is 10.5 MB of
-    /// float16 in row-major order, which is what a decode step wants, so a copy
-    /// buys nothing. Building an array of it cost a 5,243,520-iteration loop
-    /// that an unoptimized build (a dependency's default) runs one element at a
-    /// time, and faulted the whole table in from disk when a decode reads only
-    /// the rows it emits. Measured on an M-series Mac, that loop was 620 ms of
-    /// the 780 ms load.
-    ///
-    /// Binding is well formed rather than lucky: a mapping starts on a page
-    /// boundary, and `Data` allocates with more alignment than a two byte
-    /// element needs, so neither backing can land this odd.
+    /// The embedding table, for the decode step's per-lane row copy.
     func withEmbedding<T>(_ body: (UnsafeBufferPointer<Element>) throws -> T) rethrows -> T {
-        try embeddingData.withUnsafeBytes { try body($0.bindMemory(to: Element.self)) }
+        try embedding.withUnsafeBufferPointer { try body($0) }
     }
 }
-#endif
