@@ -1,6 +1,5 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(CLiteRt)
 import AudioIO
-import CoreML
 import Foundation
 
 public extension Voz {

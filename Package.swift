@@ -491,16 +491,24 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz is Apple-only (Core ML, AVFoundation) and, like Align, gets no
-// Android/Node/Web products and no NativeBindings. It bundles nothing: its
-// Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
-// drives Core ML directly rather than going through `InferenceSession`, because
-// preallocated buffers, `outputBackings` and a lane-batched decode loop are not
-// expressible through a generic run(inputs:outputs:) call, and dropping them
-// costs roughly 127x on load and about a third of decode throughput.
+// Voz runs on Apple platforms (Core ML) and Android/Linux (LiteRT), but stays
+// outside the `models` list: it drives its backend directly rather than going
+// through `InferenceSession`, because preallocated buffers, `outputBackings`
+// and a lane-batched decode loop are not expressible through a generic
+// run(inputs:outputs:) call, and dropping them costs roughly 127x on load and
+// about a third of decode throughput on Apple. For the same reason it has no
+// Web product: the wasm host owns its own sessions and cannot honor that
+// shape. It bundles nothing: its models are downloaded on demand via
+// Sources/Voz/Catalog.swift. The dynamic products exist for the Android and
+// Node pipelines only and follow the same wasm gate as the models'.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
-]
+] + (noJavaScriptKit
+    ? [
+        .library(name: "VozAndroid", type: .dynamic, targets: ["Voz"]),
+        .library(name: "VozNode", type: .dynamic, targets: ["Voz"]),
+    ]
+    : [])
 
 let vozTargets: [Target] = [
     .target(
@@ -508,6 +516,8 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
+            .byName(name: "NativeBindings"),
+            .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
         ]
     ),
     .testTarget(

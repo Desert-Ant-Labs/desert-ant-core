@@ -1,12 +1,131 @@
-#if canImport(CoreML)
-import CoreML
+// Dispatch backs the overlapped decode and does not exist on WASI; without it
+// (and without threads) the decode simply runs after the group is encoded.
+#if canImport(Dispatch)
+import Dispatch
+#endif
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Android)
+import Android
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
+/// Tuning constants and scheduling switches, in a namespace of their own
+/// because a generic type cannot hold static stored properties.
+private enum Tuning {
+    // Aligning boundaries to silence costs about 13% of throughput - 292 to 255
+    // RTFx on ten minutes of speech, 239 to 208 over half an hour - which is
+    // the 1.12x extra windows it creates and nothing else. The scan itself does
+    // not show up. Measured back to back in one binary via VOZ_FIXED_WINDOWS.
+
+    /// Windows end at the quietest point in this much audio before the nominal
+    /// boundary, so a window rarely stops in the middle of a word.
+    /// Swept on half an hour of narration: 1 s puts boundaries inside speech and
+    /// costs 405 deletions, 3 s costs 34, and going wider buys little for the
+    /// windows it adds. Overridable so the sweep can be repeated.
+    static let boundarySearch =
+        Double(ProcessInfo.processInfo.environment["VOZ_SEARCH"] ?? "") ?? 3.0
+    /// Energy is measured over frames this long when looking for that point.
+    static let boundaryFrame = 0.02
+    /// A frame this far below the passage's median energy is a real pause.
+    static let silenceFactor: Float = 0.05
+    /// Failing that, the best dip between words.
+    static let valleyFactor: Float = 0.35
+    /// How much louder than the quietest candidate a boundary may still be.
+    static let nearFloor: Float = 2.0
+    /// How much of a refused window to keep when giving it a second length.
+    /// Shortening by a second recovered every refused window that was tested.
+    static let retryFraction = 0.93
+    /// How many retries may recover nothing before retrying is abandoned.
+    static let futileRetryLimit = 8
+    /// Audio a window may leave after its last word before it counts as having
+    /// stopped early. Healthy windows finish within a frame or two of their end;
+    /// the ones worth rerunning leave seconds.
+    /// Swept: 2.5 s beats 4 s and 6 s, which lose the Czech and Dutch gains
+    /// without recovering anything in exchange.
+    static let truncationTail = 2.5
+    /// A window this quiet relative to full scale is silence, and a recogniser
+    /// returning nothing for it is correct rather than refusing.
+    static let speechFloor: Float = 1e-5
+    /// How loud a silent stretch must be, against the window holding it, to be
+    /// speech the recogniser skipped rather than a pause it was right about.
+    static let gapFloor: Float = 0.25
+
+    /// How many windows are encoded before their decode runs. Bounds peak memory
+    /// (each window's encoder output is ~240 KB) and gives progress somewhere to
+    /// be reported from, while staying long enough that the decoder's lanes stay
+    /// full for all but the last group.
+    static let batchWindows =
+        Int(ProcessInfo.processInfo.environment["VOZ_BATCH_WINDOWS"] ?? "") ?? 64
+
+    /// Whether the decode runs on a thread of its own while the encoder feeds
+    /// it, rather than the two taking turns.
+    ///
+    /// Worth it only where they land on different processors. Core ML plans the
+    /// decode step onto the CPU on a Mac and onto the Neural Engine on a phone,
+    /// so on a phone this overlaps the engine with itself: measured over ten
+    /// minutes of speech, +60% on an M3 Ultra, +13% on an M1, +2% on an M5 and
+    /// +1% on an A18 Pro - and on the phone that 1% costs a core that would
+    /// otherwise be idle, which a device on battery would rather keep.
+    #if os(macOS)
+    static let overlapsByDefault = true
+    #else
+    static let overlapsByDefault = false
+    #endif
+    #if canImport(Dispatch)
+    static let overlapsDecode =
+        ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
+            ?? overlapsByDefault
+    #else
+    static let overlapsDecode = false
+    #endif
+    /// Where the decode runs while the encoder has the calling thread. The
+    /// encoder stays put: it reads the streaming audio buffer, which `ensure`
+    /// and `release` mutate between groups, and moving it would mean capturing
+    /// that in an escaping closure.
+    /// Concurrent, so two pipelines transcribing at once do not queue behind
+    /// each other: each group's decode blocks on its own encoder, and a serial
+    /// queue would make that one pipeline's wait into the other's.
+    #if canImport(Dispatch)
+    static let decodeQueue = DispatchQueue(label: "voz.decode", qos: .userInitiated,
+                                                   attributes: .concurrent)
+    #endif
+}
+
+/// Mel frames that hold audio. NeMo's centered STFT gives `samples / hop + 1`.
+private func validMelFrames(sampleCount: Int, configuration: Configuration) -> Int {
+    max(1, min(configuration.validFrames, sampleCount / configuration.hopLength + 1))
+}
+
+/// Encoder frames that hold audio. Subsampling rounds up, so an exact
+/// multiple of `hop * 8` samples still has a final encoder frame.
+func validEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
+    let melValid = validMelFrames(sampleCount: sampleCount, configuration: configuration)
+    return min(configuration.encFrames, (melValid + 7) / 8)
+}
+
+/// Encoder frames the window attends to. At an exact multiple of `hop * 8`
+/// samples the final valid frame holds one mel frame of audio and seven of
+/// padding, which the exported subsampling reads without a mask. Letting
+/// attention reach that frame changes words anywhere in the window, so it
+/// stays masked here. The decoder still reads it, so a word running into
+/// the end of the window can finish there.
+func attendedEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
+    let samplesPerFrame = configuration.hopLength * 8
+    return max(1, min(configuration.encFrames,
+                      (sampleCount + samplesPerFrame - 1) / samplesPerFrame))
+}
 
 /// Hands finished windows from the encoding thread to the decoding one.
 ///
 /// A counter rather than a queue: windows are encoded in order and consumed in
 /// order, so "how many exist" is all either side needs to know.
 private final class WindowGate: @unchecked Sendable {
+    #if canImport(Dispatch)
     private let condition = NSCondition()
     private var ready = 0
 
@@ -35,6 +154,13 @@ private final class WindowGate: @unchecked Sendable {
         condition.broadcast()
         condition.unlock()
     }
+    #else
+    // Single-threaded platform (WASI): the decode always runs after the whole
+    // group is encoded, so there is never anything to wait for.
+    func produced() {}
+    func wait(for index: Int) {}
+    func abandon(_ count: Int) {}
+    #endif
 }
 
 /// What a group's decode produced, in a reference the decoding thread can write
@@ -50,174 +176,42 @@ private final class DecodeResult: @unchecked Sendable {
 ///
 /// Not `Sendable` and not reentrant: it owns preallocated buffers that every
 /// call mutates. `Voz` serialises access through an actor.
-final class Pipeline {
-    private let assets: Assets
-    private var configuration: Configuration { assets.configuration }
+final class Pipeline<Engine: VozEngine> {
+    typealias Element = Engine.Element
 
-    // Aligning boundaries to silence costs about 13% of throughput - 292 to 255
-    // RTFx on ten minutes of speech, 239 to 208 over half an hour - which is
-    // the 1.12x extra windows it creates and nothing else. The scan itself does
-    // not show up. Measured back to back in one binary via VOZ_FIXED_WINDOWS.
+    private let engine: Engine
+    private var configuration: Configuration { engine.configuration }
 
-    /// Windows end at the quietest point in this much audio before the nominal
-    /// boundary, so a window rarely stops in the middle of a word.
-    /// Swept on half an hour of narration: 1 s puts boundaries inside speech and
-    /// costs 405 deletions, 3 s costs 34, and going wider buys little for the
-    /// windows it adds. Overridable so the sweep can be repeated.
-    private static let boundarySearch =
-        Double(ProcessInfo.processInfo.environment["VOZ_SEARCH"] ?? "") ?? 3.0
-    /// Energy is measured over frames this long when looking for that point.
-    private static let boundaryFrame = 0.02
-    /// A frame this far below the passage's median energy is a real pause.
-    private static let silenceFactor: Float = 0.05
-    /// Failing that, the best dip between words.
-    private static let valleyFactor: Float = 0.35
-    /// How much louder than the quietest candidate a boundary may still be.
-    private static let nearFloor: Float = 2.0
-    /// How much of a refused window to keep when giving it a second length.
-    /// Shortening by a second recovered every refused window that was tested.
-    private static let retryFraction = 0.93
-    /// How many retries may recover nothing before retrying is abandoned.
-    private static let futileRetryLimit = 8
-    /// Audio a window may leave after its last word before it counts as having
-    /// stopped early. Healthy windows finish within a frame or two of their end;
-    /// the ones worth rerunning leave seconds.
-    /// Swept: 2.5 s beats 4 s and 6 s, which lose the Czech and Dutch gains
-    /// without recovering anything in exchange.
-    private static let truncationTail = 2.5
-    /// A window this quiet relative to full scale is silence, and a recogniser
-    /// returning nothing for it is correct rather than refusing.
-    private static let speechFloor: Float = 1e-5
-    /// How loud a silent stretch must be, against the window holding it, to be
-    /// speech the recogniser skipped rather than a pause it was right about.
-    private static let gapFloor: Float = 0.25
+    // The engine's buffers, captured once: they are fixed for the engine's
+    // life, and the frame and decode loops read them per element.
+    private let rows: EngineBuffer<Element>
+    private let keyBias: EngineBuffer<Element>
+    private let melMask: EngineBuffer<Element>
+    private let encOut: EngineBuffer<Element>
+    private let embed: EngineBuffer<Element>
+    private let hIn: EngineBuffer<Element>
+    private let cIn: EngineBuffer<Element>
+    private let encStep: EngineBuffer<Element>
+    private let logitsOut: EngineBuffer<Element>
+    private let hOut: EngineBuffer<Element>
+    private let cOut: EngineBuffer<Element>
 
-    /// How many windows are encoded before their decode runs. Bounds peak memory
-    /// (each window's encoder output is ~240 KB) and gives progress somewhere to
-    /// be reported from, while staying long enough that the decoder's lanes stay
-    /// full for all but the last group.
-    private static let batchWindows =
-        Int(ProcessInfo.processInfo.environment["VOZ_BATCH_WINDOWS"] ?? "") ?? 64
-
-    /// Whether the decode runs on a thread of its own while the encoder feeds
-    /// it, rather than the two taking turns.
-    ///
-    /// Worth it only where they land on different processors. Core ML plans the
-    /// decode step onto the CPU on a Mac and onto the Neural Engine on a phone,
-    /// so on a phone this overlaps the engine with itself: measured over ten
-    /// minutes of speech, +60% on an M3 Ultra, +13% on an M1, +2% on an M5 and
-    /// +1% on an A18 Pro - and on the phone that 1% costs a core that would
-    /// otherwise be idle, which a device on battery would rather keep.
-    #if os(macOS)
-    private static let overlapsByDefault = true
-    #else
-    private static let overlapsByDefault = false
-    #endif
-    private static let overlapsDecode =
-        ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
-            ?? overlapsByDefault
-    /// Where the decode runs while the encoder has the calling thread. The
-    /// encoder stays put: it reads the streaming audio buffer, which `ensure`
-    /// and `release` mutate between groups, and moving it would mean capturing
-    /// that in an escaping closure.
-    /// Concurrent, so two pipelines transcribing at once do not queue behind
-    /// each other: each group's decode blocks on its own encoder, and a serial
-    /// queue would make that one pipeline's wait into the other's.
-    private static let decodeQueue = DispatchQueue(label: "voz.decode", qos: .userInitiated,
-                                                   attributes: .concurrent)
-
-    private let rows: Buffer
-    private let melOut: Buffer
-    private let keyBias: Buffer
-    private let padMask: Buffer
-    private let melMask: Buffer
-    private let encOut: Buffer
-    private let embed: Buffer
-    private let hIn: Buffer
-    private let cIn: Buffer
-    private let encStep: Buffer
-    private let logitsOut: Buffer
-    private let hOut: Buffer
-    private let cOut: Buffer
-
-    private let melProvider: MLDictionaryFeatureProvider
-    private let encoderProvider: MLDictionaryFeatureProvider
-    private let stepProvider: MLDictionaryFeatureProvider
-    private let melOptions = MLPredictionOptions()
-    private let encoderOptions = MLPredictionOptions()
-    private let stepOptions = MLPredictionOptions()
-
-    init(assets: Assets) throws {
-        self.assets = assets
-        let c = assets.configuration
-        let lanes = assets.decodeLanes
-        let hidden = c.predLayers * c.predHidden
-
-        rows = try Buffer([1, c.hopLength, 1, c.nRows])
-        melOut = try Buffer([1, c.nMels, 1, c.validFrames])
-        keyBias = try Buffer([1, c.encFrames, 1, 1])
-        padMask = try Buffer([1, 1, 1, c.encFrames])
-        melMask = try Buffer([1, 1, 1, c.validFrames])
-        encOut = try Buffer([1, c.jointHidden, 1, c.encFrames])
-        embed = try Buffer([lanes, c.predHidden, 1, 1])
-        hIn = try Buffer([lanes, hidden, 1, 1])
-        cIn = try Buffer([lanes, hidden, 1, 1])
-        encStep = try Buffer([lanes, c.jointHidden, 1, c.decodeWidth])
-        logitsOut = try Buffer([lanes, c.vocabSize + 1 + c.durations.count, 1, c.decodeWidth])
-        hOut = try Buffer([lanes, hidden, 1, 1])
-        cOut = try Buffer([lanes, hidden, 1, 1])
-
-        // pad_mask stays all ones on purpose. Zeroing the convolution input over
-        // padded frames makes those frames explode through the BatchNorm that
-        // follows, until their attention scores overpower the additive mask and
-        // silence the whole utterance. Masking attention alone is enough.
-        padMask.ptr.update(repeating: 1, count: padMask.count)
-
-        melProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "audio_rows": MLFeatureValue(multiArray: rows.array),
-            "mel_mask": MLFeatureValue(multiArray: melMask.array)])
-        encoderProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "mel": MLFeatureValue(multiArray: melOut.array),
-            "key_bias": MLFeatureValue(multiArray: keyBias.array),
-            "pad_mask": MLFeatureValue(multiArray: padMask.array)])
-        stepProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "embed": MLFeatureValue(multiArray: embed.array),
-            "h_in": MLFeatureValue(multiArray: hIn.array),
-            "c_in": MLFeatureValue(multiArray: cIn.array),
-            "enc_step": MLFeatureValue(multiArray: encStep.array)])
-        // Write predictions straight into our own storage instead of letting
-        // Core ML allocate a result per call.
-        melOptions.outputBackings = ["mel": melOut.array]
-        encoderOptions.outputBackings = ["enc_proj": encOut.array]
-        stepOptions.outputBackings = [
-            "logits": logitsOut.array, "h_out": hOut.array, "c_out": cOut.array]
+    init(engine: Engine) {
+        self.engine = engine
+        rows = engine.rows
+        keyBias = engine.keyBias
+        melMask = engine.melMask
+        encOut = engine.encOut
+        embed = engine.embed
+        hIn = engine.hIn
+        cIn = engine.cIn
+        encStep = engine.encStep
+        logitsOut = engine.logitsOut
+        hOut = engine.hOut
+        cOut = engine.cOut
     }
 
     // MARK: - Frontend
-
-    /// Mel frames that hold audio. NeMo's centered STFT gives `samples / hop + 1`.
-    private static func validMelFrames(sampleCount: Int, configuration: Configuration) -> Int {
-        max(1, min(configuration.validFrames, sampleCount / configuration.hopLength + 1))
-    }
-
-    /// Encoder frames that hold audio. Subsampling rounds up, so an exact
-    /// multiple of `hop * 8` samples still has a final encoder frame.
-    static func validEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
-        let melValid = validMelFrames(sampleCount: sampleCount, configuration: configuration)
-        return min(configuration.encFrames, (melValid + 7) / 8)
-    }
-
-    /// Encoder frames the window attends to. At an exact multiple of `hop * 8`
-    /// samples the final valid frame holds one mel frame of audio and seven of
-    /// padding, which the exported subsampling reads without a mask. Letting
-    /// attention reach that frame changes words anywhere in the window, so it
-    /// stays masked here. The decoder still reads it, so a word running into
-    /// the end of the window can finish there.
-    static func attendedEncoderFrames(sampleCount: Int, configuration: Configuration) -> Int {
-        let samplesPerFrame = configuration.hopLength * 8
-        return max(1, min(configuration.encFrames,
-                          (sampleCount + samplesPerFrame - 1) / samplesPerFrame))
-    }
 
     /// Lay PCM out the way the mel model expects.
     ///
@@ -257,18 +251,18 @@ final class Pipeline {
         // speech: the frontend then agrees with the reference implementation to
         // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
         let melFrames = configuration.validFrames
-        let melValid = Self.validMelFrames(sampleCount: window.count, configuration: configuration)
+        let melValid = validMelFrames(sampleCount: window.count, configuration: configuration)
         melMask.ptr.update(repeating: 1, count: melValid)
         for i in melValid..<melFrames { melMask.ptr[i] = 0 }
-        _ = try assets.mel.prediction(from: melProvider, options: melOptions)
+        try engine.runMel()
         let frames = configuration.encFrames
-        let attended = Self.attendedEncoderFrames(sampleCount: window.count,
+        let attended = attendedEncoderFrames(sampleCount: window.count,
                                                   configuration: configuration)
         keyBias.zero()
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
         for i in attended..<frames { keyBias.ptr[i] = Element(-40000) }
-        _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
+        try engine.runEncoder()
         destination.update(from: encOut.ptr, count: configuration.jointHidden * frames)
     }
 
@@ -291,7 +285,7 @@ final class Pipeline {
                         awaitWindow: (Int) -> Void = { _ in }) throws {
         let c = configuration
         let width = c.decodeWidth
-        let lanes = assets.decodeLanes
+        let lanes = engine.decodeLanes
         let joint = c.jointHidden
         let total = c.encFrames
         let vocab = c.vocabSize
@@ -323,7 +317,7 @@ final class Pipeline {
         for lane in 0..<lanes { admit(lane) }
 
         while slot.contains(where: { $0 >= 0 }) {
-            assets.withEmbedding { table in
+            engine.withEmbedding { table in
                 for lane in 0..<lanes where slot[lane] >= 0 {
                     (embed.ptr + lane * c.predHidden)
                         .update(from: table.baseAddress! + label[lane] * c.predHidden,
@@ -340,7 +334,7 @@ final class Pipeline {
                     }
                 }
             }
-            _ = try assets.decodeStep.prediction(from: stepProvider, options: stepOptions)
+            try engine.runDecodeStep()
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -415,7 +409,7 @@ final class Pipeline {
     private func quietestPoint(near at: Int, from lowest: Int, limit: Int,
                                audio: (Int) -> Float) -> Int {
         let c = configuration
-        let frame = Swift.max(1, Int(Self.boundaryFrame * Double(c.sampleRate)))
+        let frame = Swift.max(1, Int(Tuning.boundaryFrame * Double(c.sampleRate)))
         let first = Swift.max(lowest, at - c.sampleRate)
         let last = Swift.min(limit - frame, at + c.sampleRate / 2)
         guard last > first else { return Swift.max(lowest, Swift.min(at, limit - 1)) }
@@ -460,7 +454,7 @@ final class Pipeline {
             count += 1
             i += 16   // every sixteenth sample is plenty for a level check
         }
-        return count > 0 && sum / Float(count) > Self.speechFloor
+        return count > 0 && sum / Float(count) > Tuning.speechFloor
     }
 
     /// Where each window should start, in samples.
@@ -484,8 +478,8 @@ final class Pipeline {
     private func nextBoundary(after start: Int, audio: (Int) -> Float) -> Int {
         let c = configuration
         let window = c.nSamples
-        let search = Int(Self.boundarySearch * Double(c.sampleRate))
-        let frame = max(1, Int(Self.boundaryFrame * Double(c.sampleRate)))
+        let search = Int(Tuning.boundarySearch * Double(c.sampleRate))
+        let frame = max(1, Int(Tuning.boundaryFrame * Double(c.sampleRate)))
         let from = start + window - search
         var scores: [(at: Int, energy: Float)] = []
         var at = from
@@ -498,7 +492,7 @@ final class Pipeline {
         guard !scores.isEmpty else { return start + window }
         var bestAt = start + window
         let floorEnergy = Swift.max(scores.map(\.energy).min() ?? 0, 1e-9)
-        let admissible = scores.filter { $0.energy <= Self.nearFloor * floorEnergy }
+        let admissible = scores.filter { $0.energy <= Tuning.nearFloor * floorEnergy }
         let pool = admissible.isEmpty ? scores : admissible
         var bestScore = Float.greatestFiniteMagnitude
         for candidate in pool {
@@ -572,14 +566,14 @@ final class Pipeline {
             // it is finished: checking `processed < starts.count` first stops
             // after a single batch, which silently truncated any file longer
             // than one, and left the transcript reading perfectly well.
-            while starts.count - processed < Self.batchWindows {
+            while starts.count - processed < Tuning.batchWindows {
                 let last = starts[starts.count - 1]
                 try ensure(through: last + window + 1)
                 guard available > last + window else { break }
                 starts.append(nextBoundary(after: last) { buffer[$0 - origin] })
             }
             guard processed < starts.count else { break }
-            let group = processed..<Swift.min(processed + Self.batchWindows, starts.count)
+            let group = processed..<Swift.min(processed + Tuning.batchWindows, starts.count)
             // Everything before this batch is finished with. Releasing here
             // rather than after the batch matters: at that point the boundary
             // list has already been extended to exactly the batch that was just
@@ -601,7 +595,7 @@ final class Pipeline {
             let valids = group.map { w -> Int in
                 let low = starts[w]
                 let high = Swift.min(low + c.nSamples, available)
-                return Self.validEncoderFrames(sampleCount: high - low, configuration: c)
+                return validEncoderFrames(sampleCount: high - low, configuration: c)
             }
 
             // The decode consumes windows as the encoder produces them. Where
@@ -610,7 +604,7 @@ final class Pipeline {
             // simply runs here once encoding is done.
             let gate = WindowGate()
             let decoded = DecodeResult()
-            let consume = DispatchWorkItem { [self] in
+            let consumeBody: () -> Void = { [self] in
                 var tokens = [[Int]](repeating: [], count: group.count)
                 var emitFrames = [[Int]](repeating: [], count: group.count)
                 var emitEnds = [[Int]](repeating: [], count: group.count)
@@ -625,7 +619,10 @@ final class Pipeline {
                 decoded.frames = emitFrames
                 decoded.ends = emitEnds
             }
-            if Self.overlapsDecode { Self.decodeQueue.async(execute: consume) }
+            #if canImport(Dispatch)
+            let consume = DispatchWorkItem(block: consumeBody)
+            if Tuning.overlapsDecode { Tuning.decodeQueue.async(execute: consume) }
+            #endif
 
             do {
                 for (i, w) in group.enumerated() {
@@ -638,10 +635,16 @@ final class Pipeline {
             } catch {
                 // The windows the decode is waiting for are never coming.
                 gate.abandon(group.count)
-                if Self.overlapsDecode { consume.wait() }
+                #if canImport(Dispatch)
+                if Tuning.overlapsDecode { consume.wait() }
+                #endif
                 throw error
             }
-            if Self.overlapsDecode { consume.wait() } else { consume.perform() }
+            #if canImport(Dispatch)
+            if Tuning.overlapsDecode { consume.wait() } else { consume.perform() }
+            #else
+            consumeBody()
+            #endif
             if let error = decoded.error { throw error }
 
             var tokens = decoded.tokens
@@ -681,7 +684,7 @@ final class Pipeline {
             // A window counts as having stopped early by how much audio it left
             // after its last word, and only if that audio holds speech, so one
             // whose tail is genuinely silent is left alone.
-            let refused = futileRetries >= Self.futileRetryLimit ? [] :
+            let refused = futileRetries >= Tuning.futileRetryLimit ? [] :
                 group.enumerated().filter { i, w in
                     let low = starts[w]
                     let high = Swift.min(low + c.nSamples, available)
@@ -693,7 +696,7 @@ final class Pipeline {
                     // last word misses that entirely, so this takes the largest
                     // silence between consecutive words, wherever it falls.
                     let (from, to) = widestSilence(emitFrames[i], upTo: valids[i])
-                    guard Double(to - from) * c.secondsPerFrame > Self.truncationTail
+                    guard Double(to - from) * c.secondsPerFrame > Tuning.truncationTail
                     else { return false }
                     let a = Swift.min(high, low + Int(Double(from) * c.secondsPerFrame
                         * Double(c.sampleRate)))
@@ -703,7 +706,7 @@ final class Pipeline {
                     // absolute floor: a pause with room tone in it clears a
                     // fixed threshold, and rerunning genuine pauses costs more
                     // than it recovers.
-                    return a < b && loudness(slice(a, b)) > Self.gapFloor * loudness(slice(low, high))
+                    return a < b && loudness(slice(a, b)) > Tuning.gapFloor * loudness(slice(low, high))
                 }
             if !refused.isEmpty {
                 // Retried together rather than one at a time, for the same
@@ -750,9 +753,9 @@ final class Pipeline {
                                             limit: available, audio: { buffer[$0 - origin] })
                         let high = Swift.min(low + c.nSamples, available)
                         let shortened = tokens[entry.offset].isEmpty
-                            ? low + Int(Self.retryFraction * Double(high - low)) : high
+                            ? low + Int(Tuning.retryFraction * Double(high - low)) : high
                         retryStarts[slot] = low
-                        retryValids[slot] = Self.validEncoderFrames(
+                        retryValids[slot] = validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
                         try encode(window: slice(low, shortened),
                                    into: out.baseAddress! + slot * stride)
@@ -781,7 +784,7 @@ final class Pipeline {
                     }
                     let recovered = !retryTokens[slot].isEmpty
                         && Double(retryValids[slot] - (retryFrames[slot].last ?? 0))
-                            * c.secondsPerFrame <= Self.truncationTail
+                            * c.secondsPerFrame <= Tuning.truncationTail
                     if recovered { futileRetries = 0 } else { futileRetries += 1 }
                 }
             }
@@ -803,7 +806,7 @@ final class Pipeline {
                 let produced = refineEnds(
                     timedWords(tokens: tokens[i], frames: emitFrames[i],
                                ends: emitEnds[i],
-                               vocabulary: assets.vocabulary,
+                               vocabulary: engine.vocabulary,
                                secondsPerFrame: c.secondsPerFrame,
                                timeOffset: Double(low) / Double(c.sampleRate)),
                     samples: slice(low, high),
@@ -815,13 +818,13 @@ final class Pipeline {
                     } else {
                         words = spliceOverlap(words, produced,
                                               boundary: Double(sample) / Double(c.sampleRate),
-                                              overlap: Self.boundarySearch)
+                                              overlap: Tuning.boundarySearch)
                     }
                 }
                 join(produced, at: starts[w])
                 if let (t, f, e, at) = extra[i] {
                     join(refineEnds(timedWords(tokens: t, frames: f, ends: e,
-                                               vocabulary: assets.vocabulary,
+                                               vocabulary: engine.vocabulary,
                                                secondsPerFrame: c.secondsPerFrame,
                                                timeOffset: Double(at) / Double(c.sampleRate)),
                                     samples: slice(at, Swift.min(at + c.nSamples, available)),
@@ -836,4 +839,3 @@ final class Pipeline {
         return (words.map(\.text).joined(separator: " "), words)
     }
 }
-#endif

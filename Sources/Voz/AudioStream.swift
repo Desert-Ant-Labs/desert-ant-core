@@ -1,4 +1,3 @@
-#if canImport(CoreML)
 import Foundation
 
 #if canImport(AVFoundation)
@@ -143,5 +142,4 @@ struct FileAudioStream: AudioStream {
         return n
     }
 }
-#endif
 #endif

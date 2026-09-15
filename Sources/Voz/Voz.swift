@@ -1,7 +1,7 @@
 #if canImport(CoreML)
 import CoreML
-import Foundation
 #endif
+import Foundation
 import DesertAnt
 
 public enum VozError: Error, CustomStringConvertible, Sendable {
@@ -12,17 +12,26 @@ public enum VozError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .unsupportedPlatform:
-            return "Voz requires Core ML and runs on Apple platforms only"
+            return "Voz requires Core ML (Apple platforms) or LiteRT (Android/Linux)"
         case .invalidModel(let m): return "invalid model: \(m)"
         case .invalidAudio(let m): return "invalid audio: \(m)"
         }
     }
 }
 
+#if canImport(CoreML) || canImport(CLiteRt)
+
+/// The backend this platform runs the three graphs on: Core ML on Apple
+/// platforms (the Neural Engine), LiteRT elsewhere (XNNPACK, or the GPU when
+/// its accelerator library is bundled).
 #if canImport(CoreML)
+typealias PlatformEngine = Assets
+#else
+typealias PlatformEngine = LiteRTAssets
+#endif
 
 /// On-device speech recognition: a transcript with word-level timestamps,
-/// running entirely on the Neural Engine.
+/// running entirely on device.
 ///
 /// ```swift
 /// let voz = try await Voz()
@@ -56,7 +65,7 @@ public actor Voz {
         }
     }
 
-    private let pipeline: Pipeline
+    private let pipeline: Pipeline<PlatformEngine>
     /// One turnstile per instance. See UsageTracking.swift: this model drives
     /// Core ML directly rather than through `Inference`, so it opens its own
     /// rather than inheriting the session factory's.
@@ -115,12 +124,21 @@ public actor Voz {
     }
 
     /// Load from a directory of model files you manage yourself.
+    #if canImport(CoreML)
     public init(modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
         let assets = try Assets(directory: modelDirectory, computeUnits: computeUnits)
-        pipeline = try Pipeline(assets: assets)
+        pipeline = Pipeline(engine: assets)
         sampleRate = Double(assets.configuration.sampleRate)
         usage = makeTurnstile()
     }
+    #else
+    public init(modelDirectory: URL) throws {
+        let assets = try LiteRTAssets(directory: modelDirectory)
+        pipeline = Pipeline(engine: assets)
+        sampleRate = Double(assets.configuration.sampleRate)
+        usage = makeTurnstile()
+    }
+    #endif
 
     // MARK: - Transcription
 

@@ -40,6 +40,13 @@ int dal_lrt_num_outputs(const DalLrtSession* session);
 const char* dal_lrt_input_name(const DalLrtSession* session, int index);
 const char* dal_lrt_output_name(const DalLrtSession* session, int index);
 
+// Input metadata (fixed shapes), valid from creation: element type code, rank,
+// and dimensions, so a caller can size its buffers from the artifact rather
+// than from a constant.
+int dal_lrt_input_element_type(const DalLrtSession* session, int index);
+int dal_lrt_input_rank(const DalLrtSession* session, int index);
+void dal_lrt_input_dims(const DalLrtSession* session, int index, int32_t* dims_out);
+
 // Run once. `inputs`/`input_lens` are arrays of length num_inputs, in the model's
 // input order (host byte order, matching each input's element type and shape).
 // Returns 0 on success, non-zero on error (message in errbuf).

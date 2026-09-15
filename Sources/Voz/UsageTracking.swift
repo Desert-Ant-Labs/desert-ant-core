@@ -1,4 +1,7 @@
-#if canImport(CoreML)
+// The turnstile compiles wherever an engine does: the LiteRT path drives its
+// backend directly for the same reason the Core ML one does, so it has the
+// same untracked-session gap to close.
+#if canImport(CoreML) || canImport(CLiteRt)
 // The usage turnstile, wired directly.
 //
 // emo, redact and clear never write this: they reach Core ML through
