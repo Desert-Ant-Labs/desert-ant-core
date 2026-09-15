@@ -57,6 +57,10 @@ public actor Voz {
     }
 
     private let pipeline: Pipeline
+    /// One turnstile per instance. See UsageTracking.swift: this model drives
+    /// Core ML directly rather than through `Inference`, so it opens its own
+    /// rather than inheriting the session factory's.
+    private let usage: UsageTurnstile?
     /// Audio rate the model expects. Input at another rate is resampled.
     public nonisolated let sampleRate: Double
 
@@ -115,6 +119,7 @@ public actor Voz {
         let assets = try Assets(directory: modelDirectory, computeUnits: computeUnits)
         pipeline = try Pipeline(assets: assets)
         sampleRate = Double(assets.configuration.sampleRate)
+        usage = makeTurnstile()
     }
 
     // MARK: - Transcription
@@ -138,6 +143,10 @@ public actor Voz {
         duration: Double,
         progress: @Sendable (Progress) -> Void
     ) throws -> Result {
+        // Every public entry point funnels through here, so this is the one
+        // place a transcription is counted. Fire-and-forget: the turnstile
+        // must never sit between the caller and their transcript.
+        if let usage { Task { await usage.record() } }
         let started = Date()
         let (text, words) = try pipeline.run(stream: &stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))
