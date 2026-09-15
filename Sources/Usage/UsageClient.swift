@@ -12,6 +12,10 @@ public let dayMs: Int64 = 24 * 60 * 60 * 1000
 public let webSessionMs: Int64 = 30 * 60 * 1000
 /// Default coalescing interval for a continuously-running `server` host's deltas.
 public let hourMs: Int64 = 60 * 60 * 1000
+/// Default coalescing interval for every other host's deltas (mobile, web). A
+/// session that keeps detecting sends one delta per quarter hour, not one per
+/// 3-second idle gap: bounds rows per device per day whatever the app does.
+public let quarterHourMs: Int64 = 15 * 60 * 1000
 
 /// Persisted per install, across sessions.
 public struct UsageState: Sendable, Equatable {
@@ -96,7 +100,9 @@ public final class UsageClient {
     private var emitted = false       // did we open a turnstile this session?
     private var lastEmitAt: Int64 = 0 // clock of the last actual send; gates delta coalescing
 
-    public init(_ deps: ClientDeps) { self.deps = deps }
+    public init(_ deps: ClientDeps) {
+        self.deps = deps
+    }
 
     /// Host calls this once per inference/call to attribute to the turnstile.
     public func recordCall(_ n: Int = 1) {
@@ -140,7 +146,9 @@ public final class UsageClient {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
             sessionCalls = 0
-            lastEmitAt = deps.now()
+            // The coalescing gate starts counting from the first DELTA, not from
+            // the turnstile: a short session's calls must not wait a full interval.
+            lastEmitAt = 0
             deps.send(makeBody([ev]), opts)
             return
         }
@@ -191,6 +199,10 @@ public final class UsageClient {
     }
 
     private func makeBody(_ events: [IngestEvent]) -> IngestBody {
-        IngestBody(platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk, sentAt: iso8601(epochMs: deps.now()), events: events)
+        IngestBody(
+            platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk,
+            sentAt: iso8601(epochMs: deps.now()), events: events,
+            batchId: generateUUID(), schemaVersion: wireSchemaVersion
+        )
     }
 }
