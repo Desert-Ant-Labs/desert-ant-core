@@ -59,34 +59,25 @@ public struct SDKInfo: Codable, Sendable, Equatable {
 
 /// A single ingest event. `name` is always `"load"`; the optional fields are
 /// omitted from the wire when unset.
-///
-/// `sessionId` (schema 2) identifies the client session the event belongs to —
-/// one id per `UsageClient` lifetime, shared by the turnstile and every delta it
-/// emits. It is what makes session length / frequency representable server-side;
-/// without it one device with 50 deltas in a session is indistinguishable from
-/// one device with 50 sessions. Additive: old servers ignore it.
 public struct IngestEvent: Codable, Sendable, Equatable {
     public var name: String
     public var deviceId: String
     public var callCount: Int?
     public var timestamp: String?
     public var context: [String: String]?
-    public var sessionId: String?
 
     public init(
         name: String = "load",
         deviceId: String,
         callCount: Int? = nil,
         timestamp: String? = nil,
-        context: [String: String]? = nil,
-        sessionId: String? = nil
+        context: [String: String]? = nil
     ) {
         self.name = name
         self.deviceId = deviceId
         self.callCount = callCount
         self.timestamp = timestamp
         self.context = context
-        self.sessionId = sessionId
     }
 }
 
@@ -103,7 +94,7 @@ public struct AppInfo: Codable, Sendable, Equatable {
 }
 
 /// Wire schema version this SDK emits. 1 = the original body; 2 adds
-/// `batchId`, `schemaVersion` and per-event `sessionId` (all additive).
+/// `batchId` and `schemaVersion` (both additive).
 public let wireSchemaVersion = 2
 
 /// The request body posted to the ingest endpoint. Attribution is either a

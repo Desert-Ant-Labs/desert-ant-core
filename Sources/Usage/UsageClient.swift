@@ -99,11 +99,6 @@ public final class UsageClient {
     private var pending: IngestEvent? // queued turnstile, awaiting first flush
     private var emitted = false       // did we open a turnstile this session?
     private var lastEmitAt: Int64 = 0 // clock of the last actual send; gates delta coalescing
-    /// The current session's id (wire schema 2): minted when a turnstile opens
-    /// and carried by that turnstile and every delta until the next turnstile —
-    /// so a long-lived client that re-opens the window (a new day, or a web tab
-    /// idle past 30 min) starts a new session id, not the same one forever.
-    public private(set) var sessionId: String = generateUUID()
 
     public init(_ deps: ClientDeps) {
         self.deps = deps
@@ -170,7 +165,7 @@ public final class UsageClient {
                 }
                 return
             }
-            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext(), sessionId: sessionId)
+            let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext())
             if deps.callCount == nil && st.carryCallCount != 0 {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
@@ -199,10 +194,7 @@ public final class UsageClient {
     }
 
     private func queue(context: [String: String]? = nil) {
-        // A turnstile opens a session: new id, unless this is the first turnstile
-        // of this client and nothing has been sent under the initial id yet.
-        if emitted { sessionId = generateUUID() }
-        pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext(), sessionId: sessionId)
+        pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext())
         emitted = true
     }
 

@@ -266,22 +266,8 @@ struct WireTests {
     }
 }
 
-// Wire schema 2: session id, batch id, schema version (decision memo step 3b).
+// Wire schema 2: batch id, schema version (decision memo step 3b).
 struct UsageWireSchema2Tests {
-    @Test func turnstileAndDeltasShareOneSessionId() {
-        let h = Harness(UsageState(lastActiveAt: 0))
-        h.client.start()
-        h.client.flush()                 // turnstile
-        h.client.recordCall(3)
-        h.client.flush()                 // delta
-        #expect(h.sent.count == 2)
-        let ids = h.events.map(\.sessionId)
-        #expect(ids.count == 2)
-        #expect(ids[0] != nil)
-        #expect(ids[0] == ids[1])
-        #expect(ids[0] == h.client.sessionId)
-    }
-
     @Test func eachBodyHasItsOwnBatchIdAndDeclaresSchema2() {
         let h = Harness(UsageState(lastActiveAt: 0))
         h.client.start()
@@ -295,23 +281,14 @@ struct UsageWireSchema2Tests {
         #expect(wireSchemaVersion == 2)
     }
 
-    @Test func twoClientsHaveDifferentSessionIds() {
-        let a = Harness(UsageState(lastActiveAt: 0))
-        let b = Harness(UsageState(lastActiveAt: 0))
-        #expect(a.client.sessionId != b.client.sessionId)
-    }
-
-    @Test func aNewTurnstileOpensANewSession() {
+    @Test func anElapsedWindowOpensANewTurnstile() {
         let h = Harness(UsageState(lastActiveAt: 0))
         h.client.start()
         h.client.flush()
-        let first = h.events[0].sessionId
         h.advance(dayMs)          // window elapsed: the next start() opens a new turnstile
         h.client.start()
         h.client.flush()
         #expect(h.sent.count == 2)
-        #expect(h.events[1].sessionId != nil)
-        #expect(h.events[1].sessionId != first)
     }
 
     @Test func firstDeltaIsNotHeldForAWholeInterval() {
@@ -337,6 +314,5 @@ struct UsageWireSchema2Tests {
         let json = try buildBody(h.sent[0].body)
         #expect(json.contains("\"batchId\":\""))
         #expect(json.contains("\"schemaVersion\":2"))
-        #expect(json.contains("\"sessionId\":\""))
     }
 }
