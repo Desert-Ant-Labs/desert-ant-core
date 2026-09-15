@@ -1,6 +1,20 @@
 #if canImport(CoreML)
 import CoreML
+import Dispatch
 import Foundation
+
+/// How far a group's encoder pass has got, shared with the decode consuming it.
+/// A reference rather than captured locals: two threads touching a captured
+/// `var` is what Swift's exclusivity enforcement traps on, whatever lock the
+/// program holds around it.
+private final class EncodeProgress {
+    var ready = 0
+    var error: Error?
+    /// When the encoder pass finished, so the decode that outlives it can be
+    /// measured. Everything the decode does after this instant is on the
+    /// critical path rather than hidden behind the Neural Engine.
+    var finishedAt: UInt64 = 0
+}
 
 /// The recognition pipeline: mel, encoder, and a lane-batched transducer decode.
 ///
@@ -35,6 +49,12 @@ final class Pipeline {
     private static let retryFraction = 0.93
     /// How many retries may recover nothing before retrying is abandoned.
     private static let futileRetryLimit = 8
+    /// Whether refused windows are rerun at all. A retry is a whole extra encode
+    /// and decode, and the decode runs at whatever occupancy the refusals give
+    /// it rather than a full sixteen lanes, so it is disproportionately
+    /// expensive. Overridable so the trade can be measured per model.
+    private static let retryWindows =
+        ProcessInfo.processInfo.environment["VOZ_RETRY"] != "0"
     /// Audio a window may leave after its last word before it counts as having
     /// stopped early. Healthy windows finish within a frame or two of their end;
     /// the ones worth rerunning leave seconds.
@@ -72,6 +92,17 @@ final class Pipeline {
     /// Reused by ``refineWindow(_:validFrames:fromFrame:)``; the live path calls
     /// it about once a second and should not allocate 240 KB each time.
     private var refineScratch: [Element] = []
+
+    /// Serialises the mel and encoder buffers. The encoder pass runs on its own
+    /// thread while the decode has the calling one, and a rerun issued from the
+    /// decode encodes too, so `melOut` and `encOut` have two users.
+    private let encoderLock = NSLock()
+    /// Where a group's encoder pass runs while the decode consumes it.
+    private static let encodeQueue = DispatchQueue(label: "voz.encode",
+                                                   qos: .userInitiated)
+    /// Set while a group is being encoded; the decode blocks on it for a window
+    /// that does not exist yet.
+    private var awaitWindow: ((Int) -> Void)?
 
     private let melProvider: MLDictionaryFeatureProvider
     private let encoderProvider: MLDictionaryFeatureProvider
@@ -157,8 +188,22 @@ final class Pipeline {
     }
 
     /// One window of audio to encoder projections, written into `destination`.
+    /// Mel and encoder are separable because they meet in one buffer: the mel
+    /// writes `melOut` as its output backing and the encoder reads the same
+    /// array as its input. Running them as two passes over a group rather than
+    /// alternating per window costs a copy of the mel per window and saves an
+    /// ANE program switch, which on an M3 Ultra is 4.8 ms against a 1.1 ms mel.
     private func encode(window: ArraySlice<Float>, validFrames: Int,
                         into destination: UnsafeMutablePointer<Element>) throws {
+        // Used by a rerun, which the decode issues while the encoder pass for
+        // the group may still be running, so it takes the same lock.
+        encoderLock.lock()
+        defer { encoderLock.unlock() }
+        try computeMel(window: window)
+        try runEncoder(validFrames: validFrames, into: destination)
+    }
+
+    private func computeMel(window: ArraySlice<Float>) throws {
         frame(window)
         // Normalization statistics must be taken over the frames that actually
         // hold audio. A window is a fixed 15 s, so a five-second clip is two
@@ -169,14 +214,23 @@ final class Pipeline {
         let melValid = max(1, min(melFrames, window.count / configuration.hopLength + 1))
         melMask.ptr.update(repeating: 1, count: melValid)
         for i in melValid..<melFrames { melMask.ptr[i] = 0 }
-        _ = try assets.mel.prediction(from: melProvider, options: melOptions)
+        _ = try Diagnostics.time(&Diagnostics.melNanos) {
+            try assets.mel.prediction(from: melProvider, options: melOptions)
+        }
+    }
+
+    private func runEncoder(validFrames: Int,
+                            into destination: UnsafeMutablePointer<Element>) throws {
         let frames = configuration.encFrames
         let valid = max(1, min(frames, validFrames))
         keyBias.zero()
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
         for i in valid..<frames { keyBias.ptr[i] = Element(-40000) }
-        _ = try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
+        Diagnostics.count(&Diagnostics.encoderCalls)
+        _ = try Diagnostics.time(&Diagnostics.encoderNanos) {
+            try assets.encoder.prediction(from: encoderProvider, options: encoderOptions)
+        }
         destination.update(from: encOut.ptr, count: configuration.jointHidden * frames)
     }
 
@@ -190,8 +244,19 @@ final class Pipeline {
     /// do not interact, so running several in lockstep amortises that fixed cost,
     /// and a lane that finishes takes the next pending window immediately rather
     /// than idling until the whole group is done.
-    private func decode(projections: [Element], valids: [Int], ends: inout [[Int]],
-                        tokens: inout [[Int]], frames: inout [[Int]]) throws {
+    /// `finished` is called the moment a lane runs out of window, with that
+    /// window's slot. It may encode fresh work into a spare slot of
+    /// `projections` and return it, and the lane takes it immediately. That is
+    /// how a refused window is rerun: a dispatch costs by the lane count the
+    /// model was exported with, not by how many lanes carry a window, so work
+    /// placed in the lanes a draining group has already freed is close to free.
+    /// Run as its own pass instead, three refused windows cost a full sixteen
+    /// lane dispatch each for eighty dispatches, which was 14% of this file.
+    private func decode(projections: UnsafeMutablePointer<Element>, valids: [Int],
+                        queued: Int, ends: inout [[Int]], tokens: inout [[Int]],
+                        frames: inout [[Int]],
+                        finished: ((Int, [Int], [Int]) throws -> (slot: Int, valid: Int)?)? = nil)
+                        throws {
         let c = configuration
         let width = c.decodeWidth
         let lanes = assets.decodeLanes
@@ -204,6 +269,9 @@ final class Pipeline {
         let hidden = c.predLayers * c.predHidden
 
         var pending = 0
+        /// Slots handed back by `finished`, taken before any first-pass window
+        /// so a rerun lands in the drain rather than after it.
+        var requeued: [Int] = []
         var slot = [Int](repeating: -1, count: lanes)
         var position = [Int](repeating: 0, count: lanes)
         var label = [Int](repeating: blank, count: lanes)
@@ -211,40 +279,61 @@ final class Pipeline {
         var limit = [Int](repeating: 0, count: lanes)
         hIn.zero(); cIn.zero(); embed.zero(); encStep.zero()
 
-        func admit(_ lane: Int) {
-            guard pending < valids.count else { slot[lane] = -1; return }
-            slot[lane] = pending
+        // `valids` is sized for the spares as well as the queue, and a rerun's
+        // length is only known when `finished` produces it, so the limits are
+        // kept here rather than handed back to the caller. That also keeps the
+        // closure from writing to an array this function holds.
+        var limitOf = valids
+        func start(_ lane: Int, _ which: Int) {
+            slot[lane] = which
             position[lane] = 0
             label[lane] = blank
             emitted[lane] = 0
-            limit[lane] = max(1, min(total, valids[pending]))
+            limit[lane] = max(1, min(total, limitOf[which]))
             (hIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             (cIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
+        }
+        func admit(_ lane: Int) {
+            if !requeued.isEmpty { start(lane, requeued.removeFirst()); return }
+            guard pending < queued else { slot[lane] = -1; return }
+            // Waits for a window the encoder has not produced yet, rather than
+            // leaving the lane empty and dispatching short-handed.
+            //
+            // The alternative was measured and is worse: letting the decode run
+            // ahead with whatever lanes are ready took dispatches from 263 to
+            // 503 and occupancy from 12.77 to 6.68, and the encoder slowed from
+            // 457 ms to 536 ms because the extra CPU work contends with the
+            // Neural Engine path rather than hiding behind it. Waiting keeps the
+            // decode's total cost down, and its cost is what matters.
+            awaitWindow?(pending)
+            start(lane, pending)
             pending += 1
         }
         for lane in 0..<lanes { admit(lane) }
 
         while slot.contains(where: { $0 >= 0 }) {
-            projections.withUnsafeBufferPointer { source in
-                assets.withEmbedding { table in
-                    for lane in 0..<lanes where slot[lane] >= 0 {
-                        (embed.ptr + lane * c.predHidden)
-                            .update(from: table.baseAddress! + label[lane] * c.predHidden,
-                                    count: c.predHidden)
-                        let span = min(width, limit[lane] - position[lane])
-                        let base = source.baseAddress! + slot[lane] * stride
-                        for channel in 0..<joint {
-                            let destination = encStep.ptr + (lane * joint + channel) * width
-                            destination.update(from: base + channel * total + position[lane],
-                                               count: span)
-                            if span < width {
-                                (destination + span).update(repeating: 0, count: width - span)
-                            }
+            assets.withEmbedding { table in
+                for lane in 0..<lanes where slot[lane] >= 0 {
+                    (embed.ptr + lane * c.predHidden)
+                        .update(from: table.baseAddress! + label[lane] * c.predHidden,
+                                count: c.predHidden)
+                    let span = min(width, limit[lane] - position[lane])
+                    let base = projections + slot[lane] * stride
+                    for channel in 0..<joint {
+                        let destination = encStep.ptr + (lane * joint + channel) * width
+                        destination.update(from: base + channel * total + position[lane],
+                                           count: span)
+                        if span < width {
+                            (destination + span).update(repeating: 0, count: width - span)
                         }
                     }
                 }
             }
-            _ = try assets.decodeStep.prediction(from: stepProvider, options: stepOptions)
+            Diagnostics.count(&Diagnostics.decodeCalls)
+            Diagnostics.lanes(slot.reduce(0) { $0 + ($1 >= 0 ? 1 : 0) })
+            _ = try Diagnostics.time(&Diagnostics.decodeNanos) {
+                try assets.decodeStep.prediction(from: stepProvider, options: stepOptions)
+            }
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -290,7 +379,14 @@ final class Pipeline {
                     offset += duration > 0 ? duration : 1
                 }
                 if !didEmit { position[lane] += max(offset, 1) }
-                if position[lane] >= limit[lane] { admit(lane) }
+                if position[lane] >= limit[lane] {
+                    if let finished,
+                       let rerun = try finished(window, tokens[window], frames[window]) {
+                        limitOf[rerun.slot] = rerun.valid
+                        requeued.append(rerun.slot)
+                    }
+                    admit(lane)
+                }
             }
         }
     }
@@ -491,28 +587,103 @@ final class Pipeline {
             // file - 5.8 MB for every minute of audio.
             release(before: starts[group.lowerBound])
             try ensure(through: starts[group.upperBound - 1] + window)
-            var projections = [Element](repeating: 0, count: group.count * stride)
-            var valids = [Int](repeating: frames, count: group.count)
+            // Room for a rerun of every window in the group. A refused window is
+            // rerun in whatever lane has just gone idle rather than in a pass of
+            // its own, so its projection has to live alongside the first pass's
+            // for as long as the decode runs.
+            let capacity = group.count * 2
+            let projections = UnsafeMutablePointer<Element>.allocate(capacity: capacity * stride)
+            projections.initialize(repeating: 0, count: capacity * stride)
+            defer { projections.deallocate() }
+            var valids = [Int](repeating: frames, count: capacity)
 
-            try projections.withUnsafeMutableBufferPointer { buffer in
-                for (i, w) in group.enumerated() {
-                    let low = starts[w]
-                    let high = Swift.min(low + c.nSamples, available)
-                    // ceil(samples / hop / 8): rounding this down loses the final frame.
-                    valids[i] = Swift.max(1, Swift.min(
-                        frames, (high - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
-                    try encode(window: slice(low, high), validFrames: valids[i],
-                               into: buffer.baseAddress! + i * stride)
-                    progress(reported(low))
-                }
+            // Every mel first, then every encoder, rather than alternating the
+            // two per window. They are different Neural Engine programs and
+            // swapping between them costs more than either call: measured on the
+            // benchmark host, 47 windows alternating take 785 ms against 560 ms
+            // blocked, so the switch is 4.8 ms a window against a 1.1 ms mel.
+            // The price is holding the group's mel output, 240 KB a window.
+            let melCount = c.nMels * c.validFrames
+            let melStage = UnsafeMutablePointer<Element>
+                .allocate(capacity: group.count * melCount)
+            melStage.initialize(repeating: 0, count: group.count * melCount)
+            defer { melStage.deallocate() }
+
+            // Window lengths are arithmetic on the boundary list, not model
+            // work, so they are settled before either pass runs.
+            for (i, w) in group.enumerated() {
+                let low = starts[w]
+                let high = Swift.min(low + c.nSamples, available)
+                // ceil(samples / hop / 8): rounding this down loses the final frame.
+                valids[i] = Swift.max(1, Swift.min(
+                    frames, (high - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
             }
 
-            var tokens = [[Int]](repeating: [], count: group.count)
-            var emitFrames = [[Int]](repeating: [], count: group.count)
-            var emitEnds = [[Int]](repeating: [], count: group.count)
+            for (i, w) in group.enumerated() {
+                let low = starts[w]
+                let high = Swift.min(low + c.nSamples, available)
+                try computeMel(window: slice(low, high))
+                (melStage + i * melCount).update(from: melOut.ptr, count: melCount)
+                progress(reported(low))
+            }
+            // The encoder pass runs alongside the decode, because on this host
+            // they are not even on the same processor: the decode step plans
+            // entirely to the CPU while mel and encoder are on the Neural
+            // Engine, and they were merely taking turns. The decode consumes
+            // windows as they appear and blocks on the ones that do not.
+            //
+            // Only the encoder moves. The mel pass above reads the streaming
+            // audio buffer, which `ensure` and `release` mutate between groups;
+            // capturing that in an escaping closure is what made the first
+            // attempt at this trap. The encoder pass reads `melStage` and
+            // nothing else, so the thread touches no shared mutable state
+            // beyond the model buffers the lock covers.
+            let windowValids = valids
+            let produced = NSCondition()
+            let state = EncodeProgress()
+            let encodePass = DispatchWorkItem { [self] in
+                do {
+                    for i in 0..<group.count {
+                        encoderLock.lock()
+                        melOut.ptr.update(from: melStage + i * melCount, count: melCount)
+                        try runEncoder(validFrames: windowValids[i],
+                                       into: projections + i * stride)
+                        encoderLock.unlock()
+                        produced.lock()
+                        state.ready = i + 1
+                        produced.broadcast()
+                        produced.unlock()
+                    }
+                } catch {
+                    produced.lock()
+                    state.error = error
+                    state.ready = group.count
+                    produced.broadcast()
+                    produced.unlock()
+                }
+                produced.lock()
+                state.finishedAt = DispatchTime.now().uptimeNanoseconds
+                produced.unlock()
+            }
+            Self.encodeQueue.async(execute: encodePass)
+            defer { encodePass.wait() }
+            awaitWindow = { index in
+                produced.lock()
+                while state.ready <= index { produced.wait() }
+                produced.unlock()
+            }
+            defer { awaitWindow = nil }
+
+            var tokens = [[Int]](repeating: [], count: capacity)
+            var emitFrames = [[Int]](repeating: [], count: capacity)
+            var emitEnds = [[Int]](repeating: [], count: capacity)
             var extra = [Int: ([Int], [Int], [Int], Int)]()
-            try decode(projections: projections, valids: valids, ends: &emitEnds,
-                       tokens: &tokens, frames: &emitFrames)
+            // Which first-pass slot each rerun belongs to, and where its audio
+            // began, which the splice needs and the slot itself does not carry.
+            var rerunOf = [Int: Int]()
+            var rerunStart = [Int: Int]()
+            var rerunValid = [Int: Int]()
+            var nextSpare = group.count
 
             // Some windows come back empty even though they are full of speech.
             // This is the recogniser's own behaviour and not this runtime's: the
@@ -525,129 +696,118 @@ final class Pipeline {
             //
             // Nothing in the boundary search can steer around that, so a refused
             // window is given the one thing that reliably changes the outcome: a
-            // different length. Every refused window tested recovered when its
-            // audio was shortened, and this costs a second pass only over the
-            // windows that produced nothing, which is normally none of them.
-            // Audio that is not speech at all - music, room tone, a held
-            // note - legitimately produces nothing from every window, and
-            // retrying all of them doubles the work to learn that. So a run of
-            // retries that recovers nothing switches retrying off, and any
-            // recovery switches it back on: the cost is bounded on material
-            // that has nothing to say, without giving up on a file that is
-            // quiet for a while and then starts talking.
-            // A window can fail in two ways, and they look different. It can
-            // produce nothing at all, or it can produce a plausible transcript
-            // and stop partway through - one French window emitted 37% of its
-            // audio and read perfectly, so nothing downstream could tell. Both
-            // are the same behaviour and both are fixed by the same thing,
-            // running the window at a different length: that one goes from 37%
-            // to 99% at fourteen seconds instead of fifteen.
+            // different crop.
             //
             // A window counts as having stopped early by how much audio it left
             // after its last word, and only if that audio holds speech, so one
             // whose tail is genuinely silent is left alone.
-            let refused = futileRetries >= Self.futileRetryLimit ? [] :
-                group.enumerated().filter { i, w in
-                    let low = starts[w]
-                    let high = Swift.min(low + c.nSamples, available)
-                    if tokens[i].isEmpty { return holdsSpeech(slice(low, high)) }
-                    // The hole is not always at the end. A Czech window reached
-                    // its final frame and still emitted a third of the words its
-                    // neighbours did, because it said nothing at all across ten
-                    // seconds in the middle. Looking only at what follows the
-                    // last word misses that entirely, so this takes the largest
-                    // silence between consecutive words, wherever it falls.
-                    let (from, to) = widestSilence(emitFrames[i], upTo: valids[i])
-                    guard Double(to - from) * c.secondsPerFrame > Self.truncationTail
-                    else { return false }
-                    let a = Swift.min(high, low + Int(Double(from) * c.secondsPerFrame
-                        * Double(c.sampleRate)))
-                    let b = Swift.min(high, low + Int(Double(to) * c.secondsPerFrame
-                        * Double(c.sampleRate)))
-                    // Judged against this window's own loudness rather than an
-                    // absolute floor: a pause with room tone in it clears a
-                    // fixed threshold, and rerunning genuine pauses costs more
-                    // than it recovers.
-                    return a < b && loudness(slice(a, b)) > Self.gapFloor * loudness(slice(low, high))
+            let firstValids = valids
+            func isRefused(_ i: Int, _ tok: [Int], _ frm: [Int]) -> Bool {
+                // `group` indexes windows absolutely, and `i` is an offset
+                // within it. Subscripting the range directly reads the right
+                // window only for the first group of a file, and traps on the
+                // second: batchWindows is 64, so nothing under about fourteen
+                // minutes of audio ever reached it.
+                let w = group.lowerBound + i
+                let low = starts[w]
+                let high = Swift.min(low + c.nSamples, available)
+                if tok.isEmpty { return holdsSpeech(slice(low, high)) }
+                // The hole is not always at the end. A Czech window reached its
+                // final frame and still emitted a third of the words its
+                // neighbours did, because it said nothing at all across ten
+                // seconds in the middle. Looking only at what follows the last
+                // word misses that entirely, so this takes the largest silence
+                // between consecutive words, wherever it falls.
+                let (from, to) = widestSilence(frm, upTo: firstValids[i])
+                guard Double(to - from) * c.secondsPerFrame > Self.truncationTail
+                else { return false }
+                let a = Swift.min(high, low + Int(Double(from) * c.secondsPerFrame
+                    * Double(c.sampleRate)))
+                let b = Swift.min(high, low + Int(Double(to) * c.secondsPerFrame
+                    * Double(c.sampleRate)))
+                // Judged against this window's own loudness rather than an
+                // absolute floor: a pause with room tone in it clears a fixed
+                // threshold, and rerunning genuine pauses costs more than it
+                // recovers.
+                return a < b && loudness(slice(a, b)) > Self.gapFloor * loudness(slice(low, high))
+            }
+
+            try decode(projections: projections, valids: valids, queued: group.count,
+                       ends: &emitEnds, tokens: &tokens, frames: &emitFrames) { slot, tok, frm in
+                // Only first-pass windows are judged: a rerun that disappoints is
+                // the `futileRetries` story, not a third attempt.
+                guard slot < group.count, Self.retryWindows,
+                      futileRetries < Self.futileRetryLimit,
+                      nextSpare < capacity, isRefused(slot, tok, frm) else { return nil }
+                if Diagnostics.enabled { Diagnostics.retries += 1 }
+
+                let windowStart = starts[group.lowerBound + slot]
+                // Where to run the window again. A window that produced nothing
+                // gets the same audio at a different length, which is the only
+                // thing that reliably changes the outcome. A window that stopped
+                // early gets something better than luck: the audio it missed, as
+                // a window of its own, starting a second before it gave up so the
+                // splice has an overlap to align on. Rerunning a truncated window
+                // at a different length is a coin flip - it rescued one of
+                // French's three worst and left the other two exactly where they
+                // were - because the model is sensitive to the crop in a way that
+                // does not reward guessing.
+                let stopped = self.widestSilence(frm, upTo: firstValids[slot]).0
+                // Start the recovery window at the quietest point near where the
+                // last one gave up, rather than exactly there. Every other window
+                // start is chosen this way for the same reason: the recogniser is
+                // sensitive to where a crop begins, so handing it an arbitrary one
+                // wastes the rerun.
+                let gaveUp = windowStart
+                    + Int(Double(stopped) * c.secondsPerFrame * Double(c.sampleRate))
+                let low = tok.isEmpty ? windowStart
+                    : self.quietestPoint(near: gaveUp, from: windowStart,
+                                    // The waveform, not the projections: this
+                                    // searches the audio for a quiet point.
+                                    limit: available, audio: { buffer[$0 - origin] })
+                let high = Swift.min(low + c.nSamples, available)
+                let shortened = tok.isEmpty
+                    ? low + Int(Self.retryFraction * Double(high - low)) : high
+                let valid = Swift.max(1, Swift.min(
+                    frames, (shortened - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
+
+                let spare = nextSpare
+                nextSpare += 1
+                rerunOf[spare] = slot
+                rerunStart[spare] = low
+                rerunValid[spare] = valid
+                try self.encode(window: slice(low, shortened), validFrames: valid,
+                           into: projections + spare * stride)
+                return (spare, valid)
+            }
+
+            if Diagnostics.enabled {
+                produced.lock()
+                let finished = state.finishedAt
+                produced.unlock()
+                if finished > 0 {
+                    Diagnostics.tailNanos +=
+                        DispatchTime.now().uptimeNanoseconds - finished
                 }
-            if !refused.isEmpty {
-                // Retried together rather than one at a time, for the same
-                // reason the first pass batches: a decode call costs about the
-                // same whatever it carries. Run singly, a file of pure
-                // non-speech - where every window legitimately produces
-                // nothing and every one is retried - ran at a third of its
-                // usual speed instead of half.
-                var retryProjections = [Element](repeating: 0, count: refused.count * stride)
-                var retryValids = [Int](repeating: frames, count: refused.count)
-                var retryStarts = [Int](repeating: 0, count: refused.count)
-                try retryProjections.withUnsafeMutableBufferPointer { out in
-                    for (slot, entry) in refused.enumerated() {
-                        let windowStart = starts[entry.element]
-                        // Where to run the window again. A window that produced
-                        // nothing gets the same audio at a different length,
-                        // which is the only thing that reliably changes the
-                        // outcome. A window that stopped early gets something
-                        // better than luck: the audio it missed, as a window of
-                        // its own, starting a second before it gave up so the
-                        // splice has an overlap to align on. Rerunning a
-                        // truncated window at a different length is a coin flip
-                        // - it rescued one of French's three worst and left the
-                        // other two exactly where they were - because the model
-                        // is sensitive to the crop in a way that does not
-                        // reward guessing.
-                        let stopped = widestSilence(emitFrames[entry.offset],
-                                                    upTo: valids[entry.offset]).0
-                        // Start the recovery window at the quietest point near
-                        // where the last one gave up, rather than exactly there.
-                        // Every other window start is chosen this way for the
-                        // same reason: the recogniser is sensitive to where a
-                        // crop begins, so handing it an arbitrary one wastes the
-                        // rerun.
-                        let gaveUp = windowStart
-                            + Int(Double(stopped) * c.secondsPerFrame * Double(c.sampleRate))
-                        let low = tokens[entry.offset].isEmpty ? windowStart
-                            // `buffer` is the audio, not `out`: this searches the
-                            // waveform for a quiet point. The two were briefly the
-                            // same name, and this read went into the projections
-                            // with sample indices, which is unmapped memory a few
-                            // megabytes in.
-                            : quietestPoint(near: gaveUp, from: windowStart,
-                                            limit: available, audio: { buffer[$0 - origin] })
-                        let high = Swift.min(low + c.nSamples, available)
-                        let shortened = tokens[entry.offset].isEmpty
-                            ? low + Int(Self.retryFraction * Double(high - low)) : high
-                        retryStarts[slot] = low
-                        retryValids[slot] = Swift.max(1, Swift.min(
-                            frames, (shortened - low + c.hopLength * 8 - 1) / (c.hopLength * 8)))
-                        try encode(window: slice(low, shortened),
-                                   validFrames: retryValids[slot],
-                                   into: out.baseAddress! + slot * stride)
-                    }
+            }
+
+            for (spare, slot) in rerunOf.sorted(by: { $0.key < $1.key }) {
+                if tokens[slot].isEmpty {
+                    // Nothing to keep, so the rerun simply replaces it.
+                    tokens[slot] = tokens[spare]
+                    emitFrames[slot] = emitFrames[spare]
+                    emitEnds[slot] = emitEnds[spare]
+                } else {
+                    // The window said something before it stopped, and that part
+                    // is good. The rerun covers what came after it, on its own
+                    // timeline, and is spliced in behind it.
+                    extra[slot] = (tokens[spare], emitFrames[spare], emitEnds[spare],
+                                   rerunStart[spare]!)
                 }
-                var retryTokens = [[Int]](repeating: [], count: refused.count)
-                var retryFrames = [[Int]](repeating: [], count: refused.count)
-                var retryEnds = [[Int]](repeating: [], count: refused.count)
-                try decode(projections: retryProjections, valids: retryValids,
-                           ends: &retryEnds,
-                           tokens: &retryTokens, frames: &retryFrames)
-                for (slot, entry) in refused.enumerated() {
-                    if tokens[entry.offset].isEmpty {
-                        // Nothing to keep, so the rerun simply replaces it.
-                        tokens[entry.offset] = retryTokens[slot]
-                        emitFrames[entry.offset] = retryFrames[slot]
-                        emitEnds[entry.offset] = retryEnds[slot]
-                    } else {
-                        // The window said something before it stopped, and that
-                        // part is good. The rerun covers what came after it, on
-                        // its own timeline, and is spliced in behind it.
-                        extra[entry.offset] = (retryTokens[slot], retryFrames[slot],
-                                               retryEnds[slot], retryStarts[slot])
-                    }
-                    let recovered = !retryTokens[slot].isEmpty
-                        && Double(retryValids[slot] - (retryFrames[slot].last ?? 0))
-                            * c.secondsPerFrame <= Self.truncationTail
-                    if recovered { futileRetries = 0 } else { futileRetries += 1 }
-                }
+                let recovered = !tokens[spare].isEmpty
+                    && Double(rerunValid[spare]! - (emitFrames[spare].last ?? 0))
+                        * c.secondsPerFrame <= Self.truncationTail
+                if recovered { futileRetries = 0 } else { futileRetries += 1 }
             }
 
             for (i, w) in group.enumerated() {
@@ -696,6 +856,7 @@ final class Pipeline {
             }
             processed = group.upperBound
         }
+        Diagnostics.report()
         words = clampMonotonic(words)
         return (words.map(\.text).joined(separator: " "), words)
     }
@@ -746,9 +907,11 @@ final class Pipeline {
             }
         }
         var tokens: [[Int]] = [[]], frames: [[Int]] = [[]], ends: [[Int]] = [[]]
-        try decode(projections: shifted,
-                   valids: [Swift.max(1, Swift.min(span, validFrames - start))],
-                   ends: &ends, tokens: &tokens, frames: &frames)
+        try shifted.withUnsafeMutableBufferPointer {
+            try decode(projections: $0.baseAddress!,
+                       valids: [Swift.max(1, Swift.min(span, validFrames - start))],
+                       queued: 1, ends: &ends, tokens: &tokens, frames: &frames)
+        }
         return timedWords(tokens: tokens[0],
                           frames: frames[0].map { $0 + start },
                           ends: ends[0].map { $0 + start },
