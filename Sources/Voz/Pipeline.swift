@@ -2,6 +2,50 @@
 import CoreML
 import Foundation
 
+/// Hands finished windows from the encoding thread to the decoding one.
+///
+/// A counter rather than a queue: windows are encoded in order and consumed in
+/// order, so "how many exist" is all either side needs to know.
+private final class WindowGate: @unchecked Sendable {
+    private let condition = NSCondition()
+    private var ready = 0
+
+    /// One more window is encoded.
+    func produced() {
+        condition.lock()
+        ready += 1
+        condition.broadcast()
+        condition.unlock()
+    }
+
+    /// Blocks until the window at `index` has been encoded.
+    func wait(for index: Int) {
+        condition.lock()
+        while ready <= index { condition.wait() }
+        condition.unlock()
+    }
+
+    /// Releases every waiter, for when encoding has failed and the windows it
+    /// promised are never coming. The decode then reads zeroed projections,
+    /// which is harmless because the caller throws the encoding error and
+    /// discards the group.
+    func abandon(_ count: Int) {
+        condition.lock()
+        ready = count
+        condition.broadcast()
+        condition.unlock()
+    }
+}
+
+/// What a group's decode produced, in a reference the decoding thread can write
+/// and the encoding one can read once it has joined.
+private final class DecodeResult: @unchecked Sendable {
+    var tokens: [[Int]] = []
+    var frames: [[Int]] = []
+    var ends: [[Int]] = []
+    var error: Error?
+}
+
 /// The recognition pipeline: mel, encoder, and a lane-batched transducer decode.
 ///
 /// Not `Sendable` and not reentrant: it owns preallocated buffers that every
@@ -54,6 +98,33 @@ final class Pipeline {
     /// full for all but the last group.
     private static let batchWindows =
         Int(ProcessInfo.processInfo.environment["VOZ_BATCH_WINDOWS"] ?? "") ?? 64
+
+    /// Whether the decode runs on a thread of its own while the encoder feeds
+    /// it, rather than the two taking turns.
+    ///
+    /// Worth it only where they land on different processors. Core ML plans the
+    /// decode step onto the CPU on a Mac and onto the Neural Engine on a phone,
+    /// so on a phone this overlaps the engine with itself: measured over ten
+    /// minutes of speech, +60% on an M3 Ultra, +13% on an M1, +2% on an M5 and
+    /// +1% on an A18 Pro - and on the phone that 1% costs a core that would
+    /// otherwise be idle, which a device on battery would rather keep.
+    #if os(macOS)
+    private static let overlapsByDefault = true
+    #else
+    private static let overlapsByDefault = false
+    #endif
+    private static let overlapsDecode =
+        ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
+            ?? overlapsByDefault
+    /// Where the decode runs while the encoder has the calling thread. The
+    /// encoder stays put: it reads the streaming audio buffer, which `ensure`
+    /// and `release` mutate between groups, and moving it would mean capturing
+    /// that in an escaping closure.
+    /// Concurrent, so two pipelines transcribing at once do not queue behind
+    /// each other: each group's decode blocks on its own encoder, and a serial
+    /// queue would make that one pipeline's wait into the other's.
+    private static let decodeQueue = DispatchQueue(label: "voz.decode", qos: .userInitiated,
+                                                   attributes: .concurrent)
 
     private let rows: Buffer
     private let melOut: Buffer
@@ -211,8 +282,13 @@ final class Pipeline {
     /// do not interact, so running several in lockstep amortises that fixed cost,
     /// and a lane that finishes takes the next pending window immediately rather
     /// than idling until the whole group is done.
-    private func decode(projections: [Element], valids: [Int], ends: inout [[Int]],
-                        tokens: inout [[Int]], frames: inout [[Int]]) throws {
+    /// `awaitWindow` is called before a window is admitted to a lane, so a
+    /// decode running alongside the encoder blocks on windows that do not exist
+    /// yet. It is a no-op when the two run in sequence.
+    private func decode(projections: UnsafePointer<Element>, valids: [Int],
+                        ends: inout [[Int]], tokens: inout [[Int]],
+                        frames: inout [[Int]],
+                        awaitWindow: (Int) -> Void = { _ in }) throws {
         let c = configuration
         let width = c.decodeWidth
         let lanes = assets.decodeLanes
@@ -234,6 +310,7 @@ final class Pipeline {
 
         func admit(_ lane: Int) {
             guard pending < valids.count else { slot[lane] = -1; return }
+            awaitWindow(pending)
             slot[lane] = pending
             position[lane] = 0
             label[lane] = blank
@@ -246,21 +323,19 @@ final class Pipeline {
         for lane in 0..<lanes { admit(lane) }
 
         while slot.contains(where: { $0 >= 0 }) {
-            projections.withUnsafeBufferPointer { source in
-                assets.withEmbedding { table in
-                    for lane in 0..<lanes where slot[lane] >= 0 {
-                        (embed.ptr + lane * c.predHidden)
-                            .update(from: table.baseAddress! + label[lane] * c.predHidden,
-                                    count: c.predHidden)
-                        let span = min(width, limit[lane] - position[lane])
-                        let base = source.baseAddress! + slot[lane] * stride
-                        for channel in 0..<joint {
-                            let destination = encStep.ptr + (lane * joint + channel) * width
-                            destination.update(from: base + channel * total + position[lane],
-                                               count: span)
-                            if span < width {
-                                (destination + span).update(repeating: 0, count: width - span)
-                            }
+            assets.withEmbedding { table in
+                for lane in 0..<lanes where slot[lane] >= 0 {
+                    (embed.ptr + lane * c.predHidden)
+                        .update(from: table.baseAddress! + label[lane] * c.predHidden,
+                                count: c.predHidden)
+                    let span = min(width, limit[lane] - position[lane])
+                    let base = projections + slot[lane] * stride
+                    for channel in 0..<joint {
+                        let destination = encStep.ptr + (lane * joint + channel) * width
+                        destination.update(from: base + channel * total + position[lane],
+                                           count: span)
+                        if span < width {
+                            (destination + span).update(repeating: 0, count: width - span)
                         }
                     }
                 }
@@ -512,27 +587,67 @@ final class Pipeline {
             // file - 5.8 MB for every minute of audio.
             release(before: starts[group.lowerBound])
             try ensure(through: starts[group.upperBound - 1] + window)
-            var projections = [Element](repeating: 0, count: group.count * stride)
-            var valids = [Int](repeating: frames, count: group.count)
+            // Shared between the two threads for the length of the group, so it
+            // is allocated rather than held in an array whose buffer only one
+            // of them may borrow at a time.
+            let projections = UnsafeMutablePointer<Element>.allocate(
+                capacity: group.count * stride)
+            projections.initialize(repeating: 0, count: group.count * stride)
+            defer { projections.deallocate() }
 
-            try projections.withUnsafeMutableBufferPointer { buffer in
-                for (i, w) in group.enumerated() {
-                    let low = starts[w]
-                    let high = Swift.min(low + c.nSamples, available)
-                    valids[i] = Self.validEncoderFrames(
-                        sampleCount: high - low, configuration: c)
-                    try encode(window: slice(low, high),
-                               into: buffer.baseAddress! + i * stride)
-                    progress(reported(low))
-                }
+            // Window lengths are arithmetic on the boundary list, not model
+            // work, so they are settled before either thread starts and neither
+            // has to write to them.
+            let valids = group.map { w -> Int in
+                let low = starts[w]
+                let high = Swift.min(low + c.nSamples, available)
+                return Self.validEncoderFrames(sampleCount: high - low, configuration: c)
             }
 
-            var tokens = [[Int]](repeating: [], count: group.count)
-            var emitFrames = [[Int]](repeating: [], count: group.count)
-            var emitEnds = [[Int]](repeating: [], count: group.count)
+            // The decode consumes windows as the encoder produces them. Where
+            // the two are on different processors this halves the group's cost;
+            // where they are not, `overlapsDecode` is false and the work item
+            // simply runs here once encoding is done.
+            let gate = WindowGate()
+            let decoded = DecodeResult()
+            let consume = DispatchWorkItem { [self] in
+                var tokens = [[Int]](repeating: [], count: group.count)
+                var emitFrames = [[Int]](repeating: [], count: group.count)
+                var emitEnds = [[Int]](repeating: [], count: group.count)
+                do {
+                    try decode(projections: projections, valids: valids,
+                               ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
+                               awaitWindow: gate.wait)
+                } catch {
+                    decoded.error = error
+                }
+                decoded.tokens = tokens
+                decoded.frames = emitFrames
+                decoded.ends = emitEnds
+            }
+            if Self.overlapsDecode { Self.decodeQueue.async(execute: consume) }
+
+            do {
+                for (i, w) in group.enumerated() {
+                    let low = starts[w]
+                    try encode(window: slice(low, Swift.min(low + c.nSamples, available)),
+                               into: projections + i * stride)
+                    gate.produced()
+                    progress(reported(low))
+                }
+            } catch {
+                // The windows the decode is waiting for are never coming.
+                gate.abandon(group.count)
+                if Self.overlapsDecode { consume.wait() }
+                throw error
+            }
+            if Self.overlapsDecode { consume.wait() } else { consume.perform() }
+            if let error = decoded.error { throw error }
+
+            var tokens = decoded.tokens
+            var emitFrames = decoded.frames
+            var emitEnds = decoded.ends
             var extra = [Int: ([Int], [Int], [Int], Int)]()
-            try decode(projections: projections, valids: valids, ends: &emitEnds,
-                       tokens: &tokens, frames: &emitFrames)
 
             // Some windows come back empty even though they are full of speech.
             // This is the recogniser's own behaviour and not this runtime's: the
@@ -646,9 +761,11 @@ final class Pipeline {
                 var retryTokens = [[Int]](repeating: [], count: refused.count)
                 var retryFrames = [[Int]](repeating: [], count: refused.count)
                 var retryEnds = [[Int]](repeating: [], count: refused.count)
-                try decode(projections: retryProjections, valids: retryValids,
-                           ends: &retryEnds,
-                           tokens: &retryTokens, frames: &retryFrames)
+                try retryProjections.withUnsafeBufferPointer { source in
+                    try decode(projections: source.baseAddress!, valids: retryValids,
+                               ends: &retryEnds,
+                               tokens: &retryTokens, frames: &retryFrames)
+                }
                 for (slot, entry) in refused.enumerated() {
                     if tokens[entry.offset].isEmpty {
                         // Nothing to keep, so the rerun simply replaces it.
