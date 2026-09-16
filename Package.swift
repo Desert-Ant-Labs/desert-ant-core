@@ -188,10 +188,13 @@ let alignTargets: [Target] = [
         name: "Align",
         dependencies: [
             .byName(name: "DesertAnt"),
+            .byName(name: "NativeBindings"),
             .byName(name: "AudioDSP"),
             .product(name: "RealModule", package: "swift-numerics"),
             .byName(name: "TextNormalization"),
-        ]
+        ],
+        // The `models` list excludes every entry's `Web/` the same way (Task 11).
+        exclude: ["Web"]
     ),
     .testTarget(
         name: "AlignTests",
@@ -474,7 +477,9 @@ let testTargets: [Target] = [
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
             name: "BindingsTests",
-            dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport")]
+            // `Align` is listed by hand until it joins `models` (Task 11).
+            dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport"),
+                           .byName(name: "Align")]
                 + modelDependencies
         ),
         .testTarget(
