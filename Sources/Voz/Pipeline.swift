@@ -140,7 +140,7 @@ final class Pipeline: @unchecked Sendable {
         ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
             ?? overlapsByDefault
 
-    #if !os(WASI)
+    #if canImport(Darwin)
     /// The decode's executor, so it gets a thread of its own rather than one of
     /// the cooperative pool's.
     ///
@@ -679,13 +679,26 @@ final class Pipeline: @unchecked Sendable {
                                   count: count, into: decoded,
                                   awaitWindow: { await gate.wait(for: $0) })
             }
+            // Only Darwin's DispatchQueue conforms to TaskExecutor, and only
+            // from macOS 15.4. Everywhere else the decode takes the cooperative
+            // pool, which costs most of the overlap where the two halves block:
+            // 192 RTFx against 207 on an M1. It is not a regression off Apple,
+            // where `overlapsDecode` is false and this never runs.
             let decodeTask: Task<Void, Never>?
             if !Self.overlapsDecode {
                 decodeTask = nil
-            } else if #available(macOS 15.4, iOS 18.4, tvOS 18.4, visionOS 2.4, *) {
-                decodeTask = Task.detached(executorPreference: Self.decodeQueue) { await body() }
             } else {
+                #if canImport(Darwin)
+                if #available(macOS 15.4, iOS 18.4, tvOS 18.4, visionOS 2.4, *) {
+                    decodeTask = Task.detached(executorPreference: Self.decodeQueue) {
+                        await body()
+                    }
+                } else {
+                    decodeTask = Task.detached { await body() }
+                }
+                #else
                 decodeTask = Task.detached { await body() }
+                #endif
             }
             #endif
 
