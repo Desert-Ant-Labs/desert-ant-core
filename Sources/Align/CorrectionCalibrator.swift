@@ -1,9 +1,4 @@
-import Foundation
-
-/// Tiny validation-trained gradient-boosted correction policy.
-///
-/// It maps coarse/fine distribution statistics and boundary metadata to a calibrated
-/// correction in seconds. Stored as compact binary trees so it adds no Core ML invocation.
+/// Tiny validation-trained gradient-boosted correction policy, stored as compact binary trees.
 final class CorrectionCalibrator: @unchecked Sendable {
     struct Node {
         let value: Float
@@ -19,9 +14,9 @@ final class CorrectionCalibrator: @unchecked Sendable {
     private let trees: [[Node]]
     let featureCount: Int
 
-    init(url: URL) throws {
-        var reader = BinaryReader(data: try Data(contentsOf: url))
-        guard try reader.bytes(4) == Data("ALGN".utf8) else { throw CalibratorError.invalidFormat }
+    init(bytes: [UInt8]) throws {
+        var reader = BinaryReader(bytes: bytes)
+        guard try reader.bytes(4) == Array("ALGN".utf8) else { throw CalibratorError.invalidFormat }
         guard try reader.uint32() == 1 else { throw CalibratorError.unsupportedVersion }
         featureCount = Int(try reader.uint32())
         let treeCount = Int(try reader.uint32())
@@ -84,41 +79,28 @@ final class CorrectionCalibrator: @unchecked Sendable {
     }
 
     private struct BinaryReader {
-        let data: Data
+        let bytes: [UInt8]
         var offset = 0
-        var isAtEnd: Bool { offset == data.count }
+        var isAtEnd: Bool { offset == bytes.count }
 
-        mutating func bytes(_ count: Int) throws -> Data {
-            guard offset + count <= data.count else { throw CalibratorError.unexpectedEnd }
+        mutating func bytes(_ count: Int) throws -> [UInt8] {
+            guard offset + count <= bytes.count else { throw CalibratorError.unexpectedEnd }
             defer { offset += count }
-            return data.subdata(in: offset..<(offset + count))
+            return Array(bytes[offset..<offset + count])
         }
 
-        mutating func uint8() throws -> UInt8 {
-            guard offset < data.count else { throw CalibratorError.unexpectedEnd }
-            defer { offset += 1 }
-            return data[offset]
-        }
+        mutating func uint8() throws -> UInt8 { try bytes(1)[0] }
 
         mutating func uint16() throws -> UInt16 {
-            let value: UInt16 = try load(UInt16.self)
-            return UInt16(littleEndian: value)
+            let b = try bytes(2)
+            return UInt16(b[0]) | UInt16(b[1]) << 8
         }
 
         mutating func uint32() throws -> UInt32 {
-            let value: UInt32 = try load(UInt32.self)
-            return UInt32(littleEndian: value)
+            let b = try bytes(4)
+            return UInt32(b[0]) | UInt32(b[1]) << 8 | UInt32(b[2]) << 16 | UInt32(b[3]) << 24
         }
 
-        mutating func float32() throws -> Float {
-            Float(bitPattern: try uint32())
-        }
-
-        private mutating func load<T>(_ type: T.Type) throws -> T {
-            let count = MemoryLayout<T>.size
-            guard offset + count <= data.count else { throw CalibratorError.unexpectedEnd }
-            defer { offset += count }
-            return data.withUnsafeBytes { $0.loadUnaligned(fromByteOffset: offset, as: T.self) }
-        }
+        mutating func float32() throws -> Float { Float(bitPattern: try uint32()) }
     }
 }
