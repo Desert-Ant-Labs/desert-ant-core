@@ -245,13 +245,19 @@ final class Pipeline {
 
     /// Run the staged batch through mel and the encoder, leaving `encOut` full.
     ///
+    /// An engine whose encoder computes the mel itself is handed the staged rows
+    /// directly; the mel call would only be asking it to do half its own work.
+    ///
     /// Windows never interact - attention is within a window - so encoding
     /// several in one dispatch is exact, and on a browser GPU it amortises both
     /// the dispatch and the readback that follows it.
     private func encodeStaged(isolation: isolated (any Actor)? = #isolation) async throws {
-        try await engine.runMel(rows: rows, melMask: melMask, mel: melOut,
-                                isolation: isolation)
-        try await engine.runEncoder(mel: melOut, keyBias: keyBias, padMask: padMask,
+        if !engine.fusedFrontend {
+            try await engine.runMel(rows: rows, melMask: melMask, mel: melOut,
+                                    isolation: isolation)
+        }
+        try await engine.runEncoder(mel: engine.fusedFrontend ? rows : melOut,
+                                    keyBias: keyBias, padMask: padMask,
                                     encOut: encOut, isolation: isolation)
     }
 

@@ -196,12 +196,13 @@ public extension Voz {
     /// and the shape of this depends on how the host compiles its models.
     @_spi(VozWeb)
     static func web(meta: Data, vocab: Data, embedding: Data, lanes: Int,
-                    batch: Int) async throws -> Voz {
+                    batch: Int, fused: Bool) async throws -> Voz {
         let assets = try Assets(meta: meta, vocab: vocab, embeddingBytes: embedding)
         let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
                                           batch: batch)
         let engine = try WasmEngine(configuration: assets.configuration, lanes: lanes,
-                                    batch: batch)
+                                    batch: batch, fused: fused)
+        engine.bind(melMask: buffers.melMask)
         return Voz(assets: assets, engine: engine, buffers: buffers)
     }
 }

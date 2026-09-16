@@ -29,9 +29,14 @@ final class WasmEngine: Engine {
     /// so a batch that is not full costs its empty lanes, and the retry path
     /// almost never fills one.
     let encodeBatch: Int
+    /// Whether this bundle's encoder has the mel folded into it.
+    let fusedFrontend: Bool
     /// Lanes of the staged batch that hold a window, set by the pipeline before
     /// each encode. Starts full so a fixed-shape bundle behaves as it always did.
     private var liveLanes = Int.max
+    /// The frontend's mask, kept from the staging call so the fused encoder can
+    /// send it alongside the rows.
+    private var melMask: Buffer!
 
     func stage(lanes: Int) { liveLanes = lanes }
     /// The wasm export reduces in the graph: reading logits back would be a
@@ -40,7 +45,7 @@ final class WasmEngine: Engine {
 
     private let host: JSObject
     private let configuration: Configuration
-    init(configuration: Configuration, lanes: Int, batch: Int) throws {
+    init(configuration: Configuration, lanes: Int, batch: Int, fused: Bool) throws {
         guard let host = JSObject.global.__vozHost.object else {
             throw VozError.invalidModel("no __vozHost on globalThis")
         }
@@ -48,6 +53,7 @@ final class WasmEngine: Engine {
         self.configuration = configuration
         decodeLanes = lanes
         encodeBatch = batch
+        fusedFrontend = fused
     }
 
     // MARK: - Crossing
@@ -157,6 +163,8 @@ final class WasmEngine: Engine {
 
     // MARK: - Engine
 
+    func bind(melMask: Buffer) { self.melMask = melMask }
+
     func runMel(rows: Buffer, melMask: Buffer, mel: Buffer,
                 isolation: isolated (any Actor)?) async throws {
         let outputs = try await run("mel", isolation: isolation, [
@@ -168,11 +176,16 @@ final class WasmEngine: Engine {
 
     func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
                     isolation: isolated (any Actor)?) async throws {
-        let outputs = try await run("encoder", isolation: isolation, [
-            "mel": tensor(mel, lanes: liveLanes),
-            "key_bias": tensor(keyBias, lanes: liveLanes),
-            "pad_mask": tensor(padMask, lanes: liveLanes),
-        ])
+        // Fused, the first argument is the staged audio rows and the mask goes
+        // with it; split, it is the mel the previous call produced.
+        let outputs = try await run("encoder", isolation: isolation,
+                                    fusedFrontend
+                                    ? ["audio_rows": tensor(mel, lanes: liveLanes),
+                                       "mel_mask": tensor(melMask, lanes: liveLanes),
+                                       "key_bias": tensor(keyBias, lanes: liveLanes)]
+                                    : ["mel": tensor(mel, lanes: liveLanes),
+                                       "key_bias": tensor(keyBias, lanes: liveLanes),
+                                       "pad_mask": tensor(padMask, lanes: liveLanes)])
         try read(outputs, "enc_proj", into: encOut)
     }
 

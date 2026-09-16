@@ -41,6 +41,14 @@ protocol Engine: AnyObject {
     func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
                     isolation: isolated (any Actor)?) async throws
 
+    /// Whether the encoder model computes the mel spectrogram itself.
+    ///
+    /// Fused, the frontend's output never leaves the accelerator and the
+    /// pipeline makes one call a batch instead of two. The values are the same
+    /// either way: the split form's float16 output widens to float32 to cross
+    /// and narrows back, which is exact.
+    var fusedFrontend: Bool { get }
+
     /// How many lanes of the staged batch actually hold a window.
     ///
     /// The last group of a file, and every retry, stages fewer windows than the
@@ -62,4 +70,7 @@ protocol Engine: AnyObject {
 extension Engine {
     /// Fixed-shape engines have nothing to vary.
     func stage(lanes: Int) {}
+
+    /// Most engines run the frontend as its own model.
+    var fusedFrontend: Bool { false }
 }

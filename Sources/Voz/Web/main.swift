@@ -41,9 +41,10 @@ let load = JSClosure { arguments in
                 }
                 let lanes = Int(argument(3).number ?? 0)
                 let batch = Int(argument(4).number ?? 1)
+                let fused = argument(5).boolean ?? false
                 voz = try await Voz.web(meta: try bytes(0), vocab: try bytes(1),
                                         embedding: try bytes(2), lanes: lanes,
-                                        batch: batch)
+                                        batch: batch, fused: fused)
                 resolve(.success(.boolean(true)))
             } catch {
                 resolve(.failure(.string("\(error)")))
