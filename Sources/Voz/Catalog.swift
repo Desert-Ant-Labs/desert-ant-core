@@ -6,11 +6,16 @@ import DesertAnt
 
 /// The voz model: on-device speech recognition.
 ///
-/// Apple-only. The runtime drives Core ML directly rather than going through
+/// On Apple the runtime drives Core ML directly rather than going through
 /// `InferenceSession`, because the things that make it fast - preallocated
 /// buffers, `outputBackings`, and a lane-batched decode loop - are not
-/// expressible through a generic run(inputs:outputs:) shape. There is therefore
-/// no Android, Linux or web entry here.
+/// expressible through a generic run(inputs:outputs:) shape.
+///
+/// The web entry is the same pipeline compiled to wasm, driving ONNX Runtime
+/// Web through the JS host. Its files are a separate export rather than the
+/// same ones re-saved: a Neural Engine executes 1x1 convolutions natively and a
+/// matmul through them, and a GPU is the other way round. No Android or Linux
+/// entry yet.
 public enum VozModel: ModelDeclaration {
     public static let id = "voz"
     public static let product = "Voz"
@@ -38,10 +43,31 @@ public enum VozModel: ModelDeclaration {
     /// which is a host-side lookup rather than a graph op. The table ships as
     /// float16 because that is what the decode step consumes - float32 would be
     /// 10 MB more to download and a conversion at load for no added precision.
+    /// The browser bundle, under `web/` in the repo because its `meta.json`
+    /// describes the export it ships with and the root one belongs to Core ML.
+    ///
+    /// `webEncoderWeights` is the encoder's weights as 4-bit groups of 32. The
+    /// host expands them to float16 at load, into the path `web/encoder.onnx`
+    /// names as its external data. That expanded file is 1.19 GB and is never
+    /// downloaded - only the 334 MB packed form is.
+    ///
+    /// Two decode steps, and the host picks one. WebNN runs the step on the
+    /// Neural Engine, where it is throughput-bound and narrow lanes win; a
+    /// browser with only WebGPU is dispatch-bound and wants fewer, wider steps.
+    /// Worth 13.0 RTFx to 23.7 in Safari, and 1.2 the other way on WebNN.
+    public static let webEncoder = "web/encoder.onnx"
+    public static let webEncoderWeights = "web/encoder.q4"
+    public static let webDecodeStep = "web/decoder.onnx"
+    public static let webDecodeStepGPU = "web/decoder.webgpu.onnx"
+
     public static let files: [ModelPlatform: [String]] = [
         .apple: [encoder + "/", mel + "/", decodeStep + "/",
                  "meta.json", "vocab.json", "embedding.f16"],
+        .web: [webEncoder, webEncoderWeights, webDecodeStep, webDecodeStepGPU,
+               "web/meta.json", "web/vocab.json", "web/embedding.f16"],
     ]
 
-    public static func artifact(for platform: ModelPlatform) -> String { encoder }
+    public static func artifact(for platform: ModelPlatform) -> String {
+        platform == .web ? webEncoder : encoder
+    }
 }
