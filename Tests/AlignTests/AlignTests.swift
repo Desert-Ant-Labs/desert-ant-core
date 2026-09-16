@@ -1,6 +1,7 @@
+import ModelStore
 import Foundation
 import Testing
-@testable import Align
+@_spi(AlignBindings) @testable import Align
 import TestSupport
 
 struct Golden: Codable {
@@ -66,33 +67,36 @@ func makeFrontend() async throws -> Frontend {
         #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
     }
 }
-#endif
 
-// The refiner only exists where Core ML does; elsewhere this suite is empty.
-#if canImport(CoreML) && canImport(Accelerate)
 #if canImport(Speech)
 import CoreMedia
 import Speech
 #endif
 
-struct AlignTests {
+@Suite(.serialized, .modelBacked) struct AlignTests {
     struct CalibrationGolden: Codable {
         let features: [[Float]]
         var corrections: [Double]
     }
 
-    /// Parity fixtures are recorded and compared on the CPU. The ANE and CPU float16 paths
-    /// disagree, and where the model is unsure that becomes tens of milliseconds, so a
-    /// fixture recorded on a Mac with an ANE can never match a CI runner without one.
-    /// Production still uses the ANE; only these comparisons are pinned.
-    func pinComputeUnitsForParity() { StageModel.computeUnits = .cpuOnly }
+    /// How far the cascade may drift from the recorded corrections, per backend, in ms.
+    ///
+    /// Parity fixtures are recorded and compared on the CPU. The ANE and CPU paths disagree,
+    /// and where the model is unsure that becomes tens of milliseconds, so one number cannot
+    /// cover two runtimes. A backend with no row prints its drift and asserts nothing.
+    static let parityToleranceMs: [String: Double] = ["coreml-cpu": 25.0]
 
-    func makeRefiner(languageCode: String) async throws -> SpeechTimestampRefiner {
-        pinComputeUnitsForParity()
-        return try SpeechTimestampRefiner(
-            languageCode: languageCode,
-            resourceDirectory: try await modelDirectory()
-        )
+    /// Which row applies here: the runtime that opens the stages, plus the compute units this
+    /// suite pins, which only Core ML has.
+    static var parityBackend: String {
+        let runtime = ModelRuntime.inferred(fromPath: AlignModel.coarseArtifact(for: .current))
+            ?? .platformDefault
+        return runtime == .coreML ? "coreml-cpu" : runtime.rawValue
+    }
+
+    func makeRefiner() async throws -> Align {
+        let files = try await ModelFixture.files(AlignModel.self)
+        return Align(assets: try await .align(files: files, computeUnits: .cpuOnly, revision: nil))
     }
 
     // A user pre-populating a directory with the declared files can load from it.
@@ -102,11 +106,8 @@ struct AlignTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try await ModelFixture.populate(AlignModel.self, into: directory)
 
-        let fromDirectory = try SpeechTimestampRefiner(
-            languageCode: "en",
-            resourceDirectory: directory
-        )
-        #expect(fromDirectory.isSupported)
+        let refiner = Align(directory: directory.path)
+        #expect(refiner.isDownloaded())
     }
 
     /// Rewrites both golden fixtures from the weights this SDK resolves.
@@ -128,46 +129,54 @@ struct AlignTests {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 
         var golden = try loadGolden()
-        // The cascade fixture is not English: it carries its own language, and refining it
-        // through the wrong embedding row silently produces a different model.
-        let refiner = try await makeRefiner(languageCode: golden.language)
+        let refiner = try await makeRefiner()
         let audio = synthAudio(golden.n_samples, golden.sample_rate)
         let words = golden.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }
-        let fixed = refiner.refine(words, audio: audio, sampleRate: Double(golden.sample_rate))
+        // The cascade fixture is not English: it carries its own language, and refining it
+        // through the wrong embedding row silently produces a different model.
+        let fixed = try await refiner.refine(words, audio: audio, sampleRate: Double(golden.sample_rate),
+                                             languageCode: golden.language)
         var corrections: [Double] = []
+        var drift = 0.0
         for i in words.indices {
             corrections.append(fixed[i].start - words[i].start)
             corrections.append(fixed[i].end - words[i].end)
+            drift = max(drift, abs(corrections[2 * i] - golden.corrections[2 * i]) * 1000)
+            drift = max(drift, abs(corrections[2 * i + 1] - golden.corrections[2 * i + 1]) * 1000)
         }
         golden.corrections = corrections
         try encoder.encode(golden).write(to: resources.appendingPathComponent("golden.json"))
 
         let calURL = resources.appendingPathComponent("calibration_golden.json")
         var cal = try JSONDecoder().decode(CalibrationGolden.self, from: Data(contentsOf: calURL))
-        cal.corrections = cal.features.map { refiner._debugCalibratedCorrection($0) }
+        var calibrated: [Double] = []
+        for features in cal.features { calibrated.append(try await refiner._debugCalibratedCorrection(features)) }
+        cal.corrections = calibrated
         try encoder.encode(cal).write(to: calURL)
 
         print("regenerated goldens: \(corrections.count) cascade, \(cal.corrections.count) calibration")
+        print("max correction drift from the previous fixture \(drift) ms")
     }
 
     @Test func calibrationParity() async throws {
         let url = Bundle.module.url(forResource: "calibration_golden", withExtension: "json")!
         let golden = try JSONDecoder().decode(CalibrationGolden.self, from: Data(contentsOf: url))
-        let refiner = try await makeRefiner(languageCode: "en")
+        let refiner = try await makeRefiner()
         #expect(golden.features.count == golden.corrections.count)
         for i in golden.features.indices {
-            let actual = refiner._debugCalibratedCorrection(golden.features[i])
+            let actual = try await refiner._debugCalibratedCorrection(golden.features[i])
             #expect(abs(actual - golden.corrections[i]) <= 0.000_001)
         }
     }
 
-    // Full cascade (Core ML) corrections match the PyTorch reference within FP16 tolerance.
+    // Full cascade corrections match the PyTorch reference within this backend's tolerance.
     @Test func endToEndParity() async throws {
         let g = try loadGolden()
-        let refiner = try await makeRefiner(languageCode: g.language)
+        let refiner = try await makeRefiner()
         let audio = synthAudio(g.n_samples, g.sample_rate)
         let words = g.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }
-        let fixed = refiner.refine(words, audio: audio, sampleRate: Double(g.sample_rate))
+        let fixed = try await refiner.refine(words, audio: audio, sampleRate: Double(g.sample_rate),
+                                             languageCode: g.language)
         #expect(fixed.count == words.count)
         var maxDiff = 0.0
         var checkedBoundaries = 0
@@ -182,19 +191,21 @@ struct AlignTests {
             maxDiff = max(maxDiff, abs(cs - g.corrections[2 * i] * 1000))
             maxDiff = max(maxDiff, abs(ce - g.corrections[2 * i + 1] * 1000))
         }
-        print("end-to-end max correction diff \(maxDiff) ms")
+        print("end-to-end max correction diff \(maxDiff) ms on \(Self.parityBackend)")
         #expect(checkedBoundaries > 0)
-        #expect(maxDiff < 25.0, "Core ML cascade diverges from PyTorch reference")
+        guard let tolerance = Self.parityToleranceMs[Self.parityBackend] else { return }
+        #expect(maxDiff < tolerance, "the cascade diverges from the PyTorch reference")
     }
 
     #if canImport(Speech)
     @available(iOS 26, macOS 26, tvOS 26, visionOS 26, *)
     @Test func attributedTimestampApplicationMatchesWordOutput() async throws {
         let g = try loadGolden()
-        let refiner = try await makeRefiner(languageCode: g.language)
+        let refiner = try await makeRefiner()
         let audio = synthAudio(g.n_samples, g.sample_rate)
         let inputWords = g.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }
-        let expected = refiner.refine(inputWords, audio: audio, sampleRate: Double(g.sample_rate))
+        let expected = try await refiner.refine(inputWords, audio: audio, sampleRate: Double(g.sample_rate),
+                                                languageCode: g.language)
 
         var text = AttributedString(g.words.map(\.text).joined(separator: " "))
         for word in g.words {
@@ -204,7 +215,8 @@ struct AlignTests {
                 duration: CMTime(seconds: word.end - word.start, preferredTimescale: 1_000_000)
             )
         }
-        let correctedText = refiner.refine(text, audio: audio, sampleRate: Double(g.sample_rate))
+        let correctedText = try await refiner.refine(text, audio: audio, sampleRate: Double(g.sample_rate),
+                                                     languageCode: g.language)
         let actual = refiner.words(from: correctedText)
         #expect(actual.count == expected.count)
         for i in expected.indices {
@@ -216,10 +228,21 @@ struct AlignTests {
     #endif
 
     @Test func unsupportedLocalePassthrough() async throws {
-        let refiner = try await makeRefiner(languageCode: "xx")  // not a trained language
-        #expect(!refiner.isSupported)
+        let refiner = try await makeRefiner()
+        #expect(try await refiner.isSupported(languageCode: "xx") == false)
         let words = [WordTiming(text: "a", start: 0.1, end: 0.2)]
-        #expect(refiner.refine(words, audio: synthAudio(16000, 16000)) == words)
+        let out = try await refiner.refine(words, audio: synthAudio(16000, 16000), languageCode: "xx")
+        #expect(out == words)
+    }
+
+    // 3.1.0 callers keep compiling against the old name, with a deprecation warning.
+    @Test func deprecatedNameStillResolves() async throws {
+        let files = try await ModelFixture.files(AlignModel.self)
+        let refiner = SpeechTimestampRefiner(
+            assets: try await .align(files: files, computeUnits: .cpuOnly, revision: nil))
+        let words = [WordTiming(text: "one", start: 0.30, end: 0.55)]
+        let fixed = try await refiner.refine(words, audio: synthAudio(16000, 16000), languageCode: "en")
+        #expect(fixed.count == words.count)
     }
 }
 #endif

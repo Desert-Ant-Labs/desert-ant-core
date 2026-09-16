@@ -22,9 +22,29 @@ public enum AlignModel: ModelDeclaration {
     public static let coarse = "align_coarse.mlmodelc"
     /// Fine cascade stage (Core ML, a directory on the Hub).
     public static let fine = "align_fine.mlmodelc"
+    /// The same two stages exported for LiteRT.
+    public static let coarseTFLite = "align-coarse.tflite"
+    public static let fineTFLite = "align-fine.tflite"
+
+    /// Frontend geometry, language table and cascade widths.
+    public static let config = "refiner_config.json"
+    /// `n_mels * bins` little-endian float32, no header.
+    public static let melFilters = "mel_filters.bin"
+    /// The gradient-boosted correction policy, in the `ALGN` binary format.
+    public static let calibratorFile = "calibrator.bin"
 
     /// Sidecars the refiner needs alongside the two stages.
-    public static let sidecars = ["refiner_config.json", "mel_filters.bin", "calibrator.bin"]
+    public static let sidecars = [config, melFilters, calibratorFile]
+
+    /// The cascade's first stage, per platform.
+    public static func coarseArtifact(for platform: ModelPlatform) -> String {
+        platform == .apple ? coarse : coarseTFLite
+    }
+
+    /// The cascade's second stage, per platform.
+    public static func fineArtifact(for platform: ModelPlatform) -> String {
+        platform == .apple ? fine : fineTFLite
+    }
 
     /// The Core ML export names its logits output this; the LiteRT export names it `logits`.
     public static let coreMLOutput = "var_155"
@@ -39,5 +59,5 @@ public enum AlignModel: ModelDeclaration {
     ]
 
     /// The cascade runs coarse-then-fine; the coarse stage is the entry point.
-    public static func artifact(for platform: ModelPlatform) -> String { coarse }
+    public static func artifact(for platform: ModelPlatform) -> String { coarseArtifact(for: platform) }
 }
