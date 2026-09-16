@@ -762,6 +762,8 @@ final class Pipeline {
                 var retryValids = [Int](repeating: frames, count: refused.count)
                 var retryStarts = [Int](repeating: 0, count: refused.count)
                 do {
+                    let retryBatch = engine.encodeBatch
+                    var staged = 0
                     for (slot, entry) in refused.enumerated() {
                         let windowStart = starts[entry.element]
                         // Where to run the window again. A window that produced
@@ -800,20 +802,27 @@ final class Pipeline {
                         retryStarts[slot] = low
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
-                        // Retries are few and rarely fill a batch, so they go
-                        // one at a time into lane 0 rather than complicating the
-                        // bookkeeping for a path that usually runs zero times.
-                        // Saying so matters: an engine that can vary its batch
-                        // would otherwise still be carrying whatever width the
-                        // last full group set, and encode two lanes of stale
-                        // audio for every retry.
-                        stage(window: slice(low, shortened), lane: 0)
-                        engine.stage(lanes: 1)
+                        // Retries fill the batch the same way the first pass
+                        // does. They used to go one at a time into lane 0, which
+                        // was fine when a call cost what it held; with a batched
+                        // engine a single-window call still pays a whole call's
+                        // dispatch, and six retries were six of the file's
+                        // twenty-one encoder calls.
+                        stage(window: slice(low, shortened), lane: staged)
+                        staged += 1
+                        let last = slot == refused.count - 1
+                        guard staged == retryBatch || last else { continue }
+                        engine.stage(lanes: staged)
                         try await encodeStaged()
+                        // Lane `l` holds the retry `slot - staged + 1 + l`.
+                        let first = slot - staged + 1
                         retryProjections.withUnsafeMutableBufferPointer { out in
-                            (out.baseAddress! + slot * stride)
-                                .update(from: encOut.ptr, count: stride)
+                            for lane in 0..<staged {
+                                (out.baseAddress! + (first + lane) * stride)
+                                    .update(from: encOut.ptr + lane * stride, count: stride)
+                            }
                         }
+                        staged = 0
                     }
                 }
                 var retryTokens = [[Int]](repeating: [], count: refused.count)
