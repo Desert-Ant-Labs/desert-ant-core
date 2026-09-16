@@ -18,4 +18,11 @@ struct TextNormalizationTests {
         #expect("hello world".nfkc == "hello world")
         #expect("caf\u{00E9}".nfkc.nfkc == "caf\u{00E9}")
     }
+
+    @Test func canonicalOnlyLeavesCompatibilityFormsAlone() {
+        #expect("e\u{0301}".nfc == "\u{00E9}")
+        #expect("\u{FB01}".nfc == "\u{FB01}")
+        #expect("\u{FF21}".nfc == "\u{FF21}")
+        #expect("hello".nfc == "hello")
+    }
 }
