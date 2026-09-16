@@ -9,6 +9,7 @@ import Speech
 ///
 /// A boundary whose +/-1.2 s context is not buffered yet keeps its input timestamp, so a
 /// word refined late is never worse than the recognizer's own answer.
+// Unchecked: the ring buffer is mutable state guarded by `lock` on every access.
 public final class StreamingRefiner: @unchecked Sendable {
     /// The un-gated refiner underneath, for callers who also have complete audio.
     public let align: Align
