@@ -35,6 +35,40 @@ public struct ModelAssets: Sendable {
         self.labelerModelPath = labelerModelPath
     }
 
+    /// Where this model runs, measured on this machine rather than left to
+    /// `.all`. The GPU is a candidate because the detector is much faster there
+    /// - 626 RTFx against 1323 over ten minutes on an M3 Ultra, 297 against 367
+    /// on an M5 - and because it detects the same fillers: the same count on
+    /// four full-length recordings, with span boundaries within one 20 ms frame
+    /// and confidences within 0.02.
+    ///
+    /// Apple platforms with a GPU worth trying, which is not a phone: there the
+    /// GPU is 5 to 10 times slower than the engine for every model here and is
+    /// also drawing the screen.
+    /// The engine is a candidate too, though it has not won anywhere yet - 261
+    /// RTFx against 1323 on an M3 Ultra, 300 against 367 on an M5. It is here
+    /// because "has not won on the four machines someone owned" is the reasoning
+    /// this exists to replace, and because a chip whose GPU is weak or whose
+    /// engine is a generation ahead would want it. It costs one slow launch to
+    /// find out, once per machine.
+    ///
+    /// Only M-series silicon chooses - see `Placement.explores`. A phone pins
+    /// the engine, which measures faster there anyway (180 RTFx against 167 at
+    /// `.all` on an iPhone 16 Pro) and leaves the GPU to the screen.
+    static var placements: [(name: String, units: ComputeUnits)] {
+        guard Placement.explores else {
+            // Apple silicon without an M in the name is a phone, and a phone
+            // pins the engine. Anything else is an Intel or AMD Mac with no
+            // engine to choose between, so Core ML's own default stands.
+            #if os(macOS)
+            return [("all", .all)]
+            #else
+            return [("ane", .cpuAndNeuralEngine)]
+            #endif
+        }
+        return [("all", .all), ("gpu", .cpuAndGPU), ("ane", .cpuAndNeuralEngine)]
+    }
+
     /// A session over an artifact already on disk (a `.mlmodelc` on Apple).
     init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
         self.init(session: try inferenceSession(
@@ -46,10 +80,15 @@ public struct ModelAssets: Sendable {
     /// selected tier's artifact, plus the type-labeler file when present.
     static func uhm(files: StoredModel, quality: Uhm.Quality,
                     computeUnits: ComputeUnits) async throws -> ModelAssets {
-        ModelAssets(
+        let artifact = quality.artifact(for: .current)
+        // The caller's choice wins; `.all` is the default nobody asked for, so
+        // that is the one the measurement is allowed to replace.
+        let placement = computeUnits == .all
+            ? Placement.next(model: files.path(artifact), candidates: placements)
+            : (name: "caller", units: computeUnits)
+        return ModelAssets(
             session: try await files.inferenceSession(
-                model: quality.artifact(for: .current), computeUnits: computeUnits,
-                sdk: UhmModel.sdkInfo),
+                model: artifact, computeUnits: placement.units, sdk: UhmModel.sdkInfo),
             labelerModelPath: files.exists(UhmModel.labeler) ? files.path(UhmModel.labeler) : nil)
     }
 }

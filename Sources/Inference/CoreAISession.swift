@@ -29,6 +29,7 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
         switch units {
         case .all: return .default
         case .cpuAndNeuralEngine: return SpecializationOptions(preferredComputeUnitKind: .neuralEngine)
+        case .cpuAndGPU: return SpecializationOptions(preferredComputeUnitKind: .gpu)
         case .cpuOnly: return .cpuOnly
         }
     }

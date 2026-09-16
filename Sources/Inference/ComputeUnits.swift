@@ -13,6 +13,11 @@ public enum ComputeUnits: Sendable {
     case all
     /// CPU + Neural Engine (skips the GPU). Often fastest on ANE-native graphs.
     case cpuAndNeuralEngine
+    /// CPU + GPU (skips the Neural Engine). The fastest placement for a graph
+    /// the engine is bad at - Uhm's detector runs 2.1x faster here than at
+    /// `.all` on an M3 Ultra - and the only way to ask for it, since `.all`
+    /// chooses for itself and chooses badly often enough to matter.
+    case cpuAndGPU
     /// CPU only. Deterministic fallback / diagnostic.
     case cpuOnly
 }

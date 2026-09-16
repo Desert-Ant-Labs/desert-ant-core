@@ -300,10 +300,14 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
 }
 
 extension ComputeUnits {
-    var mlComputeUnits: MLComputeUnits {
+    /// The Core ML spelling. Public because callers that hold an `MLModel`
+    /// directly, rather than a session, still choose placement through
+    /// `Placement` and need to apply the answer.
+    public var mlComputeUnits: MLComputeUnits {
         switch self {
         case .all: return .all
         case .cpuAndNeuralEngine: return .cpuAndNeuralEngine
+        case .cpuAndGPU: return .cpuAndGPU
         case .cpuOnly: return .cpuOnly
         }
     }

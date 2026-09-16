@@ -31,15 +31,27 @@ import Foundation
 /// recorded against it, and the best is used from then on. A machine converges
 /// in as many launches as there are candidates and stays converged.
 ///
+/// It is measured over a whole transcription and not, like Uhm's and Clear's
+/// placements, off a few dispatches at load - because this stage does not run
+/// alone. Decode overlaps the encoder, so on the CPU it runs beside engine work
+/// and on the engine it queues behind it, and an isolated dispatch cannot see
+/// the difference. On an M5 the isolated cost says the engine by a wide margin,
+/// 1.48 ms a dispatch against 2.53, while a full run says the CPU by 9% - 433
+/// RTFx against 398. The cheap probe would pick the slower machine.
+///
+/// Only M-series silicon measures at all - see `Placement.explores`. The engine
+/// wins on a phone anyway, by 10% (309 RTFx against 280), and it is the
+/// placement every other stage there already uses.
+///
 /// The GPU is not a candidate. It is a little faster than the CPU on an Ultra
 /// (564 RTFx against 545) and catastrophic elsewhere - an M1 measures 104
 /// against 244 - and unlike the CPU it has been seen to move a token of the
 /// transcript. Two candidates keep the exploration to one extra launch.
 enum DecodePlacement {
 
-    static let candidates: [(name: String, units: MLComputeUnits)] = [
-        ("ane", .cpuAndNeuralEngine), ("cpu", .cpuOnly),
-    ]
+    static let candidates: [(name: String, units: MLComputeUnits)] = Placement.explores
+        ? [("ane", .cpuAndNeuralEngine), ("cpu", .cpuOnly)]
+        : [("ane", .cpuAndNeuralEngine)]
 
     /// The placement to load the decode step with. `VOZ_DEC_UNITS` pins it.
     static func next(model: String) -> (name: String, units: MLComputeUnits) {

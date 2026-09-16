@@ -30,8 +30,8 @@ public struct ModelAssets: Sendable {
     /// the host knows (a wasm session).
     let runtime: ModelRuntime?
 
-    init(sessions: [any InferenceSession], variant: ModelVariant? = nil, revision: String? = nil,
-         runtime: ModelRuntime? = nil) {
+    init(sessions: [any InferenceSession], variant: ModelVariant? = nil,
+         revision: String? = nil, runtime: ModelRuntime? = nil) {
         self.sessions = sessions
         self.variant = variant
         self.revision = revision
@@ -61,16 +61,54 @@ public struct ModelAssets: Sendable {
 
     /// Build from a resolved model directory: one session per worker over this
     /// platform's artifact.
+    /// Where this model runs, measured on this machine rather than left to
+    /// `.all`. The GPU is a candidate because it is much faster - 338 RTFx
+    /// against 514 over ten minutes on an M3 Ultra - and because what it
+    /// produces is the same audio: against `.all` the difference is 47.6 dB
+    /// below the signal on two full-length recordings, never louder than -62
+    /// dBFS in any second, with no clipping and no level change.
+    ///
+    /// Not on a phone, where the GPU is an order of magnitude slower than the
+    /// engine for this model (12.7 ms a dispatch against 143) and is also
+    /// drawing the screen.
+    /// The engine is a candidate too, though it measures worse on every machine
+    /// so far (247 RTFx against 514 on an M3 Ultra). It is here because that is
+    /// four machines, not a rule, and because its output is bit-identical to
+    /// `.all` - so the only cost of being wrong about it is one slow launch.
+    ///
+    /// Only M-series silicon chooses - see `Placement.explores`. A phone pins
+    /// the engine, which costs it nothing here (341 RTFx either way on an iPhone
+    /// 16 Pro) and leaves the GPU to the screen.
+    static var placements: [(name: String, units: ComputeUnits)] {
+        guard Placement.explores else {
+            // Apple silicon without an M in the name is a phone, and a phone
+            // pins the engine. Anything else is an Intel or AMD Mac with no
+            // engine to choose between, so Core ML's own default stands.
+            #if os(macOS)
+            return [("all", .all)]
+            #else
+            return [("ane", .cpuAndNeuralEngine)]
+            #endif
+        }
+        return [("all", .all), ("gpu", .cpuAndGPU), ("ane", .cpuAndNeuralEngine)]
+    }
+
     static func clear(files: StoredModel, variant: ModelVariant, revision: String? = nil,
                       runtime: ModelRuntime = .platformDefault,
                       computeUnits: ComputeUnits, concurrency: Int) async throws -> ModelAssets {
+        let artifact = variant.artifact(for: runtime)
+        // The caller's choice wins; `.all` is the default nobody asked for, so
+        // that is the one a measurement is allowed to replace.
+        let placement = computeUnits == .all
+            ? Placement.next(model: files.path(artifact), candidates: placements)
+            : (name: "caller", units: computeUnits)
         var sessions: [any InferenceSession] = []
         for _ in 0..<max(1, concurrency) {
             sessions.append(try await files.inferenceSession(
-                model: variant.artifact(for: runtime),
-                computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
+                model: artifact, computeUnits: placement.units, sdk: ClearModel.sdkInfo))
         }
-        return ModelAssets(sessions: sessions, variant: variant, revision: revision, runtime: runtime)
+        return ModelAssets(sessions: sessions, variant: variant, revision: revision,
+                           runtime: runtime)
     }
 }
 
