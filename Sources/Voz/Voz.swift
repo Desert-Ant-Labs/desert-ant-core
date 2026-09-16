@@ -58,7 +58,11 @@ public actor Voz {
     /// One turnstile per instance. See UsageTracking.swift: this model drives
     /// Core ML directly rather than through `Inference`, so it opens its own
     /// rather than inheriting the session factory's.
+    // Usage is reported through Core ML's own client, which a browser build does
+    // not have: UsageTracking.swift is `#if canImport(CoreML)` whole.
+    #if canImport(CoreML)
     private let usage: UsageTurnstile?
+    #endif
     /// Audio rate the model expects. Input at another rate is resampled.
     public nonisolated let sampleRate: Double
 
@@ -132,6 +136,9 @@ public actor Voz {
                                       buffers: buffers)
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
+        #if canImport(CoreML)
+        usage = makeTurnstile()
+        #endif
     }
     #endif
 
@@ -142,7 +149,9 @@ public actor Voz {
     init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
+        #if canImport(CoreML)
         usage = makeTurnstile()
+        #endif
     }
 
     // MARK: - Transcription
@@ -169,7 +178,9 @@ public actor Voz {
         // Every public entry point funnels through here, so this is the one
         // place a transcription is counted. Fire-and-forget: the turnstile
         // must never sit between the caller and their transcript.
+        #if canImport(CoreML)
         if let usage { Task { await usage.record() } }
+        #endif
         let started = Date()
         let (text, words) = try await pipeline.run(stream: &stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))

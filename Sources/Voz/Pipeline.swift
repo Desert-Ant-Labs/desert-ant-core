@@ -4,23 +4,28 @@ import Foundation
 ///
 /// A counter rather than a queue: windows are encoded in order and consumed in
 /// order, so "how many exist" is all either side needs to know.
-private final class WindowGate: @unchecked Sendable {
-    private let condition = NSCondition()
+private actor WindowGate {
     private var ready = 0
+    private var waiters: [(index: Int, resume: CheckedContinuation<Void, Never>)] = []
 
     /// One more window is encoded.
     func produced() {
-        condition.lock()
         ready += 1
-        condition.broadcast()
-        condition.unlock()
+        let woken = waiters.filter { $0.index < ready }
+        waiters.removeAll { $0.index < ready }
+        for waiter in woken { waiter.resume.resume() }
     }
 
-    /// Blocks until the window at `index` has been encoded.
-    func wait(for index: Int) {
-        condition.lock()
-        while ready <= index { condition.wait() }
-        condition.unlock()
+    /// Suspends until the window at `index` has been encoded.
+    ///
+    /// Suspends rather than blocks, which is the whole difference on a
+    /// cooperative pool. A decode that blocked its thread held one of the few
+    /// the runtime has and measured 193 RTFx where this gets 207.
+    func wait(for index: Int) async {
+        if ready > index { return }
+        await withCheckedContinuation { continuation in
+            waiters.append((index, continuation))
+        }
     }
 
     /// Releases every waiter, for when encoding has failed and the windows it
@@ -28,15 +33,21 @@ private final class WindowGate: @unchecked Sendable {
     /// which is harmless because the caller throws the encoding error and
     /// discards the group.
     func abandon(_ count: Int) {
-        condition.lock()
         ready = count
-        condition.broadcast()
-        condition.unlock()
+        let woken = waiters
+        waiters.removeAll()
+        for waiter in woken { waiter.resume.resume() }
     }
 }
 
 /// What a group's decode produced, in a reference the decoding thread can write
 /// and the encoding one can read once it has joined.
+/// A group's encoder output, shared between the encoder writing it and a decode
+/// reading it. Unchecked because the gate orders the two, not the type system.
+private struct Projections: @unchecked Sendable {
+    let base: UnsafeMutablePointer<Element>
+}
+
 private final class DecodeResult: @unchecked Sendable {
     var tokens: [[Int]] = []
     var frames: [[Int]] = []
@@ -46,9 +57,18 @@ private final class DecodeResult: @unchecked Sendable {
 
 /// The recognition pipeline: mel, encoder, and a lane-batched transducer decode.
 ///
-/// Not `Sendable` and not reentrant: it owns preallocated buffers that every
-/// call mutates. `Voz` serialises access through an actor.
-final class Pipeline {
+/// Not reentrant: it owns preallocated buffers that every call mutates, and
+/// `Voz` serialises access through an actor.
+///
+/// `@unchecked Sendable` because one transcription does cross threads, and
+/// already did before the checking reached here: the decode overlap runs on a
+/// queue of its own while the encoder keeps the calling thread. What makes it
+/// safe is that the two halves touch disjoint buffers, the encoder writing
+/// rows, melOut and encOut while the decode reads `projections` and writes
+/// embed, encStep, logits and the recurrent state, ordered by a gate. The
+/// compiler cannot see that, and the actor above still means there is only ever
+/// one transcription in flight.
+final class Pipeline: @unchecked Sendable {
     private let assets: Assets
     private var configuration: Configuration { assets.configuration }
 
@@ -119,14 +139,16 @@ final class Pipeline {
     private static let overlapsDecode =
         ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
             ?? overlapsByDefault
+
     #if !os(WASI)
-    /// Where the decode runs while the encoder has the calling thread. The
-    /// encoder stays put: it reads the streaming audio buffer, which `ensure`
-    /// and `release` mutate between groups, and moving it would mean capturing
-    /// that in an escaping closure.
-    /// Concurrent, so two pipelines transcribing at once do not queue behind
-    /// each other: each group's decode blocks on its own encoder, and a serial
-    /// queue would make that one pipeline's wait into the other's.
+    /// The decode's executor, so it gets a thread of its own rather than one of
+    /// the cooperative pool's.
+    ///
+    /// This matters more than it looks. Both halves of a group are synchronous
+    /// once they reach Core ML, so a decode left on the cooperative pool sits
+    /// behind an encoder that is blocking one of its few threads: measured 192
+    /// RTFx against the 207 this gets, most of the overlap gone. Concurrent, so
+    /// two pipelines transcribing at once do not queue behind each other.
     private static let decodeQueue = DispatchQueue(label: "voz.decode", qos: .userInitiated,
                                                    attributes: .concurrent)
     #endif
@@ -261,6 +283,26 @@ final class Pipeline {
                                     encOut: encOut, isolation: isolation)
     }
 
+    /// Decode one group into `result`, suspending on `awaitWindow` for windows
+    /// the encoder has not produced yet.
+    private func decodeGroup(projections: Projections, valids: [Int],
+                             count: Int, into result: DecodeResult,
+                             awaitWindow: @escaping @Sendable (Int) async -> Void) async {
+        var tokens = [[Int]](repeating: [], count: count)
+        var emitFrames = [[Int]](repeating: [], count: count)
+        var emitEnds = [[Int]](repeating: [], count: count)
+        do {
+            try await decode(projections: projections.base, valids: valids,
+                             ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
+                             awaitWindow: awaitWindow)
+        } catch {
+            result.error = error
+        }
+        result.tokens = tokens
+        result.frames = emitFrames
+        result.ends = emitEnds
+    }
+
     // MARK: - Decode
 
     /// Greedy TDT decode of several independent windows in the lanes of one call.
@@ -280,7 +322,7 @@ final class Pipeline {
     private func decode(projections: UnsafePointer<Element>, valids: [Int],
                         ends: inout [[Int]], tokens: inout [[Int]],
                         frames: inout [[Int]],
-                        awaitWindow: (Int) -> Void = { _ in },
+                        awaitWindow: (Int) async -> Void = { _ in },
                         isolation: isolated (any Actor)? = #isolation) async throws {
         let c = configuration
         let width = c.decodeWidth
@@ -301,9 +343,9 @@ final class Pipeline {
         var limit = [Int](repeating: 0, count: lanes)
         hIn.zero(); cIn.zero(); embed.zero(); encStep.zero()
 
-        func admit(_ lane: Int) {
+        func admit(_ lane: Int) async {
             guard pending < valids.count else { slot[lane] = -1; return }
-            awaitWindow(pending)
+            await awaitWindow(pending)
             slot[lane] = pending
             position[lane] = 0
             label[lane] = blank
@@ -313,7 +355,7 @@ final class Pipeline {
             (cIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             pending += 1
         }
-        for lane in 0..<lanes { admit(lane) }
+        for lane in 0..<lanes { await admit(lane) }
 
         while slot.contains(where: { $0 >= 0 }) {
             assets.withEmbedding { table in
@@ -397,7 +439,7 @@ final class Pipeline {
                     offset += duration > 0 ? duration : 1
                 }
                 if !didEmit { position[lane] += max(offset, 1) }
-                if position[lane] >= limit[lane] { admit(lane) }
+                if position[lane] >= limit[lane] { await admit(lane) }
             }
         }
     }
@@ -622,35 +664,29 @@ final class Pipeline {
             // simply runs here once encoding is done.
             let gate = WindowGate()
             let decoded = DecodeResult()
-            let run = { [self] (awaitWindow: @escaping (Int) -> Void) async in
-                var tokens = [[Int]](repeating: [], count: group.count)
-                var emitFrames = [[Int]](repeating: [], count: group.count)
-                var emitEnds = [[Int]](repeating: [], count: group.count)
-                do {
-                    try await decode(projections: projections, valids: valids,
-                                     ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
-                                     awaitWindow: awaitWindow)
-                } catch {
-                    decoded.error = error
-                }
-                decoded.tokens = tokens
-                decoded.frames = emitFrames
-                decoded.ends = emitEnds
+            // Detached, so it does not inherit the actor `Voz` calls from and
+            // can genuinely run while the encoder holds the calling thread. What
+            // makes that safe is disjoint buffers: the encoder writes rows,
+            // melOut and encOut, this reads `projections` and writes embed,
+            // encStep, logits and the recurrent state, ordered by the gate.
+            let shared = Projections(base: projections)
+            let count = group.count
+            #if os(WASI)
+            let decodeTask: Task<Void, Never>? = nil
+            #else
+            let body: @Sendable () async -> Void = { [self, shared, valids, decoded, gate] in
+                await decodeGroup(projections: shared, valids: valids,
+                                  count: count, into: decoded,
+                                  awaitWindow: { await gate.wait(for: $0) })
             }
-            #if !os(WASI)
-            // The decode is async because an engine's calls may be promises, and
-            // a work item cannot await, so it waits here while one runs. The
-            // thread it blocks is this queue's own, which exists to be blocked:
-            // the encoder has the calling thread throughout.
-            let consume = DispatchWorkItem {
-                let done = DispatchSemaphore(value: 0)
-                Task {
-                    await run(gate.wait)
-                    done.signal()
-                }
-                done.wait()
+            let decodeTask: Task<Void, Never>?
+            if !Self.overlapsDecode {
+                decodeTask = nil
+            } else if #available(macOS 15.4, iOS 18.4, tvOS 18.4, visionOS 2.4, *) {
+                decodeTask = Task.detached(executorPreference: Self.decodeQueue) { await body() }
+            } else {
+                decodeTask = Task.detached { await body() }
             }
-            if Self.overlapsDecode { Self.decodeQueue.async(execute: consume) }
             #endif
 
             do {
@@ -675,25 +711,24 @@ final class Pipeline {
                     }
                     // Only now do those windows exist for a decode that is
                     // reading alongside this loop.
-                    for _ in 0..<staged { gate.produced() }
+                    for _ in 0..<staged { await gate.produced() }
                     staged = 0
                     progress(reported(low))
                 }
             } catch {
                 // The windows the decode is waiting for are never coming.
-                gate.abandon(group.count)
-                #if !os(WASI)
-                if Self.overlapsDecode { consume.wait() }
-                #endif
+                await gate.abandon(group.count)
+                await decodeTask?.value
                 throw error
             }
-            #if os(WASI)
-            // One thread, so the decode runs here, after the encoder is done.
-            // `gate.wait` would be a deadlock rather than a wait.
-            await run({ _ in })
-            #else
-            if Self.overlapsDecode { consume.wait() } else { consume.perform() }
-            #endif
+            if let decodeTask {
+                await decodeTask.value
+            } else {
+                // Not overlapping, so it runs here, once the encoder is done.
+                // `gate.wait` would be a deadlock rather than a wait.
+                await decodeGroup(projections: shared, valids: valids,
+                                  count: count, into: decoded, awaitWindow: { _ in })
+            }
             if let error = decoded.error { throw error }
 
             var tokens = decoded.tokens
@@ -764,7 +799,10 @@ final class Pipeline {
                 // non-speech - where every window legitimately produces
                 // nothing and every one is retried - ran at a third of its
                 // usual speed instead of half.
-                var retryProjections = [Element](repeating: 0, count: refused.count * stride)
+                let retryProjections = UnsafeMutablePointer<Element>.allocate(
+                    capacity: refused.count * stride)
+                retryProjections.initialize(repeating: 0, count: refused.count * stride)
+                defer { retryProjections.deallocate() }
                 var retryValids = [Int](repeating: frames, count: refused.count)
                 var retryStarts = [Int](repeating: 0, count: refused.count)
                 do {
@@ -822,11 +860,9 @@ final class Pipeline {
                         try await encodeStaged()
                         // Lane `l` holds the retry `slot - staged + 1 + l`.
                         let first = slot - staged + 1
-                        retryProjections.withUnsafeMutableBufferPointer { out in
-                            for lane in 0..<staged {
-                                (out.baseAddress! + (first + lane) * stride)
-                                    .update(from: encOut.ptr + lane * stride, count: stride)
-                            }
+                        for lane in 0..<staged {
+                            (retryProjections + (first + lane) * stride)
+                                .update(from: encOut.ptr + lane * stride, count: stride)
                         }
                         staged = 0
                     }
@@ -834,11 +870,9 @@ final class Pipeline {
                 var retryTokens = [[Int]](repeating: [], count: refused.count)
                 var retryFrames = [[Int]](repeating: [], count: refused.count)
                 var retryEnds = [[Int]](repeating: [], count: refused.count)
-                try await retryProjections.withUnsafeBufferPointer { source in
-                    try await decode(projections: source.baseAddress!, valids: retryValids,
-                                     ends: &retryEnds,
-                                     tokens: &retryTokens, frames: &retryFrames)
-                }
+                try await decode(projections: retryProjections, valids: retryValids,
+                                 ends: &retryEnds,
+                                 tokens: &retryTokens, frames: &retryFrames)
                 for (slot, entry) in refused.enumerated() {
                     if tokens[entry.offset].isEmpty {
                         // Nothing to keep, so the rerun simply replaces it.
