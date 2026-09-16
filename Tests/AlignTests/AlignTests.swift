@@ -1,48 +1,84 @@
-// The refiner only exists where Core ML does; elsewhere this suite is empty.
-#if canImport(CoreML) && canImport(Accelerate)
 import Foundation
 import Testing
+@testable import Align
+import TestSupport
+
+struct Golden: Codable {
+    struct W: Codable { let text: String; let start: Double; let end: Double }
+    let sample_rate: Int; let n_samples: Int; let language: String
+    let words: [W]; let logmel_b64: String; let n_frames: Int; var corrections: [Double]
+}
+
+func loadGolden() throws -> Golden {
+    let url = Bundle.module.url(forResource: "golden", withExtension: "json")!
+    return try JSONDecoder().decode(Golden.self, from: Data(contentsOf: url))
+}
+
+func synthAudio(_ n: Int, _ sr: Int) -> [Float] {
+    var out = [Float](repeating: 0, count: n)
+    let twoPi = 2.0 * Double.pi
+    for i in 0..<n {
+        let t = Double(i) / Double(sr)
+        let a: Double = 0.3 * sin(twoPi * 200 * t)
+        let b: Double = 0.2 * sin(twoPi * 350 * t)
+        let c: Double = 0.1 * sin(twoPi * 61 * t) * sin(twoPi * 3 * t)
+        out[i] = Float(a + b + c)
+    }
+    return out
+}
+
+/// The downloaded model's directory (fetched once per process, then offline).
+func modelDirectory() async throws -> URL {
+    let files = try await ModelFixture.files(AlignModel.self)
+    return URL(fileURLWithPath: files.rootPath, isDirectory: true)
+}
+
+/// The frontend on its own, from the model's config and mel filterbank: no inference
+/// runtime, so this runs wherever the package builds.
+func makeFrontend() async throws -> Frontend {
+    let directory = try await modelDirectory()
+    let cfgData = try Data(contentsOf: directory.appendingPathComponent("refiner_config.json"))
+    let cfg = try JSONDecoder().decode(RefinerConfig.self, from: cfgData)
+    let melData = try Data(contentsOf: directory.appendingPathComponent("mel_filters.bin"))
+    let mel = melData.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+    return Frontend(cfg: cfg, melFilters: mel)
+}
+
+struct FrontendTests {
+    // Frontend log-mel must match the Python reference (PSNR high).
+    @Test func frontendParity() async throws {
+        let g = try loadGolden()
+        let frontend = try await makeFrontend()
+        let audio = synthAudio(g.n_samples, g.sample_rate)
+        let (lm, nF) = frontend.logMel(audio)
+        #expect(nF == g.n_frames)
+        let ref = Data(base64Encoded: g.logmel_b64)!.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        #expect(lm.count == ref.count)
+        var mse = 0.0, peak = 0.0, maxAbs = 0.0
+        for k in 0..<lm.count {
+            let d = Double(lm[k] - ref[k])
+            mse += d * d
+            peak = max(peak, abs(Double(ref[k])))
+            maxAbs = max(maxAbs, abs(d))
+        }
+        mse /= Double(lm.count)
+        let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
+        print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse)), max abs diff \(maxAbs)")
+        #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
+    }
+}
+
+// The refiner only exists where Core ML does; elsewhere this suite is empty.
+#if canImport(CoreML) && canImport(Accelerate)
 #if canImport(Speech)
 import CoreMedia
 import Speech
 #endif
-@testable import Align
-import TestSupport
 
 struct AlignTests {
-    struct Golden: Codable {
-        struct W: Codable { let text: String; let start: Double; let end: Double }
-        let sample_rate: Int; let n_samples: Int; let language: String
-        let words: [W]; let logmel_b64: String; let n_frames: Int; var corrections: [Double]
-    }
-
     struct CalibrationGolden: Codable {
         let features: [[Float]]
         var corrections: [Double]
-    }
-
-    func loadGolden() throws -> Golden {
-        let url = Bundle.module.url(forResource: "golden", withExtension: "json")!
-        return try JSONDecoder().decode(Golden.self, from: Data(contentsOf: url))
-    }
-
-    func synthAudio(_ n: Int, _ sr: Int) -> [Float] {
-        var out = [Float](repeating: 0, count: n)
-        let twoPi = 2.0 * Double.pi
-        for i in 0..<n {
-            let t = Double(i) / Double(sr)
-            let a: Double = 0.3 * sin(twoPi * 200 * t)
-            let b: Double = 0.2 * sin(twoPi * 350 * t)
-            let c: Double = 0.1 * sin(twoPi * 61 * t) * sin(twoPi * 3 * t)
-            out[i] = Float(a + b + c)
-        }
-        return out
-    }
-
-    /// The downloaded model's directory (fetched once per process, then offline).
-    func modelDirectory() async throws -> URL {
-        let files = try await ModelFixture.files(AlignModel.self)
-        return URL(fileURLWithPath: files.rootPath, isDirectory: true)
     }
 
     /// Parity fixtures are recorded and compared on the CPU. The ANE and CPU float16 paths
@@ -71,23 +107,6 @@ struct AlignTests {
             resourceDirectory: directory
         )
         #expect(fromDirectory.isSupported)
-    }
-
-    // Frontend log-mel must match the Python reference (PSNR high).
-    @Test func frontendParity() async throws {
-        let g = try loadGolden()
-        let refiner = try await makeRefiner(languageCode: g.language)
-        let audio = synthAudio(g.n_samples, g.sample_rate)
-        let (lm, nF) = refiner._debugLogMel(audio)
-        #expect(nF == g.n_frames)
-        let ref = Data(base64Encoded: g.logmel_b64)!.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
-        #expect(lm.count == ref.count)
-        var mse = 0.0, peak = 0.0
-        for k in 0..<lm.count { let d = Double(lm[k] - ref[k]); mse += d * d; peak = max(peak, abs(Double(ref[k]))) }
-        mse /= Double(lm.count)
-        let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
-        print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse))")
-        #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
     }
 
     /// Rewrites both golden fixtures from the weights this SDK resolves.
