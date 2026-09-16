@@ -43,9 +43,8 @@ export interface Detection {
   /** Top candidate, or `null` on empty input. */
   readonly language: string | null;
   /**
-   * True when the top two candidates are too close to separate. Present both
-   * rather than crowning one: `"la casa"` is equally Italian and Spanish, and
-   * saying so is more useful than picking.
+   * True when the top two ranked candidates are too close to separate.
+   * Request at least two candidates to present both.
    */
   readonly isTooCloseToCall: boolean;
 }
@@ -107,15 +106,19 @@ export class Tongue {
     this.usage?.record();
     const normalized = normalize(text);
     const routed = route(normalized);
-    const finish = (candidates: readonly Prediction[], reliability: Reliability): Detection => ({
+    const finish = (
+      candidates: readonly Prediction[],
+      reliability: Reliability,
+      evidence: readonly Prediction[] = candidates,
+    ): Detection => ({
       normalized,
       candidates,
       reliability,
       route: routed,
       language: candidates[0]?.language ?? null,
       isTooCloseToCall:
-        candidates.length > 1 &&
-        candidates[0]!.probability - candidates[1]!.probability < 0.12,
+        evidence.length > 1 &&
+        evidence[0]!.probability - evidence[1]!.probability < 0.12,
     });
 
     if (!normalized) return finish([], "empty");
@@ -131,8 +134,9 @@ export class Tongue {
         : (this.metadata.latin_labels ?? this.metadata.labels);
     if (allowed.length === 0) return finish([], "empty");
 
-    const ranked = this.weights.rank(normalized, new Set(allowed), topK);
-    return finish(ranked, this.reliability(normalized, ranked));
+    const ranked = this.weights.rank(normalized, new Set(allowed), topK === 1 ? 2 : topK);
+    const candidates = topK === 1 ? ranked.slice(0, 1) : ranked;
+    return finish(candidates, this.reliability(normalized, ranked), ranked);
   }
 
   private reliability(text: string, ranked: readonly Prediction[]): Reliability {

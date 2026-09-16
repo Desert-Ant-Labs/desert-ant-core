@@ -169,6 +169,22 @@ struct DetectionTests {
         #expect(detection.reliability == .tentative)
     }
 
+    @Test func topKDoesNotDiscardConfidenceEvidence() throws {
+        let metadata = """
+        {"labels":["en","fr"],"num_buckets":1,"dim":1,"ngram_orders":[1],"embed_scale":1,"latin_labels":["en","fr"]}
+        """
+        let tongue = try Tongue(
+            metadataJSON: metadata,
+            weightBytes: [UInt8](repeating: 0, count: 17)
+        )
+
+        let detection = tongue.detect("this input is long enough", topK: 1)
+
+        #expect(detection.candidates.count == 1)
+        #expect(detection.reliability == .tentative)
+        #expect(detection.isTooCloseToCall)
+    }
+
     @Test func shortInputIsNotReportedConfident() throws {
         let tongue = try Tongue()
         // Reads as Welsh to any character model. The point is that it says so.

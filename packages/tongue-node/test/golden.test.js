@@ -85,6 +85,26 @@ test("says 'too close to call' rather than guessing", async () => {
   assert.equal(tongue.detect("   ").language, null);
 });
 
+test("topK does not discard confidence evidence", () => {
+  const tongue = Tongue.fromBytes(
+    {
+      labels: ["en", "fr"],
+      num_buckets: 1,
+      dim: 1,
+      ngram_orders: [1],
+      embed_scale: 1,
+      latin_labels: ["en", "fr"],
+    },
+    new Uint8Array(17),
+  );
+
+  const detection = tongue.detect("this input is long enough", 1);
+
+  assert.equal(detection.candidates.length, 1);
+  assert.equal(detection.reliability, "tentative");
+  assert.equal(detection.isTooCloseToCall, true);
+});
+
 test("detection output matches the reference head", async () => {
   // The head had no vectors at all: nothing in any port asserted a probability,
   // which is how three ports came to disagree on `language` for hashtag input

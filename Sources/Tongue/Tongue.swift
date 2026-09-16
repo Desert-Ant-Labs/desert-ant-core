@@ -21,16 +21,11 @@ public struct Detection: Sendable {
     public let reliability: Reliability
     /// Which stage answered: the script router, or the head.
     public let route: Route
+    /// True when the top two ranked candidates are too close to separate.
+    /// Request at least two candidates to present both.
+    public let isTooCloseToCall: Bool
 
     public var language: String? { candidates.first?.language }
-
-    /// True when the top two candidates are too close to separate. Callers
-    /// should present both rather than crowning one — `"la casa"` is equally
-    /// Italian and Spanish, and saying so is more useful than picking.
-    public var isTooCloseToCall: Bool {
-        guard candidates.count > 1 else { return false }
-        return candidates[0].probability - candidates[1].probability < 0.12
-    }
 }
 
 /// On-device language identification for short text.
@@ -67,14 +62,14 @@ public struct Tongue: Sendable {
 
         guard !normalized.isEmpty else {
             return Detection(normalized: normalized, candidates: [],
-                             reliability: .empty, route: route)
+                             reliability: .empty, route: route, isTooCloseToCall: false)
         }
         // A script that only one language uses needs no model, and there is no
         // guessing involved, so it is always reported confident.
         if route.verdict == .decisive, let language = route.candidates.first {
             return Detection(normalized: normalized,
                              candidates: [Prediction(language: language, probability: 1)],
-                             reliability: .confident, route: route)
+                             reliability: .confident, route: route, isTooCloseToCall: false)
         }
 
         let allowed = route.verdict == .narrowing
@@ -82,12 +77,24 @@ public struct Tongue: Sendable {
             : metadata.latinLabels
         guard !allowed.isEmpty else {
             return Detection(normalized: normalized, candidates: [],
-                             reliability: .empty, route: route)
+                             reliability: .empty, route: route, isTooCloseToCall: false)
         }
 
-        let ranked = weights.rank(normalized, restrictedTo: Set(allowed), topK: topK)
-        return Detection(normalized: normalized, candidates: ranked,
-                         reliability: reliability(normalized, ranked), route: route)
+        let ranked = weights.rank(
+            normalized,
+            restrictedTo: Set(allowed),
+            topK: topK == 1 ? 2 : topK
+        )
+        let candidates = topK == 1 ? Array(ranked.prefix(1)) : ranked
+        let isTooCloseToCall = ranked.count > 1
+            && ranked[0].probability - ranked[1].probability < 0.12
+        return Detection(
+            normalized: normalized,
+            candidates: candidates,
+            reliability: reliability(normalized, ranked),
+            route: route,
+            isTooCloseToCall: isTooCloseToCall
+        )
     }
 
     private func reliability(_ text: String, _ ranked: [Prediction]) -> Reliability {
@@ -117,4 +124,3 @@ public enum TongueError: Error, CustomStringConvertible {
         }
     }
 }
-
