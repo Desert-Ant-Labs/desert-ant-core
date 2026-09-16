@@ -45,7 +45,7 @@ public enum BatchSize {
     public static func next(model: String) -> Int {
         if let override = ProcessInfo.processInfo.environment["DAL_BATCH_SIZE"],
            let size = Int(override), size > 0 { return size }
-        let measured = read(key(for: model))
+        let measured = Measurements.read(model: model, axis: axis)
         if let untried = candidates.first(where: { measured[String($0)] == nil }) { return untried }
         guard let best = measured.values.min() else { return 1 }
         let tolerated = best * 1.03
@@ -64,13 +64,11 @@ public enum BatchSize {
         // model's first-call costs, and charging those to whichever size went
         // first is how this picked a worse size than the one it replaced.
         guard warmed.mark(model) else { return }
-        let identity = key(for: model)
-        var measured = read(identity)
-        let previous = measured[String(size)] ?? .greatestFiniteMagnitude
-        guard secondsPerItem < previous else { return }
-        measured[String(size)] = secondsPerItem
-        write(measured, for: identity)
+        Measurements.record(model: model, axis: axis, value: String(size),
+                            secondsPerItem: secondsPerItem)
     }
+
+    private static let axis = "batch-size"
 
     /// One discarded measurement per model per process.
     private final class Warmup: @unchecked Sendable {
@@ -84,50 +82,6 @@ public enum BatchSize {
     }
     private static let warmed = Warmup()
 
-    // MARK: - Cache
-
-    /// What the answer depends on: the machine, the OS that schedules it, and
-    /// the model being timed.
-    ///
-    /// The machine is only asked for where the answer varies with it. Only Core
-    /// ML batches today, so everywhere else this is the OS string and the model,
-    /// and the cache simply records that every size measured the same.
-    private static func key(for model: String) -> String {
-        var name = [CChar](repeating: 0, count: 256)
-        var size = name.count
-        #if os(macOS)
-        sysctlbyname("hw.model", &name, &size, nil, 0)
-        #else
-        sysctlbyname("hw.machine", &name, &size, nil, 0)
-        #endif
-        return "\(String(cString: name))|"
-            + "\(ProcessInfo.processInfo.operatingSystemVersionString)|\(model)"
-    }
-
-    private static func cacheURL() -> URL? {
-        guard let base = try? FileManager.default.url(
-            for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-        else { return nil }
-        let directory = base.appendingPathComponent("desert-ant", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory.appendingPathComponent("batch-size.json")
-    }
-
-    private static func read(_ key: String) -> [String: Double] {
-        guard let url = cacheURL(), let data = try? Data(contentsOf: url),
-              let entries = try? JSONDecoder().decode([String: [String: Double]].self, from: data)
-        else { return [:] }
-        return entries[key] ?? [:]
-    }
-
-    private static func write(_ measured: [String: Double], for key: String) {
-        guard let url = cacheURL() else { return }
-        var entries = (try? Data(contentsOf: url))
-            .flatMap { try? JSONDecoder().decode([String: [String: Double]].self, from: $0) } ?? [:]
-        entries[key] = measured
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        try? data.write(to: url, options: .atomic)
-    }
 }
 
 #else

@@ -20,9 +20,12 @@ struct Assets {
     let decodeStep: MLModel
     /// Windows decoded per dispatch, read from the model rather than assumed.
     let decodeLanes: Int
-    /// Where the model was loaded from, which identifies it to the batch-size
+    /// Where the model was loaded from, which identifies it to the
     /// measurements.
     let directory: URL
+    /// Which processor the decode step was loaded on, and so which one the
+    /// transcription it runs should be recorded against. See ``DecodePlacement``.
+    let decodePlacement: String
 
     init(directory: URL, computeUnits: MLComputeUnits) throws {
         self.directory = directory
@@ -58,7 +61,16 @@ struct Assets {
         }
         mel = try load(VozModel.mel)
         encoder = try load(VozModel.encoder)
-        decodeStep = try load(VozModel.decodeStep)
+
+        // The decode step does not want the same processor as the other two on
+        // every machine, and which one it wants cannot be known without trying:
+        // see `DecodePlacement`.
+        let placement = DecodePlacement.next(model: directory.path)
+        decodePlacement = placement.name
+        let decodeConfiguration = MLModelConfiguration()
+        decodeConfiguration.computeUnits = placement.units
+        decodeStep = try MLModel(contentsOf: directory.appendingPathComponent(VozModel.decodeStep),
+                                 configuration: decodeConfiguration)
 
         guard let embed = decodeStep.modelDescription.inputDescriptionsByName["embed"],
               let constraint = embed.multiArrayConstraint else {

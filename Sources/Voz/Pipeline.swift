@@ -151,7 +151,10 @@ final class Pipeline {
 
     /// Where the encoder model lives, which identifies it to the block-size
     /// measurements. See ``BlockSize``.
-    private let encoderPath: URL
+    /// What the measurements are recorded against: the model, and where its
+    /// decode step ran. A block size measured with the decode on the engine does
+    /// not describe the same pipeline as one measured with it on the CPU.
+    private let measurementIdentity: String
     /// Nanoseconds inside the last encoder submission, which is what the block
     /// size changes. Read by the calibration at load, and by nothing else.
     private var lastSubmission: UInt64 = 0
@@ -165,7 +168,7 @@ final class Pipeline {
 
     init(assets: Assets) throws {
         self.assets = assets
-        encoderPath = assets.directory.appendingPathComponent(VozModel.encoder)
+        measurementIdentity = "\(assets.directory.path)|\(assets.decodePlacement)"
         let c = assets.configuration
         let lanes = assets.decodeLanes
         let hidden = c.predLayers * c.predHidden
@@ -626,6 +629,17 @@ final class Pipeline {
     /// is 230 MB of `Float`, and a video editor has a timeline and its own
     /// buffers to fit alongside it.
     func run(stream: inout some AudioStream, progress: (Double) -> Void) throws -> (String, [Word]) {
+        let runStarted = DispatchTime.now().uptimeNanoseconds
+        var windowsRun = 0
+        defer {
+            // What this placement cost, per window, over the whole run. The
+            // decode step is loaded once per pipeline, so placements can only be
+            // compared across runs - see `DecodePlacement`.
+            DecodePlacement.record(
+                model: assets.directory.path, placement: assets.decodePlacement,
+                secondsPerWindow: Double(DispatchTime.now().uptimeNanoseconds - runStarted)
+                    / 1e9 / Double(Swift.max(1, windowsRun)))
+        }
         let c = configuration
         let frames = c.encFrames
         let stride = c.jointHidden * frames
@@ -716,7 +730,7 @@ final class Pipeline {
             // simply runs here once encoding is done.
             // What this group will use, and what it cost, which is how the
             // size for the next one is decided.
-            let blockSize = BatchSize.next(model: encoderPath.path)
+            let blockSize = BatchSize.next(model: measurementIdentity)
             let groupStarted = DispatchTime.now().uptimeNanoseconds
 
             let gate = WindowGate()
@@ -767,7 +781,7 @@ final class Pipeline {
             if Self.overlapsDecode { consume.wait() } else { consume.perform() }
             // Timed here, with the decode joined: what matters is when the group
             // is finished, not how fast its encoder submissions were.
-            BatchSize.record(model: encoderPath.path, size: blockSize,
+            BatchSize.record(model: measurementIdentity, size: blockSize,
                              secondsPerItem: Double(DispatchTime.now().uptimeNanoseconds
                                                     - groupStarted) / 1e9 / Double(group.count))
             if let error = decoded.error { throw error }
@@ -958,6 +972,7 @@ final class Pipeline {
                          at: at)
                 }
             }
+            windowsRun += group.count
             processed = group.upperBound
         }
         words = clampMonotonic(words)
