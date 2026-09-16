@@ -314,7 +314,8 @@ static void dal_teardown_setup(DalLrtSession* s) {
 // back to its GL delegate) - so the CPU retry in dal_lrt_create wraps this
 // whole function, not just the compile. Returns 0 on success.
 static int dal_setup(DalLrtSession* s, LiteRtHwAcceleratorSet accel,
-                     int num_threads, char* errbuf, int errbuf_len) {
+                     int num_threads, int gpu_precision,
+                     char* errbuf, int errbuf_len) {
   if (LiteRtCreateOptions(&s->options) != kLiteRtStatusOk) {
     set_err(errbuf, errbuf_len, "LiteRtCreateOptions failed"); return 1;
   }
@@ -349,6 +350,24 @@ static int dal_setup(DalLrtSession* s, LiteRtHwAcceleratorSet accel,
         // toml); on failure destroy it, which also frees toml.
         if (LiteRtAddOpaqueOptions(s->options, cpu_opts) != kLiteRtStatusOk)
           LiteRtDestroyOpaqueOptions(cpu_opts);
+      } else {
+        free(toml);
+      }
+    }
+  }
+  // GPU compute precision, as a LiteRtDelegatePrecision. The interesting
+  // value is 3 (fp16 storage and math, fp32 accumulation): plain fp16 loses
+  // the long dot products a transformer encoder is made of, and fp32 gives
+  // the speed back.
+  if ((accel & kLiteRtHwAcceleratorGpu) && gpu_precision > 0) {
+    char* toml = (char*)malloc(32);
+    if (toml) {
+      snprintf(toml, 32, "precision = %d", gpu_precision);
+      LiteRtOpaqueOptions gpu_opts = NULL;
+      if (LiteRtCreateOpaqueOptions("gpu_options", toml, free, &gpu_opts) ==
+          kLiteRtStatusOk) {
+        if (LiteRtAddOpaqueOptions(s->options, gpu_opts) != kLiteRtStatusOk)
+          LiteRtDestroyOpaqueOptions(gpu_opts);
       } else {
         free(toml);
       }
@@ -455,7 +474,7 @@ static int dal_setup(DalLrtSession* s, LiteRtHwAcceleratorSet accel,
 }
 
 DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_len,
-                              int accelerator, int num_threads,
+                              int accelerator, int num_threads, int gpu_precision,
                               char* errbuf, int errbuf_len) {
   DalLrtSession* s = (DalLrtSession*)calloc(1, sizeof(DalLrtSession));
   if (!s) { set_err(errbuf, errbuf_len, "out of memory"); return NULL; }
@@ -509,7 +528,7 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
   // lacks it or whose driver rejects the model.
   LiteRtHwAcceleratorSet accel =
       accelerator ? (LiteRtHwAcceleratorSet)accelerator : kLiteRtHwAcceleratorCpu;
-  if (dal_setup(s, accel, num_threads, errbuf, errbuf_len) != 0) {
+  if (dal_setup(s, accel, num_threads, gpu_precision, errbuf, errbuf_len) != 0) {
     if (errbuf) {
       char note[320];
       snprintf(note, sizeof(note), "accelerated setup failed (%s); retrying on CPU", errbuf);
@@ -517,7 +536,7 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
     }
     dal_teardown_setup(s);
     if (accel == kLiteRtHwAcceleratorCpu ||
-        dal_setup(s, kLiteRtHwAcceleratorCpu, num_threads, errbuf, errbuf_len) != 0) {
+        dal_setup(s, kLiteRtHwAcceleratorCpu, num_threads, 0, errbuf, errbuf_len) != 0) {
       goto fail;
     }
   }

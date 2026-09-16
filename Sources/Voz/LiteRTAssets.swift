@@ -155,12 +155,13 @@ final class LiteRTAssets: VozEngine {
             bytes.bindMemory(to: UInt16.self).map(floatFromHalf)
         }
 
-        func open(_ name: String, accelerator: Int32, threads: Int32 = 0) throws -> OpaquePointer {
+        func open(_ name: String, accelerator: Int32, threads: Int32 = 0,
+                  gpuPrecision: Int32 = 0) throws -> OpaquePointer {
             let path = directory.appendingPathComponent(name).path
             var errbuf = [CChar](repeating: 0, count: 256)
             let handle = errbuf.withUnsafeMutableBufferPointer { err in
                 path.withCString {
-                    dal_lrt_create($0, nil, 0, accelerator, threads,
+                    dal_lrt_create($0, nil, 0, accelerator, threads, gpuPrecision,
                                    err.baseAddress, Int32(err.count))
                 }
             }
@@ -175,8 +176,17 @@ final class LiteRTAssets: VozEngine {
         // hundreds of tiny dispatches per minute of audio, where the GPU's
         // per-dispatch latency loses to XNNPACK on a graph this small - so it
         // is pinned to CPU deliberately, not by fallback.
-        let melSession = try open(VozModel.melLiteRT, accelerator: 3 /* GPU|CPU */)
-        let encoderSession = try open(VozModel.encoderLiteRT, accelerator: 3 /* GPU|CPU */)
+        // The mel frontend must not run in reduced precision (its statistics
+        // are the fragile half of the model), so it asks for fp32; it is one
+        // cheap dispatch per window either way. The encoder asks for fp16
+        // math with fp32 accumulation: plain fp16 collapsed the transcript
+        // (373 words to 163 on the benchmark take), because a conformer is
+        // long dot products end to end, and those are exactly what fp16
+        // accumulation loses.
+        let melSession = try open(VozModel.melLiteRT, accelerator: 3 /* GPU|CPU */,
+                                  gpuPrecision: 2 /* fp32 */)
+        let encoderSession = try open(VozModel.encoderLiteRT, accelerator: 3 /* GPU|CPU */,
+                                      gpuPrecision: 3 /* fp16, fp32 accumulation */)
         // One thread as well as CPU-only: a decode step is a few hundred
         // kiloflops, and a thread pool spends more per step waking and joining
         // workers than the work costs. Measured on a Pixel, the pool put the
