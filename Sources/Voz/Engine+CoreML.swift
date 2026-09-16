@@ -11,6 +11,7 @@ import Foundation
 /// dispatch and nothing else.
 final class CoreMLEngine: Engine {
     let decodeLanes: Int
+    let encodeBatch = 1
     /// Core ML returns raw logits: the host's argmax over a shared page costs
     /// nothing, and reducing in the graph would only add operations.
     let reducesInGraph = false

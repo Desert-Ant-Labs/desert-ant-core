@@ -25,20 +25,29 @@ import JavaScriptKit
 /// why it ports without changing.
 final class WasmEngine: Engine {
     let decodeLanes: Int
+    /// Windows encoded per dispatch. One by default: the graph is a fixed size,
+    /// so a batch that is not full costs its empty lanes, and the retry path
+    /// almost never fills one.
+    let encodeBatch: Int
+    /// Lanes of the staged batch that hold a window, set by the pipeline before
+    /// each encode. Starts full so a fixed-shape bundle behaves as it always did.
+    private var liveLanes = Int.max
+
+    func stage(lanes: Int) { liveLanes = lanes }
     /// The wasm export reduces in the graph: reading logits back would be a
     /// quarter of a megabyte per call to extract two integers.
     let reducesInGraph = true
 
     private let host: JSObject
     private let configuration: Configuration
-
-    init(configuration: Configuration, lanes: Int) throws {
+    init(configuration: Configuration, lanes: Int, batch: Int) throws {
         guard let host = JSObject.global.__vozHost.object else {
             throw VozError.invalidModel("no __vozHost on globalThis")
         }
         self.host = host
         self.configuration = configuration
         decodeLanes = lanes
+        encodeBatch = batch
     }
 
     // MARK: - Crossing
@@ -49,10 +58,24 @@ final class WasmEngine: Engine {
     /// copy and not a conversion, and the host gets a `Float32Array` it can hand
     /// to the runtime as is.
     private func tensor(_ buffer: Buffer) -> JSValue {
-        let values = UnsafeBufferPointer(start: buffer.ptr, count: buffer.count)
+        tensor(buffer, lanes: buffer.shape.first ?? 1)
+    }
+
+    /// The same buffer, described as holding only its first `lanes` entries.
+    ///
+    /// The staging buffers are as wide as the batch, but the tail of a file and
+    /// every retry fill fewer lanes than that. With a dynamic batch axis the
+    /// graph can be handed the prefix that is live, so a group of one costs one
+    /// window rather than a whole batch.
+    private func tensor(_ buffer: Buffer, lanes: Int) -> JSValue {
+        var shape = buffer.shape
+        let full = shape.first ?? 1
+        shape[0] = Swift.min(lanes, full)
+        let count = buffer.count / Swift.max(full, 1) * shape[0]
+        let values = UnsafeBufferPointer(start: buffer.ptr, count: count)
         let object = JSObject.global.Object.function!.new()
         object["data"] = .object(JSTypedArray<Float>(Array(values)).jsObject)
-        object["dims"] = buffer.shape.jsValue
+        object["dims"] = shape.jsValue
         object["type"] = .string("float32")
         return .object(object)
     }
@@ -111,11 +134,13 @@ final class WasmEngine: Engine {
               let array = JSTypedArray<Float>(from: tensor["data"]) else {
             throw VozError.invalidModel("\(name) missing from the host's outputs")
         }
-        guard array.length == buffer.count else {
+        // A dynamic batch returns only the lanes that were sent, so a short
+        // read is expected; a long one means the graph and the buffer disagree.
+        guard array.length <= buffer.count else {
             throw VozError.invalidModel(
-                "\(name) has \(array.length) values, expected \(buffer.count)")
+                "\(name) has \(array.length) values, expected at most \(buffer.count)")
         }
-        array.copyMemory(to: UnsafeMutableBufferPointer(start: buffer.ptr, count: buffer.count))
+        array.copyMemory(to: UnsafeMutableBufferPointer(start: buffer.ptr, count: array.length))
     }
 
     private func readInt32(_ outputs: JSObject, _ name: String, into values: inout [Int32]) throws {
@@ -135,8 +160,8 @@ final class WasmEngine: Engine {
     func runMel(rows: Buffer, melMask: Buffer, mel: Buffer,
                 isolation: isolated (any Actor)?) async throws {
         let outputs = try await run("mel", isolation: isolation, [
-            "audio_rows": tensor(rows),
-            "mel_mask": tensor(melMask),
+            "audio_rows": tensor(rows, lanes: liveLanes),
+            "mel_mask": tensor(melMask, lanes: liveLanes),
         ])
         try read(outputs, "mel", into: mel)
     }
@@ -144,9 +169,9 @@ final class WasmEngine: Engine {
     func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
                     isolation: isolated (any Actor)?) async throws {
         let outputs = try await run("encoder", isolation: isolation, [
-            "mel": tensor(mel),
-            "key_bias": tensor(keyBias),
-            "pad_mask": tensor(padMask),
+            "mel": tensor(mel, lanes: liveLanes),
+            "key_bias": tensor(keyBias, lanes: liveLanes),
+            "pad_mask": tensor(padMask, lanes: liveLanes),
         ])
         try read(outputs, "enc_proj", into: encOut)
     }

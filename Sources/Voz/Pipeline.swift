@@ -195,8 +195,10 @@ final class Pipeline {
     /// the geometric tail `preemph^(j+1) * x[-1]` rather than zeros, which is
     /// what makes in-graph preemphasis agree with NeMo's preemphasise-then-pad
     /// order across the boundary.
-    private func frame(_ window: ArraySlice<Float>) {
-        rows.zero()
+    private func frame(_ window: ArraySlice<Float>, lane: Int = 0) {
+        let stride = configuration.hopLength * configuration.nRows
+        let out = rows.ptr + lane * stride
+        out.update(repeating: 0, count: stride)
         let hop = configuration.hopLength
         let pad = configuration.nFFT / 2
         let total = min(configuration.nPaddedSamples, configuration.nRows * hop)
@@ -211,7 +213,7 @@ final class Pipeline {
             } else {
                 value = last == 0 ? 0 : powf(configuration.preemph, Float(k - n + 1)) * last
             }
-            if value != 0 { rows.ptr[(i % hop) * configuration.nRows + i / hop] = Element(value) }
+            if value != 0 { out[(i % hop) * configuration.nRows + i / hop] = Element(value) }
         }
     }
 
@@ -220,27 +222,35 @@ final class Pipeline {
     /// The caller copies it where it belongs. It used to write straight into the
     /// batch through a pointer, but `withUnsafeMutableBufferPointer` takes a
     /// synchronous closure and running a model is now asynchronous.
-    private func encode(window: ArraySlice<Float>,
-                        isolation: isolated (any Actor)? = #isolation) async throws {
-        frame(window)
+    /// Lay one window into lane `lane` of the batch, with its masks.
+    private func stage(window: ArraySlice<Float>, lane: Int) {
+        let c = configuration
+        frame(window, lane: lane)
         // Normalization statistics must be taken over the frames that actually
         // hold audio. A window is a fixed 15 s, so a five-second clip is two
         // thirds padding, and including it drags the mean down and squashes the
         // speech: the frontend then agrees with the reference implementation to
         // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
-        let melFrames = configuration.validFrames
-        let melValid = Self.validMelFrames(sampleCount: window.count, configuration: configuration)
-        melMask.ptr.update(repeating: 1, count: melValid)
-        for i in melValid..<melFrames { melMask.ptr[i] = 0 }
-        try await engine.runMel(rows: rows, melMask: melMask, mel: melOut,
-                                isolation: isolation)
-        let frames = configuration.encFrames
-        let attended = Self.attendedEncoderFrames(sampleCount: window.count,
-                                                  configuration: configuration)
-        keyBias.zero()
+        let melValid = Self.validMelFrames(sampleCount: window.count, configuration: c)
+        let melBase = melMask.ptr + lane * c.validFrames
+        melBase.update(repeating: 1, count: melValid)
+        for i in melValid..<c.validFrames { melBase[i] = 0 }
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
-        for i in attended..<frames { keyBias.ptr[i] = Element(-40000) }
+        let attended = Self.attendedEncoderFrames(sampleCount: window.count, configuration: c)
+        let keyBase = keyBias.ptr + lane * c.encFrames
+        keyBase.update(repeating: 0, count: attended)
+        for i in attended..<c.encFrames { keyBase[i] = Element(-40000) }
+    }
+
+    /// Run the staged batch through mel and the encoder, leaving `encOut` full.
+    ///
+    /// Windows never interact - attention is within a window - so encoding
+    /// several in one dispatch is exact, and on a browser GPU it amortises both
+    /// the dispatch and the readback that follows it.
+    private func encodeStaged(isolation: isolated (any Actor)? = #isolation) async throws {
+        try await engine.runMel(rows: rows, melMask: melMask, mel: melOut,
+                                isolation: isolation)
         try await engine.runEncoder(mel: melOut, keyBias: keyBias, padMask: padMask,
                                     encOut: encOut, isolation: isolation)
     }
@@ -790,7 +800,16 @@ final class Pipeline {
                         retryStarts[slot] = low
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
-                        try await encode(window: slice(low, shortened))
+                        // Retries are few and rarely fill a batch, so they go
+                        // one at a time into lane 0 rather than complicating the
+                        // bookkeeping for a path that usually runs zero times.
+                        // Saying so matters: an engine that can vary its batch
+                        // would otherwise still be carrying whatever width the
+                        // last full group set, and encode two lanes of stale
+                        // audio for every retry.
+                        stage(window: slice(low, shortened), lane: 0)
+                        engine.stage(lanes: 1)
+                        try await encodeStaged()
                         retryProjections.withUnsafeMutableBufferPointer { out in
                             (out.baseAddress! + slot * stride)
                                 .update(from: encOut.ptr, count: stride)

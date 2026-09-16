@@ -195,10 +195,13 @@ public extension Voz {
     /// `@_spi` rather than public API: the wasm entry point is the only caller,
     /// and the shape of this depends on how the host compiles its models.
     @_spi(VozWeb)
-    static func web(meta: Data, vocab: Data, embedding: Data, lanes: Int) async throws -> Voz {
+    static func web(meta: Data, vocab: Data, embedding: Data, lanes: Int,
+                    batch: Int) async throws -> Voz {
         let assets = try Assets(meta: meta, vocab: vocab, embeddingBytes: embedding)
-        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes)
-        let engine = try WasmEngine(configuration: assets.configuration, lanes: lanes)
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
+                                          batch: batch)
+        let engine = try WasmEngine(configuration: assets.configuration, lanes: lanes,
+                                    batch: batch)
         return Voz(assets: assets, engine: engine, buffers: buffers)
     }
 }

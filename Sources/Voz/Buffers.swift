@@ -19,6 +19,11 @@ typealias Element = Float16
 /// `Tensor.Element` carries int32, int64 and float32, and the JS host rebuilds
 /// typed arrays over the bytes. The weights inside the model are still float16;
 /// only the I/O is wider.
+///
+/// float16 was measured here and is worse, despite being what the Apple build
+/// uses: it removes the Cast nodes at every graph edge, worth ~0.3 s, and costs
+/// ~0.56 s, because wasm has no hardware float16 and every Element operation on
+/// this side - staging audio, the splice, the timing - converts around itself.
 typealias Element = Float
 #endif
 
@@ -105,14 +110,14 @@ struct PipelineBuffers {
     let hOut: Buffer
     let cOut: Buffer
 
-    init(configuration c: Configuration, lanes: Int) throws {
+    init(configuration c: Configuration, lanes: Int, batch: Int = 1) throws {
         let hidden = c.predLayers * c.predHidden
-        rows = try Buffer([1, c.hopLength, 1, c.nRows])
-        melOut = try Buffer([1, c.nMels, 1, c.validFrames])
-        keyBias = try Buffer([1, c.encFrames, 1, 1])
-        padMask = try Buffer([1, 1, 1, c.encFrames])
-        melMask = try Buffer([1, 1, 1, c.validFrames])
-        encOut = try Buffer([1, c.jointHidden, 1, c.encFrames])
+        rows = try Buffer([batch, c.hopLength, 1, c.nRows])
+        melOut = try Buffer([batch, c.nMels, 1, c.validFrames])
+        keyBias = try Buffer([batch, c.encFrames, 1, 1])
+        padMask = try Buffer([batch, 1, 1, c.encFrames])
+        melMask = try Buffer([batch, 1, 1, c.validFrames])
+        encOut = try Buffer([batch, c.jointHidden, 1, c.encFrames])
         embed = try Buffer([lanes, c.predHidden, 1, 1])
         hIn = try Buffer([lanes, hidden, 1, 1])
         cIn = try Buffer([lanes, hidden, 1, 1])

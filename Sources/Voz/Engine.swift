@@ -19,6 +19,14 @@ protocol Engine: AnyObject {
     /// Windows decoded per dispatch, read from the model rather than assumed.
     var decodeLanes: Int { get }
 
+    /// Windows encoded per dispatch.
+    ///
+    /// One on Core ML: the Neural Engine is fed a window at a time and the
+    /// shipping models are exported that way. More than one in a browser, where
+    /// each call costs a dispatch and a readback that batching amortises, and
+    /// windows never interact - attention is within a window - so it is exact.
+    var encodeBatch: Int { get }
+
     /// Does the decode step reduce its own logits to a token and a duration?
     ///
     /// The Core ML step returns raw logits and the host takes the argmax, which
@@ -33,6 +41,14 @@ protocol Engine: AnyObject {
     func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
                     isolation: isolated (any Actor)?) async throws
 
+    /// How many lanes of the staged batch actually hold a window.
+    ///
+    /// The last group of a file, and every retry, stages fewer windows than the
+    /// batch is wide. A fixed-shape graph has to run the empty lanes anyway; one
+    /// with a dynamic batch axis can be handed just the live ones. Engines that
+    /// cannot vary their batch ignore this.
+    func stage(lanes: Int)
+
     /// Run one lane-batched decode step.
     ///
     /// Writes either `logits` (Core ML) or `tok`/`dur` (wasm), per
@@ -41,4 +57,9 @@ protocol Engine: AnyObject {
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
                        hOut: Buffer, cOut: Buffer,
                        isolation: isolated (any Actor)?) async throws
+}
+
+extension Engine {
+    /// Fixed-shape engines have nothing to vary.
+    func stage(lanes: Int) {}
 }

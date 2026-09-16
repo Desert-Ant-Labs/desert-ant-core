@@ -33,9 +33,17 @@ let load = JSClosure { arguments in
                     }
                     return array.withUnsafeBytes { Data($0) }
                 }
-                let lanes = Int(arguments[3].number ?? 0)
+                // Indexing past the end of the argument list traps, and a host
+                // that passes fewer arguments than the current build expects is
+                // a normal thing to happen while both sides are moving.
+                func argument(_ index: Int) -> JSValue {
+                    index < arguments.count ? arguments[index] : .undefined
+                }
+                let lanes = Int(argument(3).number ?? 0)
+                let batch = Int(argument(4).number ?? 1)
                 voz = try await Voz.web(meta: try bytes(0), vocab: try bytes(1),
-                                        embedding: try bytes(2), lanes: lanes)
+                                        embedding: try bytes(2), lanes: lanes,
+                                        batch: batch)
                 resolve(.success(.boolean(true)))
             } catch {
                 resolve(.failure(.string("\(error)")))
