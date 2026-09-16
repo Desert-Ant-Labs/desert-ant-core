@@ -16,4 +16,7 @@ public extension String {
     /// normalizer. Idempotent; returns the input unchanged if normalization is
     /// unavailable.
     var nfkc: String { nfkcNormalize(self) }
+
+    /// Canonical composition only; ligatures and width variants are left as they are.
+    var nfc: String { nfcNormalize(self) }
 }
