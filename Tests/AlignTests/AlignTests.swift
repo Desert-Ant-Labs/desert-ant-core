@@ -27,14 +27,14 @@ func synthAudio(_ n: Int, _ sr: Int) -> [Float] {
     return out
 }
 
+#if !os(WASI)
 /// The downloaded model's directory (fetched once per process, then offline).
 func modelDirectory() async throws -> URL {
     let files = try await ModelFixture.files(AlignModel.self)
     return URL(fileURLWithPath: files.rootPath, isDirectory: true)
 }
 
-/// The frontend on its own, from the model's config and mel filterbank: no inference
-/// runtime, so this runs wherever the package builds.
+/// The frontend alone, from the model's config and mel filterbank; no inference runtime.
 func makeFrontend() async throws -> Frontend {
     let directory = try await modelDirectory()
     let cfgData = try Data(contentsOf: directory.appendingPathComponent("refiner_config.json"))
@@ -44,8 +44,7 @@ func makeFrontend() async throws -> Frontend {
     return Frontend(cfg: cfg, melFilters: mel)
 }
 
-struct FrontendTests {
-    // Frontend log-mel must match the Python reference (PSNR high).
+@Suite(.serialized, .modelBacked) struct FrontendTests {
     @Test func frontendParity() async throws {
         let g = try loadGolden()
         let frontend = try await makeFrontend()
@@ -67,6 +66,7 @@ struct FrontendTests {
         #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
     }
 }
+#endif
 
 // The refiner only exists where Core ML does; elsewhere this suite is empty.
 #if canImport(CoreML) && canImport(Accelerate)
