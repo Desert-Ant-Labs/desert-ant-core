@@ -175,6 +175,19 @@ private fun testDetection() {
     // Equally Italian and Spanish; presenting one would be a lie.
     val tie = tongue.detect("la casa")
     check(tie.isTooCloseToCall) { "'la casa' should be too close to call" }
+    val controlled = Tongue.of(
+        """{"labels":["en","fr"],"num_buckets":1,"dim":1,"ngram_orders":[1],"embed_scale":1,"latin_labels":["en","fr"]}""",
+        ByteArray(17),
+    )
+    val topOne = controlled.detect("this input is long enough", topK = 1)
+    check(topOne.candidates.size == 1) { "topK 1 should return one candidate" }
+    check(topOne.reliability == Reliability.TENTATIVE) {
+        "topK 1 should retain the runner-up for reliability"
+    }
+    check(topOne.isTooCloseToCall) { "topK 1 should retain the runner-up for tie status" }
+    check(topOne.copy(normalized = "copied").isTooCloseToCall) {
+        "copy should retain the runner-up for tie status"
+    }
     // Reads as Welsh to any character model. The point is that it says so.
     check(tongue.detect("hi i am").reliability == Reliability.TENTATIVE) {
         "'hi i am' should be tentative"

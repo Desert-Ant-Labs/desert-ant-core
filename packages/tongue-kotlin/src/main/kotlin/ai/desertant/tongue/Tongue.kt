@@ -97,8 +97,14 @@ public class Tongue internal constructor(
             return Detection(normalized, emptyList(), Reliability.EMPTY, route)
         }
 
-        val ranked = weights.rank(normalized, allowed.toSet(), topK)
-        return Detection(normalized, ranked, reliabilityOf(normalized, ranked), route)
+        val ranked = weights.rank(normalized, allowed.toSet(), if (topK == 1) 2 else topK)
+        val candidates = if (topK == 1) TopCandidateList(ranked) else ranked
+        return Detection(
+            normalized,
+            candidates,
+            reliabilityOf(normalized, ranked),
+            route,
+        )
     }
 
     /**
@@ -148,14 +154,22 @@ public data class Detection(
 ) {
     public val language: String? get() = candidates.firstOrNull()?.language
 
-    /**
-     * True when the top two candidates are too close to separate. Present both
-     * rather than crowning one: `"la casa"` is equally Italian and Spanish, and
-     * saying so is more useful than picking.
-     */
+    /** True when the top two ranked candidates are too close to separate. */
     public val isTooCloseToCall: Boolean
-        get() = candidates.size > 1 &&
-            candidates[0].probability - candidates[1].probability < 0.12
+        get() {
+            val ranked = (candidates as? TopCandidateList)?.ranked ?: candidates
+            return ranked.size > 1 && ranked[0].probability - ranked[1].probability < 0.12
+        }
+}
+
+// Carry the runner-up through data-class copy without changing Detection's JVM ABI.
+private class TopCandidateList(val ranked: List<Prediction>) : AbstractList<Prediction>() {
+    override val size: Int get() = minOf(1, ranked.size)
+
+    override fun get(index: Int): Prediction {
+        if (index !in indices) throw IndexOutOfBoundsException("Index $index, size $size")
+        return ranked[index]
+    }
 }
 
 public class TongueException(message: String) : RuntimeException(message)
