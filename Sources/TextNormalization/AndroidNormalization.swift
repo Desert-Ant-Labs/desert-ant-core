@@ -14,4 +14,7 @@ func nfkcNormalize(_ s: String) -> String {
     defer { host_free(ptr) }
     return String(cString: ptr)
 }
+
+// The host bridge normalizes NFKC only; a silent identity or NFKC here would change a model's bytes.
+func nfcNormalize(_ s: String) -> String { preconditionFailure("nfc: no NFC bridge on Android") }
 #endif
