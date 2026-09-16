@@ -26,6 +26,14 @@ public enum AlignModel: ModelDeclaration {
     /// Sidecars the refiner needs alongside the two stages.
     public static let sidecars = ["refiner_config.json", "mel_filters.bin", "calibrator.bin"]
 
+    /// The Core ML export names its logits output this; the LiteRT export names it `logits`.
+    public static let coreMLOutput = "var_155"
+    public static let tfliteOutput = "logits"
+    /// Which of the two a stage session returns, by the platform whose artifact it opened.
+    public static func outputName(for platform: ModelPlatform) -> String {
+        platform == .apple ? coreMLOutput : tfliteOutput
+    }
+
     public static let files: [ModelPlatform: [String]] = [
         .apple: [coarse + "/", fine + "/"] + sidecars,
     ]
