@@ -331,7 +331,13 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CLiteRt",
-            linkerSettings: [.linkedLibrary("LiteRt")]
+            linkerSettings: [
+                .linkedLibrary("LiteRt"),
+                // The shim owns a surfaceless EGL context on Android so the
+                // GPU accelerator's GL tensor buffers can be created and
+                // host-mapped (see dal_egl_create in shim.c).
+                .linkedLibrary("EGL", .when(platforms: [.android])),
+            ]
         ),
         .target(
             name: "Inference",

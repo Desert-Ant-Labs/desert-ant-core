@@ -1,5 +1,6 @@
 #if canImport(CLiteRt)
 import CLiteRt
+import Dispatch
 import Foundation
 
 /// The loaded model on Android/Linux: three LiteRT graphs plus the host-side
@@ -61,12 +62,48 @@ final class LiteRTAssets: VozEngine {
 
     /// One compiled graph: the shim session plus this engine's buffer for each
     /// declared input (in the graph's input order) and output it reads back.
-    private struct Graph {
+    ///
+    /// A class rather than a struct for the timing counters alone: where a
+    /// transcription spends its time is invisible from Kotlin, and "1x
+    /// realtime" with no breakdown is undebuggable. Every run is counted and
+    /// summarised to the platform log, cheaply enough to leave on: one clock
+    /// read per dispatch and one log line per 15 s window (or 512 decode
+    /// steps).
+    private final class Graph {
         let session: OpaquePointer
         let inputs: [EngineBuffer<Float>]
         let outputs: [(index: Int32, into: EngineBuffer<Float>)]
+        let name: String
+        /// Log a summary every this many runs: 1 for the per-window graphs,
+        /// larger for the decode step so it does not flood.
+        let logEvery: Int
+        private var runs = 0
+        private var totalSeconds = 0.0
+        private var sinceLog = 0.0
+
+        init(session: OpaquePointer, inputs: [EngineBuffer<Float>],
+             outputs: [(index: Int32, into: EngineBuffer<Float>)],
+             name: String, logEvery: Int) {
+            self.session = session
+            self.inputs = inputs
+            self.outputs = outputs
+            self.name = name
+            self.logEvery = logEvery
+        }
+
+        private func note(_ seconds: Double) {
+            runs += 1
+            totalSeconds += seconds
+            sinceLog += seconds
+            guard runs % logEvery == 0 else { return }
+            dal_lrt_log(String(format: "voz %@: %d runs, %.3fs last %d, %.2fs total",
+                               name, runs, sinceLog, logEvery, totalSeconds))
+            sinceLog = 0
+        }
 
         func run() throws {
+            let started = DispatchTime.now().uptimeNanoseconds
+            defer { note(Double(DispatchTime.now().uptimeNanoseconds - started) / 1e9) }
             var errbuf = [CChar](repeating: 0, count: 256)
             let pointers: [UnsafeRawPointer?] = inputs.map { UnsafeRawPointer($0.ptr) }
             let lengths: [Int] = inputs.map { $0.count * MemoryLayout<Float>.stride }
@@ -118,12 +155,12 @@ final class LiteRTAssets: VozEngine {
             bytes.bindMemory(to: UInt16.self).map(floatFromHalf)
         }
 
-        func open(_ name: String) throws -> OpaquePointer {
+        func open(_ name: String, accelerator: Int32, threads: Int32 = 0) throws -> OpaquePointer {
             let path = directory.appendingPathComponent(name).path
             var errbuf = [CChar](repeating: 0, count: 256)
             let handle = errbuf.withUnsafeMutableBufferPointer { err in
                 path.withCString {
-                    dal_lrt_create($0, nil, 0, 3 /* GPU|CPU, CPU fallback */,
+                    dal_lrt_create($0, nil, 0, accelerator, threads,
                                    err.baseAddress, Int32(err.count))
                 }
             }
@@ -132,9 +169,21 @@ final class LiteRTAssets: VozEngine {
             }
             return handle
         }
-        let melSession = try open(VozModel.melLiteRT)
-        let encoderSession = try open(VozModel.encoderLiteRT)
-        let stepSession = try open(VozModel.decodeStepLiteRT)
+        // The mel and encoder are throughput-bound single dispatches, so they
+        // take the GPU when its accelerator library is present (CPU fallback
+        // is automatic). The decode step is the opposite shape of problem:
+        // hundreds of tiny dispatches per minute of audio, where the GPU's
+        // per-dispatch latency loses to XNNPACK on a graph this small - so it
+        // is pinned to CPU deliberately, not by fallback.
+        let melSession = try open(VozModel.melLiteRT, accelerator: 3 /* GPU|CPU */)
+        let encoderSession = try open(VozModel.encoderLiteRT, accelerator: 3 /* GPU|CPU */)
+        // One thread as well as CPU-only: a decode step is a few hundred
+        // kiloflops, and a thread pool spends more per step waking and joining
+        // workers than the work costs. Measured on a Pixel, the pool put the
+        // whole decode phase near 60 ms per step against ~1.15 s for a full
+        // encoder window.
+        let stepSession = try open(VozModel.decodeStepLiteRT, accelerator: 1 /* CPU */,
+                                   threads: 1)
 
         // Lane count comes off the artifact, exactly as on Apple: dim 0 of the
         // decoder's embed input, which is its first.
@@ -185,12 +234,13 @@ final class LiteRTAssets: VozEngine {
         // same bytes, which the element-count check quietly relies on; a
         // width > 1 export would need the read in `Pipeline.decode` revisited.
         mel = try Self.graph(melSession, name: VozModel.melLiteRT,
-                             inputs: [rows, melMask], outputs: [melOut])
+                             inputs: [rows, melMask], outputs: [melOut], logEvery: 1)
         encoder = try Self.graph(encoderSession, name: VozModel.encoderLiteRT,
-                                 inputs: [melOut, keyBias, padMask], outputs: [encOut])
+                                 inputs: [melOut, keyBias, padMask], outputs: [encOut],
+                                 logEvery: 1)
         decodeStep = try Self.graph(stepSession, name: VozModel.decodeStepLiteRT,
                                     inputs: [embed, hIn, cIn, encStep],
-                                    outputs: [logitsOut, hOut, cOut])
+                                    outputs: [logitsOut, hOut, cOut], logEvery: 64)
     }
 
     deinit {
@@ -215,7 +265,8 @@ final class LiteRTAssets: VozEngine {
     private static func graph(
         _ session: OpaquePointer, name: String,
         inputs: [EngineBuffer<Float>],
-        outputs: [EngineBuffer<Float>]
+        outputs: [EngineBuffer<Float>],
+        logEvery: Int
     ) throws -> Graph {
         func elements(rank: Int32, dims: (UnsafeMutablePointer<Int32>) -> Void) -> Int {
             var d = [Int32](repeating: 1, count: max(Int(rank), 1))
@@ -257,7 +308,8 @@ final class LiteRTAssets: VozEngine {
             }
             reads.append((index, buffer))
         }
-        return Graph(session: session, inputs: inputs, outputs: reads)
+        return Graph(session: session, inputs: inputs, outputs: reads,
+                     name: name, logEvery: logEvery)
     }
 }
 
