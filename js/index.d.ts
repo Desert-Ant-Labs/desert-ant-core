@@ -248,7 +248,7 @@ export interface VozTimings {
   millis: Record<string, number>;
 }
 
-export function loadOrt(options: { ort?: any; wasmDir?: string; packageName: string }): Promise<any>;
+export function configureOrt(options: { ort: any; wasmDir?: string }): any;
 
 export function expand(blob: ArrayBuffer, packed: any): Uint8Array;
 
@@ -280,8 +280,7 @@ export function createVozSessions(options: {
 
 export function loadVoz(options: {
   baseUrl: string;
-  ort?: any;
+  ort: any;
   wasmDir?: string;
-  packageName?: string;
   webnn?: boolean;
 }): Promise<{ host: any; meta: any; vocab: any; embedding: ArrayBuffer }>;

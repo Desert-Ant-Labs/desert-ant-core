@@ -9,29 +9,18 @@
 //
 // Browser-safe: no `node:*` imports.
 
-const ortStateKey = Symbol.for("ai.desertant.voz.ort");
-const ortState = (globalThis[ortStateKey] ??= {});
-
-async function importOrt(packageName) {
-  try {
-    return await import("onnxruntime-web/all");
-  } catch (cause) {
-    const missing =
-      cause?.code === "ERR_MODULE_NOT_FOUND" ||
-      cause?.code === "MODULE_NOT_FOUND" ||
-      String(cause?.message ?? "").includes("onnxruntime-web");
-    if (!missing) throw cause;
-    throw new Error(
-      `${packageName} browser runtime requires onnxruntime-web. ` +
-        `Install it with: npm i ${packageName} onnxruntime-web. ` +
-        `If you already bundle it yourself, pass it to load({ ort }).`,
-      { cause },
-    );
-  }
-}
-
 /**
- * Load onnxruntime-web and apply the settings this model needs. Once per page.
+ * Apply the runtime settings this model needs to a caller-supplied
+ * onnxruntime-web.
+ *
+ * The runtime is a parameter rather than an import on purpose. Bundling it for
+ * the browser drags in node:os and node:fs, which fails a webpack or Turbopack
+ * client build outright, and it is 10 MB that a consumer who never transcribes
+ * should not carry. The LiteRT host can import its own runtime because that one
+ * is browser-clean; this one is not.
+ *
+ *     import * as ort from "onnxruntime-web/all";
+ *     const voz = await loadVoz({ baseUrl, ort });
  *
  * `numThreads = 1` is not a default worth inheriting, it is a measurement. Every
  * model here runs on the GPU or the Neural Engine, so the wasm threads only ever
@@ -47,17 +36,21 @@ async function importOrt(packageName) {
  * cross-origin isolated to run at full speed.
  *
  * @param {object} o
- * @param {any} [o.ort] caller-injected module (tests, custom builds)
+ * @param {any} o.ort the onnxruntime-web module, e.g. "onnxruntime-web/all"
  * @param {string} [o.wasmDir] where the runtime's own .wasm files live
- * @param {string} o.packageName consumer package name for the install hint
  */
-export async function loadOrt({ ort, wasmDir, packageName }) {
-  const rt = ort ?? ortState.module ?? (await importOrt(packageName));
-  ortState.module = rt;
-  if (wasmDir) rt.env.wasm.wasmPaths = wasmDir;
-  rt.env.wasm.numThreads = 1;
-  rt.env.logLevel = "error";
-  return rt;
+export function configureOrt({ ort, wasmDir }) {
+  if (!ort) {
+    throw new Error(
+      "voz: pass the onnxruntime-web module, e.g. " +
+        'import * as ort from "onnxruntime-web/all"; loadVoz({ baseUrl, ort }). ' +
+        "It is not imported here because bundling it for the browser pulls in node:os.",
+    );
+  }
+  if (wasmDir) ort.env.wasm.wasmPaths = wasmDir;
+  ort.env.wasm.numThreads = 1;
+  ort.env.logLevel = "error";
+  return ort;
 }
 
 /**
@@ -264,20 +257,13 @@ export async function createVozSessions({
  *
  * @param {object} o
  * @param {string} o.baseUrl where the bundle's files are served from
- * @param {any} [o.ort] caller-injected onnxruntime-web
+ * @param {any} o.ort the onnxruntime-web module
  * @param {string} [o.wasmDir] where the runtime's own .wasm files live
- * @param {string} [o.packageName] consumer package name for the install hint
  * @param {boolean} [o.webnn] override the WebNN detection
  * @returns the host, the manifest, and the sidecars the core needs at load
  */
-export async function loadVoz({
-  baseUrl,
-  ort: injected,
-  wasmDir,
-  packageName = "@desert-ant-labs/voz",
-  webnn = hasWebNN(),
-}) {
-  const ort = await loadOrt({ ort: injected, wasmDir, packageName });
+export async function loadVoz({ baseUrl, ort: supplied, wasmDir, webnn = hasWebNN() }) {
+  const ort = configureOrt({ ort: supplied, wasmDir });
   const { meta, step, files } = await fetchVozBundle(baseUrl, { webnn });
 
   const weights = {};

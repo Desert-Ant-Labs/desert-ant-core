@@ -20,7 +20,7 @@ export {
   browserCacheRoot,
 } from "./src/litert.js";
 export {
-  loadOrt,
+  configureOrt,
   expand,
   decodeStepFor,
   hasWebNN,
