@@ -108,6 +108,7 @@ import Speech
 
         let refiner = Align(directory: directory.path)
         #expect(refiner.isDownloaded())
+        #expect(try await refiner.isSupported(languageCode: "en"))
     }
 
     /// Rewrites both golden fixtures from the weights this SDK resolves.
