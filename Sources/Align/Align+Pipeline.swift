@@ -27,26 +27,26 @@ public struct RefinedSpeechResult: SpeechModuleResult, Sendable, CustomStringCon
 }
 
 @available(iOS 26, macOS 26, tvOS 26, visionOS 26, *)
-public extension SpeechTimestampRefiner {
+public extension StreamingRefiner {
     /// Record a transcriber's result and return the same familiar result surface with corrected
     /// timestamps. Volatile results pass through; finalized results are refined.
-    func refine(_ result: SpeechTranscriber.Result) -> RefinedSpeechResult {
-        let originalWords = words(from: result.text)
+    func refine(_ result: SpeechTranscriber.Result) async throws -> RefinedSpeechResult {
+        let originalWords = align.words(from: result.text)
         guard result.isFinal else {
             return RefinedSpeechResult(original: result, text: result.text, words: originalWords)
         }
-        let correctedWords = refine(originalWords)
+        let correctedWords = try await refine(originalWords)
         return RefinedSpeechResult(
             original: result,
-            text: Self.apply(correctedWords, to: result.text),
+            text: Align.apply(correctedWords, to: result.text),
             words: correctedWords
         )
     }
 
     /// Buffer audio for timestamp refinement and create the AnalyzerInput passed to Apple.
     /// This combines the two operations needed in callback-based audio pipelines.
-    func analyzerInput(_ buffer: AVAudioPCMBuffer, at startTime: CMTime? = nil) -> AnalyzerInput {
-        appendAudio(buffer)
+    func analyzerInput(_ buffer: AVAudioPCMBuffer, at startTime: CMTime? = nil) async throws -> AnalyzerInput {
+        try await appendAudio(buffer)
         return AnalyzerInput(buffer: buffer, bufferStartTime: startTime)
     }
 }
@@ -55,10 +55,10 @@ public extension SpeechTimestampRefiner {
 public extension AsyncSequence where Element == AnalyzerInput {
     /// Pass analyzer inputs through unchanged while recording their audio for refinement.
     func recordingAudio(
-        for refiner: SpeechTimestampRefiner
-    ) -> AsyncMapSequence<Self, AnalyzerInput> {
+        for refiner: StreamingRefiner
+    ) -> AsyncThrowingMapSequence<Self, AnalyzerInput> {
         map { input in
-            refiner.appendAudio(input.buffer)
+            try await refiner.appendAudio(input.buffer)
             return input
         }
     }
@@ -69,9 +69,9 @@ public extension AsyncSequence where Element == SpeechTranscriber.Result {
     /// Transform Apple's result stream into the same result surface with corrected timestamps.
     /// Volatile results pass through unchanged; finalized results are refined.
     func refiningTimestamps(
-        with refiner: SpeechTimestampRefiner
-    ) -> AsyncMapSequence<Self, RefinedSpeechResult> {
-        map { result in refiner.refine(result) }
+        with refiner: StreamingRefiner
+    ) -> AsyncThrowingMapSequence<Self, RefinedSpeechResult> {
+        map { result in try await refiner.refine(result) }
     }
 }
 #endif
