@@ -1,105 +1,49 @@
-// Apple-only: the log-mel frontend is vDSP-backed. Non-Apple builds of this
-// target compile only the portable catalog declaration and helpers.
-#if canImport(Accelerate)
-import Accelerate
-import Foundation
+import AudioDSP
+import RealModule
 
-/// Log-mel frontend matching the Python contract (docs/frontend.md in align-training).
-/// n_fft 512, 400-sample Hann centered in the FFT, hop 160, 40 Slaney mel bins,
-/// log(mel + eps), reflect padding, whole-utterance then per-crop normalization.
-///
-/// Absolute FFT scaling is irrelevant here: mel is linear in power and we take log then
-/// zero-mean/unit-std normalize, so any constant power scale becomes an additive constant
-/// that normalization removes. Only the window shape, mel filterbank, log, and framing matter.
-final class Frontend {
+/// n_fft 512, a 400-sample periodic Hann centered in the frame, hop 160, reflect padding, 40 mel bins, log(mel + eps), whole-utterance then per-crop normalization.
+struct Frontend: Sendable {
     let cfg: RefinerConfig
-    private let melFilters: [Float]      // [n_mels * n_fft_bins], row-major
-    private let window: [Float]          // [n_fft], Hann(400) centered
-    private let log2n: vDSP_Length
-    private let fftSetupZrip: FFTSetup
+    private let melFilters: [Float]
+    private let stft: STFT
 
     init(cfg: RefinerConfig, melFilters: [Float]) {
         self.cfg = cfg
         self.melFilters = melFilters
-        // Hann window of win_length, centered inside n_fft (zeros on both sides).
-        var win = [Float](repeating: 0, count: cfg.n_fft)
-        let w = cfg.win_length
-        var hann = [Float](repeating: 0, count: w)
-        // numpy hanning(w+1)[:-1]: 0.5 - 0.5*cos(2*pi*n/w)
-        for n in 0..<w { hann[n] = 0.5 - 0.5 * cos(2.0 * .pi * Float(n) / Float(w)) }
-        let left = (cfg.n_fft - w) / 2
-        for n in 0..<w { win[left + n] = hann[n] }
-        self.window = win
-        self.log2n = vDSP_Length(Int(log2(Double(cfg.n_fft))))
-        self.fftSetupZrip = vDSP_create_fftsetup(log2n, FFTRadix(kFFTRadix2))!
+        var window = [Float](repeating: 0, count: cfg.n_fft)
+        let hann = Window.hann(cfg.win_length, periodic: true)
+        let left = (cfg.n_fft - cfg.win_length) / 2
+        for n in 0..<cfg.win_length { window[left + n] = hann[n] }
+        self.stft = STFT(nFFT: cfg.n_fft, hop: cfg.hop_length, window: window, center: true)
+        precondition(melFilters.count == cfg.n_mels * stft.bins)
     }
 
-    deinit { vDSP_destroy_fftsetup(fftSetupZrip) }
-
-    /// Whole-utterance log-mel, returned as [n_mels * nFrames] row-major (mel-major),
-    /// already zero-mean/unit-std normalized over the whole array.
     func logMel(_ samples: [Float]) -> (data: [Float], nFrames: Int) {
-        let nfft = cfg.n_fft, hop = cfg.hop_length, pad = cfg.n_fft / 2
-        let bins = cfg.n_fft_bins, nmels = cfg.n_mels
-
-        // reflect pad
-        var padded = [Float](repeating: 0, count: samples.count + 2 * pad)
-        for i in 0..<pad { padded[i] = samples[min(pad - i, samples.count - 1)] }         // reflect left
-        for i in 0..<samples.count { padded[pad + i] = samples[i] }
-        for i in 0..<pad { padded[pad + samples.count + i] = samples[max(samples.count - 2 - i, 0)] }
-
-        let nFrames = 1 + (padded.count - nfft) / hop
+        let spec = stft.forward(samples)
+        let bins = spec.bins, nFrames = spec.frames, nmels = cfg.n_mels
         var out = [Float](repeating: 0, count: nmels * nFrames)
-
-        var realp = [Float](repeating: 0, count: nfft / 2)
-        var imagp = [Float](repeating: 0, count: nfft / 2)
-        var frame = [Float](repeating: 0, count: nfft)
-        var power = [Float](repeating: 0, count: bins)
-
         for t in 0..<nFrames {
-            let start = t * hop
-            // windowed frame
-            vDSP_vmul(Array(padded[start..<start + nfft]), 1, window, 1, &frame, 1, vDSP_Length(nfft))
-            // real FFT via zrip (in-place split-complex packing)
-            realp.withUnsafeMutableBufferPointer { rp in
-                imagp.withUnsafeMutableBufferPointer { ip in
-                    var split = DSPSplitComplex(realp: rp.baseAddress!, imagp: ip.baseAddress!)
-                    frame.withUnsafeBytes { raw in
-                        let cptr = raw.bindMemory(to: DSPComplex.self)
-                        vDSP_ctoz(cptr.baseAddress!, 2, &split, 1, vDSP_Length(nfft / 2))
-                    }
-                    vDSP_fft_zrip(fftSetupZrip, &split, 1, log2n, FFTDirection(FFT_FORWARD))
-                    // power spectrum: bin 0 = DC (realp[0]), Nyquist packed in imagp[0]
-                    power[0] = split.realp[0] * split.realp[0]
-                    power[bins - 1] = split.imagp[0] * split.imagp[0]
-                    for k in 1..<(nfft / 2) {
-                        power[k] = split.realp[k] * split.realp[k] + split.imagp[k] * split.imagp[k]
-                    }
-                }
-            }
-            // mel = filterbank @ power ; log(mel + eps)
+            let row = t * bins
             for m in 0..<nmels {
                 var acc: Float = 0
                 let base = m * bins
-                vDSP_dotpr(melFilters[base..<base + bins].withUnsafeBufferPointer { $0.baseAddress! },
-                           1, power, 1, &acc, vDSP_Length(bins))
-                out[m * nFrames + t] = log(acc + cfg.log_eps)
+                for k in 0..<bins {
+                    let re = spec.re[row + k], im = spec.im[row + k]
+                    acc += melFilters[base + k] * (re * re + im * im)
+                }
+                out[m * nFrames + t] = Float.log(acc + cfg.log_eps)
             }
         }
         normalize(&out)
         return (out, nFrames)
     }
 
-    /// Extract a fixed-width crop [n_mels * width] centered at `centerFrame`, reflect-padded
-    /// and per-crop normalized. Returns row-major mel-major (matches Core ML [1,40,width]).
     func crop(_ logmel: [Float], nFrames: Int, centerFrame: Int, width: Int) -> [Float] {
-        let nmels = cfg.n_mels
-        let half = width / 2
+        let nmels = cfg.n_mels, half = width / 2
         var out = [Float](repeating: 0, count: nmels * width)
         for m in 0..<nmels {
             for j in 0..<width {
                 var src = centerFrame - half + j
-                // reflect at edges
                 if src < 0 { src = -src }
                 if src >= nFrames { src = 2 * (nFrames - 1) - src }
                 src = max(0, min(nFrames - 1, src))
@@ -111,16 +55,16 @@ final class Frontend {
     }
 
     private func normalize(_ x: inout [Float]) {
+        let n = Float(x.count)
         var mean: Float = 0
-        vDSP_meanv(x, 1, &mean, vDSP_Length(x.count))
-        var negMean = -mean
-        vDSP_vsadd(x, 1, &negMean, &x, 1, vDSP_Length(x.count))
-        var std: Float = 0
-        vDSP_rmsqv(x, 1, &std, vDSP_Length(x.count))  // rms of zero-mean = std
-        var inv = std > 1e-8 ? 1.0 / std : 1e8
-        vDSP_vsmul(x, 1, &inv, &x, 1, vDSP_Length(x.count))
+        for v in x { mean += v }
+        mean /= n
+        var sq: Float = 0
+        for i in 0..<x.count { x[i] -= mean; sq += x[i] * x[i] }
+        let std = (sq / n).squareRoot()
+        let inv: Float = std > 1e-8 ? 1 / std : 1e8
+        for i in 0..<x.count { x[i] *= inv }
     }
 
     func timeToFrame(_ t: Double) -> Int { Int((t * Double(cfg.sample_rate) / Double(cfg.hop_length)).rounded()) }
 }
-#endif

@@ -186,7 +186,12 @@ let alignProducts: [Product] = [
 let alignTargets: [Target] = [
     .target(
         name: "Align",
-        dependencies: [.byName(name: "DesertAnt")]
+        dependencies: [
+            .byName(name: "DesertAnt"),
+            .byName(name: "AudioDSP"),
+            .product(name: "RealModule", package: "swift-numerics"),
+            .byName(name: "TextNormalization"),
+        ]
     ),
     .testTarget(
         name: "AlignTests",
