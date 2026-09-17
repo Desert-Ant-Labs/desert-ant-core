@@ -29,7 +29,7 @@ public struct ModelAssets: Sendable {
     public init(configJSON: String, melFilters: [UInt8], calibratorBytes: [UInt8],
                 coarse: any InferenceSession, fine: any InferenceSession, revision: String? = nil) throws {
         self.config = try JSONDecoder().decode(RefinerConfig.self, from: configJSON)
-        precondition(melFilters.count % 4 == 0)
+        guard melFilters.count % 4 == 0 else { throw CorrectionCalibrator.CalibratorError.invalidFormat }
         var mel = [Float](repeating: 0, count: melFilters.count / 4)
         for i in 0..<mel.count {
             let b = i * 4
@@ -38,6 +38,7 @@ public struct ModelAssets: Sendable {
             mel[i] = Float(bitPattern: bits)
         }
         self.melFilters = mel
+        guard mel.count == config.n_mels * (config.n_fft / 2 + 1) else { throw CorrectionCalibrator.CalibratorError.invalidFormat }
         self.calibrator = try CorrectionCalibrator(bytes: calibratorBytes)
         self.coarse = coarse
         self.fine = fine

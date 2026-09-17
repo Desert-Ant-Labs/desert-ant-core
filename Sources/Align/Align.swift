@@ -177,11 +177,10 @@ public final class Align: Sendable {
             let j = min(i + StageModel.batch, bounds.count)
             let slice = Array(i..<j)
             let mel = slice.map { rt.frontend.crop(logmel, nFrames: nFrames, centerFrame: centers[$0], width: width) }
-            if let predictions = try? await model.predictions(mel: mel, bytes: slice.map { bounds[$0].bytes },
-                                                              langs: slice.map { _ in langId },
-                                                              kinds: slice.map { bounds[$0].kind }) {
-                for (k, idx) in slice.enumerated() { result[idx] = predictions[k] }
-            }
+            let predictions = try await model.predictions(mel: mel, bytes: slice.map { bounds[$0].bytes },
+                                                          langs: slice.map { _ in langId },
+                                                          kinds: slice.map { bounds[$0].kind })
+            for (k, idx) in slice.enumerated() { result[idx] = predictions[k] }
             i = j
         }
         return result
