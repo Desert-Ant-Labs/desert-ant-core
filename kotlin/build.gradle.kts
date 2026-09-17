@@ -48,7 +48,7 @@ kotlin {
 }
 
 val prepareLiteRt by tasks.registering {
-    val version = "2.1.6"
+    val version = "2.2.0"
     // The runtime proper, plus the OpenCL/OpenGL GPU accelerator the runtime
     // dlopens when a session asks for kLiteRtHwAcceleratorGpu. Without the
     // accelerator sibling the GPU request silently falls back to CPU; it costs
