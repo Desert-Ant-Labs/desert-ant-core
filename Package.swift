@@ -181,7 +181,7 @@ let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name)
 
 // Tongue is a pure model: a 2 MB int8 head plus a frozen normalizer/router
 // specification, no inference runtime and no model download — the weights ship
-// as target resources. Like Align it lives outside the `models` list (no
+// as target resources. It lives outside the `models` list (no
 // NativeBindings, no Web product, no Node/Android dynamic products); unlike
 // every other model its Kotlin and JavaScript SDKs are direct ports of the same
 // frozen spec (packages/tongue-kotlin, packages/tongue-node), locked to this
@@ -472,7 +472,7 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz is Apple-only (Core ML, AVFoundation) and, like Align, gets no
+// Voz is Apple-only (Core ML, AVFoundation) and gets no
 // Android/Node/Web products and no NativeBindings. It bundles nothing: its
 // Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
 // drives Core ML directly rather than going through `InferenceSession`, because
