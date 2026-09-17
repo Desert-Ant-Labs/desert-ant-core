@@ -11,6 +11,10 @@ import Foundation
 /// dispatch and nothing else.
 final class CoreMLEngine: Engine, @unchecked Sendable {
     let decodeLanes: Int
+    let encodeBatch = 1
+    /// Core ML returns raw logits: the host's argmax over a shared page costs
+    /// nothing, and reducing in the graph would only add operations.
+    let reducesInGraph = false
 
     /// The models are `nonisolated(unsafe)` for the same reason `Slot` is
     /// unchecked: Core ML's types carry no concurrency annotations, and an
@@ -135,20 +139,21 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     }
 
     // The buffers are already bound into the providers and backings, so these
-    // take their arguments only to satisfy the protocol.
+    // take their arguments only to satisfy the protocol. `lanes` is one of
+    // them: this graph is a fixed shape, so a short batch cannot exist here.
     //
-    // `predict` is a synchronous helper on purpose, and this is the load-bearing
-    // part. Core ML offers an async `prediction(from:options:)` as well, and in
-    // an async context Swift picks it - which would hand every dispatch to the
-    // concurrency runtime, for a call that returns without ever suspending. The
-    // protocol is async so a runtime that must suspend can; this one does not.
+    // `predict` is a synchronous helper on purpose. Core ML offers an async
+    // `prediction(from:options:)` as well, and in an async context Swift picks
+    // it - which would hand every dispatch to the concurrency runtime for no
+    // reason. The decode step wants that; see `encode` for the call that does
+    // not.
 
     private func predict(_ model: MLModel, _ provider: MLDictionaryFeatureProvider,
                          _ options: MLPredictionOptions) throws {
         _ = try model.prediction(from: provider, options: options)
     }
 
-    func encode(slot index: Int, buffers: PipelineBuffers,
+    func encode(slot index: Int, lanes: Int, buffers: PipelineBuffers,
                 isolation: isolated (any Actor)?) async throws {
         let slot = slots[index]
         // `async` on the model itself, unlike the decode step below: this is
@@ -159,7 +164,8 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     }
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, tok: inout [Int32], dur: inout [Int32],
+                       hOut: Buffer, cOut: Buffer,
                        isolation: isolated (any Actor)?) async throws {
         try predict(decodeStep, stepProvider, stepOptions)
     }

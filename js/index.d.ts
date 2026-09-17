@@ -229,3 +229,60 @@ export function browserSetup(options: {
 export function browserWasmDir(): Promise<string>;
 export function browserReadModelSource(source: any): Promise<any>;
 export function browserCacheRoot(): Promise<string>;
+
+/** Voz's browser runtime: the ONNX Runtime Web half of its wasm core. The
+ *  contract is Sources/Voz/Engine+Wasm.swift, one object on
+ *  `globalThis.__vozHost`, not the shared `ModelHost` seam above: Voz runs
+ *  three models and would need a session name on every call. */
+export interface VozTensor {
+  data: Float32Array | Int32Array | BigInt64Array;
+  dims: readonly number[];
+  type: string;
+}
+
+export interface VozHost {
+  run(model: "mel" | "encoder" | "decoder", inputs: Record<string, VozTensor>):
+    Promise<Record<string, VozTensor>>;
+}
+
+export interface VozTimings {
+  calls: Record<string, number>;
+  millis: Record<string, number>;
+}
+
+export function configureOrt(options: { ort: any; wasmDir?: string }): any;
+
+export function expand(blob: ArrayBuffer, packed: any): Uint8Array;
+
+export function decodeStepFor(meta: any, webnn: boolean): { file: string; lanes: number };
+
+export function hasWebNN(): boolean;
+
+export function fetchVozBundle(baseUrl: string, options?: { webnn?: boolean }): Promise<{
+  meta: any;
+  step: { file: string; lanes: number };
+  files: Record<string, any>;
+}>;
+
+export function makeVozHost(options: { ort: any; sessions: Record<string, any> }): {
+  host: VozHost;
+  install(target?: object): any;
+  readonly timings: VozTimings;
+  resetTimings(): void;
+};
+
+export function createVozSessions(options: {
+  ort: any;
+  models: Record<string, ArrayBuffer>;
+  weights?: Record<string, any>;
+  providers?: Record<string, any[]>;
+  ep?: string;
+  onLoaded?: () => void;
+}): Promise<Record<string, any>>;
+
+export function loadVoz(options: {
+  baseUrl: string;
+  ort: any;
+  wasmDir?: string;
+  webnn?: boolean;
+}): Promise<{ host: any; meta: any; vocab: any; embedding: ArrayBuffer }>;
