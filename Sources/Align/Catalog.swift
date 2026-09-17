@@ -4,24 +4,23 @@
 
 import DesertAnt
 
-/// The align model: on-device word-timestamp refinement for Apple's Speech
-/// pipeline. Apple-only, so the manifest declares files for no other platform.
+/// Word-timestamp refinement for any transcript: Core ML on Apple, LiteRT elsewhere;
+/// no web, the cascade is two graphs.
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
-    /// Pinned, not "main". The SDK resolves weights by this revision, so tracking a
-    /// branch would change behavior for every installed copy the moment new weights
-    /// land on the Hub. v1.0.0 is the multilingual cascade whose accuracy figures the
-    /// model page quotes; v0.1.0 tags the weights that shipped before it.
-    public static let revision = "v1.0.0"
+    /// Pinned tag; v1.1.0 adds the LiteRT export and renames the unchanged Core ML weights
+    /// to kebab-case. The SDK resolves weights by this revision, so tracking a branch would
+    /// change behavior for every installed copy the moment new weights land on the Hub.
+    public static let revision = "v1.1.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.2.0"
-    public static let summary = "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline."
+    public static let summary = "Word-timestamp refinement for any transcript, on device."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).
-    public static let coarse = "align_coarse.mlmodelc"
+    public static let coarse = "align-coarse.mlmodelc"
     /// Fine cascade stage (Core ML, a directory on the Hub).
-    public static let fine = "align_fine.mlmodelc"
+    public static let fine = "align-fine.mlmodelc"
     /// The same two stages exported for LiteRT.
     public static let coarseTFLite = "align-coarse.tflite"
     public static let fineTFLite = "align-fine.tflite"
@@ -36,6 +35,21 @@ public enum AlignModel: ModelDeclaration {
     /// Sidecars the refiner needs alongside the two stages.
     public static let sidecars = [config, melFilters, calibratorFile]
 
+    /// The Core ML export names its logits output this; the LiteRT export names it `logits`.
+    public static let coreMLOutput = "var_155"
+    public static let tfliteOutput = "logits"
+    /// Which of the two a stage session returns, by the platform whose artifact it opened.
+    public static func outputName(for platform: ModelPlatform) -> String {
+        platform == .apple ? coreMLOutput : tfliteOutput
+    }
+
+    // No `.android` entry: the host bridge has no NFC and the lexical bytes must match training.
+    public static let files: [ModelPlatform: [String]] = [
+        .apple: [coarse + "/", fine + "/"] + sidecars,
+        .linux: [coarseTFLite, fineTFLite] + sidecars,
+        .windows: [coarseTFLite, fineTFLite] + sidecars,
+    ]
+
     /// The cascade's first stage, per platform.
     public static func coarseArtifact(for platform: ModelPlatform) -> String {
         platform == .apple ? coarse : coarseTFLite
@@ -45,18 +59,6 @@ public enum AlignModel: ModelDeclaration {
     public static func fineArtifact(for platform: ModelPlatform) -> String {
         platform == .apple ? fine : fineTFLite
     }
-
-    /// The Core ML export names its logits output this; the LiteRT export names it `logits`.
-    public static let coreMLOutput = "var_155"
-    public static let tfliteOutput = "logits"
-    /// Which of the two a stage session returns, by the platform whose artifact it opened.
-    public static func outputName(for platform: ModelPlatform) -> String {
-        platform == .apple ? coreMLOutput : tfliteOutput
-    }
-
-    public static let files: [ModelPlatform: [String]] = [
-        .apple: [coarse + "/", fine + "/"] + sidecars,
-    ]
 
     /// The cascade runs coarse-then-fine; the coarse stage is the entry point.
     public static func artifact(for platform: ModelPlatform) -> String { coarseArtifact(for: platform) }
