@@ -219,12 +219,15 @@ public final class Clear: @unchecked Sendable {
     /// only a tag or commit hash pins the exact contents.
     public var modelRevision: String? { revisionRequirement?.exactRevision }
 
-    /// Default model sessions to run chunks in parallel over. Native LiteRT is
-    /// single-threaded per run, so a pool uses multiple cores; Apple (fast) and
-    /// wasm (LiteRT.js is already multi-threaded) use one.
-    public static var defaultConcurrency: Int {
+    /// Model sessions to spread chunks over.
+    ///
+    /// A LiteRT run holds its session for the duration, so more than one core
+    /// means more than one session. Core ML overlaps requests on a single
+    /// session instead - `ParallelRuns` decides which, so this is only about
+    /// how many sessions exist to give it.
+    static var sessionPoolSize: Int {
         #if canImport(CoreML) || os(WASI)
-        return 1                                          // Apple: fast single session; wasm: LiteRT.js already threaded
+        return 1          // Core ML overlaps on one; LiteRT.js is already threaded
         #elseif os(Android)
         return 2   // cap memory on mobile (about twice the model size)
         #else
@@ -236,7 +239,6 @@ public final class Clear: @unchecked Sendable {
     /// LiteRT/JS backends). Default `.all`, letting Core ML place the
     /// ANE-optimized graph on the Neural Engine. Pass `.cpuOnly` only when a
     /// deployment needs an explicit CPU fallback.
-    /// `concurrency` is the model-session pool size (see `defaultConcurrency`).
     ///
     /// Nothing is bundled with this package. To ship the model with your app,
     /// point `directory` at a folder you populated with the model files: it is
@@ -248,11 +250,10 @@ public final class Clear: @unchecked Sendable {
     /// separately, so switching versions never clobbers another's files.
     public convenience init(directory: String? = nil, variant: ModelVariant = .default,
                             revision: String? = nil,
-                            computeUnits: ComputeUnits = .all,
-                            concurrency: Int = Clear.defaultConcurrency) {
+                            computeUnits: ComputeUnits = .all) {
         self.init(directory: directory, cacheRoot: nil, variant: variant,
                   revision: .exact(revision ?? ClearModel.revision),
-                  computeUnits: computeUnits, concurrency: concurrency)
+                  computeUnits: computeUnits)
     }
 
     /// Like `init(revision: String)`, but with a ``RevisionRequirement``:
@@ -265,10 +266,9 @@ public final class Clear: @unchecked Sendable {
     /// ``Result/modelRevision``.
     public convenience init(directory: String? = nil, variant: ModelVariant = .default,
                             revision: RevisionRequirement,
-                            computeUnits: ComputeUnits = .all,
-                            concurrency: Int = Clear.defaultConcurrency) {
+                            computeUnits: ComputeUnits = .all) {
         self.init(directory: directory, cacheRoot: nil, variant: variant, revision: revision,
-                  computeUnits: computeUnits, concurrency: concurrency)
+                  computeUnits: computeUnits)
     }
 
     /// Binding entry point that also supplies the platform base cache root under
@@ -279,8 +279,7 @@ public final class Clear: @unchecked Sendable {
     public init(directory: String?, cacheRoot: String?,
                 variant: ModelVariant = .default,
                 revision requirement: RevisionRequirement = .exact(ClearModel.revision),
-                computeUnits: ComputeUnits = .all,
-                concurrency: Int = Clear.defaultConcurrency) {
+                computeUnits: ComputeUnits = .all) {
         // A variant is its own slice of the model repo, so the loader resolves
         // that distribution rather than the catalog entry's default one; the
         // requirement decides the revision (for ranges, at load time).
@@ -303,7 +302,8 @@ public final class Clear: @unchecked Sendable {
             directory: directory, cacheRoot: cacheRoot) { files, distribution in
             try await .clear(files: files, variant: variant, revision: distribution.revision,
                              runtime: distribution.runtime(of: files),
-                             computeUnits: computeUnits, concurrency: concurrency)
+                             computeUnits: computeUnits,
+                             concurrency: Clear.sessionPoolSize)
         }
     }
 
@@ -327,12 +327,12 @@ public final class Clear: @unchecked Sendable {
     /// keyed by revision produces self-identifying runs. It is never checked
     /// against the file - there is nothing offline to check it against.
     public init(modelPath: String, revision: String? = nil,
-                computeUnits: ComputeUnits = .all,
-                concurrency: Int = Clear.defaultConcurrency) throws {
+                computeUnits: ComputeUnits = .all) throws {
         // Built eagerly (this initializer throws), then handed to the loader so
         // the rest of the class has one path to its assets.
         let assets = try ModelAssets(modelPath: modelPath, revision: revision,
-                                     computeUnits: computeUnits, concurrency: concurrency)
+                                     computeUnits: computeUnits,
+                                     concurrency: Clear.sessionPoolSize)
         variant = ModelVariant.inferred(fromPath: modelPath)
         revisionRequirement = revision.map { .exact($0) }
         model = LoadedModel { assets }

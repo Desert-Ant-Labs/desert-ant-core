@@ -149,12 +149,6 @@ final class Pipeline: @unchecked Sendable {
 
     private let engine: Engine
     private let buffers: PipelineBuffers
-    private var rows: Buffer { buffers.rows }
-    private var melOut: Buffer { buffers.melOut }
-    private var keyBias: Buffer { buffers.keyBias }
-    private var padMask: Buffer { buffers.padMask }
-    private var melMask: Buffer { buffers.melMask }
-    private var encOut: Buffer { buffers.encOut }
     private var embed: Buffer { buffers.embed }
     private var hIn: Buffer { buffers.hIn }
     private var cIn: Buffer { buffers.cIn }
@@ -202,9 +196,9 @@ final class Pipeline: @unchecked Sendable {
     /// the geometric tail `preemph^(j+1) * x[-1]` rather than zeros, which is
     /// what makes in-graph preemphasis agree with NeMo's preemphasise-then-pad
     /// order across the boundary.
-    private func frame(_ window: ArraySlice<Float>) {
+    private func frame(_ window: ArraySlice<Float>, into slot: PipelineBuffers.Frontend) {
         let stride = configuration.hopLength * configuration.nRows
-        let out = rows.ptr
+        let out = slot.rows.ptr
         out.update(repeating: 0, count: stride)
         let hop = configuration.hopLength
         let pad = configuration.nFFT / 2
@@ -229,30 +223,38 @@ final class Pipeline: @unchecked Sendable {
     /// The caller copies it where it belongs. It used to write straight into the
     /// batch through a pointer, but `withUnsafeMutableBufferPointer` takes a
     /// synchronous closure and running a model is now asynchronous.
-    /// Lay one window into the frontend's buffers, with its masks.
-    private func stage(window: ArraySlice<Float>) {
+    /// Lay one window into a slot's frontend buffers, with its masks.
+    private func stage(window: ArraySlice<Float>, into slot: PipelineBuffers.Frontend) {
         let c = configuration
-        frame(window)
+        frame(window, into: slot)
         // Normalization statistics must be taken over the frames that actually
         // hold audio. A window is a fixed 15 s, so a five-second clip is two
         // thirds padding, and including it drags the mean down and squashes the
         // speech: the frontend then agrees with the reference implementation to
         // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
         let melValid = Self.validMelFrames(sampleCount: window.count, configuration: c)
-        melMask.ptr.update(repeating: 1, count: melValid)
-        for i in melValid..<c.validFrames { melMask.ptr[i] = 0 }
+        slot.melMask.ptr.update(repeating: 1, count: melValid)
+        for i in melValid..<c.validFrames { slot.melMask.ptr[i] = 0 }
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
         let attended = Self.attendedEncoderFrames(sampleCount: window.count, configuration: c)
-        keyBias.ptr.update(repeating: 0, count: attended)
-        for i in attended..<c.encFrames { keyBias.ptr[i] = Element(-40000) }
+        slot.keyBias.ptr.update(repeating: 0, count: attended)
+        for i in attended..<c.encFrames { slot.keyBias.ptr[i] = Element(-40000) }
     }
 
-    /// One staged window through mel and the encoder, leaving `encOut` full.
-    private func encodeStaged(isolation: isolated (any Actor)? = #isolation) async throws {
-        try await engine.runMel(rows: rows, melMask: melMask, mel: melOut, isolation: isolation)
-        try await engine.runEncoder(mel: melOut, keyBias: keyBias, padMask: padMask,
-                                    encOut: encOut, isolation: isolation)
+    /// One window of audio through the frontend and the encoder, into
+    /// `destination`, using slot `slot` of the buffers.
+    ///
+    /// Slots share nothing, so calls with different slots overlap - which is
+    /// the whole point on a machine with more engine than one window can fill.
+    private func encode(window: ArraySlice<Float>, slot: Int,
+                        into destination: UnsafeMutablePointer<Element>,
+                        isolation: isolated (any Actor)? = #isolation) async throws {
+        let frontend = buffers.slots[slot]
+        stage(window: window, into: frontend)
+        try await engine.encode(slot: slot, buffers: buffers, isolation: isolation)
+        destination.update(from: frontend.encOut.ptr,
+                           count: configuration.jointHidden * configuration.encFrames)
     }
 
     /// Decode one group into `result`, suspending on `awaitWindow` for windows
@@ -654,15 +656,48 @@ final class Pipeline: @unchecked Sendable {
             }
 
             do {
-                for (i, w) in group.enumerated() {
-                    let low = starts[w]
-                    stage(window: slice(low, Swift.min(low + c.nSamples, available)))
-                    try await encodeStaged()
-                    (projections + i * stride).update(from: encOut.ptr, count: stride)
-                    // Only now does that window exist for a decode that is
-                    // reading alongside this loop.
-                    await gate.produced()
-                    progress(reported(low))
+                // Windows do not depend on each other, so several are handed
+                // over at once where the runtime overlaps them. The decode
+                // still sees them in order: a window that lands early waits for
+                // its predecessors before the gate is told it exists.
+                let depth = Swift.min(engine.encodeDepth, group.count)
+                var landed = [Bool](repeating: false, count: group.count)
+                var announced = 0
+                // Slots are lent out and handed back, not computed from the
+                // window index: windows finish in any order, so `i % depth`
+                // would hand a slot to a second window while the first was
+                // still writing it.
+                var free = Array(0..<depth)
+                try await withThrowingTaskGroup(of: (window: Int, slot: Int).self) { encodes in
+                    var issued = 0
+                    var running = 0
+                    while issued < group.count || running > 0 {
+                        while running < depth, issued < group.count, let slot = free.popLast() {
+                            let i = issued
+                            let low = starts[group.lowerBound + i]
+                            // Read out of the streaming buffer here rather than
+                            // in the task: `ensure` and `release` move it
+                            // between groups, and a slice is only a view.
+                            let audio = slice(low, Swift.min(low + c.nSamples, available))
+                            let out = shared
+                            encodes.addTask { [self] in
+                                try await encode(window: audio, slot: slot,
+                                                 into: out.base + i * stride)
+                                return (i, slot)
+                            }
+                            issued += 1
+                            running += 1
+                        }
+                        guard let finished = try await encodes.next() else { break }
+                        running -= 1
+                        free.append(finished.slot)
+                        landed[finished.window] = true
+                        while announced < group.count, landed[announced] {
+                            await gate.produced()
+                            progress(reported(starts[group.lowerBound + announced]))
+                            announced += 1
+                        }
+                    }
                 }
             } catch {
                 // The windows the decode is waiting for are never coming.
@@ -793,10 +828,11 @@ final class Pipeline: @unchecked Sendable {
                         retryStarts[slot] = low
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
-                        stage(window: slice(low, shortened))
-                        try await encodeStaged()
-                        (retryProjections + slot * stride)
-                            .update(from: encOut.ptr, count: stride)
+                        // Retries stay one at a time: there are rarely more
+                        // than a handful, and they are already off the path a
+                        // healthy file takes.
+                        try await encode(window: slice(low, shortened), slot: 0,
+                                         into: retryProjections + slot * stride)
                     }
                 }
                 var retryTokens = [[Int]](repeating: [], count: refused.count)

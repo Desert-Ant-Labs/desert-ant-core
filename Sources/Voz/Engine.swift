@@ -21,11 +21,19 @@ protocol Engine: AnyObject {
     /// Windows decoded per dispatch, read from the model rather than assumed.
     var decodeLanes: Int { get }
 
-    func runMel(rows: Buffer, melMask: Buffer, mel: Buffer,
-                isolation: isolated (any Actor)?) async throws
+    /// How many encodes may be in flight at once, and so how many slots of
+    /// frontend buffers the pipeline keeps.
+    ///
+    /// Core ML places concurrent requests itself, including across the two
+    /// Neural Engines of an Ultra part, so a runtime that overlaps says more
+    /// than one here and gets windows handed to it before the last has landed.
+    var encodeDepth: Int { get }
 
-    func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
-                    isolation: isolated (any Actor)?) async throws
+    /// One window, from the staged audio rows of `slot` to that slot's encoder
+    /// projections. Slots do not share buffers, so calls on different slots may
+    /// overlap.
+    func encode(slot: Int, buffers: PipelineBuffers,
+                isolation: isolated (any Actor)?) async throws
 
     /// Run one lane-batched decode step, writing `logits` and the new recurrent
     /// state.

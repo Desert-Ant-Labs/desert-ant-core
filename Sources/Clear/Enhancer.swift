@@ -4,11 +4,11 @@
 // -> scatter enhanced spectrum -> ISTFT. Ported from clear-swift's Inference
 // chunk loop; tensors are float32 (LiteRT's I/O type; Core ML casts fp16).
 //
-// The model is a fixed 200-frame window and each chunk is independent, so on
-// native platforms the chunk loop runs across a pool of sessions (one per
-// worker) to use multiple cores; the native LiteRT runtime is otherwise
-// single-threaded. Apple (fast, single session) and wasm (its LiteRT.js host is
-// already multi-threaded) use one session.
+// The model is a fixed 200-frame window and each chunk is independent, so the
+// chunk loop hands its groups to `ParallelRuns`, which spreads them as widely
+// as the runtime allows: several requests in flight on one Core ML session,
+// one request each across a pool of LiteRT sessions, since a LiteRT run holds
+// its session for the duration.
 
 import DesertAnt
 #if canImport(Accelerate)
@@ -137,35 +137,24 @@ struct ClearEnhancer {
         let nChunks = (nFrames + chunkLen - 1) / chunkLen
         let batch = Self.batchSize
         let nGroups = (nChunks + batch - 1) / batch
-        let workers = max(1, min(sessions.count, nGroups))
         let chunkLen = self.chunkLen
-        // Each worker owns one session and a strided set of chunks; output
-        // ranges are disjoint per chunk, so the shared buffers need no locking.
-        let box = Unchecked((outRe, outIm, sessions, featErb, featSpecReal, featSpecImag, real, imag))
+        // Output ranges are disjoint per chunk, so the shared buffers need no
+        // locking however the groups are spread.
+        let box = Unchecked((outRe, outIm, featErb, featSpecReal, featSpecImag, real, imag))
         let completed = ChunkCounter(total: nChunks, report: onChunk)
         mark = .now
-        try await withThrowingTaskGroup(of: Void.self) { group in
-            for w in 0..<workers {
-                group.addTask {
-                    let (outRe, outIm, sessions, fe, fsr, fsi, sr, si) = box.value
-                    let session = sessions[w]
-                    var g = w
-                    while g < nGroups {
-                        let firstChunk = g * batch
-                        let chunks = min(batch, nChunks - firstChunk)
-                        try await Self.runGroup(session: session, firstChunk: firstChunk, chunks: chunks,
-                                                nFrames: nFrames, chunkLen: chunkLen,
-                                                featErb: fe, featSpecReal: fsr, featSpecImag: fsi,
-                                                specReal: sr, specImag: si, outRe: outRe, outIm: outIm)
-                        for _ in 0..<chunks { completed.finishOne() }
-                        g += workers
-                    }
-                }
-            }
-            try await group.waitForAll()
+        try await ParallelRuns.run(count: nGroups, sessions: sessions) { g, session in
+            let (outRe, outIm, fe, fsr, fsi, sr, si) = box.value
+            let firstChunk = g * batch
+            let chunks = min(batch, nChunks - firstChunk)
+            try await Self.runGroup(session: session, firstChunk: firstChunk, chunks: chunks,
+                                    nFrames: nFrames, chunkLen: chunkLen,
+                                    featErb: fe, featSpecReal: fsr, featSpecImag: fsi,
+                                    specReal: sr, specImag: si, outRe: outRe, outIm: outIm)
+            for _ in 0..<chunks { completed.finishOne() }
         }
-        // Wall time across the whole pool, not summed CPU: the workers run
-        // concurrently, so this is what the caller actually waited.
+        // Wall time across the whole run, not summed CPU: the groups overlap,
+        // so this is what the caller actually waited.
         timings?.pointee.modelPredict += Self.since(mark)
 
         // Synthesize straight from the scratch buffers. Copying them into

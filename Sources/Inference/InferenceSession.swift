@@ -47,9 +47,21 @@ public protocol InferenceSession: Sendable {
     /// silently truncates every candidate on the wider one and reports no difference between
     /// them — a null by construction rather than a measurement.
     func inputWidth(_ name: String) -> Int?
+
+    /// Whether two runs on this session overlap, or queue.
+    ///
+    /// Core ML takes several requests in flight and spreads them over the
+    /// hardware itself; LiteRT holds a mutex for the length of a run, so a
+    /// second caller waits and the only way to use another core is another
+    /// session. `ParallelRuns` reads this to decide which it is doing.
+    var runsConcurrently: Bool { get }
 }
 
 public extension InferenceSession {
+    /// Assume a run holds the session, which is the answer that is never wrong
+    /// by more than the parallelism it declines to use.
+    var runsConcurrently: Bool { false }
+
     /// Runtimes that cannot introspect their own shapes report nothing, and callers fall back
     /// to their own default. Returning `nil` rather than a guess keeps "I don't know" distinct
     /// from "it is 128".

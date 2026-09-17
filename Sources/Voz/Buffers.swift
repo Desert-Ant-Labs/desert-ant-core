@@ -46,12 +46,22 @@ final class Buffer {
 /// the same set: Core ML binds them into its feature providers and output
 /// backings at load, so a dispatch copies nothing.
 struct PipelineBuffers {
-    let rows: Buffer
-    let melOut: Buffer
-    let keyBias: Buffer
+    /// What one in-flight encode owns: everything the frontend writes and the
+    /// encoder reads or fills. Two concurrent dispatches cannot share these -
+    /// they are bound into feature providers and output backings - so depth
+    /// costs a set each, about 1.1 MB for this model.
+    struct Frontend {
+        let rows: Buffer
+        let melMask: Buffer
+        let keyBias: Buffer
+        let melOut: Buffer
+        let encOut: Buffer
+    }
+
+    let slots: [Frontend]
+    /// The attention mask every window shares: it is all ones and read-only, so
+    /// one copy serves every slot.
     let padMask: Buffer
-    let melMask: Buffer
-    let encOut: Buffer
     let embed: Buffer
     let hIn: Buffer
     let cIn: Buffer
@@ -60,14 +70,16 @@ struct PipelineBuffers {
     let hOut: Buffer
     let cOut: Buffer
 
-    init(configuration c: Configuration, lanes: Int) throws {
+    init(configuration c: Configuration, lanes: Int, depth: Int = 1) throws {
         let hidden = c.predLayers * c.predHidden
-        rows = try Buffer([1, c.hopLength, 1, c.nRows])
-        melOut = try Buffer([1, c.nMels, 1, c.validFrames])
-        keyBias = try Buffer([1, c.encFrames, 1, 1])
+        slots = try (0..<max(1, depth)).map { _ in
+            Frontend(rows: try Buffer([1, c.hopLength, 1, c.nRows]),
+                     melMask: try Buffer([1, 1, 1, c.validFrames]),
+                     keyBias: try Buffer([1, c.encFrames, 1, 1]),
+                     melOut: try Buffer([1, c.nMels, 1, c.validFrames]),
+                     encOut: try Buffer([1, c.jointHidden, 1, c.encFrames]))
+        }
         padMask = try Buffer([1, 1, 1, c.encFrames])
-        melMask = try Buffer([1, 1, 1, c.validFrames])
-        encOut = try Buffer([1, c.jointHidden, 1, c.encFrames])
         embed = try Buffer([lanes, c.predHidden, 1, 1])
         hIn = try Buffer([lanes, hidden, 1, 1])
         cIn = try Buffer([lanes, hidden, 1, 1])
