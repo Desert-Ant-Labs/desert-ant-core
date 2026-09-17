@@ -257,4 +257,5 @@ rather than sysfs.
 
 [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0).
 Free for most apps; a commercial license is required at scale. Full terms are at
-the link. Licensing: <licensing@desertant.com>.
+the link. Licensing: <licensing@desertant.com>. Third-party components are listed
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
