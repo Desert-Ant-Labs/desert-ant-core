@@ -9,19 +9,47 @@ import Foundation
 /// bearing. The feature providers and options are built once at init because
 /// the inputs never change identity - only their contents - so a call is a
 /// dispatch and nothing else.
-final class CoreMLEngine: Engine {
+final class CoreMLEngine: Engine, @unchecked Sendable {
     let decodeLanes: Int
 
-    private let mel: MLModel
-    private let encoder: MLModel
-    private let decodeStep: MLModel
+    /// The models are `nonisolated(unsafe)` for the same reason `Slot` is
+    /// unchecked: Core ML's types carry no concurrency annotations, and an
+    /// `MLModel` is documented to take concurrent predictions - which is the
+    /// behaviour `encodeDepth` above exists to use.
+    private nonisolated(unsafe) let mel: MLModel
+    private nonisolated(unsafe) let encoder: MLModel
+    private nonisolated(unsafe) let decodeStep: MLModel
 
-    private let melProvider: MLDictionaryFeatureProvider
-    private let encoderProvider: MLDictionaryFeatureProvider
+    /// One bound set of providers and backings per slot, built at load. A
+    /// dispatch is then a dispatch: the inputs never change identity, only
+    /// their contents.
+    /// `@unchecked Sendable` because a slot is owned by one encode at a time -
+    /// the pipeline hands out each slot index to a single task in flight - and
+    /// Core ML's own types carry no concurrency annotations.
+    private struct Slot: @unchecked Sendable {
+        let mel: MLDictionaryFeatureProvider
+        let encoder: MLDictionaryFeatureProvider
+        let melOptions: MLPredictionOptions
+        let encoderOptions: MLPredictionOptions
+    }
+    private let slots: [Slot]
     private let stepProvider: MLDictionaryFeatureProvider
-    private let melOptions = MLPredictionOptions()
-    private let encoderOptions = MLPredictionOptions()
     private let stepOptions = MLPredictionOptions()
+
+    /// Four in flight.
+    ///
+    /// Core ML spreads concurrent requests over the hardware, so this is what
+    /// reaches the second Neural Engine of an Ultra part: measured on this
+    /// encoder, 34.8 ms a window one at a time, 16.8 with two in flight, 13.2
+    /// with four, flat after that. On single-engine chips it is free rather
+    /// than useful - an M5 goes 25.0 to 24.7 ms, an M1 39.2 to 38.8, an iPhone
+    /// 16 Pro 30.9 to 30.8 - because one window already fills the engine.
+    var encodeDepth: Int { Self.encodeDepthForLoad }
+
+    /// Read before the engine exists, because the buffers it binds are sized
+    /// by it. `VOZ_ENCODE_DEPTH` pins it.
+    static let encodeDepthForLoad =
+        Int(ProcessInfo.processInfo.environment["VOZ_ENCODE_DEPTH"] ?? "") ?? 4
 
     /// Where the decode step runs.
     ///
@@ -79,22 +107,28 @@ final class CoreMLEngine: Engine {
             throw VozError.invalidModel("decode step declares no lanes")
         }
 
-        melProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "audio_rows": MLFeatureValue(multiArray: buffers.rows.array),
-            "mel_mask": MLFeatureValue(multiArray: buffers.melMask.array)])
-        encoderProvider = try MLDictionaryFeatureProvider(dictionary: [
-            "mel": MLFeatureValue(multiArray: buffers.melOut.array),
-            "key_bias": MLFeatureValue(multiArray: buffers.keyBias.array),
-            "pad_mask": MLFeatureValue(multiArray: buffers.padMask.array)])
+        slots = try buffers.slots.map { slot in
+            let melOptions = MLPredictionOptions()
+            let encoderOptions = MLPredictionOptions()
+            // Write predictions straight into our own storage instead of
+            // letting Core ML allocate a result per call.
+            melOptions.outputBackings = ["mel": slot.melOut.array]
+            encoderOptions.outputBackings = ["enc_proj": slot.encOut.array]
+            return Slot(
+                mel: try MLDictionaryFeatureProvider(dictionary: [
+                    "audio_rows": MLFeatureValue(multiArray: slot.rows.array),
+                    "mel_mask": MLFeatureValue(multiArray: slot.melMask.array)]),
+                encoder: try MLDictionaryFeatureProvider(dictionary: [
+                    "mel": MLFeatureValue(multiArray: slot.melOut.array),
+                    "key_bias": MLFeatureValue(multiArray: slot.keyBias.array),
+                    "pad_mask": MLFeatureValue(multiArray: buffers.padMask.array)]),
+                melOptions: melOptions, encoderOptions: encoderOptions)
+        }
         stepProvider = try MLDictionaryFeatureProvider(dictionary: [
             "embed": MLFeatureValue(multiArray: buffers.embed.array),
             "h_in": MLFeatureValue(multiArray: buffers.hIn.array),
             "c_in": MLFeatureValue(multiArray: buffers.cIn.array),
             "enc_step": MLFeatureValue(multiArray: buffers.encStep.array)])
-        // Write predictions straight into our own storage instead of letting
-        // Core ML allocate a result per call.
-        melOptions.outputBackings = ["mel": buffers.melOut.array]
-        encoderOptions.outputBackings = ["enc_proj": buffers.encOut.array]
         stepOptions.outputBackings = [
             "logits": buffers.logitsOut.array, "h_out": buffers.hOut.array,
             "c_out": buffers.cOut.array]
@@ -114,14 +148,14 @@ final class CoreMLEngine: Engine {
         _ = try model.prediction(from: provider, options: options)
     }
 
-    func runMel(rows: Buffer, melMask: Buffer, mel melBuffer: Buffer,
+    func encode(slot index: Int, buffers: PipelineBuffers,
                 isolation: isolated (any Actor)?) async throws {
-        try predict(mel, melProvider, melOptions)
-    }
-
-    func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
-                    isolation: isolated (any Actor)?) async throws {
-        try predict(encoder, encoderProvider, encoderOptions)
+        let slot = slots[index]
+        // `async` on the model itself, unlike the decode step below: this is
+        // the call that is meant to overlap, and Core ML's own async prediction
+        // is what puts several of them in its queue at once.
+        _ = try await mel.prediction(from: slot.mel, options: slot.melOptions)
+        _ = try await encoder.prediction(from: slot.encoder, options: slot.encoderOptions)
     }
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,

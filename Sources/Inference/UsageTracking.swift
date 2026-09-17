@@ -41,6 +41,11 @@ actor TrackedSession: InferenceSession {
     /// an error.
     nonisolated func inputWidth(_ name: String) -> Int? { wrapped.inputWidth(name) }
 
+    /// Forwarded for the same reason `inputWidth` is: a wrapper that drops this
+    /// inherits the protocol's "no", and since the factory hands out nothing
+    /// but wrapped sessions, every caller would quietly run one at a time.
+    nonisolated var runsConcurrently: Bool { wrapped.runsConcurrently }
+
     private let storage: UsageStorage
     private let makeDeviceClient: (String) -> UsageClient
     private let debounceNanos: UInt64

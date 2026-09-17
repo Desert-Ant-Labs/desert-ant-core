@@ -6,10 +6,24 @@ import Foundation
 /// Core AI inference backend (iOS 27, macOS 27): a `.aimodel` asset behind the shared ``InferenceSession`` API.
 @available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *)
 final class CoreAISession: InferenceSession, @unchecked Sendable {
+    /// Core AI places concurrent runs itself, which is how a two-engine part
+    /// gets both engines from one session. That is only true because a run owns
+    /// its input arrays - see ``lease(_:)``.
+    let runsConcurrently = true
+
     private let function: InferenceFunction
     private let descriptor: InferenceFunctionDescriptor
     private let lock = NSLock()
-    private var arrays: [String: NDArray] = [:]
+    /// Input arrays, leased per run rather than shared.
+    ///
+    /// One shared set is what this was, and it cannot overlap: the runtime
+    /// binds a buffer on first use, so a second run reaching `bind` would
+    /// overwrite the inputs of the first while it was still reading them. The
+    /// lock covers taking a set out and putting it back, not the run.
+    private var idle: [[String: NDArray]] = []
+    /// Sets kept when a run gives one back; beyond this they are dropped,
+    /// because a model's inputs are the caller's memory too.
+    private static let pooled = 8
 
     init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
         let url = URL(fileURLWithPath: modelPath)
@@ -40,7 +54,9 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
-        var produced = try await function.run(inputs: try bind(inputs))
+        let arrays = try lease(inputs)
+        defer { release(arrays) }
+        var produced = try await function.run(inputs: arrays)
         return try outputs.map { name in
             guard let value = produced.remove(name), let array = value.ndArray else {
                 throw InferenceError.runFailed("the model returned no '\(name)'")
@@ -49,9 +65,19 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
         }
     }
 
-    /// Reuses the input arrays: the runtime binds a buffer on first use, and a fresh one per call costs more than the model.
-    private func bind(_ inputs: [String: Tensor]) throws -> [String: NDArray] {
-        lock.lock(); defer { lock.unlock() }
+    /// A set of input arrays this run owns until it is done with them.
+    ///
+    /// Reused rather than freshly allocated: the runtime binds a buffer on
+    /// first use, and a new one per call costs more than the model does.
+    private func lease(_ inputs: [String: Tensor]) throws -> [String: NDArray] {
+        lock.lock()
+        let index = idle.firstIndex { set in
+            set.count == inputs.count
+                && inputs.allSatisfy { set[$0.key]?.shape == $0.value.shape }
+        }
+        var arrays = index.map { idle.remove(at: $0) } ?? [:]
+        lock.unlock()
+
         for (name, tensor) in inputs {
             guard case .ndArray(let declared)? = descriptor.inputDescriptor(of: name) else {
                 throw InferenceError.invalidTensor("the model has no tensor input '\(name)'")
@@ -62,6 +88,12 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
             try write(tensor, into: &arrays[name]!, scalarType: declared.scalarType)
         }
         return arrays
+    }
+
+    private func release(_ arrays: [String: NDArray]) {
+        lock.lock(); defer { lock.unlock() }
+        guard idle.count < Self.pooled else { return }
+        idle.append(arrays)
     }
 
     private func write(_ tensor: Tensor, into array: inout NDArray, scalarType: NDArray.ScalarType) throws {

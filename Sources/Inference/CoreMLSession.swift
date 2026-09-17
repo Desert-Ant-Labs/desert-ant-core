@@ -16,10 +16,27 @@ import PlatformSupport
 /// shape (e.g. a fixed-window model over many chunks). `int32`/`float32` I/O is
 /// copied directly; `int64` inputs are rejected (Core ML has no int64 tensors).
 final class CoreMLSession: InferenceSession, @unchecked Sendable {
+    /// Core ML queues concurrent requests and places them itself, which is how
+    /// a two-engine part gets both engines from one session.
+    let runsConcurrently = true
+
     private let model: MLModel
     private let lock = NSLock()
-    private var inArrays: [String: MLMultiArray] = [:]
-    private var provider: MLDictionaryFeatureProvider?
+    /// Input arrays and the provider over them, kept so a run allocates
+    /// nothing, and pooled so runs do not have to take turns.
+    ///
+    /// One shared set would mean holding a lock across the prediction itself,
+    /// which is a session that cannot overlap its own dispatches - and Core ML
+    /// spreading several in flight is how a two-engine part uses both engines.
+    /// So the lock covers leasing a set, not running with it.
+    private struct Binding {
+        let arrays: [String: MLMultiArray]
+        let provider: MLDictionaryFeatureProvider
+    }
+    private var idle: [Binding] = []
+    /// Bindings kept when a run gives one back. Beyond this they are dropped:
+    /// the inputs of a model in flight are the caller's memory too.
+    private static let pooled = 8
 
     /// Load a compiled model. `computeUnits` is what the model SDK asks for
     /// (Core ML's `MLComputeUnits`); the environment and the simulator can
@@ -88,25 +105,11 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
-        lock.lock(); defer { lock.unlock() }
-        let desc = model.modelDescription.inputDescriptionsByName
+        let binding = try lease(inputs)
+        defer { release(binding) }
+        for (name, tensor) in inputs { write(tensor, into: binding.arrays[name]!) }
 
-        // Build (once) and reuse the input arrays + provider; rebuild only when
-        // the set of inputs or a shape changes.
-        if provider == nil || !cacheMatches(inputs) {
-            inArrays.removeAll(keepingCapacity: true)
-            var features: [String: Any] = [:]
-            for (name, tensor) in inputs {
-                let dt = try dataType(for: tensor, declared: desc[name]?.multiArrayConstraint?.dataType)
-                let array = try MLMultiArray(shape: tensor.shape.map { NSNumber(value: $0) }, dataType: dt)
-                inArrays[name] = array
-                features[name] = array
-            }
-            provider = try MLDictionaryFeatureProvider(dictionary: features)
-        }
-        for (name, tensor) in inputs { write(tensor, into: inArrays[name]!) }
-
-        let prediction = try model.prediction(from: provider!)
+        let prediction = try model.prediction(from: binding.provider)
         return try outputs.map { name in
             guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
                 throw InferenceError.runFailed("the model returned no '\(name)'")
@@ -115,10 +118,41 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
         }
     }
 
-    private func cacheMatches(_ inputs: [String: Tensor]) -> Bool {
-        guard inArrays.count == inputs.count else { return false }
+    /// A set of input arrays this run owns until it is done with them.
+    private func lease(_ inputs: [String: Tensor]) throws -> Binding {
+        lock.lock()
+        if let index = idle.firstIndex(where: { matches($0, inputs) }) {
+            let binding = idle.remove(at: index)
+            lock.unlock()
+            return binding
+        }
+        lock.unlock()
+        // Built outside the lock: a shape the pool has never seen costs an
+        // allocation, and it should not cost every other run its overlap.
+        let desc = model.modelDescription.inputDescriptionsByName
+        var arrays: [String: MLMultiArray] = [:]
+        var features: [String: Any] = [:]
         for (name, tensor) in inputs {
-            guard let a = inArrays[name], a.shape.map(\.intValue) == tensor.shape else { return false }
+            let dt = try dataType(for: tensor, declared: desc[name]?.multiArrayConstraint?.dataType)
+            let array = try MLMultiArray(shape: tensor.shape.map { NSNumber(value: $0) }, dataType: dt)
+            arrays[name] = array
+            features[name] = array
+        }
+        return Binding(arrays: arrays, provider: try MLDictionaryFeatureProvider(dictionary: features))
+    }
+
+    private func release(_ binding: Binding) {
+        lock.lock(); defer { lock.unlock() }
+        guard idle.count < Self.pooled else { return }
+        idle.append(binding)
+    }
+
+    /// Whether a pooled set is the right shape for these inputs.
+    private func matches(_ binding: Binding, _ inputs: [String: Tensor]) -> Bool {
+        guard binding.arrays.count == inputs.count else { return false }
+        for (name, tensor) in inputs {
+            guard let array = binding.arrays[name],
+                  array.shape.map(\.intValue) == tensor.shape else { return false }
         }
         return true
     }

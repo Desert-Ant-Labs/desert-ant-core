@@ -154,7 +154,10 @@ public actor Voz {
         // backings, so both halves have to be handed the same set.
         let lanes = try CoreMLEngine.declaredLanes(directory: modelDirectory,
                                                    computeUnits: computeUnits)
-        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes)
+        // The engine says how many encodes it will overlap, and the buffers
+        // carry a slot for each: they are bound into its providers at load.
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
+                                          depth: CoreMLEngine.encodeDepthForLoad)
         let engine = try CoreMLEngine(directory: modelDirectory, computeUnits: computeUnits,
                                       buffers: buffers)
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
