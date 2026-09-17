@@ -104,7 +104,7 @@ public actor Voz {
 
     // MARK: - Creation
 
-    #if canImport(CoreML)
+    #if canImport(CoreML) || canImport(CLiteRt)
     /// Load the model, downloading it first if needed.
     public init(
         directory: String? = nil,
@@ -116,7 +116,9 @@ public actor Voz {
                                                      progress: progress)
         try self.init(modelDirectory: URL(fileURLWithPath: stored.rootPath))
     }
+    #endif
 
+    #if canImport(CoreML)
     /// Load from a directory of model files you manage yourself.
     public init(modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
         func read(_ name: String) throws -> Data {
@@ -139,6 +141,24 @@ public actor Voz {
         #if canImport(CoreML)
         usage = makeTurnstile()
         #endif
+    }
+    #elseif canImport(CLiteRt)
+    /// Load from a directory of model files you manage yourself.
+    ///
+    /// The LiteRT bundle carries its own geometry (`meta.litert.json`): the
+    /// export differs from the Core ML one (float32 I/O, one decode lane at
+    /// width 1), and reading the Apple file would size every buffer wrong.
+    public init(modelDirectory: URL) throws {
+        func read(_ name: String) throws -> Data {
+            try Data(contentsOf: modelDirectory.appendingPathComponent(name))
+        }
+        let assets = try Assets(meta: try read(VozModel.litertMeta),
+                                vocab: try read("vocab.json"),
+                                embeddingBytes: try read("embedding.f16"))
+        let (engine, buffers) = try LiteRTEngine.load(directory: modelDirectory,
+                                                      configuration: assets.configuration)
+        pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
+        sampleRate = Double(assets.configuration.sampleRate)
     }
     #endif
 
