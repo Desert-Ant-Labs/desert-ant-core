@@ -57,6 +57,18 @@ struct AlignBindingTests {
     /// A payload with no audio is a failed run, not a crash: the guard answers
     /// before anything loads, so a host that lies about its counts gets a NULL
     /// buffer instead of an allocation the size of its count field.
+    @Test func missingLanguageIsRejected() async throws {
+        var input = FFIWriter()
+        input.f32Array(tone(sampleRate: 16_000))
+        input.f64(16_000)
+        input.u32(1)
+        input.string("hola")
+        input.f64(0.40)
+        input.f64(0.71)
+        let out = try await refiner().run(input: FFIReader(input.bytes), options: FFIReader([]))
+        #expect(out == nil, "a payload without a language is a failed run, not a guess")
+    }
+
     @Test func malformedInputPayloadIsRejected() async throws {
         let align = Align(directory: nil, cacheRoot: nil)
         #expect(await align.run(input: FFIReader([]), options: FFIReader([])) == nil)
