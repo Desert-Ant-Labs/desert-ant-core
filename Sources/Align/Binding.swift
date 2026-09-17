@@ -16,7 +16,8 @@ extension Align: BoundModel {
             let text = input.string(); let start = input.f64(); let end = input.f64()
             words.append(WordTiming(text: text, start: start, end: end))
         }
-        let language = options.isEmpty ? "en" : options.string()
+        guard !options.isEmpty else { return nil }
+        let language = options.string()
         guard let out = try? await refine(words, audio: samples, sampleRate: sampleRate, languageCode: language) else { return nil }
         var w = FFIWriter()
         w.u32(out.count)

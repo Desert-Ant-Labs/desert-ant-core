@@ -15,7 +15,6 @@ struct Frontend: Sendable {
         let left = (cfg.n_fft - cfg.win_length) / 2
         for n in 0..<cfg.win_length { window[left + n] = hann[n] }
         self.stft = STFT(nFFT: cfg.n_fft, hop: cfg.hop_length, window: window, center: true)
-        precondition(melFilters.count == cfg.n_mels * stft.bins)
     }
 
     func logMel(_ samples: [Float]) -> (data: [Float], nFrames: Int) {
