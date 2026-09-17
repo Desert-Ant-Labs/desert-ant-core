@@ -1,4 +1,4 @@
-#if canImport(CoreML) || canImport(COnnxRuntime)
+#if canImport(CoreML) || canImport(COnnxRuntime) || canImport(CLiteRt)
 import AudioIO
 #if canImport(CoreML)
 import CoreML

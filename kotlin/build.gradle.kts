@@ -48,11 +48,15 @@ kotlin {
 
 val prepareLiteRt by tasks.registering {
     val version = "2.1.6"
+    // The runtime proper, plus the OpenCL/OpenGL GPU accelerator the runtime
+    // dlopens when a session asks for kLiteRtHwAcceleratorGpu. Without the
+    // accelerator sibling the GPU request silently falls back to CPU; it costs
+    // 2.8 MB per ABI against the encoder speedup it unlocks.
+    val libs = listOf("libLiteRt.so", "libLiteRtClGlAccelerator.so")
     val output = layout.projectDirectory.dir("src/main/jniLibs")
     inputs.property("litertVersion", version)
     outputs.files(
-        output.file("arm64-v8a/libLiteRt.so"),
-        output.file("x86_64/libLiteRt.so"),
+        libs.flatMap { lib -> listOf(output.file("arm64-v8a/$lib"), output.file("x86_64/$lib")) },
     )
     doLast {
         val aar = temporaryDir.resolve("litert-$version.aar")
@@ -61,12 +65,14 @@ val prepareLiteRt by tasks.registering {
                 .toURL().openStream().use { input -> aar.outputStream().use(input::copyTo) }
         }
         ZipFile(aar).use { zip ->
-            mapOf("arm64-v8a" to "arm64-v8a", "x86_64" to "x86_64").forEach { (source, abi) ->
-                val entry = zip.getEntry("jni/$source/libLiteRt.so")
-                    ?: error("LiteRT $version has no $source runtime")
-                val destination = output.file("$abi/libLiteRt.so").asFile
-                destination.parentFile.mkdirs()
-                zip.getInputStream(entry).use { input -> destination.outputStream().use(input::copyTo) }
+            listOf("arm64-v8a", "x86_64").forEach { abi ->
+                libs.forEach { lib ->
+                    val entry = zip.getEntry("jni/$abi/$lib")
+                        ?: error("LiteRT $version has no $abi $lib")
+                    val destination = output.file("$abi/$lib").asFile
+                    destination.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input -> destination.outputStream().use(input::copyTo) }
+                }
             }
         }
     }

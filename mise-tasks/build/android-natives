@@ -138,6 +138,13 @@ if [ -z "$strip_bin" ]; then
 fi
 
 for model in $(dal_select "${usage_model:-all}" kotlin); do
+    # Deferred models cross-compile only when a lane opts in (see dal.sh);
+    # naming one explicitly (which is what a model module's preBuild does)
+    # still builds it.
+    if [ "${usage_model:-all}" = all ] && dal_android_deferred "$model"; then
+        echo "== $model deferred (set DAL_LONG_TESTS=1 to include) =="
+        continue
+    fi
     # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar: no JNI
     # library to cross-compile.
     if [ ! -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then

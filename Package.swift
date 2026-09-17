@@ -349,7 +349,13 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CLiteRt",
-            linkerSettings: [.linkedLibrary("LiteRt")]
+            linkerSettings: [
+                .linkedLibrary("LiteRt"),
+                // The shim owns a surfaceless EGL context on Android so the
+                // GPU accelerator's GL tensor buffers can be created and
+                // host-mapped (see dal_egl_create in shim.c).
+                .linkedLibrary("EGL", .when(platforms: [.android])),
+            ]
         ),
         .target(
             name: "CBCrypt",
@@ -535,17 +541,26 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz runs on Apple (Core ML), in the browser and Node (VozWeb, wasm), and on
-// Windows (ONNX Runtime on DirectML), and gets no Android products and no
-// NativeBindings. It bundles nothing: its models are downloaded on demand via
-// Sources/Voz/Catalog.swift. It drives each runtime directly rather than going
-// through `InferenceSession`, because preallocated buffers, output binding and
-// a lane-batched decode loop are not expressible through a generic
+// Voz runs on Apple (Core ML), Android/Linux (LiteRT), Windows (ONNX Runtime
+// on DirectML), and in the browser and Node (VozWeb, wasm). It bundles
+// nothing: its models are downloaded on demand via Sources/Voz/Catalog.swift.
+// It drives each runtime directly rather than going through
+// `InferenceSession`, because preallocated buffers, output binding and a
+// lane-batched decode loop are not expressible through a generic
 // run(inputs:outputs:) call, and dropping them costs roughly 127x on load and
 // about a third of decode throughput. Sources/Voz/Engine.swift is the seam.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
-] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
+]
+// The dynamic products exist for the Android and Node pipelines only and
+// follow the same wasm gate as the models' (dynamic libraries cannot link for
+// wasm32); the web entry point takes the opposite side of the same gate.
++ (noJavaScriptKit
+    ? [
+        .library(name: "VozAndroid", type: .dynamic, targets: ["Voz"]),
+        .library(name: "VozNode", type: .dynamic, targets: ["Voz"]),
+    ]
+    : [.executable(name: "VozWeb", targets: ["VozWeb"])])
 
 // Typed on their own: concatenated inline, these lists sit inside the
 // `vozTargets` expression below, and Swift 6.2 (check:swift-floor) gives up
@@ -553,6 +568,8 @@ let vozProducts: [Product] = [
 let vozDependencies: [Target.Dependency] = [
     .byName(name: "DesertAnt"),
     .byName(name: "AudioIO"),
+    .byName(name: "NativeBindings"),
+    .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
 ] + onnxProducts
 // AudioIO for the portable WAV decoder the ONNX end-to-end test reads its
 // fixture with; COnnxRuntime so `canImport` can gate that test.

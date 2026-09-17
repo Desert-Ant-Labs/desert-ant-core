@@ -10,12 +10,17 @@ import DesertAnt
 /// The web entry is the same pipeline compiled to wasm, driving ONNX Runtime
 /// Web through the JS host. Its files are a separate export rather than the
 /// same ones re-saved: a Neural Engine executes 1x1 convolutions natively and a
-/// matmul through them, and a GPU is the other way round. No Android or Linux
-/// entry yet.
+/// matmul through them, and a GPU is the other way round.
+///
+/// Android and Linux run the same pipeline over LiteRT, through the `CLiteRt`
+/// shim rather than `InferenceSession`, for the Apple reason: the decode loop
+/// dispatches hundreds of times per minute of audio and lives on preallocated
+/// buffers a marshalling API takes away.
 public enum VozModel: ModelDeclaration {
     public static let id = "voz"
     public static let product = "Voz"
     public static let revision = "v0.3.0"
+    /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.5.0"
     public static let summary =
         "On-device speech recognition: transcripts with word-level timestamps, 25 languages."
@@ -61,14 +66,34 @@ public enum VozModel: ModelDeclaration {
     public static let webDecodeStep = "web/decoder.onnx"
     public static let webDecodeStepGPU = "web/decoder.webgpu.onnx"
 
+    /// The same three graphs as LiteRT programs, for Android/Linux. Same
+    /// conversion pipeline; the engine checks shapes at load (the export names
+    /// its signature tensors `args_N`, so names carry nothing to check).
+    public static let encoderLiteRT = "encoder.tflite"
+    public static let melLiteRT = "mel.tflite"
+    public static let decodeStepLiteRT = "decoder.tflite"
+    /// The LiteRT export's own geometry. Separate from `meta.json` because the
+    /// two exports genuinely differ (float32 I/O, decode width 1, one lane),
+    /// and reading the Apple file would size every decode buffer wrong.
+    public static let litertMeta = "meta.litert.json"
+
+    private static let litertFiles =
+        [encoderLiteRT, melLiteRT, decodeStepLiteRT, litertMeta, "vocab.json", "embedding.f16"]
+
     public static let files: [ModelPlatform: [String]] = [
         .apple: [encoder + "/", mel + "/", decodeStep + "/",
                  "meta.json", "vocab.json", "embedding.f16"],
         .web: [webEncoder, webEncoderWeights, webDecodeStep, webDecodeStepGPU,
                "web/meta.json", "web/vocab.json", "web/embedding.f16"],
+        .android: litertFiles,
+        .linux: litertFiles,
     ]
 
     public static func artifact(for platform: ModelPlatform) -> String {
-        platform == .web ? webEncoder : encoder
+        switch platform {
+        case .web: return webEncoder
+        case .android, .linux: return encoderLiteRT
+        default: return encoder
+        }
     }
 }

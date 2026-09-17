@@ -26,6 +26,20 @@ if [ "$want" = core ]; then
     models=""
 else
     models=$(dal_select "$want" kotlin)
+    # Deferred models build only when a lane opts in (see dal.sh); naming one
+    # explicitly still builds it. Filtered here, once, so the assemble list and
+    # the AAR verification below cannot disagree about what was built.
+    if [ "$want" = all ]; then
+        kept=""
+        for model in $models; do
+            if dal_android_deferred "$model"; then
+                echo "== $model deferred (set DAL_LONG_TESTS=1 to include) =="
+            else
+                kept="$kept $model"
+            fi
+        done
+        models=$kept
+    fi
     projects=(":core:assembleRelease")
     for model in $models; do
         # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar with
@@ -42,16 +56,22 @@ fi
 # The payload split is the whole point of having a shared core artifact: core
 # carries the one LiteRT runtime per ABI, and each model AAR carries only its own
 # Swift library. An app with three models must not get three runtimes.
+# Core ships the runtime and its Cl/Gl GPU accelerator (the runtime dlopens
+# the latter when a session requests the GPU; without it the request silently
+# runs on CPU). Nothing else - in particular no NPU vendor accelerators, which
+# are device-channel payloads, not Maven ones.
 aar=kotlin/build/outputs/aar/core-release.aar
-found=$(unzip -Z1 "$aar" | grep -E '^jni/[^/]+/libLiteRt\.so$' | sort)
-expected=$(printf '%s\n' jni/arm64-v8a/libLiteRt.so jni/x86_64/libLiteRt.so)
+found=$(unzip -Z1 "$aar" | grep -E '^jni/[^/]+/libLiteRt.*\.so$' | sort)
+expected=$(printf '%s\n' \
+    jni/arm64-v8a/libLiteRt.so jni/arm64-v8a/libLiteRtClGlAccelerator.so \
+    jni/x86_64/libLiteRt.so jni/x86_64/libLiteRtClGlAccelerator.so | sort)
 [ "$found" = "$expected" ] || {
     echo "error: the core AAR has the wrong LiteRT payload" >&2
     printf '%s\n' "$found" >&2
     exit 1
 }
-unzip -Z1 "$aar" | grep -q 'Accelerator\.so$' && {
-    echo "error: the core AAR ships a LiteRT accelerator sibling" >&2
+unzip -Z1 "$aar" | grep -E 'Accelerator\.so$' | grep -qv 'ClGlAccelerator\.so$' && {
+    echo "error: the core AAR ships an unexpected LiteRT accelerator" >&2
     exit 1
 }
 
