@@ -1,4 +1,3 @@
-#if canImport(CoreML)
 import Foundation
 
 /// A word and when it starts, in seconds from the beginning of the audio.
@@ -279,4 +278,3 @@ func detokenize(_ pieces: [String]) -> String {
         .replacingOccurrences(of: "\u{2581}", with: " ")
         .trimmingCharacters(in: .whitespaces)
 }
-#endif

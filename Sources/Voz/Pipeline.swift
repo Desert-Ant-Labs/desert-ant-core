@@ -1,4 +1,3 @@
-#if canImport(CoreML)
 import Foundation
 
 /// Hands finished windows from the encoding thread to the decoding one.
@@ -156,10 +155,19 @@ final class Pipeline: @unchecked Sendable {
     private var logitsOut: Buffer { buffers.logitsOut }
     private var hOut: Buffer { buffers.hOut }
     private var cOut: Buffer { buffers.cOut }
+    /// Filled by an engine that reduces in the graph; empty otherwise.
+    private var tok: [Int32] = []
+    private var dur: [Int32] = []
+
     init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         self.assets = assets
         self.engine = engine
         self.buffers = buffers
+        if engine.reducesInGraph {
+            let lanes = engine.decodeLanes
+            tok = [Int32](repeating: 0, count: lanes * assets.configuration.decodeWidth)
+            dur = tok
+        }
     }
 
     // MARK: - Frontend
@@ -196,9 +204,10 @@ final class Pipeline: @unchecked Sendable {
     /// the geometric tail `preemph^(j+1) * x[-1]` rather than zeros, which is
     /// what makes in-graph preemphasis agree with NeMo's preemphasise-then-pad
     /// order across the boundary.
-    private func frame(_ window: ArraySlice<Float>, into slot: PipelineBuffers.Frontend) {
+    private func frame(_ window: ArraySlice<Float>, lane: Int,
+                       into slot: PipelineBuffers.Frontend) {
         let stride = configuration.hopLength * configuration.nRows
-        let out = slot.rows.ptr
+        let out = slot.rows.ptr + lane * stride
         out.update(repeating: 0, count: stride)
         let hop = configuration.hopLength
         let pad = configuration.nFFT / 2
@@ -223,38 +232,51 @@ final class Pipeline: @unchecked Sendable {
     /// The caller copies it where it belongs. It used to write straight into the
     /// batch through a pointer, but `withUnsafeMutableBufferPointer` takes a
     /// synchronous closure and running a model is now asynchronous.
-    /// Lay one window into a slot's frontend buffers, with its masks.
-    private func stage(window: ArraySlice<Float>, into slot: PipelineBuffers.Frontend) {
+    /// Lay one window into lane `lane` of a slot's frontend buffers, with its
+    /// masks.
+    private func stage(window: ArraySlice<Float>, lane: Int,
+                       into slot: PipelineBuffers.Frontend) {
         let c = configuration
-        frame(window, into: slot)
+        frame(window, lane: lane, into: slot)
         // Normalization statistics must be taken over the frames that actually
         // hold audio. A window is a fixed 15 s, so a five-second clip is two
         // thirds padding, and including it drags the mean down and squashes the
         // speech: the frontend then agrees with the reference implementation to
         // 2.7 dB rather than 140 dB, and short clips lose accuracy badly.
         let melValid = Self.validMelFrames(sampleCount: window.count, configuration: c)
-        slot.melMask.ptr.update(repeating: 1, count: melValid)
-        for i in melValid..<c.validFrames { slot.melMask.ptr[i] = 0 }
+        let melBase = slot.melMask.ptr + lane * c.validFrames
+        melBase.update(repeating: 1, count: melValid)
+        for i in melValid..<c.validFrames { melBase[i] = 0 }
         // A short window is mostly silence. Without this the encoder attends
         // over it; -40000 is a float16-representable stand-in for -infinity.
         let attended = Self.attendedEncoderFrames(sampleCount: window.count, configuration: c)
-        slot.keyBias.ptr.update(repeating: 0, count: attended)
-        for i in attended..<c.encFrames { slot.keyBias.ptr[i] = Element(-40000) }
+        let keyBase = slot.keyBias.ptr + lane * c.encFrames
+        keyBase.update(repeating: 0, count: attended)
+        for i in attended..<c.encFrames { keyBase[i] = Element(-40000) }
     }
 
-    /// One window of audio through the frontend and the encoder, into
-    /// `destination`, using slot `slot` of the buffers.
+    /// One batch of windows through the frontend and the encoder, laid out
+    /// consecutively from `destination`, using slot `slot` of the buffers.
     ///
-    /// Slots share nothing, so calls with different slots overlap - which is
-    /// the whole point on a machine with more engine than one window can fill.
-    private func encode(window: ArraySlice<Float>, slot: Int,
+    /// Slots share nothing that is written, so calls with different slots
+    /// overlap - which is the whole point on a machine with more engine than
+    /// one window can fill. Windows never interact either, attention being
+    /// within a window, so carrying several in one call is exact, and on a
+    /// browser GPU it amortises both the dispatch and the readback after it.
+    private func encode(windows: [ArraySlice<Float>], slot: Int,
                         into destination: UnsafeMutablePointer<Element>,
                         isolation: isolated (any Actor)? = #isolation) async throws {
         let frontend = buffers.slots[slot]
-        stage(window: window, into: frontend)
-        try await engine.encode(slot: slot, buffers: buffers, isolation: isolation)
-        destination.update(from: frontend.encOut.ptr,
-                           count: configuration.jointHidden * configuration.encFrames)
+        for (lane, window) in windows.enumerated() {
+            stage(window: window, lane: lane, into: frontend)
+        }
+        try await engine.encode(slot: slot, lanes: windows.count, buffers: buffers,
+                                isolation: isolation)
+        let stride = configuration.jointHidden * configuration.encFrames
+        for lane in 0..<windows.count {
+            (destination + lane * stride)
+                .update(from: frontend.encOut.ptr + lane * stride, count: stride)
+        }
     }
 
     /// Decode one group into `result`, suspending on `awaitWindow` for windows
@@ -352,7 +374,8 @@ final class Pipeline: @unchecked Sendable {
             }
             try await engine.runDecodeStep(
                 embed: embed, hIn: hIn, cIn: cIn, encStep: encStep,
-                logits: logitsOut, hOut: hOut, cOut: cOut, isolation: isolation)
+                logits: logitsOut, tok: &tok, dur: &dur, hOut: hOut, cOut: cOut,
+                isolation: isolation)
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -361,11 +384,16 @@ final class Pipeline: @unchecked Sendable {
                 var offset = 0
                 var didEmit = false
                 while offset < span {
-                    // The argmax is the host's: the logits land in a page this
-                    // process already owns, so reading them costs nothing.
+                    // Either the engine reduced the logits for us or it handed
+                    // them over whole. Core ML does the latter because the
+                    // argmax is free over a shared page; across a copying
+                    // boundary it would be a quarter of a megabyte per call.
                     var best = 0
                     var bestDuration = 0
-                    do {
+                    if engine.reducesInGraph {
+                        best = Int(tok[lane * width + offset])
+                        bestDuration = Int(dur[lane * width + offset])
+                    } else {
                         var bestValue = Float(laneLogits[offset])
                         for k in 1...vocab {
                             let value = Float(laneLogits[k * width + offset])
@@ -640,6 +668,9 @@ final class Pipeline: @unchecked Sendable {
             // encStep, logits and the recurrent state, ordered by the gate.
             let shared = Projections(base: projections)
             let count = group.count
+            #if os(WASI)
+            let decodeTask: Task<Void, Never>? = nil
+            #else
             let decodeTask: Task<Void, Never>? = !Self.overlapsDecode ? nil : Task.detached {
                 #if canImport(Darwin)
                 await self.decodeWorker.run { worker in
@@ -654,48 +685,84 @@ final class Pipeline: @unchecked Sendable {
                                        awaitWindow: { await gate.wait(for: $0) })
                 #endif
             }
+            #endif
 
             do {
-                // Windows do not depend on each other, so several are handed
-                // over at once where the runtime overlaps them. The decode
-                // still sees them in order: a window that lands early waits for
-                // its predecessors before the gate is told it exists.
-                let depth = Swift.min(engine.encodeDepth, group.count)
-                var landed = [Bool](repeating: false, count: group.count)
-                var announced = 0
-                // Slots are lent out and handed back, not computed from the
-                // window index: windows finish in any order, so `i % depth`
-                // would hand a slot to a second window while the first was
-                // still writing it.
-                var free = Array(0..<depth)
-                try await withThrowingTaskGroup(of: (window: Int, slot: Int).self) { encodes in
-                    var issued = 0
-                    var running = 0
-                    while issued < group.count || running > 0 {
-                        while running < depth, issued < group.count, let slot = free.popLast() {
-                            let i = issued
-                            let low = starts[group.lowerBound + i]
-                            // Read out of the streaming buffer here rather than
-                            // in the task: `ensure` and `release` move it
-                            // between groups, and a slice is only a view.
-                            let audio = slice(low, Swift.min(low + c.nSamples, available))
-                            let out = shared
-                            encodes.addTask { [self] in
-                                try await encode(window: audio, slot: slot,
-                                                 into: out.base + i * stride)
-                                return (i, slot)
+                // Windows do not depend on each other, so several go over at
+                // once, in whichever of the two shapes the runtime pays for: a
+                // batch is one call carrying several windows, depth is several
+                // calls outstanding. Core ML's graph is a fixed shape, so its
+                // engine takes one window a call and four calls at a time; the
+                // browser's takes six windows in one call, which is where most
+                // of its encoder speed came from.
+                //
+                // The decode still sees windows in order: a batch that lands
+                // early waits for its predecessors before the gate is told its
+                // windows exist.
+                let batch = Swift.max(1, engine.encodeBatch)
+                let batches = (group.count + batch - 1) / batch
+                let depth = Swift.min(engine.encodeDepth, batches)
+                func lanes(of b: Int) -> Int { Swift.min(batch, group.count - b * batch) }
+                // A batch's audio, read out of the streaming buffer before the
+                // encode rather than inside it: `ensure` and `release` move
+                // that buffer between groups, and a slice is only a view.
+                func audio(of b: Int) -> [ArraySlice<Float>] {
+                    (0..<lanes(of: b)).map { lane in
+                        let low = starts[group.lowerBound + b * batch + lane]
+                        return slice(low, Swift.min(low + c.nSamples, available))
+                    }
+                }
+                // Only now do a batch's windows exist for a decode that is
+                // reading alongside this loop.
+                func announce(_ b: Int) async {
+                    for lane in 0..<lanes(of: b) {
+                        await gate.produced()
+                        progress(reported(starts[group.lowerBound + b * batch + lane]))
+                    }
+                }
+
+                if depth == 1 {
+                    // One call at a time, made here rather than through a task
+                    // group: that is the browser, where there is one thread to
+                    // dispatch from and a child task per batch would buy
+                    // nothing but its own bookkeeping.
+                    for b in 0..<batches {
+                        try await encode(windows: audio(of: b), slot: 0,
+                                         into: shared.base + b * batch * stride)
+                        await announce(b)
+                    }
+                } else {
+                    var landed = [Bool](repeating: false, count: batches)
+                    var announced = 0
+                    // Slots are lent out and handed back, not computed from the
+                    // batch index: batches finish in any order, so `b % depth`
+                    // would hand a slot to a second batch while the first was
+                    // still writing it.
+                    var free = Array(0..<depth)
+                    try await withThrowingTaskGroup(of: (batch: Int, slot: Int).self) { encodes in
+                        var issued = 0
+                        var running = 0
+                        while issued < batches || running > 0 {
+                            while running < depth, issued < batches, let slot = free.popLast() {
+                                let b = issued
+                                let windows = audio(of: b)
+                                let out = shared
+                                encodes.addTask { [self] in
+                                    try await encode(windows: windows, slot: slot,
+                                                     into: out.base + b * batch * stride)
+                                    return (b, slot)
+                                }
+                                issued += 1
+                                running += 1
                             }
-                            issued += 1
-                            running += 1
-                        }
-                        guard let finished = try await encodes.next() else { break }
-                        running -= 1
-                        free.append(finished.slot)
-                        landed[finished.window] = true
-                        while announced < group.count, landed[announced] {
-                            await gate.produced()
-                            progress(reported(starts[group.lowerBound + announced]))
-                            announced += 1
+                            guard let finished = try await encodes.next() else { break }
+                            running -= 1
+                            free.append(finished.slot)
+                            landed[finished.batch] = true
+                            while announced < batches, landed[announced] {
+                                await announce(announced)
+                                announced += 1
+                            }
                         }
                     }
                 }
@@ -790,6 +857,9 @@ final class Pipeline: @unchecked Sendable {
                 var retryValids = [Int](repeating: frames, count: refused.count)
                 var retryStarts = [Int](repeating: 0, count: refused.count)
                 do {
+                    let retryBatch = Swift.max(1, engine.encodeBatch)
+                    var pending: [ArraySlice<Float>] = []
+                    var pendingFirst = 0
                     for (slot, entry) in refused.enumerated() {
                         let windowStart = starts[entry.element]
                         // Where to run the window again. A window that produced
@@ -828,11 +898,22 @@ final class Pipeline: @unchecked Sendable {
                         retryStarts[slot] = low
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
-                        // Retries stay one at a time: there are rarely more
-                        // than a handful, and they are already off the path a
-                        // healthy file takes.
-                        try await encode(window: slice(low, shortened), slot: 0,
-                                         into: retryProjections + slot * stride)
+                        // Retries fill a batch the same way the first pass
+                        // does. They used to go one at a time into lane 0, which
+                        // was fine when a call cost what it held; with a batched
+                        // engine a single-window call still pays a whole call's
+                        // dispatch, and six retries were six of the file's
+                        // twenty-one encoder calls. They keep to one call at a
+                        // time, though, on slot zero: there are rarely more than
+                        // a handful and they are already off the path a healthy
+                        // file takes.
+                        if pending.isEmpty { pendingFirst = slot }
+                        pending.append(slice(low, shortened))
+                        let last = slot == refused.count - 1
+                        guard pending.count == retryBatch || last else { continue }
+                        try await encode(windows: pending, slot: 0,
+                                         into: retryProjections + pendingFirst * stride)
+                        pending.removeAll(keepingCapacity: true)
                     }
                 }
                 var retryTokens = [[Int]](repeating: [], count: refused.count)
@@ -911,4 +992,3 @@ final class Pipeline: @unchecked Sendable {
         return (words.map(\.text).joined(separator: " "), words)
     }
 }
-#endif

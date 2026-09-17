@@ -492,7 +492,7 @@ let testTargets: [Target] = [
 // costs roughly 127x on load and about a third of decode throughput.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
-]
+] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
 
 let vozTargets: [Target] = [
     .target(
@@ -500,13 +500,24 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
-        ]
+        ],
+        // The wasm entry point is excluded from the library for the same reason
+        // every other model's is: it is an executable target of its own, and a
+        // `main.swift` inside a library target turns it into an executable.
+        exclude: ["Web"]
     ),
     .testTarget(
         name: "VozTests",
         dependencies: ["Voz", "DesertAnt", "TestSupport"]
     ),
-]
+] + (noJavaScriptKit ? [] : [
+    .executableTarget(
+        name: "VozWeb",
+        dependencies: [.byName(name: "Voz"), .byName(name: "WasmBindings")]
+            + jsWasi + jsEventLoop,
+        path: "Sources/Voz/Web"
+    ),
+])
 
 let coreTargets: [Target] =
     libraryTargets + testTargets + modelTargets + modelTestTargets
