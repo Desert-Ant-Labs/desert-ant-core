@@ -25,14 +25,14 @@ let wasmBuild = ProcessInfo.processInfo.environment["DAL_WASM_BUILD"] != nil
 let noJavaScriptKit = !wasmBuild
     || ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
-// MLX is opt-in for the same reason, and the reason is the same MACRO problem — but unlike
+// MLX is opt-in for the same reason, and the reason is the same MACRO problem, but unlike
 // JavaScriptKit it is gated by a package TRAIT rather than an environment variable.
 //
 // `Title` is the one model here that does not run through `InferenceSession`: writing a title
 // is short autoregressive decode, which measured 5.7-8.3x faster on MLX/GPU than on the ANE,
 // and `8e97532` removed MLState when the Core ML path lost. So Title needs mlx-swift-lm.
 //
-// `MLXHuggingFace` exposes `#huggingFaceLoadModelContainer`, a MACRO — so it pulls swift-syntax
+// `MLXHuggingFace` exposes `#huggingFaceLoadModelContainer`, a MACRO, so it pulls swift-syntax
 // and host macro plugins exactly as JavaScriptKit does, and a package dependency cannot carry a
 // platform condition. Declaring its target edges unconditionally would make every Linux and
 // Android consumer clone and build it for a target MLX cannot run on at all, and would risk the
@@ -40,7 +40,7 @@ let noJavaScriptKit = !wasmBuild
 //
 // So: the `MLX` trait (SE-0450). SwiftPM PRUNES the mlx-swift-lm and swift-transformers
 // package dependencies whenever no enabled trait references them, so a consumer without the
-// trait never clones them — the same graph the old `DAL_MLX_BUILD` env var produced, but
+// trait never clones them: the same graph the old `DAL_MLX_BUILD` env var produced, but
 // declared in the consumer's manifest instead of ambient process environment (which Xcode's
 // resolver could only see via `launchctl setenv`).
 //
@@ -180,7 +180,7 @@ let models: [ModelPackage] = [
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
 // Tongue is a pure model: a 2 MB int8 head plus a frozen normalizer/router
-// specification, no inference runtime and no model download — the weights ship
+// specification, no inference runtime and no model download; the weights ship
 // as target resources. It lives outside the `models` list (no
 // NativeBindings, no Web product, no Node/Android dynamic products); unlike
 // every other model its Kotlin and JavaScript SDKs are direct ports of the same
@@ -527,7 +527,7 @@ let package = Package(
     // SwiftPM refuses to resolve `MLXLLM` (macOS 14) into a macOS 13 package. The floor used
     // to rise only behind `DAL_MLX_BUILD`; `platforms` cannot vary by trait, so with the `MLX`
     // trait the iOS 17 / macOS 14 floor is now unconditional. That costs iOS 16 / macOS 13 for
-    // Apple consumers that never enable MLX — accepted deliberately: no known Apple consumer
+    // Apple consumers that never enable MLX, accepted deliberately: no known Apple consumer
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],

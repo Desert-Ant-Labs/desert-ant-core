@@ -86,7 +86,7 @@ export function renderCardBody(model, org) {
   return [`# ${model.name}`, "", model.tagline, "", model.summary, "", ...links, ""].join("\n");
 }
 
-/// Front matter is HF's search index, not prose, so it survives the rewrite —
+/// Front matter is HF's search index, not prose, so it survives the rewrite,
 /// but every field in it is the manifest's, so a card cannot drift from the
 /// registry. Unknown keys still round-trip untouched.
 export function mergeFrontMatter(existing, model) {
