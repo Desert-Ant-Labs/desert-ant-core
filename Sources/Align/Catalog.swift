@@ -1,5 +1,5 @@
 // This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
+// each platform ships. The shared behavior (distribution, resolve, availability)
 // comes from `ModelDeclaration` in the catalog's shared half.
 
 import DesertAnt
@@ -10,7 +10,7 @@ public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
     /// Pinned, not "main". The SDK resolves weights by this revision, so tracking a
-    /// branch would change behaviour for every installed copy the moment new weights
+    /// branch would change behavior for every installed copy the moment new weights
     /// land on the Hub. v1.0.0 is the multilingual cascade whose accuracy figures the
     /// model page quotes; v0.1.0 tags the weights that shipped before it.
     public static let revision = "v1.0.0"
