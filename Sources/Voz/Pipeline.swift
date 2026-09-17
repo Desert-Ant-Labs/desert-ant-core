@@ -102,17 +102,14 @@ final class Pipeline {
     /// Whether the decode runs on a thread of its own while the encoder feeds
     /// it, rather than the two taking turns.
     ///
-    /// Worth it only where they land on different processors. Core ML plans the
-    /// decode step onto the CPU on a Mac and onto the Neural Engine on a phone,
-    /// so on a phone this overlaps the engine with itself: measured over ten
-    /// minutes of speech, +60% on an M3 Ultra, +13% on an M1, +2% on an M5 and
-    /// +1% on an A18 Pro - and on the phone that 1% costs a core that would
-    /// otherwise be idle, which a device on battery would rather keep.
-    #if os(macOS)
-    private static let overlapsByDefault = true
-    #else
-    private static let overlapsByDefault = false
-    #endif
+    /// Worth it only where the two land on different processors, which is the
+    /// same question the decode step's placement answers: M-series silicon
+    /// puts it on the CPU, everything else leaves it on the engine. So this
+    /// follows that and nothing else - an M-series iPad overlaps exactly as a
+    /// Mac does, and a phone does not, where it would only be the engine
+    /// waiting for itself and the measured 1% would cost a core a device on
+    /// battery would rather leave idle.
+    private static let overlapsByDefault = Silicon.isMSeries
     private static let overlapsDecode =
         ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
             ?? overlapsByDefault
