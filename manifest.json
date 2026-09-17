@@ -26,7 +26,7 @@
       "sdks": {
         "swift": { "status": "live", "package": "Align", "platforms": ["apple"] },
         "kotlin": { "status": "none" },
-        "js": { "status": "none" }
+        "js": { "status": "live", "package": "@desert-ant-labs/align", "platforms": ["node"] }
       },
       "weights": {
         "source": "hub",
@@ -42,7 +42,12 @@
         "pipelineTag": "automatic-speech-recognition",
         "libraryName": null
       },
-      "languages": null,
+      "languages": {
+        "count": 9,
+        "codes": ["de", "en", "es", "fr", "it", "ja", "ko", "pt", "zh"],
+        "basis": "declared",
+        "source": "https://huggingface.co/desert-ant-labs/align"
+      },
       "demo": null
     },
     {
