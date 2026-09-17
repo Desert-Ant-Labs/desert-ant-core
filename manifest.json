@@ -18,13 +18,13 @@
       "id": "align",
       "name": "Align",
       "tagline": "Accurate word timestamps for any transcript.",
-      "summary": "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.",
+      "summary": "Word-timestamp refinement for any transcript, on device.",
       "category": "Word timestamps",
       "lifecycle": "stable",
       "visibility": "public",
       "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "live", "package": "Align", "platforms": ["apple"] },
+        "swift": { "status": "live", "package": "Align", "platforms": ["apple", "linux", "windows"] },
         "kotlin": { "status": "none" },
         "js": { "status": "live", "package": "@desert-ant-labs/align", "platforms": ["node"] }
       },
@@ -32,13 +32,13 @@
         "source": "hub",
         "repo": "desert-ant-labs/align",
         "url": "https://huggingface.co/desert-ant-labs/align",
-        "revision": "v1.0.0",
+        "revision": "v1.1.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
-      "runtime": ["coreml"],
+      "runtime": ["coreml", "litert"],
       "variants": [],
       "hub": {
-        "tags": ["speech", "word-timestamps", "forced-alignment", "speech-recognition", "on-device", "core-ml", "multilingual"],
+        "tags": ["speech", "word-timestamps", "forced-alignment", "speech-recognition", "on-device", "core-ml", "litert", "multilingual"],
         "pipelineTag": "automatic-speech-recognition",
         "libraryName": null
       },
