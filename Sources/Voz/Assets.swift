@@ -1,4 +1,3 @@
-#if canImport(CoreML)
 import Foundation
 
 /// The model's host-side half: geometry, vocabulary, and the embedding table.
@@ -54,4 +53,3 @@ struct Assets {
         try embedding.withUnsafeBufferPointer { try body($0) }
     }
 }
-#endif

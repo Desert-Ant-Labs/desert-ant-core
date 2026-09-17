@@ -11,6 +11,10 @@ import Foundation
 /// dispatch and nothing else.
 final class CoreMLEngine: Engine {
     let decodeLanes: Int
+    let encodeBatch = 1
+    /// Core ML returns raw logits: the host's argmax over a shared page costs
+    /// nothing, and reducing in the graph would only add operations.
+    let reducesInGraph = false
 
     private let mel: MLModel
     private let encoder: MLModel
@@ -103,11 +107,11 @@ final class CoreMLEngine: Engine {
     // The buffers are already bound into the providers and backings, so these
     // take their arguments only to satisfy the protocol.
     //
-    // `predict` is a synchronous helper on purpose, and this is the load-bearing
-    // part. Core ML offers an async `prediction(from:options:)` as well, and in
-    // an async context Swift picks it - which would hand every dispatch to the
-    // concurrency runtime, for a call that returns without ever suspending. The
-    // protocol is async so a runtime that must suspend can; this one does not.
+    // `predict` is a synchronous helper on purpose. Core ML offers an async
+    // `prediction(from:options:)` as well, and in an async context Swift picks
+    // it - which would hand every dispatch to the concurrency runtime for no
+    // reason. The engine is async because the *wasm* host is; on this path
+    // nothing suspends.
 
     private func predict(_ model: MLModel, _ provider: MLDictionaryFeatureProvider,
                          _ options: MLPredictionOptions) throws {
@@ -125,7 +129,8 @@ final class CoreMLEngine: Engine {
     }
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, tok: inout [Int32], dur: inout [Int32],
+                       hOut: Buffer, cOut: Buffer,
                        isolation: isolated (any Actor)?) async throws {
         try predict(decodeStep, stepProvider, stepOptions)
     }

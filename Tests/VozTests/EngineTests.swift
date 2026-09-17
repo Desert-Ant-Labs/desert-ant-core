@@ -1,4 +1,3 @@
-#if canImport(CoreML)
 import Foundation
 import Testing
 @testable import Voz
@@ -14,15 +13,15 @@ private let smallGeometry = """
  "vocab_size":1,"blank_idx":1,"durations":[1],"decode_width":2}
 """
 
-private let configuration = try! JSONDecoder().decode(
-    Configuration.self, from: Data(smallGeometry.utf8))
-
 private final class TestEngine: Engine, @unchecked Sendable {
     let decodeLanes = 1
+    let encodeBatch = 3
+    let reducesInGraph = true
     var active = 0
     var peak = 0
     var failNext = false
 
+    func stage(lanes: Int) {}
     func runMel(rows: Buffer, melMask: Buffer, mel: Buffer,
                 isolation: isolated (any Actor)?) async throws {}
     func runEncoder(mel: Buffer, keyBias: Buffer, padMask: Buffer, encOut: Buffer,
@@ -39,11 +38,11 @@ private final class TestEngine: Engine, @unchecked Sendable {
         }
     }
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, tok: inout [Int32], dur: inout [Int32],
+                       hOut: Buffer, cOut: Buffer,
                        isolation: isolated (any Actor)?) async throws {
-        // Blank everywhere, so the decode ends the window rather than emitting.
-        logits.zero()
-        logits.ptr[configuration.blankIdx * configuration.decodeWidth] = 1
+        tok = [1, 1]
+        dur = [0, 0]
     }
 }
 
@@ -51,7 +50,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
     let assets = try Assets(meta: Data(smallGeometry.utf8), vocab: Data("[\"word\"]".utf8),
                             embeddingBytes: Data(repeating: 0, count: 8))
     let engine = TestEngine()
-    let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: 1)
+    let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: 1, batch: 3)
     let voz = Voz(assets: assets, engine: engine, buffers: buffers)
 
     // A failed run must release the pipeline rather than wedge it.
@@ -70,4 +69,3 @@ private final class TestEngine: Engine, @unchecked Sendable {
     }
     #expect(engine.peak == 1, "two transcriptions must never share the buffers")
 }
-#endif
