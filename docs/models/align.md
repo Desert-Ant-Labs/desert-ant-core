@@ -3,13 +3,13 @@
 
 Accurate word timestamps for any transcript.
 
-Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
+Word-timestamp refinement for any transcript, on device.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Node |
 | **Languages** | 9 |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/align) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/align) |
 
 ## Install
 
