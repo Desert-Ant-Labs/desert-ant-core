@@ -24,8 +24,8 @@ const dir = process.env.ALIGN_FIXTURE_DIR;
 if (!dir) throw new Error("set ALIGN_FIXTURE_DIR to a populated model directory");
 
 console.log(`sdkVersion ${Align.sdkVersion} on ${process.platform}-${process.arch}`);
-// Core ML on darwin, LiteRT on linux (not yet usable); the native core picks it, the JS never names a file.
-console.log(`backend ${process.platform === "darwin" ? "coreml" : "litert (untested)"}`);
+// Core ML on darwin, LiteRT elsewhere; the native core picks it, the JS never names a file.
+console.log(`backend ${process.platform === "darwin" ? "coreml" : "litert"}`);
 await refineWith("directory", { directory: dir });
 await refineWith("download", {});
 await refineWith("cache", {});

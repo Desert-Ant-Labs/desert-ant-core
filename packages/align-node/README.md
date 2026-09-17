@@ -16,7 +16,7 @@ The default entry still exists, and it is the reason the package is safe to depe
 npm i @desert-ant-labs/align
 ```
 
-The native core is prebuilt, Core ML on macOS and LiteRT on Linux, with no build tools and no flags. Linux is not usable yet: the model's LiteRT export lands with the next Hub revision, and until then `load()` on Linux resolves no artifact. Import it from server-only code: an API route, a server action, a queue worker, a plain Node script.
+The native core is prebuilt, Core ML on macOS and LiteRT on Linux, with no build tools and no flags. Import it from server-only code: an API route, a server action, a queue worker, a plain Node script.
 
 ```js
 import { Align } from "@desert-ant-labs/align/native"; // server only
@@ -81,7 +81,7 @@ await align.withCallGroup(async (group) => {
 
 ## Platforms
 
-The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. Only `darwin-arm64` is verified today; the Linux targets wait for the model's LiteRT export on the Hub and are not yet tested. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
+The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. `darwin-arm64` and `linux-arm64` are tested; `linux-x64` is built and not yet tested. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
 
 If you import this package from a framework that bundles server code, mark it external so the bundler leaves the native binary alone. In Next.js:
 
