@@ -12,6 +12,16 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # A pinned swift.org toolchain, because the wasm build needs its clang and a
 # matching cross-compilation SDK, which only exists for released versions.
 export DAL_WASM_BUILD=1
+
+# Same wall build:wasm hits: SwiftPM checks JavaScriptKit out with libgit2 and
+# that tree carries symlinks, which Windows only hands to a privileged process.
+if ! dal_can_symlink; then
+    echo "skip: this host cannot create symbolic links, which SwiftPM needs to check out"
+    echo "      JavaScriptKit. Turn on Settings > System > For developers > Developer Mode"
+    echo "      (it grants SeCreateSymbolicLinkPrivilege), start a new shell, and re-run."
+    exit 0
+fi
+
 sdk=$(dal_wasm_sdk)
 
 # Native host binary; the wasm run's fetch reaches it over localhost.

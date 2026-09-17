@@ -1,11 +1,24 @@
 #!/usr/bin/env bash
-#MISE description="Run the Swift test suite on this host (Core ML on macOS, LiteRT on Linux)"
+#MISE description="Run the Swift test suite on this host (Core ML on macOS, LiteRT on Linux and Windows)"
 #MISE dir="{{config_root}}"
 #MISE tools={swift={version="6.3.3", os=["linux"]}}
+#USAGE arg "<model>" help="Model whose suite to run, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # The whole suite, every model, on the host toolchain. HTTPTests talks to a
 # local echo server (Tools/EchoServer.swift), which this starts and stops.
+# Naming a model runs only its suite, which is <Product>Tests by convention
+# (the same filter the Windows CI job builds). `all` passes no filter and runs
+# the shared suites too. dal_select fails loudly on a typo.
+# dal_select on its own line, not nested in the array assignment: an assignment
+# succeeds even when its command substitution fails, so a typo would otherwise
+# print the error and then run the whole suite anyway.
+filter=()
+if [ "${usage_model:-all}" != all ]; then
+    model=$(dal_select "$usage_model")
+    filter=(--filter "$(dal_product "$model")Tests")
+fi
+
 dal_vendor_litert
 dal_start_echo_server 8199
 
@@ -17,7 +30,7 @@ dal_start_echo_server 8199
 # performance bounds in the suite only mean something optimized, and the
 # Windows job already tests release. swift test keeps testability (and with it
 # @testable) enabled in release, unlike a bare swift build.
-if [ "$(uname)" = Darwin ]; then
+if [ "$(dal_host_os)" = darwin ]; then
     # xcrun pins the Xcode toolchain even when a mise-managed swift is on PATH:
     # older mise ignores the tools os=["linux"] filter above, and the swift.org
     # toolchain cannot build against the Xcode SDK.
@@ -25,9 +38,55 @@ if [ "$(uname)" = Darwin ]; then
     # conversion, but swift test still launches the empty XCTest harness per
     # test target, printing an "Executed 0 tests" block ~28 times and paying
     # ~0.14 s each. This drops that harness; Swift Testing is unaffected.
-    xcrun swift test --scratch-path .build-host -c release --disable-xctest
+    xcrun swift test --scratch-path .build-host -c release --disable-xctest \
+        ${filter[@]+"${filter[@]}"}
+elif [ "$(dal_host_os)" = windows ]; then
+    # Windows has no LD_LIBRARY_PATH: the loader takes libLiteRt.dll off PATH.
+    # A POSIX entry is fine here, MSYS converts PATH for the native child.
+    #
+    # Debug, not release, and this is the one host where that is true: release
+    # runs nothing here at all (the guard below explains why), so the choice is
+    # not "fast or slow" but "slow or nothing". It does cost real time, because
+    # the DSP frontends are bounds-checked triple loops that run ~170x slower
+    # unoptimized, which is what naming a single model is for.
+    # DAL_SWIFT_TEST_CONFIG=release re-checks whether a newer toolchain has
+    # fixed the release path; the guard below still catches it if not.
+    config="${DAL_SWIFT_TEST_CONFIG:-debug}"
+    eval "$(dal_litert_link_flags)"
+    log=$(mktemp)
+    status=0
+    PATH="$PWD/$(dal_litert_dir):$PATH" \
+        swift test --scratch-path .build-host -c "$config" --disable-xctest \
+        ${filter[@]+"${filter[@]}"} ${litert_flags[@]+"${litert_flags[@]}"} \
+        2>&1 | tee "$log" || status=$?
+
+    # Before any exit below: SwiftPM copies every resource bundle into the
+    # working directory as well as the scratch path. See dal_sweep_bundle_leaks.
+    dal_sweep_bundle_leaks .build-host
+
+    # In release, SwiftPM on Windows never links the test target into its own
+    # runner: <Target>Tests.dll is built and then nothing imports it, so
+    # swift-testing scans a process holding no test records, every binary
+    # reports "0 tests in 0 suites", and the whole run exits 0. A green suite
+    # that executed nothing is worse than a red one, so fail on it. Reproduced
+    # on Swift 6.4 with a two-file package, so it is the configuration and not
+    # anything in this repo; neither /OPT:NOREF nor forcing the import library
+    # in brings the import back. Kept for the debug path too: if discovery ever
+    # breaks there, the same silent pass is the failure mode.
+    discovered=$(grep -cE "Test run with [1-9]" "$log" || true)
+    rm -f "$log"
+    [ "$status" = 0 ] || exit "$status"
+    if [ "$discovered" = 0 ]; then
+        echo >&2
+        echo "error: every test binary ran and discovered zero tests, so this $config run" >&2
+        echo "       proves nothing. On Windows, SwiftPM does not link the test targets" >&2
+        echo "       into their runners in release, which is why this task defaults to" >&2
+        echo "       debug here. Unset DAL_SWIFT_TEST_CONFIG to get that default back." >&2
+        exit 1
+    fi
 else
     litert=$(dal_litert_dir)
     LD_LIBRARY_PATH="$litert${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-        swift test --scratch-path .build-host -c release --disable-xctest -Xlinker "-L$litert"
+        swift test --scratch-path .build-host -c release --disable-xctest \
+        ${filter[@]+"${filter[@]}"} -Xlinker "-L$litert"
 fi

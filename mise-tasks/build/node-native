@@ -21,6 +21,18 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 #     already too new (2.35). Guarded by the ceiling check below;
 #   * link `-z nodelete` so the process does not dlclose the static Swift
 #     runtime at shutdown, which segfaults on natural exit on some glibc builds.
+
+# No Windows lane: the npm packages ship natives for linux-x64, linux-arm64 and
+# darwin-arm64 (the three js/src/native.js names), and nothing consumes a
+# win32-x64 core today. Not a toolchain limit - `swift build --product
+# <Product>Node` does produce <Product>Node.dll on a Windows host, which
+# js/src/native.js already knows how to name - but shipping it is a packaging
+# decision, so this skips rather than staging an artifact no package declares.
+if [ "$(dal_host_os)" = windows ]; then
+    echo "skip: the npm packages ship no win32-x64 native core"
+    exit 0
+fi
+
 dal_vendor_litert
 arch=$(dal_arch)
 
@@ -42,7 +54,7 @@ for model in $(dal_select "${usage_model:-all}" node); do
     product=$(dal_product "$model")
     echo "== ${product}Node =="
 
-    if [ "$(uname)" = Darwin ]; then
+    if [ "$(dal_host_os)" = darwin ]; then
         dest="packages/$model-node/native/darwin-$arch"
         rm -rf "$dest" && mkdir -p "$dest"
         swift build --scratch-path .build-host -c release --product "${product}Node" ${traits[@]+"${traits[@]}"} \

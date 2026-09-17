@@ -3,7 +3,7 @@
 # ordinary shell scripts (`mise tasks` lists them, `mise tasks info <name>` shows
 # one), sharing Tools/dal.sh.
 #
-#   mise run test:swift          the suite on this host (macOS: Core ML, Linux: LiteRT)
+#   mise run test:swift [model]  the suite on this host (macOS: Core ML, else LiteRT)
 #   mise run test:ios            the suite on an iOS Simulator
 #   mise run test:wasi           the suite on wasm32-unknown-wasi under Node
 #   mise run test:android        the on-device suites (needs an emulator/device)
@@ -27,6 +27,26 @@
 # .github/workflows/release.yml publishes everything at that version: the GitHub
 # Release (which is the SwiftPM release), ai.desertant:* on Maven Central, and
 # @desert-ant-labs/* on npm. VERSION is the single source of that number.
+#
+# Build hosts. macOS and Linux run everything. A Windows host is a first-class
+# but partial lane: `mise run build:swift` builds every target natively against
+# the LiteRT runtime that Tools/dal.sh vendors out of the win_amd64 wheel, and
+# the import library it needs is generated from the DLL's export table with the
+# llvm-readobj and llvm-lib that ship in the Swift toolchain, so no MSVC
+# developer prompt is involved. The other three skip with a reason: there is no
+# win32-x64 npm native to stage, the Android cross-compile has no unattended
+# Windows toolchain install, and the wasm build needs symbolic links (turn on
+# Developer Mode) plus a Swift release that has a published wasm SDK. `mise run
+# build` stays green on all three hosts and builds what each one can.
+#
+# `mise run test` on Windows runs every check and suite but test:wasi and
+# test:browser, which skip for the same wasm reasons. test:swift is the one that
+# changes shape: it runs debug there, because SwiftPM does not link a test target
+# into its runner on Windows in release, so swift-testing scans a process with no
+# test records and every binary reports "0 tests in 0 suites" and exits 0. Debug
+# is not a preference on that host, it is the only configuration that runs
+# anything; the task also fails outright on a zero-discovery run rather than
+# calling it a pass.
 #
 # Toolchains differ per task on purpose. test:swift and test:ios use the full
 # Xcode toolchain (Apple frameworks, Core ML), so they pin no mise `swift`. The

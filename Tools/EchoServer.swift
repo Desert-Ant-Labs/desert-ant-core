@@ -7,9 +7,12 @@
 // Standalone (compiled ad-hoc with `swiftc`, not a SwiftPM target) so it stays
 // out of the library/iOS/wasm build graph. It runs as a separate host process;
 // the tests reach it over localhost — including the wasm run, where Node's
-// `fetch` hits the host. Raw POSIX sockets + Dispatch, no Foundation.
+// `fetch` hits the host. Raw sockets, no Dispatch and no Foundation: POSIX
+// everywhere, Winsock on Windows, behind the aliases below.
 
-#if canImport(Darwin)
+#if os(Windows)
+import WinSDK
+#elseif canImport(Darwin)
 import Darwin
 #elseif os(Android)
 import Android
@@ -17,6 +20,37 @@ import Android
 import Glibc
 #elseif canImport(Musl)
 import Musl
+#endif
+
+// Winsock is BSD sockets under other names: a socket is an unsigned handle and
+// not a file descriptor, every length is Int32, closesocket replaces close, and
+// nothing works before WSAStartup. Alias those four differences here so the
+// server below stays one implementation rather than two.
+#if os(Windows)
+typealias SocketHandle = SOCKET
+let invalidSocket = SocketHandle.max
+func socketClose(_ s: SocketHandle) { _ = closesocket(s) }
+func socketRecv(_ s: SocketHandle, _ buf: UnsafeMutableRawPointer?, _ n: Int) -> Int {
+    Int(recv(s, buf?.assumingMemoryBound(to: CChar.self), Int32(n), 0))
+}
+func socketSend(_ s: SocketHandle, _ buf: UnsafeRawPointer?, _ n: Int) -> Int {
+    Int(send(s, buf?.assumingMemoryBound(to: CChar.self), Int32(n), 0))
+}
+func writeStderr(_ buf: UnsafeRawPointer?, _ n: Int) { _ = _write(2, buf, UInt32(n)) }
+
+var wsaData = WSADATA()
+guard WSAStartup(0x0202, &wsaData) == 0 else { fatalError("WSAStartup() failed") }
+#else
+typealias SocketHandle = Int32
+let invalidSocket: SocketHandle = -1
+func socketClose(_ s: SocketHandle) { _ = close(s) }
+func socketRecv(_ s: SocketHandle, _ buf: UnsafeMutableRawPointer?, _ n: Int) -> Int {
+    recv(s, buf, n, 0)
+}
+func socketSend(_ s: SocketHandle, _ buf: UnsafeRawPointer?, _ n: Int) -> Int {
+    send(s, buf, n, 0)
+}
+func writeStderr(_ buf: UnsafeRawPointer?, _ n: Int) { _ = write(2, buf, n) }
 #endif
 
 let port: UInt16 = CommandLine.arguments.count > 1 ? (UInt16(CommandLine.arguments[1]) ?? 8199) : 8199
@@ -28,19 +62,36 @@ let streamType = SOCK_STREAM
 #endif
 
 let listenFD = socket(AF_INET, streamType, 0)
-guard listenFD >= 0 else { fatalError("socket() failed") }
+guard listenFD != invalidSocket else { fatalError("socket() failed") }
 
 var yes: Int32 = 1
+#if os(Windows)
+withUnsafeBytes(of: &yes) {
+    _ = setsockopt(
+        listenFD, SOL_SOCKET, SO_REUSEADDR,
+        $0.baseAddress?.assumingMemoryBound(to: CChar.self), Int32($0.count))
+}
+#else
 setsockopt(listenFD, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+#endif
 
 var addr = sockaddr_in()
-addr.sin_family = sa_family_t(AF_INET)
 addr.sin_port = port.bigEndian
+#if os(Windows)
+addr.sin_family = ADDRESS_FAMILY(AF_INET)
+addr.sin_addr.S_un.S_addr = UInt32(0x7f00_0001).bigEndian // 127.0.0.1
+#else
+addr.sin_family = sa_family_t(AF_INET)
 addr.sin_addr.s_addr = in_addr_t(0x7f00_0001).bigEndian // 127.0.0.1
+#endif
 
 let didBind = withUnsafePointer(to: &addr) { p in
     p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-        bind(listenFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        #if os(Windows)
+            bind(listenFD, $0, Int32(MemoryLayout<sockaddr_in>.size))
+        #else
+            bind(listenFD, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        #endif
     }
 }
 guard didBind == 0 else { fatalError("bind() failed on port \(port)") }
@@ -48,9 +99,13 @@ guard listen(listenFD, 16) == 0 else { fatalError("listen() failed") }
 
 // Clean shutdown: SIGTERM/SIGINT (the task's `kill`) close the socket and exit 0;
 // ignore SIGPIPE so a client disconnecting mid-write can't kill the server.
+// Windows has neither: there is no SIGPIPE, and the kill that stops this is a
+// TerminateProcess, which no handler gets to see. The OS closes the socket.
+#if !os(Windows)
 signal(SIGPIPE, SIG_IGN)
-signal(SIGTERM) { _ in close(listenFD); _exit(0) }
-signal(SIGINT) { _ in close(listenFD); _exit(0) }
+signal(SIGTERM) { _ in socketClose(listenFD); _exit(0) }
+signal(SIGINT) { _ in socketClose(listenFD); _exit(0) }
+#endif
 
 FileHandleWriteStderr("echo-server listening on 127.0.0.1:\(port)\n")
 
@@ -59,15 +114,15 @@ FileHandleWriteStderr("echo-server listening on 127.0.0.1:\(port)\n")
 // and avoids a Dispatch dependency that isn't available under every toolchain.
 while true {
     let client = accept(listenFD, nil, nil)
-    if client < 0 { break }
+    if client == invalidSocket { break }
     handle(client)
-    close(client)
+    socketClose(client)
 }
 
-func handle(_ fd: Int32) {
+func handle(_ fd: SocketHandle) {
     var data = [UInt8]()
     var chunk = [UInt8](repeating: 0, count: 4096)
-    func recvChunk() -> Int { chunk.withUnsafeMutableBytes { recv(fd, $0.baseAddress, $0.count, 0) } }
+    func recvChunk() -> Int { chunk.withUnsafeMutableBytes { socketRecv(fd, $0.baseAddress, $0.count) } }
 
     var split = indexOfCRLFCRLF(data)
     while split == nil {
@@ -112,12 +167,12 @@ func handle(_ fd: Int32) {
     sendAll(fd, out)
 }
 
-func sendAll(_ fd: Int32, _ bytes: [UInt8]) {
+func sendAll(_ fd: SocketHandle, _ bytes: [UInt8]) {
     guard !bytes.isEmpty else { return }
     bytes.withUnsafeBytes { raw in
         var sent = 0
         while sent < raw.count {
-            let n = send(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent, 0)
+            let n = socketSend(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent)
             if n <= 0 { break }
             sent += n
         }
@@ -148,5 +203,5 @@ func splitCRLFLines(_ b: [UInt8]) -> [[UInt8]] {
 
 func FileHandleWriteStderr(_ s: String) {
     let bytes = Array(s.utf8)
-    bytes.withUnsafeBytes { _ = write(2, $0.baseAddress, $0.count) }
+    bytes.withUnsafeBytes { writeStderr($0.baseAddress, $0.count) }
 }

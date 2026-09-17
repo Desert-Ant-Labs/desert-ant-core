@@ -1,10 +1,15 @@
-# Vendor libLiteRt.dll for Windows x64 into Vendor/litert/lib/windows-x64,
-# mirroring dal_vendor_litert in Tools/dal.sh (which handles Linux). The runtime
-# ships in the ai-edge-litert PyPI wheel; the win_amd64 wheel carries
-# libLiteRt.dll at ai_edge_litert/. Windows additionally needs an import
-# library (LiteRt.lib) generated from the DLL's export table, because link.exe
-# cannot link against a bare DLL; that step needs dumpbin/lib from an MSVC
-# developer environment (CI: ilammy/msvc-dev-cmd).
+# Vendor libLiteRt.dll for Windows x64 into Vendor/litert/lib/windows-x64. The
+# runtime ships in the ai-edge-litert PyPI wheel; the win_amd64 wheel carries
+# libLiteRt.dll at ai_edge_litert/. Windows additionally needs an import library
+# (LiteRt.lib) generated from the DLL's export table, because link.exe cannot
+# link against a bare DLL; that step needs dumpbin/lib from an MSVC developer
+# environment (CI: ilammy/msvc-dev-cmd).
+#
+# This is the CI path only, and it is a second implementation of what
+# dal_vendor_litert in Tools/dal.sh now does on a Windows host - with pip
+# instead of uv, and with dumpbin/lib instead of the llvm-readobj and llvm-lib
+# that ship in the Swift toolchain. Keep the two in step, or fold the Windows
+# job in .github/workflows/ci.yml onto mise and delete this file.
 $ErrorActionPreference = "Stop"
 
 $version = if ($env:DAL_LITERT_VERSION) { $env:DAL_LITERT_VERSION } else { "2.1.6" }

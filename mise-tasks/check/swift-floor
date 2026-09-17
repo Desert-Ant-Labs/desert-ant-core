@@ -30,11 +30,21 @@ case "$floor" in
         ;;
 esac
 
+# The pin above is scoped os=["linux"], and mise ships no Swift for Windows at
+# all, so a Windows host would build this with whatever toolchain is on PATH and
+# report "ok: builds on its advertised minimum" about a compiler that is not the
+# minimum. Refusing to prove the wrong thing is the whole point of the check.
+if [ "$(dal_host_os)" = windows ]; then
+    echo "skip: mise cannot pin Swift $floor on Windows, and this check is only"
+    echo "      meaningful on the toolchain it names. Run it on Linux or in CI."
+    exit 0
+fi
+
 # The dynamic products link LiteRT, so vendor it exactly as build:swift does -
 # a check that skipped linking would miss anything the linker only sees.
 dal_vendor_litert
-litert=$(dal_litert_dir)
+eval "$(dal_litert_link_flags)"
 
 echo "== building with Swift $(swift --version | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1), the floor README.md promises =="
-swift build --scratch-path .build-floor ${litert:+-Xlinker "-L$litert"}
+swift build --scratch-path .build-floor ${litert_flags[@]+"${litert_flags[@]}"}
 echo "ok: the package builds on its advertised minimum Swift"

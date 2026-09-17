@@ -405,7 +405,13 @@ export function replaceMarked(text, body, markers = MARKERS) {
   const start = text.indexOf(markers.start);
   const end = text.indexOf(markers.end);
   if (start === -1 || end === -1) throw new Error(`missing ${markers.start} / ${markers.end} markers`);
-  return text.slice(0, start) + `${markers.start}\n${body}\n` + text.slice(end);
+  // Splice with the host text's own line ending, never a bare newline. Git for
+  // Windows checks this repo out CRLF (core.autocrlf defaults on there), and an
+  // LF-only block spliced into a CRLF file makes check:docs call every page
+  // stale on every run, which docs:render then cannot fix.
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const block = `${markers.start}\n${body}\n`.replaceAll("\n", eol);
+  return text.slice(0, start) + block + text.slice(end);
 }
 
 /// Every generated documentation file, as path -> full new contents. Render and

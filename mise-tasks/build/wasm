@@ -16,6 +16,21 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # generates the JS glue and .d.ts for a model's `@JS` entry points shells out to
 # it, and fails the build with a config hint if it is not on PATH.
 export DAL_WASM_BUILD=1
+
+# SwiftPM checks JavaScriptKit out with libgit2 and that tree carries symlinks,
+# so a Windows host without the symlink privilege dies in a wall of "unable to
+# create symlink ... Permission denied" before a line is compiled. Say what is
+# missing instead, and skip: everything else in `mise run build` still runs.
+if ! dal_can_symlink; then
+    echo "skip: this host cannot create symbolic links, which SwiftPM needs to check out"
+    echo "      JavaScriptKit. Turn on Settings > System > For developers > Developer Mode"
+    echo "      (it grants SeCreateSymbolicLinkPrivilege), start a new shell, and re-run."
+    echo "      Note the swift pin above is a no-op on Windows - mise has no Swift there -"
+    echo "      so this will then run on whatever toolchain is on PATH, and only a version"
+    echo "      that swift.org publishes a wasm SDK for will get past dal_wasm_sdk."
+    exit 0
+fi
+
 sdk=$(dal_wasm_sdk)
 
 # Every model with a Web entry, not just the ones with an npm package: a model

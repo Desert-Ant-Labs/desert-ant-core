@@ -68,11 +68,27 @@ const die = (m) => {
   process.exit(1);
 };
 
+// Windows has no extensionless executables: `npm` and every node_modules/.bin
+// entry is a .cmd shim there, and since the CVE-2024-27980 mitigation Node
+// refuses to spawn one without a shell (EINVAL). Those go through cmd.exe, with
+// every argument quoted because a shell re-splits on whitespace and these paths
+// run through %TEMP% and a home directory. The command itself is quoted only
+// when it is a path: quoting a bare name makes cmd.exe resolve it against the
+// current directory instead of PATH, and npm.cmd then computes its own location
+// from there and cannot find npm-cli.js. Anything carrying an extension skips
+// the shell entirely, which matters most for process.execPath: it is handed a
+// whole program on -e, and no shell may get its hands on that.
+const SHIMMED = (cmd) => process.platform === "win32" && !path.extname(cmd);
+const quote = (s) => `"${s}"`;
+
 function run(cmd, cmdArgs, opts = {}) {
-  const res = spawnSync(cmd, cmdArgs, {
+  const shell = SHIMMED(cmd);
+  const spawnCmd = shell && (cmd.includes(path.sep) || cmd.includes("/")) ? quote(cmd) : cmd;
+  const res = spawnSync(spawnCmd, shell ? cmdArgs.map(quote) : cmdArgs, {
     encoding: "utf8",
     maxBuffer: 64 * 1024 * 1024,
     ...opts,
+    shell,
     env: { ...process.env, ...opts.env },
   });
   if (res.error) throw res.error;

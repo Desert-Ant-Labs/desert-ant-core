@@ -19,6 +19,7 @@ import DesertAnt
         #expect(ClearModel.files[.apple] == [studio.coreML + "/"])
     }
 
+    #if canImport(CoreML)
     /// A Core AI asset that will not load must not fail the enhance: the Core ML
     /// artifact beside it takes over, and the result says which one ran.
     @Test func fallsBackToCoreMLWhenTheCoreAIAssetCannotLoad() async throws {
@@ -33,6 +34,7 @@ import DesertAnt
         #expect(result.modelRuntime == ModelRuntime.platformDefault)
         #expect(result.modelVariant == .clearStudio)
     }
+    #endif
 
     /// With the real asset in place, iOS 27 and macOS 27 run Core AI, and its
     /// output agrees with Core ML's on the same audio. Needs a local asset:
