@@ -7,7 +7,8 @@ Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Node |
+| **Languages** | 9 |
 | **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/align) |
 
 ## Install
@@ -19,6 +20,12 @@ Word-timestamp refinement for Apple's SpeechAnalyzer pipeline.
 ```
 
 Then add the `Align` product to your target.
+
+**JavaScript** ([requirements](../../README.md#javascript-and-typescript))
+
+```bash
+npm i @desert-ant-labs/align
+```
 <!-- model:end -->
 
 ## Usage

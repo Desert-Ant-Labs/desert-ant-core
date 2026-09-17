@@ -289,9 +289,10 @@ function install(model, version) {
     );
   }
   if (js?.status === "live") {
-    // A pure-JavaScript model has no inference runtime to bring along, so it is
-    // one install line rather than a browser/Node pair.
-    const lines = model.runtime.includes("pure")
+    // One install line unless there are two builds to install: a pure model
+    // brings no inference runtime, and a node-only model has no browser build.
+    const web = js.platforms?.includes("web") ?? true;
+    const lines = model.runtime.includes("pure") || !web
       ? [`npm i ${js.package}`]
       : [
           `npm i ${js.package} @litertjs/core   # browser`,

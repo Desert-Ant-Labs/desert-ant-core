@@ -1,0 +1,64 @@
+{
+  "name": "@desert-ant-labs/align",
+  "version": "3.1.0",
+  "desertant": {
+    "nodeOnly": true
+  },
+  "description": "On-device word-timestamp refinement for JavaScript: refines Whisper, Parakeet or any transcript's word times against the audio. Server-side in Node.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://desertant.com/models/align/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+    "directory": "packages/align-node"
+  },
+  "keywords": [
+    "word-timestamps",
+    "forced-alignment",
+    "whisper",
+    "speech",
+    "on-device",
+    "litert"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "DAL_USAGE_DISABLED=1 node --test test/align.test.mjs test/browser-in-node.test.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./native": {
+      "types": "./index.d.ts",
+      "default": "./node.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    }
+  },
+  "files": [
+    "align.js",
+    "browser.js",
+    "codec.js",
+    "node.js",
+    "index.d.ts",
+    "native",
+    "test/clean-install.mjs",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "dependencies": {
+    "@desert-ant-labs/core": "^3.1.0"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0"
+  }
+}
