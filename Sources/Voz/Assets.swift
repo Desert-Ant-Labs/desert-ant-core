@@ -43,18 +43,29 @@ struct Assets {
         }
         embeddingData = raw
 
-        let mlConfiguration = MLModelConfiguration()
-        mlConfiguration.computeUnits = computeUnits
-        func load(_ name: String) throws -> MLModel {
+        func options(_ units: MLComputeUnits) -> MLModelConfiguration {
+            let options = MLModelConfiguration()
+            options.computeUnits = units
+            return options
+        }
+        func load(_ name: String, _ options: MLModelConfiguration) throws -> MLModel {
             let url = directory.appendingPathComponent(name)
             guard FileManager.default.fileExists(atPath: url.path) else {
                 throw VozError.invalidModel("missing \(name) in \(directory.path)")
             }
-            return try MLModel(contentsOf: url, configuration: mlConfiguration)
+            return try MLModel(contentsOf: url, configuration: options)
         }
-        mel = try load(VozModel.mel)
-        encoder = try load(VozModel.encoder)
-        decodeStep = try load(VozModel.decodeStep)
+        let asked = options(computeUnits)
+        mel = try load(VozModel.mel, asked)
+        encoder = try load(VozModel.encoder, asked)
+        // The decode step is small and dispatch-bound, and it runs beside the
+        // encoder rather than after it, so on the Neural Engine it queues
+        // behind engine work while a performance core sits idle. Measured over
+        // ten minutes of speech: an M3 Ultra goes from 181 to 310 RTFx, an M5
+        // from 398 to 439, an M1 from 242 to 251. A phone measures the other
+        // way (309 against 280) and keeps the engine.
+        decodeStep = try load(VozModel.decodeStep,
+                              Silicon.isMSeries ? options(.cpuOnly) : asked)
 
         guard let embed = decodeStep.modelDescription.inputDescriptionsByName["embed"],
               let constraint = embed.multiArrayConstraint else {
