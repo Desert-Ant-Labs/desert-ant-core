@@ -639,11 +639,16 @@
           "status": "live",
           "package": "Voz",
           "platforms": [
-            "apple"
+            "apple",
+            "linux"
           ]
         },
         "kotlin": {
-          "status": "none"
+          "status": "live",
+          "package": "ai.desertant:voz",
+          "platforms": [
+            "android"
+          ]
         },
         "js": {
           "status": "none"
@@ -653,11 +658,12 @@
         "source": "hub",
         "repo": "desert-ant-labs/voz",
         "url": "https://huggingface.co/desert-ant-labs/voz",
-        "revision": "v0.1.0",
+        "revision": "v0.2.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": [
-        "coreml"
+        "coreml",
+        "litert"
       ],
       "variants": [],
       "hub": {
@@ -668,6 +674,7 @@
           "word-timestamps",
           "on-device",
           "core-ml",
+          "litert",
           "apple-neural-engine",
           "multilingual"
         ],

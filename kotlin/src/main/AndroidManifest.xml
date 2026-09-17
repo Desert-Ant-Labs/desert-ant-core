@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Since Android 12, an app may only dlopen a vendor library it
+             declares. LiteRT's GPU accelerator opens the OpenCL ICD at
+             runtime, and without these entries the open fails inside the
+             app's linker namespace and the accelerator silently falls back
+             to OpenGL, whose tensor buffers the runtime cannot allocate -
+             so the GPU request quietly became CPU on every OpenCL device.
+             Declared here in the core AAR so every consumer inherits them
+             through manifest merging; not required, so devices without
+             OpenCL install and run exactly as before. -->
+        <uses-native-library android:name="libOpenCL.so" android:required="false" />
+        <uses-native-library android:name="libOpenCL-pixel.so" android:required="false" />
+    </application>
+</manifest>

@@ -52,11 +52,13 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
             if let modelBytes {
                 return modelBytes.withUnsafeBytes { bytes in
                     dal_lrt_create(nil, bytes.baseAddress, bytes.count,
-                                   accelerator.rawValue, err.baseAddress, Int32(err.count))
+                                   accelerator.rawValue, 0, 0,
+                                   err.baseAddress, Int32(err.count))
                 }
             } else {
                 return modelPath.withCString { path in
-                    dal_lrt_create(path, nil, 0, accelerator.rawValue, err.baseAddress, Int32(err.count))
+                    dal_lrt_create(path, nil, 0, accelerator.rawValue, 0, 0,
+                                   err.baseAddress, Int32(err.count))
                 }
             }
         }
@@ -131,6 +133,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         case 4: element = .int64
         default: throw InferenceError.runFailed("unsupported LiteRT output element type")
         }
+
         return try Tensor(element: element, shape: shape, bytes: bytes)
     }
 }

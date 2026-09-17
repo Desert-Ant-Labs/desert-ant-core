@@ -49,6 +49,17 @@ dal_node_pure() { # <model>
     grep -q '"pure"[[:space:]]*:[[:space:]]*true' "packages/$1-node/package.json" 2> /dev/null
 }
 
+# Models whose Android natives are too heavy for the every-commit CI lane (voz
+# is a 1.5 GB model and the largest Swift module in the repo). The "all"
+# expansion in the Android tasks skips them unless DAL_LONG_TESTS=1, the same
+# opt-in the Swift suites' .longRunning trait reads; the release workflow sets
+# it, so a published AAR always carries its natives. Naming the model
+# explicitly (mise run build:android-natives voz) always builds it.
+dal_android_deferred() { # <model>
+    [ "${DAL_LONG_TESTS:-}" = 1 ] && return 1
+    [ "$1" = voz ]
+}
+
 # "emo" -> "Emo". The Swift product/target name, and the native library prefix.
 dal_product() { echo "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]')${1:1}"; }
 
@@ -125,7 +136,7 @@ dal_wasm_sdk() {
 # Vendor the host's libLiteRt.so into Vendor/litert/lib/<linux-arch>. Apple hosts
 # need nothing: the Swift SDK and the Node native both run Core ML there.
 dal_vendor_litert() {
-    local version="${DAL_LITERT_VERSION:-2.1.6}" arch wheel dest tmp
+    local version="${DAL_LITERT_VERSION:-2.2.0}" arch wheel dest tmp
     [ "$(uname)" = Darwin ] && return 0
     case "$(uname -m)" in
         x86_64 | amd64) arch=linux-x64 wheel=x86_64-manylinux_2_28 ;;

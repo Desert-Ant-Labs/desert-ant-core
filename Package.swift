@@ -331,7 +331,13 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CLiteRt",
-            linkerSettings: [.linkedLibrary("LiteRt")]
+            linkerSettings: [
+                .linkedLibrary("LiteRt"),
+                // The shim owns a surfaceless EGL context on Android so the
+                // GPU accelerator's GL tensor buffers can be created and
+                // host-mapped (see dal_egl_create in shim.c).
+                .linkedLibrary("EGL", .when(platforms: [.android])),
+            ]
         ),
         .target(
             name: "Inference",
@@ -491,16 +497,26 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz is Apple-only (Core ML, AVFoundation) and, like Align, gets no
-// Android/Node/Web products and no NativeBindings. It bundles nothing: its
-// Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
-// drives Core ML directly rather than going through `InferenceSession`, because
-// preallocated buffers, `outputBackings` and a lane-batched decode loop are not
-// expressible through a generic run(inputs:outputs:) call, and dropping them
-// costs roughly 127x on load and about a third of decode throughput.
+// Voz runs on Apple platforms (Core ML), Android/Linux (LiteRT), and the
+// browser (its own wasm entry point), but stays outside the `models` list: it
+// drives its backend directly rather than going through `InferenceSession`,
+// because preallocated buffers, `outputBackings` and a lane-batched decode
+// loop are not expressible through a generic run(inputs:outputs:) call, and
+// dropping them costs roughly 127x on load and about a third of decode
+// throughput on Apple. It bundles nothing: its models are downloaded on
+// demand via Sources/Voz/Catalog.swift.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
-] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
+]
+// The dynamic products exist for the Android and Node pipelines only and
+// follow the same wasm gate as the models' (dynamic libraries cannot link for
+// wasm32); the web entry point takes the opposite side of the same gate.
++ (noJavaScriptKit
+    ? [
+        .library(name: "VozAndroid", type: .dynamic, targets: ["Voz"]),
+        .library(name: "VozNode", type: .dynamic, targets: ["Voz"]),
+    ]
+    : [.executable(name: "VozWeb", targets: ["VozWeb"])])
 
 let vozTargets: [Target] = [
     .target(
@@ -508,6 +524,8 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
+            .byName(name: "NativeBindings"),
+            .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
         ],
         // The wasm entry point is excluded from the library for the same reason
         // every other model's is: it is an executable target of its own, and a
