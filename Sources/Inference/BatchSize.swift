@@ -44,7 +44,7 @@ public enum BatchSize {
     /// keeps the behaviour the code had before any of this existed.
     public static func next(model: String) -> Int {
         if let override = ProcessInfo.processInfo.environment["DAL_BATCH_SIZE"],
-           let size = Int(override), size > 0 { return size }
+           let size = Int(override), size > 0 { return min(size, candidates.max() ?? 1) }
         let measured = Measurements.read(model: model, axis: axis)
         if let untried = candidates.first(where: { measured[String($0)] == nil }) { return untried }
         guard let best = measured.values.min() else { return 1 }

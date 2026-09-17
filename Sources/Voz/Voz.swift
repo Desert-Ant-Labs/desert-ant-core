@@ -1,7 +1,7 @@
 #if canImport(CoreML)
 import CoreML
-import Foundation
 #endif
+import Foundation
 import DesertAnt
 
 public enum VozError: Error, CustomStringConvertible, Sendable {
@@ -12,14 +12,12 @@ public enum VozError: Error, CustomStringConvertible, Sendable {
     public var description: String {
         switch self {
         case .unsupportedPlatform:
-            return "Voz requires Core ML and runs on Apple platforms only"
+            return "Voz has no inference backend on this platform"
         case .invalidModel(let m): return "invalid model: \(m)"
         case .invalidAudio(let m): return "invalid audio: \(m)"
         }
     }
 }
-
-#if canImport(CoreML)
 
 /// On-device speech recognition: a transcript with word-level timestamps,
 /// running entirely on the Neural Engine.
@@ -57,10 +55,34 @@ public actor Voz {
     }
 
     private let pipeline: Pipeline
+    // Actor isolation alone is not a lock across awaits. Browser inference and
+    // the native decode join both suspend while these buffers are still in use.
+    private var transcribing = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    private func acquirePipeline() async {
+        if transcribing {
+            await withCheckedContinuation { waiting.append($0) }
+        } else {
+            transcribing = true
+        }
+    }
+
+    private func releasePipeline() {
+        if waiting.isEmpty {
+            transcribing = false
+        } else {
+            waiting.removeFirst().resume()
+        }
+    }
     /// One turnstile per instance. See UsageTracking.swift: this model drives
     /// Core ML directly rather than through `Inference`, so it opens its own
     /// rather than inheriting the session factory's.
+    // Usage is reported through Core ML's own client, which a browser build does
+    // not have: UsageTracking.swift is `#if canImport(CoreML)` whole.
+    #if canImport(CoreML)
     private let usage: UsageTurnstile?
+    #endif
     /// Audio rate the model expects. Input at another rate is resampled.
     public nonisolated let sampleRate: Double
 
@@ -102,6 +124,7 @@ public actor Voz {
 
     // MARK: - Creation
 
+    #if canImport(CoreML)
     /// Load the model, downloading it first if needed.
     public init(
         directory: String? = nil,
@@ -116,10 +139,39 @@ public actor Voz {
 
     /// Load from a directory of model files you manage yourself.
     public init(modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
-        let assets = try Assets(directory: modelDirectory, computeUnits: computeUnits)
-        pipeline = try Pipeline(assets: assets)
+        func read(_ name: String) throws -> Data {
+            try Data(contentsOf: modelDirectory.appendingPathComponent(name))
+        }
+        let assets = try Assets(meta: try read("meta.json"), vocab: try read("vocab.json"),
+                                embeddingBytes: try Data(
+                                    contentsOf: modelDirectory
+                                        .appendingPathComponent("embedding.f16"),
+                                    options: .mappedIfSafe))
+        // The engine binds these buffers into its feature providers and output
+        // backings, so both halves have to be handed the same set.
+        let lanes = try CoreMLEngine.declaredLanes(directory: modelDirectory,
+                                                   computeUnits: computeUnits)
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes)
+        let engine = try CoreMLEngine(directory: modelDirectory, computeUnits: computeUnits,
+                                      buffers: buffers, overlapsDecode: Pipeline.overlapsDecode)
+        pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
+        #if canImport(CoreML)
         usage = makeTurnstile()
+        #endif
+    }
+    #endif
+
+    /// Load from sidecars and an engine the caller built.
+    ///
+    /// This is the seam the wasm entry point uses: the browser fetched the
+    /// files and compiled the models itself, so there is no directory to read.
+    init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
+        pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
+        sampleRate = Double(assets.configuration.sampleRate)
+        #if canImport(CoreML)
+        usage = makeTurnstile()
+        #endif
     }
 
     // MARK: - Transcription
@@ -128,10 +180,10 @@ public actor Voz {
     public func transcribe(
         samples: [Float],
         progress: @Sendable (Progress) -> Void = { _ in }
-    ) throws -> Result {
+    ) async throws -> Result {
         guard !samples.isEmpty else { throw VozError.invalidAudio("no samples") }
         var stream = ArrayAudioStream(samples)
-        return try transcribe(stream: &stream,
+        return try await transcribe(stream: &stream,
                               duration: Double(samples.count) / sampleRate,
                               progress: progress)
     }
@@ -142,13 +194,18 @@ public actor Voz {
         stream: inout some AudioStream,
         duration: Double,
         progress: @Sendable (Progress) -> Void
-    ) throws -> Result {
+    ) async throws -> Result {
+        await acquirePipeline()
+        defer { releasePipeline() }
+        try Task.checkCancellation()
         // Every public entry point funnels through here, so this is the one
         // place a transcription is counted. Fire-and-forget: the turnstile
         // must never sit between the caller and their transcript.
+        #if canImport(CoreML)
         if let usage { Task { await usage.record() } }
+        #endif
         let started = Date()
-        let (text, words) = try pipeline.run(stream: &stream) {
+        let (text, words) = try await pipeline.run(stream: &stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))
         }
         progress(Progress(fractionCompleted: 1))
@@ -164,4 +221,26 @@ public actor Voz {
     }
 }
 
+#if os(WASI)
+public extension Voz {
+    /// Build a recogniser from sidecars the browser already fetched, running
+    /// the models through the JavaScript host on `globalThis.__vozHost`.
+    ///
+    /// `@_spi` rather than public API: the wasm entry point is the only caller,
+    /// and the shape of this depends on how the host compiles its models.
+    @_spi(VozWeb)
+    static func web(meta: Data, vocab: Data, embedding: Data, lanes: Int,
+                    batch: Int, fused: Bool) async throws -> Voz {
+        guard lanes > 0, batch > 0 else {
+            throw VozError.invalidModel("lane and batch counts must be positive")
+        }
+        let assets = try Assets(meta: meta, vocab: vocab, embeddingBytes: embedding)
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
+                                          batch: batch)
+        let engine = try WasmEngine(configuration: assets.configuration, lanes: lanes,
+                                    batch: batch, fused: fused)
+        engine.bind(melMask: buffers.melMask)
+        return Voz(assets: assets, engine: engine, buffers: buffers)
+    }
+}
 #endif

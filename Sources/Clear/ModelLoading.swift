@@ -84,7 +84,7 @@ public struct ModelAssets: Sendable {
             // Apple silicon without an M in the name is a phone, and a phone
             // pins the engine. Anything else is an Intel or AMD Mac with no
             // engine to choose between, so Core ML's own default stands.
-            #if os(macOS)
+            #if os(macOS) || !canImport(CoreML) || targetEnvironment(simulator)
             return [("all", .all)]
             #else
             return [("ane", .cpuAndNeuralEngine)]
@@ -99,7 +99,7 @@ public struct ModelAssets: Sendable {
         let artifact = variant.artifact(for: runtime)
         // The caller's choice wins; `.all` is the default nobody asked for, so
         // that is the one a measurement is allowed to replace.
-        let placement = computeUnits == .all
+        let placement = computeUnits == .all && artifact.hasSuffix(".mlmodelc")
             ? Placement.next(model: files.path(artifact), candidates: placements)
             : (name: "caller", units: computeUnits)
         var sessions: [any InferenceSession] = []

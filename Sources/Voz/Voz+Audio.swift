@@ -16,13 +16,13 @@ public extension Voz {
         var stream = try FileAudioStream(url: URL(fileURLWithPath: path),
                                          sampleRate: sampleRate)
         let duration = Double(stream.totalSamples ?? 0) / sampleRate
-        return try transcribe(stream: &stream, duration: duration, progress: progress)
+        return try await transcribe(stream: &stream, duration: duration, progress: progress)
         #else
         let samples = try await AudioIO.decode(path: path, sampleRate: sampleRate)
         guard !samples.isEmpty else {
             throw VozError.invalidAudio("\(path) decoded to no audio")
         }
-        return try transcribe(samples: samples, progress: progress)
+        return try await transcribe(samples: samples, progress: progress)
         #endif
     }
 
@@ -39,11 +39,11 @@ public extension Voz {
         samples: [Float],
         sampleRate rate: Double,
         progress: @Sendable (Progress) -> Void = { _ in }
-    ) throws -> Result {
+    ) async throws -> Result {
         let converted = rate == sampleRate
             ? samples
             : Resample.linear(samples, from: rate, to: sampleRate)
-        return try transcribe(samples: converted, progress: progress)
+        return try await transcribe(samples: converted, progress: progress)
     }
 }
 #endif

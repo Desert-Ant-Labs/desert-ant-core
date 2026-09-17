@@ -13,17 +13,24 @@ import Foundation
 /// Best rather than last: a run that happened while the machine was busy should
 /// not condemn a choice forever.
 public enum Measurements {
+    private static let lock = NSLock()
 
     /// Every value tried for `axis`, with the best seconds per item each
     /// reached.
     public static func read(model: String, axis: String) -> [String: Double] {
-        entries()[key(model: model)]?[axis] ?? [:]
+        lock.lock()
+        defer { lock.unlock() }
+        return (entries()[key(model: model)]?[axis] ?? [:]).filter {
+            $0.value.isFinite && $0.value > 0
+        }
     }
 
     /// Record what one run cost. Keeps the lowest seen.
     public static func record(model: String, axis: String, value: String,
                               secondsPerItem: Double) {
-        guard secondsPerItem > 0 else { return }
+        guard secondsPerItem.isFinite, secondsPerItem > 0 else { return }
+        lock.lock()
+        defer { lock.unlock() }
         var all = entries()
         var forMachine = all[key(model: model)] ?? [:]
         var forAxis = forMachine[axis] ?? [:]

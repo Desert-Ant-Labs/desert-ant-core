@@ -45,7 +45,8 @@ enum PlacementProbe {
             for _ in 0..<timedDispatches {
                 let mark = ContinuousClock.now
                 guard (try? model.prediction(from: input)) != nil else { return nil }
-                let elapsed = Double(mark.duration(to: .now).components.attoseconds) / 1e18
+                let duration = mark.duration(to: .now).components
+                let elapsed = Double(duration.seconds) + Double(duration.attoseconds) / 1e18
                 best = min(best, elapsed)
             }
             return best

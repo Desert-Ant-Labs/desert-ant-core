@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(Metal)
+import Metal
+#endif
 
 /// Which processor a model runs on, decided by measuring this machine.
 ///
@@ -39,18 +42,8 @@ public enum Placement {
     /// about a machine with different silicon, which is the mistake this whole
     /// mechanism exists to stop making. A probe costs under a second, once.
     public static var explores: Bool {
-        #if os(macOS)
-        return true
-        #elseif canImport(Darwin)
-        // `hw.machine` is the device, not the chip: an "iPad8,1" and an
-        // "iPad16,6" are both iPads whatever they run, and whether the silicon
-        // is worth exploring is the question the probe answers.
-        var size = 0
-        sysctlbyname("hw.machine", nil, &size, nil, 0)
-        guard size > 0 else { return false }
-        var characters = [CChar](repeating: 0, count: size)
-        sysctlbyname("hw.machine", &characters, &size, nil, 0)
-        return String(cString: characters).hasPrefix("iPad")
+        #if canImport(Metal) && !targetEnvironment(simulator)
+        return MTLCreateSystemDefaultDevice()?.name.hasPrefix("Apple M") == true
         #else
         return false
         #endif
@@ -81,11 +74,24 @@ public enum Placement {
             measured[candidate.name] = cost
         }
         #endif
+        return select(candidates: candidates, measured: measured)
+    }
+
+    /// Kept separate from probing so ordering and the incumbent margin can be
+    /// checked without loading a model or touching the machine's cache.
+    static func select(candidates: [(name: String, units: ComputeUnits)],
+                       measured: [String: Double]) -> (name: String, units: ComputeUnits) {
+        guard let incumbent = candidates.first else { return ("all", .all) }
+        let measured = measured.filter { $0.value.isFinite && $0.value > 0 }
         guard measured[incumbent.name] != nil else { return incumbent }
         let baseline = measured[incumbent.name] ?? .greatestFiniteMagnitude
-        return candidates.dropFirst()
-            .first { (measured[$0.name] ?? .greatestFiniteMagnitude) < baseline * margin }
-            ?? incumbent
+        let fastest = candidates.dropFirst().min {
+            (measured[$0.name] ?? .greatestFiniteMagnitude)
+                < (measured[$1.name] ?? .greatestFiniteMagnitude)
+        }
+        guard let fastest, let cost = measured[fastest.name], cost < baseline * margin
+        else { return incumbent }
+        return fastest
     }
 
     /// Whether there is anything to learn, which there is not when the caller

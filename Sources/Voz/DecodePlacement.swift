@@ -53,6 +53,25 @@ enum DecodePlacement {
         ? [("ane", .cpuAndNeuralEngine), ("cpu", .cpuOnly)]
         : [("ane", .cpuAndNeuralEngine)]
 
+    /// Whether a placement is still untried, which is what decides the order
+    /// the two learned axes run in.
+    ///
+    /// They cannot be learned at once. Both are measured by timing a whole
+    /// transcription, so a run charged to the CPU while the block size happens
+    /// to be exploring is being timed against a different pipeline than the run
+    /// charged to the engine, and the slower block size lands on whichever
+    /// placement drew it. Measured here: interleaved, an M5 recorded the engine
+    /// 7% faster and settled at 397 RTFx, where pinning the CPU gets 440.
+    ///
+    /// So the placement is settled first, at a block of one, and the block size
+    /// is explored afterwards underneath the winner. Two runs then five, rather
+    /// than ten to cover both axes together.
+    static func exploring(model: String) -> Bool {
+        guard ProcessInfo.processInfo.environment["VOZ_DEC_UNITS"] == nil else { return false }
+        let measured = Measurements.read(model: model, axis: axis)
+        return candidates.contains { measured[$0.name] == nil }
+    }
+
     /// The placement to load the decode step with. `VOZ_DEC_UNITS` pins it.
     static func next(model: String) -> (name: String, units: MLComputeUnits) {
         if let pinned = ProcessInfo.processInfo.environment["VOZ_DEC_UNITS"]?.lowercased(),
