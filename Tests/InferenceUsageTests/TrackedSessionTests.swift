@@ -37,6 +37,44 @@ private func testClientFactory(_ sink: Sink) -> (String) -> UsageClient {
 }
 
 struct TrackedSessionTests {
+    @Test func defaultBatchRunsEveryInputInOrder() async throws {
+        let counting = CountingSession()
+        let session: any InferenceSession = counting
+        let outputs = try await session.run(batch: [[:], [:], [:]], outputs: [])
+        #expect(outputs.count == 3)
+        #expect(counting.runs == 3)
+        let empty = try await session.run(batch: [], outputs: [])
+        #expect(empty.isEmpty)
+        #expect(counting.runs == 3)
+    }
+
+    @Test func wrapperPreservesBatchDispatchAndBillsOneCall() async throws {
+        final class Batched: InferenceSession, @unchecked Sendable {
+            var singles = 0
+            var batches = 0
+            func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
+                singles += 1
+                return []
+            }
+            func run(batch: [[String: Tensor]], outputs: [String]) async throws -> [[Tensor]] {
+                batches += 1
+                return batch.map { _ in [] }
+            }
+        }
+        let sink = Sink()
+        let backend = Batched()
+        let tracked = TrackedSession(wrapping: backend, flushAfter: 60,
+                                     clientFactory: testClientFactory(sink))
+        let session: any InferenceSession = tracked
+        let output = try await session.run(batch: [[:], [:], [:]], outputs: [])
+        await tracked.flush()
+        #expect(output.count == 3)
+        #expect(backend.batches == 1)
+        #expect(backend.singles == 0)
+        let calls = sink.events.filter { $0.name == "load" }.compactMap { $0.callCount }.reduce(0, +)
+        #expect(calls == 1)
+    }
+
     @Test func recordsACallPerRunAndSendsOnFlush() async throws {
         let sink = Sink()
         let counting = CountingSession()

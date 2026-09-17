@@ -1,6 +1,7 @@
 #if canImport(CoreML)
 import CoreML
 import Foundation
+import Inference
 
 /// The loaded model: three Core ML programs plus the host-side tables.
 struct Assets {
@@ -23,9 +24,7 @@ struct Assets {
     /// Where the model was loaded from, which identifies it to the
     /// measurements.
     let directory: URL
-    /// Which processor the decode step was loaded on, and so which one the
-    /// transcription it runs should be recorded against. See ``DecodePlacement``.
-    let decodePlacement: String
+
 
     init(directory: URL, computeUnits: MLComputeUnits) throws {
         self.directory = directory
@@ -63,12 +62,12 @@ struct Assets {
         encoder = try load(VozModel.encoder)
 
         // The decode step does not want the same processor as the other two on
-        // every machine, and which one it wants cannot be known without trying:
-        // see `DecodePlacement`.
-        let placement = DecodePlacement.next(model: directory.path)
-        decodePlacement = placement.name
+        // every machine: it is small, dispatch-bound, and it runs *beside* the
+        // encoder rather than after it, so where it belongs depends on whether
+        // there is a performance core spare. See `Placement.overlappedStage`.
         let decodeConfiguration = MLModelConfiguration()
-        decodeConfiguration.computeUnits = placement.units
+        decodeConfiguration.computeUnits = computeUnits == .cpuAndNeuralEngine
+            ? Placement.overlappedStage.mlComputeUnits : computeUnits
         decodeStep = try MLModel(contentsOf: directory.appendingPathComponent(VozModel.decodeStep),
                                  configuration: decodeConfiguration)
 

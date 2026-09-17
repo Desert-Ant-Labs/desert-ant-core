@@ -97,7 +97,10 @@ final class Pipeline {
     /// (each window's encoder output is ~240 KB) and gives progress somewhere to
     /// be reported from, while staying long enough that the decoder's lanes stay
     /// full for all but the last group.
-    private static let batchWindows =
+    ///
+    /// The calibration needs it too: a block's decode drain is charged across a
+    /// group, so how wide a group is decides what a wide block costs.
+    static let groupWindows =
         Int(ProcessInfo.processInfo.environment["VOZ_BATCH_WINDOWS"] ?? "") ?? 64
 
     /// Whether the decode runs on a thread of its own while the encoder feeds
@@ -149,15 +152,6 @@ final class Pipeline {
     private let batchBias: [Buffer]
     private let batchProviders: [MLDictionaryFeatureProvider]
 
-    /// Where the encoder model lives, which identifies it to the block-size
-    /// measurements. See ``BlockSize``.
-    /// What the measurements are recorded against: the model, and where its
-    /// decode step ran. A block size measured with the decode on the engine does
-    /// not describe the same pipeline as one measured with it on the CPU.
-    private let measurementIdentity: String
-    /// Nanoseconds inside the last encoder submission, which is what the block
-    /// size changes. Read by the calibration at load, and by nothing else.
-    private var lastSubmission: UInt64 = 0
 
     private let melProvider: MLDictionaryFeatureProvider
     private let encoderProvider: MLDictionaryFeatureProvider
@@ -168,7 +162,6 @@ final class Pipeline {
 
     init(assets: Assets) throws {
         self.assets = assets
-        measurementIdentity = "\(assets.directory.path)|\(assets.decodePlacement)"
         let c = assets.configuration
         let lanes = assets.decodeLanes
         let hidden = c.predLayers * c.predHidden
@@ -200,7 +193,7 @@ final class Pipeline {
             "mel": MLFeatureValue(multiArray: melOut.array),
             "key_bias": MLFeatureValue(multiArray: keyBias.array),
             "pad_mask": MLFeatureValue(multiArray: padMask.array)])
-        let slots = BatchSize.candidates.max() ?? 1
+        let slots = BatchSize.maximum
         batchMel = try (0..<slots).map { _ in try Buffer([1, c.nMels, 1, c.validFrames]) }
         batchBias = try (0..<slots).map { _ in try Buffer([1, c.encFrames, 1, 1]) }
         let pad = padMask
@@ -327,8 +320,6 @@ final class Pipeline {
             for i in attended..<frames { batchBias[slot].ptr[i] = Element(-40000) }
         }
 
-        let submitted = DispatchTime.now().uptimeNanoseconds
-        defer { lastSubmission = DispatchTime.now().uptimeNanoseconds - submitted }
         guard windows.count > 1 else {
             // One window keeps the single call, whose output backing lands
             // exactly where this wants it with no reshaping at all.
@@ -347,7 +338,7 @@ final class Pipeline {
                 .featureValue(for: "enc_proj")?.multiArrayValue else {
                 throw VozError.invalidModel("the encoder returned no enc_proj")
             }
-            copy(array, to: destination + index * stride, channels: joint, frames: frames)
+            try copy(array, to: destination + index * stride, channels: joint, frames: frames)
         }
     }
 
@@ -360,12 +351,21 @@ final class Pipeline {
     /// rest, which reads as a plausible transcript that is missing words: 1664
     /// of 1701 on the first attempt at this.
     private func copy(_ array: MLMultiArray, to destination: UnsafeMutablePointer<Element>,
-                      channels: Int, frames: Int) {
+                      channels: Int, frames: Int) throws {
+        // Checked rather than assumed: reading this wrong is not a crash, it is
+        // a plausible transcript with words missing, which is the failure this
+        // whole function exists to stop and the hardest kind to notice.
+        guard array.dataType == .float16,
+              array.shape.map(\.intValue) == [1, channels, 1, frames] else {
+            throw VozError.invalidModel(
+                "the encoder returned \(array.shape) as \(array.dataType), "
+                    + "expected [1, \(channels), 1, \(frames)] of float16")
+        }
         let strides = array.strides.map(\.intValue)
         let source = array.dataPointer.assumingMemoryBound(to: Element.self)
         // [1, channels, 1, frames]: the channel stride is what padding inflates.
-        let channelStride = strides.count > 1 ? strides[1] : frames
-        let frameStride = strides.last ?? 1
+        let channelStride = strides[1]
+        let frameStride = strides[3]
         if frameStride == 1 && channelStride == frames {
             destination.update(from: source, count: channels * frames)
             return
@@ -629,17 +629,6 @@ final class Pipeline {
     /// is 230 MB of `Float`, and a video editor has a timeline and its own
     /// buffers to fit alongside it.
     func run(stream: inout some AudioStream, progress: (Double) -> Void) throws -> (String, [Word]) {
-        let runStarted = DispatchTime.now().uptimeNanoseconds
-        var windowsRun = 0
-        defer {
-            // What this placement cost, per window, over the whole run. The
-            // decode step is loaded once per pipeline, so placements can only be
-            // compared across runs - see `DecodePlacement`.
-            DecodePlacement.record(
-                model: assets.directory.path, placement: assets.decodePlacement,
-                secondsPerWindow: Double(DispatchTime.now().uptimeNanoseconds - runStarted)
-                    / 1e9 / Double(Swift.max(1, windowsRun)))
-        }
         let c = configuration
         let frames = c.encFrames
         let stride = c.jointHidden * frames
@@ -692,14 +681,14 @@ final class Pipeline {
             // it is finished: checking `processed < starts.count` first stops
             // after a single batch, which silently truncated any file longer
             // than one, and left the transcript reading perfectly well.
-            while starts.count - processed < Self.batchWindows {
+            while starts.count - processed < Self.groupWindows {
                 let last = starts[starts.count - 1]
                 try ensure(through: last + window + 1)
                 guard available > last + window else { break }
                 starts.append(nextBoundary(after: last) { buffer[$0 - origin] })
             }
             guard processed < starts.count else { break }
-            let group = processed..<Swift.min(processed + Self.batchWindows, starts.count)
+            let group = processed..<Swift.min(processed + Self.groupWindows, starts.count)
             // Everything before this batch is finished with. Releasing here
             // rather than after the batch matters: at that point the boundary
             // list has already been extended to exactly the batch that was just
@@ -728,10 +717,9 @@ final class Pipeline {
             // the two are on different processors this halves the group's cost;
             // where they are not, `overlapsDecode` is false and the work item
             // simply runs here once encoding is done.
-            // What this group will use, and what it cost, which is how the
-            // size for the next one is decided.
-            let blockSize = BatchSize.next(model: measurementIdentity)
-            let groupStarted = DispatchTime.now().uptimeNanoseconds
+            // How many engines there are to fill, which is a fact about the
+            // chip. See ``BatchSize``.
+            let blockSize = BatchSize.forOverlappedEncoder
 
             let gate = WindowGate()
             let decoded = DecodeResult()
@@ -779,11 +767,6 @@ final class Pipeline {
                 throw error
             }
             if Self.overlapsDecode { consume.wait() } else { consume.perform() }
-            // Timed here, with the decode joined: what matters is when the group
-            // is finished, not how fast its encoder submissions were.
-            BatchSize.record(model: measurementIdentity, size: blockSize,
-                             secondsPerItem: Double(DispatchTime.now().uptimeNanoseconds
-                                                    - groupStarted) / 1e9 / Double(group.count))
             if let error = decoded.error { throw error }
 
             var tokens = decoded.tokens
@@ -972,7 +955,6 @@ final class Pipeline {
                          at: at)
                 }
             }
-            windowsRun += group.count
             processed = group.upperBound
         }
         words = clampMonotonic(words)

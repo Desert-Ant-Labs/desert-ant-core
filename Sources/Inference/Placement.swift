@@ -1,104 +1,111 @@
 import Foundation
 
-/// Which processor a model runs on, decided by measuring this machine.
+/// Which processor a model runs on, decided from what the machine is.
 ///
 /// `.all` is not a shortcut to the best device, it is Core ML guessing, and it
 /// guesses badly often enough to matter: over ten minutes of speech on an M3
-/// Ultra, Uhm's detector runs at 626 RTFx at `.all` and 1323 pinned to the GPU.
+/// Ultra, Uhm's detector runs at 529 RTFx at `.all` and 1115 pinned to the GPU.
 /// Nor is the answer a property of the model alone - the same detector gains
-/// 2.1x from the GPU on an Ultra and 1.2x on an M5 - or of the platform, since
+/// 3.0x from the GPU on an Ultra and 1.2x on an M5 - or of the product, since
 /// two Macs of one family can want opposite placements.
 ///
-/// So a placement that has not been tried is tried on the next load, what the
-/// run cost per item is recorded against it, and the best is used from then on.
+/// It is, however, a property of the silicon, and the silicon says what it is.
+/// Core ML reports the Neural Engine's core count, Metal reports the GPU's
+/// family and name, and the kernel reports the CPU's topology. Those are the
+/// terms the answers turn on, they cost nothing to read, and they are right on
+/// the first call of a fresh install - which is the whole point, because the
+/// alternatives are not.
 ///
-/// Two rules keep this honest:
+/// Two of them were built and thrown away before this:
 ///
-/// - The first candidate is the incumbent, and it keeps ties. Samples come from
-///   different runs, so a thermally variable device can rank two placements
-///   backwards by a few percent; a margin large enough to clear that drift means
-///   nothing moves unless the difference is real.
-/// - The caller passes the candidates. Placement changes output - Voz's encoder
-///   transcribes differently on the GPU, and Clear's enhancement differs by
-///   fp16 rounding - so which placements are *allowed* is a correctness question
-///   settled off the device, and only the ranking is measured on it.
+/// - Learning from real transcriptions. Correct, and it bills the user: the
+///   first runs on a machine pay for the answer in proportion to their length,
+///   so a first two-hour recording funds the exploration.
+/// - Probing at load on synthetic input. Cheaper, and still 16 s on an M1 by
+///   the time it could separate the choices that were close, which is 16 s of
+///   staring at a spinner for a 4% decision.
+///
+/// The cost of reading the machine instead is that a chip nobody has measured
+/// gets an answer by extrapolation rather than by test. The thresholds below
+/// are therefore written to fall back to the conservative branch - the Neural
+/// Engine, which is never catastrophic on any model here - whenever a fact
+/// cannot be read or falls outside what has been seen.
 public enum Placement {
 
-    /// Whether this device should spend anything looking for a better placement.
+    /// Where a model whose graph the Neural Engine handles badly should run.
     ///
-    /// A phone should not. Its GPU is 5 to 10 times slower than its engine for
-    /// every model in this package and is drawing the screen off a battery
-    /// while it does it, so there is no candidate worth the look - measured on
-    /// an iPhone 16 Pro, Uhm runs 180 RTFx on the engine and 154 on the GPU,
-    /// Clear 350 against 60.
+    /// Uhm's detector is that kind of graph: the engine is its worst device on
+    /// every machine measured, by 4.6x on an M3 Ultra (243 RTFx against 1115),
+    /// and `.all` does not rescue it because Core ML picks the engine too. Any
+    /// GPU that is not also drawing a phone's screen beats it:
     ///
-    /// An iPad should. It is the one device class here with no measurements at
-    /// all, and it is not a big phone: an M-series iPad carries a desktop GPU,
-    /// and on the two desktops of that size the GPU wins Uhm by 12% on an M1 and
-    /// 33% on an M5. Guessing from the iPhone would be assuming a phone result
-    /// about a machine with different silicon, which is the mistake this whole
-    /// mechanism exists to stop making. A probe costs under a second, once.
-    public static var explores: Bool {
-        #if os(macOS)
-        return true
-        #elseif canImport(Darwin)
-        // `hw.machine` is the device, not the chip: an "iPad8,1" and an
-        // "iPad16,6" are both iPads whatever they run, and whether the silicon
-        // is worth exploring is the question the probe answers.
-        var size = 0
-        sysctlbyname("hw.machine", nil, &size, nil, 0)
-        guard size > 0 else { return false }
-        var characters = [CChar](repeating: 0, count: size)
-        sysctlbyname("hw.machine", &characters, &size, nil, 0)
-        return String(cString: characters).hasPrefix("iPad")
-        #else
-        return false
-        #endif
+    ///                 GPU    .all   engine
+    ///   M1 (8 cores)  132     108       94
+    ///   M5 (10)       369     256      296
+    ///   M3 Ultra (60) 1115    529      243
+    ///   iPhone 16 Pro 154     167      180
+    ///
+    /// The phone is the exception and the reason the test is on GPU width
+    /// rather than on platform: its six cores are the narrowest GPU Apple
+    /// ships, and they have a screen to draw.
+    public static var gpuFriendly: ComputeUnits {
+        let machine = Hardware.current
+        guard machine.hasNeuralEngine else { return .all }
+        // No width threshold: the engine loses to every GPU that is not a
+        // phone's, including an M1's, which is the narrowest there is.
+        return machine.isPhoneClass ? .cpuAndNeuralEngine : .cpuAndGPU
     }
 
-    /// How much better a challenger must measure to displace the incumbent.
-    private static let margin = 0.95
-
-    public static func next(model: String,
-                            candidates: [(name: String, units: ComputeUnits)],
-                            override: String? = nil) -> (name: String, units: ComputeUnits) {
-        guard let incumbent = candidates.first else { return ("all", .all) }
-        // One candidate is not a decision, so do not read a file to make it.
-        guard candidates.count > 1 else { return incumbent }
-        if let override, let pinned = candidates.first(where: { $0.name == override }) {
-            return pinned
-        }
-        var measured = Measurements.read(model: model, axis: axis)
-        // An untried placement is measured here, off a few synthetic dispatches,
-        // rather than by handing it a run: the cost of learning should not grow
-        // with the length of the file the user happened to open first.
-        #if canImport(CoreML)
-        for candidate in candidates where measured[candidate.name] == nil {
-            guard let cost = PlacementProbe.dispatchCost(modelPath: model,
-                                                         units: candidate.units) else { continue }
-            Measurements.record(model: model, axis: axis, value: candidate.name,
-                                secondsPerItem: cost)
-            measured[candidate.name] = cost
-        }
-        #endif
-        guard measured[incumbent.name] != nil else { return incumbent }
-        let baseline = measured[incumbent.name] ?? .greatestFiniteMagnitude
-        return candidates.dropFirst()
-            .first { (measured[$0.name] ?? .greatestFiniteMagnitude) < baseline * margin }
-            ?? incumbent
+    /// Where a model the Neural Engine is good at should run.
+    ///
+    /// Clear is that kind: its enhancement is convolutional and the engine is
+    /// competitive everywhere, so the GPU only wins once it is wide enough to
+    /// out-run the engine outright. The measured boundary sits between the two
+    /// narrowest desktop GPUs:
+    ///
+    ///                  GPU   engine   .all
+    ///   M1 (8 cores)   171      250    251
+    ///   M5 (10)        453      412    397
+    ///   M3 Ultra (60)  520      245    354
+    ///   iPhone 16 Pro   60      350    347
+    ///
+    /// Ten is a measured boundary, not a derived one: an M1 loses a third on
+    /// its GPU and an M5 gains a tenth, and no machine between them has been
+    /// tried. A chip whose GPU is narrower than an M5's therefore keeps the
+    /// engine, which is the branch that is never bad.
+    public static var neuralEngineFriendly: ComputeUnits {
+        let machine = Hardware.current
+        guard machine.hasNeuralEngine else { return .all }
+        return !machine.isPhoneClass && machine.gpuCores >= wideGPUCores
+            ? .cpuAndGPU : .cpuAndNeuralEngine
     }
 
-    /// Whether there is anything to learn, which there is not when the caller
-    /// offers one placement - a phone pins the engine and never measures.
-    public static func measures(candidates: [(name: String, units: ComputeUnits)]) -> Bool {
-        candidates.count > 1
-    }
+    /// The width at which a GPU starts beating the engine on a graph the
+    /// engine is good at. Measured on both sides and nowhere in between, so it
+    /// is the least certain number here: an M1's eight cores lose a third, an
+    /// M5's ten gain a tenth.
+    private static let wideGPUCores = 10
 
-    /// What a run cost per item at this placement.
-    public static func record(model: String, placement: String, secondsPerItem: Double) {
-        Measurements.record(model: model, axis: axis, value: placement,
-                            secondsPerItem: secondsPerItem)
+    /// Where a small, dispatch-bound stage that runs *beside* engine work
+    /// should go.
+    ///
+    /// This is not the same question as the two above, because the stage does
+    /// not have the machine to itself. Voz's decode overlaps its encoder, so on
+    /// the engine it queues behind it and on the CPU it runs alongside, and
+    /// what decides the winner is whether there is a performance core spare to
+    /// run it on:
+    ///
+    ///                     CPU   engine
+    ///   M1 (4 P-cores)    254      243
+    ///   M5 (4)            445      405
+    ///   M3 Ultra (20)     498      244
+    ///   iPhone 16 Pro (2) 280      309
+    ///
+    /// A phone has two performance cores and something else to do with them.
+    /// Every Mac and every M-series iPad has at least four.
+    public static var overlappedStage: ComputeUnits {
+        let machine = Hardware.current
+        guard machine.hasNeuralEngine else { return .all }
+        return machine.performanceCores >= 4 ? .cpuOnly : .cpuAndNeuralEngine
     }
-
-    private static let axis = "placement"
 }
