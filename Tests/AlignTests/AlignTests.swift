@@ -84,7 +84,10 @@ import Speech
     /// Parity fixtures are recorded and compared on the CPU. The ANE and CPU paths disagree,
     /// and where the model is unsure that becomes tens of milliseconds, so one number cannot
     /// cover two runtimes. A backend with no row prints its drift and asserts nothing.
-    static let parityToleranceMs: [String: Double] = ["coreml-cpu": 25.0]
+    ///
+    /// litert: 10.4 ms measured 2026-09-17 on linux-arm64 (Docker, swift:6.3.3-jammy). The
+    /// Linux and Windows CI lanes read this row.
+    static let parityToleranceMs: [String: Double] = ["coreml-cpu": 25.0, "litert": 15.0]
 
     /// Which row applies here: the runtime that opens the stages, plus the compute units this
     /// suite pins, which only Core ML has.
