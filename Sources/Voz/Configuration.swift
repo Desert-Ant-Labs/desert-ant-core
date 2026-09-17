@@ -1,5 +1,3 @@
-#if canImport(CoreML)
-import CoreML
 import Foundation
 
 /// Model geometry, read from the export rather than assumed.
@@ -60,4 +58,3 @@ struct Configuration: Decodable, Sendable {
         else { throw VozError.invalidModel("model metadata has invalid decode geometry") }
     }
 }
-#endif

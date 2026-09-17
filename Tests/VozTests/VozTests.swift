@@ -9,14 +9,32 @@ import Testing
 // that produces timestamps. Anything needing the weights lives in the
 // parakeet-ane repo's evaluation harness, which scores WER against a manifest.
 
-@Test func catalogDeclaresAppleOnly() {
+@Test func catalogDeclaresAppleAndWeb() {
     #expect(VozModel.id == "voz")
     #expect(VozModel.repo == "desert-ant-labs/voz")
     #expect(VozModel.supports(.apple))
-    let unsupported: [ModelPlatform] = [.android, .linux, .windows, .web]
+    // The browser runs the same pipeline compiled to wasm, over ONNX Runtime
+    // Web, from a separate export: a Neural Engine wants 1x1 convolutions and a
+    // GPU wants matmuls.
+    #expect(VozModel.supports(.web))
+    let unsupported: [ModelPlatform] = [.android, .linux, .windows]
     for platform in unsupported {
         #expect(!VozModel.supports(platform), "voz has no \(platform) backend")
     }
+}
+
+@Test func webBundleIsSelfContainedUnderWeb() {
+    let files = VozModel.files[.web] ?? []
+    // Its own manifest, because the root one belongs to the Core ML build and
+    // the two describe different exports.
+    #expect(files.contains("web/meta.json"))
+    #expect(files.allSatisfy { $0.hasPrefix("web/") })
+    // Both decode steps: WebNN wants narrow lanes, WebGPU wants wide ones.
+    #expect(files.contains(VozModel.webDecodeStep))
+    #expect(files.contains(VozModel.webDecodeStepGPU))
+    // The expanded weights are produced at load, not downloaded.
+    #expect(!files.contains { $0.hasSuffix("encoder.weights") })
+    #expect(VozModel.artifact(for: .web) == "web/encoder.onnx")
 }
 
 @Test func catalogShipsCompiledModelsAndSidecars() {

@@ -1,5 +1,6 @@
 #if canImport(CoreML)
 import CoreML
+#endif
 import Foundation
 import DesertAnt
 
@@ -55,10 +56,9 @@ public actor Voz {
 
     private let pipeline: Pipeline
     // Actor isolation is not a lock across awaits, and a transcription suspends
-    // at the decode join while the pipeline's buffers are still live, so two
-    // concurrent calls interleaved into one set of them. A queue rather than a
-    // rejection: a caller who transcribes two files at once should get two
-    // transcripts, in the order they asked.
+    // at every model call - the browser's are promises, and the native decode
+    // join is an await - while the pipeline's buffers are still live. Two
+    // concurrent calls interleaved into one set of them.
     private var transcribing = false
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
@@ -77,7 +77,6 @@ public actor Voz {
             waiting.removeFirst().resume()
         }
     }
-
     /// One turnstile per instance. See UsageTracking.swift: this model drives
     /// Core ML directly rather than through `Inference`, so it opens its own
     /// rather than inheriting the session factory's.
@@ -167,9 +166,8 @@ public actor Voz {
 
     /// Load from sidecars and an engine the caller built.
     ///
-    /// The seam a runtime that is not Core ML enters by: it has fetched the
-    /// files and compiled the models itself, so there is no directory to read
-    /// and nothing here to load.
+    /// This is the seam the wasm entry point uses: the browser fetched the
+    /// files and compiled the models itself, so there is no directory to read.
     init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
@@ -224,4 +222,26 @@ public actor Voz {
     }
 }
 
+#if os(WASI)
+public extension Voz {
+    /// Build a recogniser from sidecars the browser already fetched, running
+    /// the models through the JavaScript host on `globalThis.__vozHost`.
+    ///
+    /// `@_spi` rather than public API: the wasm entry point is the only caller,
+    /// and the shape of this depends on how the host compiles its models.
+    @_spi(VozWeb)
+    static func web(meta: Data, vocab: Data, embedding: Data, lanes: Int,
+                    batch: Int, fused: Bool) async throws -> Voz {
+        guard lanes > 0, batch > 0 else {
+            throw VozError.invalidModel("lane and batch counts must be positive")
+        }
+        let assets = try Assets(meta: meta, vocab: vocab, embeddingBytes: embedding)
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
+                                          batch: batch)
+        let engine = try WasmEngine(configuration: assets.configuration, lanes: lanes,
+                                    batch: batch, fused: fused)
+        engine.bind(melMask: buffers.melMask)
+        return Voz(assets: assets, engine: engine, buffers: buffers)
+    }
+}
 #endif
