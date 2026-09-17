@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-#MISE description="Build each model's Swift target for this host (Core ML on Apple, LiteRT on Linux)"
+#MISE description="Build each model's Swift target for this host (Core ML on Apple, LiteRT on Linux and Windows)"
 #MISE dir="{{config_root}}"
 #MISE tools={swift={version="6.3.3", os=["linux"]}}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 dal_vendor_litert
-litert=$(dal_litert_dir)
+# Sets `litert_flags`: -L on Linux, /LIBPATH: on Windows, empty on Apple.
+eval "$(dal_litert_link_flags)"
 
 # The per-model loop below used to be the only mode, one serial `swift build
 # --target` per model, to prove each model compiles against its own dependency
@@ -19,7 +20,7 @@ litert=$(dal_litert_dir)
 # complementary half - that the graph contains nothing it shouldn't.
 if [ "${usage_model:-all}" = all ]; then
     echo "== all targets =="
-    if [ "$(uname)" = Darwin ]; then
+    if [ "$(dal_host_os)" = darwin ]; then
         swift build --scratch-path .build-host -c release \
             --explicit-target-dependency-import-check error
         # `Title` is MLX and its generation half only compiles behind the `MLX`
@@ -31,9 +32,9 @@ if [ "${usage_model:-all}" = all ]; then
         echo "== Title (MLX trait) =="
         swift build --scratch-path .build-mlx -c release --traits MLX --target Title
     else
-        # MLX has no Linux port; `Title` is only its stub in this graph.
+        # MLX has no Linux or Windows port; `Title` is only its stub here.
         swift build --scratch-path .build-host -c release \
-            --explicit-target-dependency-import-check error -Xlinker "-L$litert"
+            --explicit-target-dependency-import-check error ${litert_flags[@]+"${litert_flags[@]}"}
     fi
 else
 for model in $(dal_select "$usage_model"); do
@@ -41,7 +42,7 @@ for model in $(dal_select "$usage_model"); do
     echo "== $product =="
     # `--target`, not `--product`: the model libraries are automatic products,
     # which SwiftPM refuses to select and then silently builds everything.
-    if [ "$(uname)" = Darwin ]; then
+    if [ "$(dal_host_os)" = darwin ]; then
         # Title's MLX trait gets its own scratch path, see the comment above.
         scratch=.build-host
         traits=()
@@ -50,9 +51,9 @@ for model in $(dal_select "$usage_model"); do
         # array as an unbound variable; this expands to nothing instead.
         swift build --scratch-path "$scratch" -c release ${traits[@]+"${traits[@]}"} --target "$product"
     else
-        # MLX has no Linux port; `Title` never enters the graph here.
+        # MLX has no Linux or Windows port; `Title` never enters the graph here.
         [ "$product" = Title ] && { echo "skip: MLX is Apple-only"; continue; }
-        swift build --scratch-path .build-host -c release --target "$product" -Xlinker "-L$litert"
+        swift build --scratch-path .build-host -c release --target "$product" ${litert_flags[@]+"${litert_flags[@]}"}
     fi
 done
 fi
@@ -67,7 +68,11 @@ fi
 # one scratch path leaves the Xcode build system with a module cache it then
 # fails to scan ("clang dependency scanning failure"), and test:swift runs next
 # in .build-host without traits.
-if [ "$(uname)" = Darwin ] && [ "${usage_model:-all}" = all ]; then
+if [ "$(dal_host_os)" = darwin ] && [ "${usage_model:-all}" = all ]; then
     echo "== ModelStore (Xet trait) =="
     swift build --scratch-path .build-xet -c release --traits Xet --target ModelStore
 fi
+
+# Windows only, and last: drop the loose copy of every resource bundle that
+# SwiftPM leaves in the repo root. See dal_sweep_bundle_leaks.
+dal_sweep_bundle_leaks .build-host

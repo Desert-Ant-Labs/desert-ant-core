@@ -10,6 +10,15 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # so this is one command. Each model module's `preBuild` runs
 # `mise run build:android-natives <model>`, which cross-compiles the Swift JNI
 # library into its jniLibs, so there is nothing to sequence by hand.
+
+# No Windows host lane; the reason lives in build:android-natives, which is
+# what Gradle's preBuild would call. Skipping here keeps `mise run build` to
+# "every artifact this host can build" instead of failing the whole run.
+if [ "$(dal_host_os)" = windows ]; then
+    echo "skip: no Windows host lane for the Android cross-compile (see build:android-natives)"
+    exit 0
+fi
+
 want="${usage_model:-all}"
 
 if [ "$want" = core ]; then

@@ -17,6 +17,18 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest: its
 # swift-syntax macros build for the host and conflict with the -resource-dir that
 # static linking needs. The wasm/JS code is all `#if os(WASI)` anyway.
+
+# Windows hosts are out: the snapshot toolchain below is installed unattended
+# from a tarball (Linux) or through swiftly (macOS), and swift.org ships that
+# same snapshot for Windows only as an interactive ~1 GB installer, which no
+# build task is going to run behind your back. Cross-compiling from a Windows
+# host is otherwise untested here - if you want the AARs, build them in WSL.
+if [ "$(dal_host_os)" = windows ]; then
+    echo "skip: the ${DAL_SWIFT_ANDROID_SNAPSHOT:-Swift Android} snapshot has no unattended"
+    echo "      Windows install; build the Android artifacts in WSL or on CI."
+    exit 0
+fi
+
 api="${DAL_ANDROID_API:-24}"
 export SWIFT_ANDROID_STATIC_BUILD=1
 
@@ -45,7 +57,7 @@ sdk_url="https://download.swift.org/$branch/android-sdk/$snapshot/${snapshot}_an
 # On Linux, fetch the toolchain tarball into a cache dir (no swiftly: it has no
 # packages for every distro, and CI then needs no shell setup). On macOS the
 # snapshot ships as a .pkg, so use swiftly there.
-if [ "$(uname)" = Darwin ]; then
+if [ "$(dal_host_os)" = darwin ]; then
     command -v swiftly > /dev/null 2>&1 \
         || { echo "error: swiftly is required on macOS to install the $snapshot toolchain" >&2; exit 1; }
     swiftly list 2> /dev/null | grep -q "$snapshot" || {
@@ -76,10 +88,10 @@ fi
 
 find_bundle() {
     local dir bundle
-    for dir in "$HOME/.swiftpm/swift-sdks" "$HOME/.config/swiftpm/swift-sdks" "$HOME/Library/org.swift.swiftpm/swift-sdks"; do
+    while IFS= read -r dir; do
         bundle=$(ls -dt "$dir"/*"$snapshot"*.artifactbundle 2> /dev/null | head -1 || true)
         [ -n "$bundle" ] && { echo "$bundle"; return 0; }
-    done
+    done < <(dal_swift_sdk_dirs)
     return 1
 }
 bundle=$(find_bundle || true)

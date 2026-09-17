@@ -11,15 +11,35 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # default (browser) entry still imports cleanly in Node, which is the SSR
 # contract every framework's server pass depends on. So both builds must have
 # run first.
+# The key is what js/src/native.js builds from process.platform and
+# process.arch, so it spells Windows the way Node does: win32.
 arch=$(dal_arch)
-[ "$(uname)" = Darwin ] && key="darwin-$arch" || key="linux-$arch"
+case "$(dal_host_os)" in
+    darwin) key="darwin-$arch" ;;
+    windows) key="win32-$arch" ;;
+    *) key="linux-$arch" ;;
+esac
+
+# Every package's test script is POSIX shell ("DAL_USAGE_DISABLED=1 node --test
+# ..."), and npm runs scripts through cmd.exe on Windows, which cannot parse an
+# inline variable assignment and fails with "'DAL_USAGE_DISABLED' is not
+# recognized". Point npm at the bash this task is already running in, rather
+# than rewriting the script in seven published package.json files.
+npm_args=()
+[ "$(dal_host_os)" = windows ] && npm_args=(--script-shell=bash)
 
 for model in $(dal_select "${usage_model:-all}" node); do
     dir="packages/$model-node"
     # A pure package has no native or wasm core; its suite is self-contained.
     if dal_node_pure "$model"; then
         echo "== $model (pure) =="
-        ( cd "$dir" && npm test )
+        ( cd "$dir" && npm test ${npm_args[@]+"${npm_args[@]}"} )
+        continue
+    fi
+    # build:node-native has no Windows lane, so there is nothing to point the
+    # reader at here: the suite cannot run and that is not a setup mistake.
+    if [ "$(dal_host_os)" = windows ] && [ ! -d "$dir/native/$key" ]; then
+        echo "== $model: skipped, the package ships no $key native core =="
         continue
     fi
     [ -d "$dir/native/$key" ] || {
@@ -31,5 +51,5 @@ for model in $(dal_select "${usage_model:-all}" node); do
         exit 1
     }
     echo "== $model =="
-    ( cd "$dir" && npm test )
+    ( cd "$dir" && npm test ${npm_args[@]+"${npm_args[@]}"} )
 done

@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 
 test("browser-safe entry exports the expected surface", async () => {
   const core = await import("../index.js");
@@ -82,7 +83,10 @@ test("a model's ABI is generic apart from its own constructor", async () => {
 test("loadNative reports a friendly error for an unsupported host", async () => {
   const { loadNative } = await import("../node.js");
   const core = loadNative({
-    here: new URL("..", import.meta.url).pathname, // package dir (has package.json, no native/)
+    // fileURLToPath, not .pathname: on Windows the latter keeps the URL's
+    // leading slash ("/C:/...") and path.join then resolves it against the
+    // current drive, so the read becomes "C:\C:\...".
+    here: fileURLToPath(new URL("..", import.meta.url)), // package dir (has package.json, no native/)
     packageName: "@desert-ant-labs/shapes",
     coreName: "ShapesNode",
     modelId: "shapes",

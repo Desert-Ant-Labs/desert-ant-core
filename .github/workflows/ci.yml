@@ -510,12 +510,12 @@ jobs:
         run: |
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p =="
-            # Release to share artifacts with the test build below; the
-            # closure check itself is configuration-independent. -enable-testing
-            # matches the test build's flags: testability is debug-only by
-            # default, the suites use @testable, and a flag mismatch would both
-            # break that and fork the build plan into a second full compile.
-            swift build --target $p -c release -Xswiftc -enable-testing -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            # Debug to share artifacts with the test build below, which has to
+            # be debug (see that step); the closure check itself is
+            # configuration-independent. The flags must match that step exactly
+            # or the build plan forks into a second full compile, and debug
+            # already enables testability, so neither passes -enable-testing.
+            swift build --target $p -c debug -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -547,13 +547,20 @@ jobs:
       # bounds peak memory: the full test build is the largest compile this
       # runner does, and a parallel spike is the usual suspect for a
       # no-diagnostic crash on windows-latest.
-      # Release, not debug: the DSP frontends are bounds-checked triple loops
-      # that run ~170x slower at -Onone. Measured on Ear: identify is 12-17 s
-      # per call in a debug build and ~100 ms in release, which is the
-      # difference between this step taking minutes and taking seconds.
+      # Debug, and only on this runner. Release is the faster configuration
+      # everywhere else (the DSP frontends are bounds-checked triple loops that
+      # run ~170x slower at -Onone: Ear's identify is 12-17 s per call in debug
+      # and ~100 ms in release), but on Windows release does not run the tests
+      # at all. SwiftPM does not link a test target into its runner there: the
+      # runner .exe imports no <Target>Tests.dll, swift-testing scans a process
+      # holding no test records, and every binary reports "0 tests in 0 suites"
+      # and exits 0. So the choice here is not fast or slow, it is slow or
+      # nothing. This job ran debug until 707ceef moved it to release on the
+      # belief that it already tested release; it did not, and the step that
+      # follows now proves a real test count either way.
       - name: Build tests
         shell: pwsh
-        run: swift build --build-tests -c release -Xswiftc -enable-testing -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: swift build --build-tests -c debug -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
       # One invocation per model, timed, so a slow target is named in the log
       # instead of hiding in one 17-minute lump (which is how Ear's 992s went
@@ -568,8 +575,24 @@ jobs:
           foreach ($p in '${{ steps.models.outputs.products }}'.Split(' ')) {
             Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            swift test --skip-build -c release -Xswiftc -enable-testing --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            $log = "test-$p.log"
+            swift test --skip-build -c debug --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
             if ($LASTEXITCODE -ne 0) { $failed = $true }
+            # A suite that discovers nothing still exits 0, and prints "Test run
+            # with 0 tests in 0 suites". SwiftPM does not always link a test
+            # target into its runner on Windows in release: the runner .exe then
+            # imports no <Target>Tests.dll, swift-testing scans a process that
+            # holds no test records, and the job goes green having executed
+            # nothing. Reproduced on Swift 6.4 with a two-file package, and
+            # neither /OPT:NOREF nor forcing the import library in brings the
+            # import back. The steps above run debug for exactly that reason;
+            # this keeps watch on it, because a silently empty run is the one
+            # failure this job cannot otherwise see.
+            if (-not (Select-String -Path $log -Pattern 'Test run with [1-9]' -Quiet)) {
+              Write-Host "::error::$p discovered no tests, so this run proves nothing"
+              $failed = $true
+            }
+            Remove-Item $log -ErrorAction SilentlyContinue
             $sw.Stop()
             Write-Host "== $p == done in $([int]$sw.Elapsed.TotalSeconds)s"
           }

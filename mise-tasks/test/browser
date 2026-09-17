@@ -15,6 +15,20 @@
 # Needs `mise run build:wasm` first (a stub dist cannot infer) and network for
 # the model download. See test/browser/run.mjs.
 set -euo pipefail
+# dal.sh cds to the repo root when sourced, and this task runs from js/ (see
+# the dir above), so take the working directory back afterwards.
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+cd "$MISE_PROJECT_ROOT/js"
+
+# Every case needs a real wasm core, and build:wasm has no Windows lane yet, so
+# there is nothing here for a Windows host to run and nothing it did wrong. The
+# run.mjs check below would say "run mise run build:wasm first", which on this
+# host is advice that cannot be taken.
+if [ "$(dal_host_os)" = windows ] && ! ls ../packages/*-node/dist/*.wasm > /dev/null 2>&1; then
+    echo "skip: no model package has a wasm core, and build:wasm has no Windows lane"
+    echo "      (see mise-tasks/build/wasm). Run this on Linux, macOS, or in CI."
+    exit 0
+fi
 
 # Chromium is ~130 MB and only needed here, so fetch it on demand rather than in
 # every npm install. Idempotent: a no-op once the browser is present.
