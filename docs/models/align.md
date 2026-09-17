@@ -35,7 +35,8 @@ npm i @desert-ant-labs/align
 - The handle is `Align`. `SpeechTimestampRefiner` is a deprecated alias kept for source
   compatibility.
 - Streaming callers move to `StreamingRefiner`, which wraps an `Align` and keeps the
-  `SpeechAnalyzer` integration.
+  `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles; the
+  alias covers the offline API only.
 - The Apple runtime's log-mel frontend is corrected: it scaled power by 4 before the log.
   On-device results change and are re-measured for this release.
 - A LiteRT export adds Linux, Windows and Node.
