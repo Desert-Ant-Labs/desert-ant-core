@@ -7,7 +7,7 @@
 # developer environment (CI: ilammy/msvc-dev-cmd).
 $ErrorActionPreference = "Stop"
 
-$version = if ($env:DAL_LITERT_VERSION) { $env:DAL_LITERT_VERSION } else { "2.1.6" }
+$version = if ($env:DAL_LITERT_VERSION) { $env:DAL_LITERT_VERSION } else { "2.2.0" }
 $dest = "Vendor/litert/lib/windows-x64"
 
 if ((Test-Path "$dest/libLiteRt.dll") -and (Test-Path "$dest/LiteRt.lib")) {

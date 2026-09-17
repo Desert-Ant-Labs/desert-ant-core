@@ -136,7 +136,7 @@ dal_wasm_sdk() {
 # Vendor the host's libLiteRt.so into Vendor/litert/lib/<linux-arch>. Apple hosts
 # need nothing: the Swift SDK and the Node native both run Core ML there.
 dal_vendor_litert() {
-    local version="${DAL_LITERT_VERSION:-2.1.6}" arch wheel dest tmp
+    local version="${DAL_LITERT_VERSION:-2.2.0}" arch wheel dest tmp
     [ "$(uname)" = Darwin ] && return 0
     case "$(uname -m)" in
         x86_64 | amd64) arch=linux-x64 wheel=x86_64-manylinux_2_28 ;;

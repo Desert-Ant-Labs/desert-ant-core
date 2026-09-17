@@ -92,7 +92,7 @@ fi
 
 # LiteRT android libs, used only while linking each ABI. ai.desertant:core owns
 # the copies that are actually packaged into an app.
-litert_version="${DAL_LITERT_VERSION:-2.1.6}"
+litert_version="${DAL_LITERT_VERSION:-2.2.0}"
 if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
     || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ]; then
     echo "Fetching the LiteRT $litert_version android libs (one-time)..."

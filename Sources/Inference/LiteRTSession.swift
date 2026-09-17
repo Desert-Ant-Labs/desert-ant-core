@@ -133,6 +133,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         case 4: element = .int64
         default: throw InferenceError.runFailed("unsupported LiteRT output element type")
         }
+
         return try Tensor(element: element, shape: shape, bytes: bytes)
     }
 }
