@@ -161,6 +161,14 @@ let models: [ModelPackage] = [
         name: "Shapes",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")]
     ),
+    .init(
+        name: "Align",
+        dependencies: ["AudioDSP", .product(name: "RealModule", package: "swift-numerics"), "TextNormalization"],
+        testResources: [
+            .copy("Resources/golden.json"),
+            .copy("Resources/calibration_golden.json"),
+        ]
+    ),
 ] + [
     // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
     // without the `MLX` trait its MLX dependencies are pruned and the target compiles as a
@@ -170,41 +178,6 @@ let models: [ModelPackage] = [
                  appleOnly: true),
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
-
-// Align is Apple-only (Core ML, Speech, AVFoundation), so it lives outside the
-// `models` list: it gets no Android/Node/Web products and no NativeBindings.
-// Like every model here it bundles nothing; its Core ML models and sidecars are
-// downloaded on demand via its catalog declaration (Sources/Align/Catalog.swift).
-// The targets are declared unconditionally so the resolved graph is identical on
-// every platform (check:isolation reads it on Linux); the Apple-framework
-// sources gate themselves with `#if canImport(...)`, so a non-Apple build
-// compiles only the portable declaration and helpers.
-let alignProducts: [Product] = [
-    .library(name: "Align", targets: ["Align"]),
-]
-
-let alignTargets: [Target] = [
-    .target(
-        name: "Align",
-        dependencies: [
-            .byName(name: "DesertAnt"),
-            .byName(name: "NativeBindings"),
-            .byName(name: "AudioDSP"),
-            .product(name: "RealModule", package: "swift-numerics"),
-            .byName(name: "TextNormalization"),
-        ],
-        // The `models` list excludes every entry's `Web/` the same way (Task 11).
-        exclude: ["Web"]
-    ),
-    .testTarget(
-        name: "AlignTests",
-        dependencies: ["Align", "TestSupport"],
-        resources: [
-            .copy("Resources/golden.json"),
-            .copy("Resources/calibration_golden.json"),
-        ]
-    ),
-]
 
 // Tongue is a pure model: a 2 MB int8 head plus a frozen normalizer/router
 // specification, no inference runtime and no model download — the weights ship
@@ -477,9 +450,7 @@ let testTargets: [Target] = [
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
             name: "BindingsTests",
-            // `Align` is listed by hand until it joins `models` (Task 11).
-            dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport"),
-                           .byName(name: "Align")]
+            dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport")]
                 + modelDependencies
         ),
         .testTarget(
@@ -527,7 +498,7 @@ let vozTargets: [Target] = [
 ]
 
 let coreTargets: [Target] =
-    libraryTargets + testTargets + modelTargets + modelTestTargets + alignTargets
+    libraryTargets + testTargets + modelTargets + modelTestTargets
     + tongueTargets + vozTargets
 
 let package = Package(
@@ -560,7 +531,7 @@ let package = Package(
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts + alignProducts + tongueProducts + vozProducts,
+    products: products + modelProducts + tongueProducts + vozProducts,
     traits: [
         .trait(
             name: "MLX",
