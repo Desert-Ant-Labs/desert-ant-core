@@ -170,7 +170,8 @@ import Speech
         }
     }
 
-    // Full cascade corrections match the PyTorch reference within this backend's tolerance.
+    // The corrections fixture is recorded from this runtime; the test pins determinism per backend.
+    // Reference parity against gold is measured on device before a release, not here.
     @Test func endToEndParity() async throws {
         let g = try loadGolden()
         let refiner = try await makeRefiner()
@@ -195,7 +196,7 @@ import Speech
         print("end-to-end max correction diff \(maxDiff) ms on \(Self.parityBackend)")
         #expect(checkedBoundaries > 0)
         guard let tolerance = Self.parityToleranceMs[Self.parityBackend] else { return }
-        #expect(maxDiff < tolerance, "the cascade diverges from the PyTorch reference")
+        #expect(maxDiff < tolerance, "the cascade drifted from its recorded corrections")
     }
 
     #if canImport(Speech)

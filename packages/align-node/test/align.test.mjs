@@ -65,6 +65,7 @@ test("refines a transcript through the native core", modelOpts, async () => {
   assert.equal(out.length, 2);
   assert.ok(out[0].start < out[0].end);
   assert.equal(typeof out[0].refined, "boolean");
+  assert.ok(out.some((w) => w.refined), "no word was refined: the native core ran nothing");
 });
 
 test("an unsupported language is a passthrough, not an error", modelOpts, async () => {
