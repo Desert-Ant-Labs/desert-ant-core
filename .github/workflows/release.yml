@@ -135,7 +135,7 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
+          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.2.0
 
       # Its own step: Gradle's Exec task swallows the underlying mise stderr,
       # which makes a failure in the cross-compile undiagnosable.

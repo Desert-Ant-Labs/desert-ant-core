@@ -193,7 +193,7 @@ dal_wasm_sdk() {
 # Linux and Windows both take it from the ai-edge-litert PyPI wheel, which is
 # where Google ships the prebuilt runtime; only the file names differ.
 dal_vendor_litert() {
-    local version="${DAL_LITERT_VERSION:-2.1.6}" arch wheel lib gpu dest tmp
+    local version="${DAL_LITERT_VERSION:-2.2.0}" arch wheel lib gpu dest tmp
     case "$(dal_host_os)" in
         darwin) return 0 ;;
         windows)
