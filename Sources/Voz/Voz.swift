@@ -1,5 +1,7 @@
+#if canImport(CoreML) || canImport(COnnxRuntime)
 #if canImport(CoreML)
 import CoreML
+#endif
 import Foundation
 import DesertAnt
 
@@ -162,6 +164,35 @@ public actor Voz {
         #if canImport(CoreML)
         usage = makeTurnstile()
         #endif
+    }
+    #endif
+
+    #if canImport(COnnxRuntime) && !canImport(CoreML)
+    /// Load from a directory of ONNX models you manage yourself.
+    ///
+    /// The Windows counterpart of the Core ML initializer above, and the same
+    /// shape: read the sidecars, size the buffers from the geometry they
+    /// declare, build the engine over them. `decode_lanes` comes from
+    /// `meta.json` rather than from the model, because an ONNX graph states its
+    /// lane count in the export and not in a queryable description.
+    public init(modelDirectory: URL, useGPU: Bool = true) throws {
+        func read(_ name: String) throws -> Data {
+            try Data(contentsOf: modelDirectory.appendingPathComponent(name))
+        }
+        let metaData = try read("meta.json")
+        let assets = try Assets(meta: metaData, vocab: try read("vocab.json"),
+                                embeddingBytes: try Data(
+                                    contentsOf: modelDirectory
+                                        .appendingPathComponent("embedding.f16"),
+                                    options: .mappedIfSafe))
+        struct Lanes: Decodable { let decodeLanes: Int
+            enum CodingKeys: String, CodingKey { case decodeLanes = "decode_lanes" } }
+        let lanes = try JSONDecoder().decode(Lanes.self, from: metaData).decodeLanes
+        guard lanes > 0 else { throw VozError.invalidModel("meta.json has no decode_lanes") }
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes)
+        let engine = try OnnxEngine(directory: modelDirectory,
+                                    accelerator: useGPU ? .gpu : .cpu, lanes: lanes)
+        self.init(assets: assets, engine: engine, buffers: buffers)
     }
     #endif
 

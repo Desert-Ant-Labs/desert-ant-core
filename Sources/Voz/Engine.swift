@@ -1,4 +1,4 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(COnnxRuntime)
 import Foundation
 
 /// How the three models get run.

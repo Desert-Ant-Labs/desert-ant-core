@@ -1,4 +1,4 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(COnnxRuntime)
 import Foundation
 
 /// Hands finished windows from the encoding thread to the decoding one.

@@ -1,4 +1,4 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(COnnxRuntime)
 import Foundation
 
 /// A word and when it starts, in seconds from the beginning of the audio.

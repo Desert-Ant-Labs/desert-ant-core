@@ -500,13 +500,16 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz is Apple-only (Core ML, AVFoundation) and, like Align, gets no
-// Android/Node/Web products and no NativeBindings. It bundles nothing: its
-// Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
-// drives Core ML directly rather than going through `InferenceSession`, because
-// preallocated buffers, `outputBackings` and a lane-batched decode loop are not
-// expressible through a generic run(inputs:outputs:) call, and dropping them
-// costs roughly 127x on load and about a third of decode throughput.
+// Voz runs on Apple (Core ML) and Windows (ONNX Runtime on DirectML) and, like
+// Align, gets no Android/Node/Web products and no NativeBindings. It bundles
+// nothing: its models are downloaded on demand via Sources/Voz/Catalog.swift.
+//
+// It drives both runtimes directly rather than going through
+// `InferenceSession`, because preallocated buffers, output binding and a
+// lane-batched decode loop are not expressible through a generic
+// run(inputs:outputs:) call, and dropping them costs roughly 127x on load and
+// about a third of decode throughput. `Sources/Voz/Engine.swift` is the seam:
+// the windowing, decode and splice above it are the same either way.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
 ]
@@ -517,11 +520,17 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
+            .target(name: "COnnxRuntime", condition: .when(platforms: [.windows])),
         ]
     ),
     .testTarget(
         name: "VozTests",
-        dependencies: ["Voz", "DesertAnt", "TestSupport"]
+        // AudioIO for the portable WAV decoder the ONNX end-to-end test reads
+        // its fixture with; COnnxRuntime so `canImport` can gate that test.
+        dependencies: [
+            "Voz", "DesertAnt", "TestSupport", "AudioIO",
+            .target(name: "COnnxRuntime", condition: .when(platforms: [.windows])),
+        ]
     ),
 ]
 

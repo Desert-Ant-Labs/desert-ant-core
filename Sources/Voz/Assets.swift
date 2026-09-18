@@ -1,4 +1,4 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(COnnxRuntime)
 import Foundation
 
 /// The model's host-side half: geometry, vocabulary, and the embedding table.
