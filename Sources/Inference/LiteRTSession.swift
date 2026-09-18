@@ -1,5 +1,6 @@
 #if canImport(CLiteRt)
 import CLiteRt
+import CStrings
 #if os(Android)
 import Android
 #elseif canImport(Glibc)
@@ -61,14 +62,14 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
             }
         }
         guard let handle else {
-            throw InferenceError.sessionUnavailable(String(cString: errbuf))
+            throw InferenceError.sessionUnavailable(decodeCString(errbuf))
         }
         session = handle
         inputNames = (0..<Int(dal_lrt_num_inputs(handle))).map {
-            dal_lrt_input_name(handle, Int32($0)).map(String.init(cString:)) ?? ""
+            dal_lrt_input_name(handle, Int32($0)).map(decodeCString) ?? ""
         }
         let outs = (0..<Int(dal_lrt_num_outputs(handle))).map {
-            dal_lrt_output_name(handle, Int32($0)).map(String.init(cString:)) ?? ""
+            dal_lrt_output_name(handle, Int32($0)).map(decodeCString) ?? ""
         }
         outputNames = outs
         outputIndex = Dictionary(uniqueKeysWithValues: outs.enumerated().map { ($1, $0) })
@@ -99,7 +100,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
             }
         }
         guard status == 0 else {
-            throw InferenceError.runFailed(String(cString: errbuf))
+            throw InferenceError.runFailed(decodeCString(errbuf))
         }
 
         return try outputs.map { name in

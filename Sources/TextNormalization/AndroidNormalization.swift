@@ -8,10 +8,11 @@
 // host-delegated primitives (Regex/JSON) behave without a host.
 #if os(Android)
 import CHostBridge
+import CStrings
 
 func nfkcNormalize(_ s: String) -> String {
     guard let ptr = s.withCString({ host_normalize($0) }) else { return s }
     defer { host_free(ptr) }
-    return String(cString: ptr)
+    return decodeCString(ptr)
 }
 #endif

@@ -16,6 +16,7 @@
 #if os(Android)
 import Android
 import CHostBridge
+import CStrings
 import FFIBuffer
 
 /// The JNI environment pointer as Android's Swift overlay exposes it.
@@ -127,8 +128,8 @@ private func resultBytes(_ env: HostEnv, _ result: jbyteArray?) -> UnsafeMutable
 private func hostRegexMatches(_ pattern: UnsafePointer<CChar>?, _ ci: Int32,
                               _ text: UnsafePointer<CChar>?, _ firstOnly: Int32) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let p = hostMakeBytes(env, Array(String(cString: pattern!).utf8)),
-              let t = hostMakeBytes(env, Array(String(cString: text!).utf8)) else { return nil }
+        guard let p = hostMakeBytes(env, cStringBytes(pattern!)),
+              let t = hostMakeBytes(env, cStringBytes(text!)) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, p); env.pointee!.pointee.DeleteLocalRef(env, t) }
         let args = [jvalue(l: p), jvalue(z: jboolean(ci != 0 ? 1 : 0)),
                     jvalue(l: t), jvalue(z: jboolean(firstOnly != 0 ? 1 : 0))]
@@ -141,7 +142,7 @@ private func hostRegexMatches(_ pattern: UnsafePointer<CChar>?, _ ci: Int32,
 
 private func hostJSONParse(_ json: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let j = hostMakeBytes(env, Array(String(cString: json!).utf8)) else { return nil }
+        guard let j = hostMakeBytes(env, cStringBytes(json!)) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, j) }
         let args = [jvalue(l: j)]
         let result = args.withUnsafeBufferPointer {
@@ -153,7 +154,7 @@ private func hostJSONParse(_ json: UnsafePointer<CChar>?) -> UnsafeMutablePointe
 
 private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let t = hostMakeBytes(env, Array(String(cString: text!).utf8)) else { return nil }
+        guard let t = hostMakeBytes(env, cStringBytes(text!)) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, t) }
         let args = [jvalue(l: t)]
         let result = args.withUnsafeBufferPointer {
@@ -166,7 +167,7 @@ private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointe
 // UsageState persistence: read a stored value string (empty/absent -> "").
 private func hostPrefsGet(_ key: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let k = hostMakeBytes(env, Array(String(cString: key!).utf8)) else { return nil }
+        guard let k = hostMakeBytes(env, cStringBytes(key!)) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, k) }
         let args = [jvalue(l: k)]
         let result = args.withUnsafeBufferPointer {
@@ -198,8 +199,8 @@ private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<C
     }
     defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
 
-    guard let k = hostMakeBytes(env, Array(String(cString: key!).utf8)),
-          let v = hostMakeBytes(env, Array(String(cString: value!).utf8)) else { return }
+    guard let k = hostMakeBytes(env, cStringBytes(key!)),
+          let v = hostMakeBytes(env, cStringBytes(value!)) else { return }
     defer { env.pointee!.pointee.DeleteLocalRef(env, k); env.pointee!.pointee.DeleteLocalRef(env, v) }
     let args = [jvalue(l: k), jvalue(l: v)]
     args.withUnsafeBufferPointer {
@@ -214,7 +215,7 @@ private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<C
 private func hostAudioDecode(_ path: UnsafePointer<CChar>?, _ bytes: UnsafePointer<UInt8>?,
                              _ byteCount: Int64, _ sampleRate: Double) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        let pathArr: jbyteArray? = path.map { hostMakeBytes(env, Array(String(cString: $0).utf8)) ?? nil } ?? nil
+        let pathArr: jbyteArray? = path.map { hostMakeBytes(env, cStringBytes($0)) ?? nil } ?? nil
         let dataArr: jbyteArray?
         if let bytes, byteCount > 0 {
             dataArr = hostMakeBytes(env, Array(UnsafeBufferPointer(start: bytes, count: Int(byteCount))))
@@ -235,7 +236,7 @@ private func hostAudioDecode(_ path: UnsafePointer<CChar>?, _ bytes: UnsafePoint
 
 private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)) else { return nil }
+        guard let u = hostMakeBytes(env, cStringBytes(url!)) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, u) }
         let args = [jvalue(l: u)]
         let result = args.withUnsafeBufferPointer {
@@ -263,8 +264,8 @@ private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointe
     }
     defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
 
-    guard let u = hostMakeBytes(env, Array(String(cString: url!).utf8)),
-          let d = hostMakeBytes(env, Array(String(cString: dest!).utf8)) else { return -1 }
+    guard let u = hostMakeBytes(env, cStringBytes(url!)),
+          let d = hostMakeBytes(env, cStringBytes(dest!)) else { return -1 }
     defer { env.pointee!.pointee.DeleteLocalRef(env, u); env.pointee!.pointee.DeleteLocalRef(env, d) }
     let args = [jvalue(l: u), jvalue(l: d)]
     let rc = args.withUnsafeBufferPointer {

@@ -3,6 +3,7 @@
 // A runtime shim installs `host_set_http_head` / `host_set_http_download`.
 #if os(Android)
 import CHostBridge
+import CStrings
 
 public struct CHostBridgeTransport: ModelTransport {
     public init() {}
@@ -14,7 +15,7 @@ public struct CHostBridgeTransport: ModelTransport {
         defer { host_free(raw) }
         // one file per line: "path\tsize\tsha256" (empty sha256 for non-LFS)
         var out: [RemoteEntry] = []
-        for line in String(cString: raw).split(separator: "\n") {
+        for line in decodeCString(raw).split(separator: "\n") {
             let cols = line.split(separator: "\t", omittingEmptySubsequences: false)
             guard cols.count == 3, let size = Int64(cols[1]) else { continue }
             out.append(RemoteEntry(path: String(cols[0]), size: size,

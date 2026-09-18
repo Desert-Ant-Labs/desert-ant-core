@@ -13,6 +13,8 @@
 
 // pthread on the threaded platforms (matches Lifecycle/LiteRTSession); WASI is
 // single-threaded, so its call group needs no lock (see below).
+import CStrings
+
 #if os(Android)
 import Android
 #elseif canImport(Glibc)
@@ -117,7 +119,7 @@ final class CallGroupRegistry: @unchecked Sendable {
 @_cdecl("dal_call_group_end")
 public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
     guard let id else { return }
-    InferenceContext.endCallGroup(String(cString: id))
+    InferenceContext.endCallGroup(decodeCString(id))
 }
 #endif
 

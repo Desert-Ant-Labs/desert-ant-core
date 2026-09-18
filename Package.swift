@@ -333,10 +333,13 @@ let libraryTargets: [Target] = [
             name: "CLiteRt",
             linkerSettings: [.linkedLibrary("LiteRt")]
         ),
+        // NUL-terminated C string decoding (see the file). Dependency-free so
+        // the Android core can link it without Foundation.
+        .target(name: "CStrings"),
         .target(
             name: "Inference",
             dependencies: [
-                "ModelStore", "Usage",
+                "ModelStore", "Usage", "CStrings",
                 .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
                 // Unconditional even though JSHost is empty off wasm: PackageToJS
                 // walks target dependencies to collect the BridgeJS skeletons it
@@ -349,6 +352,7 @@ let libraryTargets: [Target] = [
         .target(
             name: "Regex",
             dependencies: [
+                "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
@@ -383,6 +387,7 @@ let libraryTargets: [Target] = [
         .target(
             name: "TextNormalization",
             dependencies: [
+                "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
@@ -390,17 +395,18 @@ let libraryTargets: [Target] = [
         // dependencies, so every platform splits a transcript identically.
         .target(name: "Transcript"),
         .target(name: "FFIBuffer"),
-        .target(name: "NativeBindings", dependencies: ["DesertAnt"]),
+        .target(name: "NativeBindings", dependencies: ["DesertAnt", "CStrings"]),
         .target(
             name: "PlatformSupport",
             dependencies: [
+                "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi + jsEventLoop
         ),
         .target(
             name: "Usage",
             dependencies: [
-                "PlatformSupport", "JSON",
+                "PlatformSupport", "JSON", "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi
         ),
@@ -431,6 +437,7 @@ let libraryTargets: [Target] = [
         .target(
             name: "ModelStore",
             dependencies: [
+                "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 "JSHost",  // unconditional: see Inference
             ] + jsWasi + jsEventLoop + xetProducts
@@ -438,7 +445,7 @@ let libraryTargets: [Target] = [
         .target(
             name: "HostBridge",
             dependencies: [
-                "FFIBuffer",
+                "FFIBuffer", "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ]
         ),
