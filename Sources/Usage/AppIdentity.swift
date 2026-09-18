@@ -7,6 +7,8 @@
 //   WASI       the page's hostname (browser), else process.title (Node), server-side
 //   other      "unknown"
 
+import CStrings
+
 #if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
 #elseif os(Android)
@@ -46,7 +48,7 @@ public func hostProvidedAppId() -> String? {
     return jsHostString("__dalAppId")
 #else
     guard let raw = getenv("DAL_APP_ID") else { return nil }
-    let value = String(cString: raw)
+    let value = decodeCString(raw)
     return value.isEmpty ? nil : value
 #endif
 }
@@ -65,7 +67,7 @@ public func usageDisabled() -> Bool {
     return false
 #else
     guard let raw = getenv("DAL_USAGE_DISABLED") else { return false }
-    let value = String(cString: raw)
+    let value = decodeCString(raw)
     return !value.isEmpty && value != "0"
 #endif
 }
@@ -78,7 +80,7 @@ public func hostProvidedApiKey() -> String? {
     return jsHostString("__dalApiKey")
 #else
     guard let raw = getenv("DAL_API_KEY") else { return nil }
-    let value = String(cString: raw)
+    let value = decodeCString(raw)
     return value.isEmpty ? nil : value
 #endif
 }
@@ -104,7 +106,7 @@ public func hostProvidedIngestEndpoint() -> String? {
     return jsHostString("__dalIngestEndpoint")
 #else
     guard let raw = getenv("DAL_INGEST_ENDPOINT") else { return nil }
-    let value = String(cString: raw)
+    let value = decodeCString(raw)
     return value.isEmpty ? nil : value
 #endif
 }
@@ -119,7 +121,7 @@ public func defaultAppIdentifier() -> String {
 #elseif os(Android)
     guard let raw = host_app_id() else { return "unknown" }
     defer { host_free(raw) }
-    let value = String(cString: raw)
+    let value = decodeCString(raw)
     return value.isEmpty ? "unknown" : value
 #elseif os(WASI)
     // Browser: the page hostname. Node: the process title.

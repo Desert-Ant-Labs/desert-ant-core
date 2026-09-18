@@ -1,3 +1,5 @@
+import CStrings
+
 #if os(Android)
 import Android
 #elseif canImport(Glibc)
@@ -14,6 +16,6 @@ import CRT
 /// platform C module in model code.
 public func environmentVariable(_ name: String) -> String? {
     name.withCString { key in
-        getenv(key).map { String(cString: $0) }
+        getenv(key).map { decodeCString($0) }
     }
 }

@@ -1,5 +1,6 @@
 #if os(Android)
 import CHostBridge
+import CStrings
 
 /// Regex engine for Android: the host's `java.util.regex` via CHostBridge. The
 /// host returns newline-separated matches, each `"g0s,g0e;g1s,g1e;..."` of
@@ -20,7 +21,7 @@ struct RegexEngine {
             text.withCString { t in host_regex_matches(p, caseInsensitive ? 1 : 0, t, firstOnly ? 1 : 0) }
         }) else { return [] }
         defer { host_free(ptr) }
-        let encoded = String(cString: ptr)
+        let encoded = decodeCString(ptr)
         if encoded.isEmpty { return [] }
         return encoded.split(separator: "\n", omittingEmptySubsequences: true).map { line in
             line.split(separator: ";", omittingEmptySubsequences: false).map { field -> (start: Int, end: Int)? in

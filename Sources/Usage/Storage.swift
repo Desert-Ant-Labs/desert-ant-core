@@ -10,6 +10,8 @@
 // Pass a `storage:` to `makeClient` to override, or drop to `createClient`/
 // `ClientDeps` for full control (tests, custom hosts).
 
+import CStrings
+
 #if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
 #elseif os(Android)
@@ -119,7 +121,7 @@ public struct HostPreferencesStorage: UsageStorage {
     public func get(_ key: String) -> String? {
         guard let raw = key.withCString({ host_prefs_get($0) }) else { return nil }
         defer { host_free(raw) }
-        let value = String(cString: raw)
+        let value = decodeCString(raw)
         return value.isEmpty ? nil : value
     }
     public func set(_ key: String, _ value: String) {

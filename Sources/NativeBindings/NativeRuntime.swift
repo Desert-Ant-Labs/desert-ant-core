@@ -1,4 +1,5 @@
 #if !os(WASI)
+import CStrings
 import DesertAnt
 
 private final class NativeHandle {
@@ -12,7 +13,7 @@ private func model(_ handle: UnsafeMutableRawPointer?) -> (any BoundModel)? {
 }
 
 private func string(_ pointer: UnsafePointer<CChar>?) -> String? {
-    pointer.map { String(cString: $0) }
+    pointer.map(decodeCString)
 }
 
 public func nativeCreate(
