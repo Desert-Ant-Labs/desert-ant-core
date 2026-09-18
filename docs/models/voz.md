@@ -7,7 +7,7 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Browser, Node |
 | **Languages** | 25 |
 | **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/voz) |
 
@@ -20,6 +20,12 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 ```
 
 Then add the `Voz` product to your target.
+
+**JavaScript** ([requirements](../../README.md#javascript-and-typescript))
+
+```bash
+npm i @desert-ant-labs/voz onnxruntime-web
+```
 <!-- model:end -->
 
 ## Usage
@@ -73,6 +79,42 @@ let result = try await Voz().transcribe(url)
 
 The fallback is yours to choose: `Voz` ships the recognizer, not a router.
 
+### JavaScript
+
+The browser and Node run the same pipeline compiled to WebAssembly, over ONNX
+Runtime rather than Core ML.
+
+```js
+import { Voz } from "@desert-ant-labs/voz";
+
+const voz = await Voz.load();
+const result = await voz.transcribe(file);   // File, Blob, ArrayBuffer, or samples
+
+result.text;
+result.words[0];        // { text: "chapter", start: 0.08, end: 0.24 }
+result.realtimeFactor;
+```
+
+The encoder runs on WebGPU, and on a browser that exposes WebNN (Chromium
+today) the decode step runs on the Neural Engine. `onnxruntime-web` is imported
+on demand, as LiteRT.js is for the other models here, so installing it is all a
+browser app does.
+
+A `File` is read in pieces as the model works through it, so memory does not
+grow with the length of the recording: a five-hour file costs what a
+five-minute one does. Ten minutes of audio runs at about 125x real time in
+Chromium on an M5, 38x on an M1 and 35x in Safari, at a word error rate level
+with the Core ML build.
+
+Under Node, install `onnxruntime-node` and pass it to `load({ ort })`: same API
+and the same word timestamps, on the CPU. It is not imported for you there
+because a native addon in the module graph cannot be bundled for a server.
+
+A `File` is decoded for you, with Web Audio in the browser and the portable WAV
+codec in Node. See the
+[package README](../../packages/voz-node/README.md) for the load options, the
+self-hosting path, and the browser requirements.
+
 ## Accuracy
 
 | | |
@@ -97,10 +139,19 @@ the [model card](https://huggingface.co/desert-ant-labs/voz).
 
 ## Limits
 
-- **Apple platforms only.** The runtime drives Core ML directly, because the
-  things that make it fast (preallocated buffers, `outputBackings`, a
-  lane-batched decode loop) are not expressible through the generic inference
-  shape the other models share. There is no Android, Linux or web build.
+- **Apple platforms and the browser.** On Apple the runtime drives Core ML
+  directly, because the things that make it fast (preallocated buffers,
+  `outputBackings`, a lane-batched decode loop) are not expressible through the
+  generic inference shape the other models share. The JavaScript SDK runs the
+  same pipeline on ONNX Runtime, in a browser or in Node. There is no Android
+  or Linux build.
+- **The browser bundle is a separate download**: 390 MB, because a GPU wants the
+  weights in a different layout than the Neural Engine does. Resident cost is
+  about 1.2 GB, most of it what ONNX Runtime keeps for the compiled session
+  rather than the weights themselves. Tested on Chromium 135+ and Safari 26+.
+- **Node transcribes on the CPU.** `onnxruntime-node`'s default execution
+  provider reaches no accelerator, so a server is slower per second of audio
+  than a browser on the same machine.
 - **25 languages**, and it does not know which one it is hearing. Feeding it a
   language it does not cover produces confident nonsense rather than an error.
   See [Ear](ear.md).

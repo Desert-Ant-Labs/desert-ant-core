@@ -82,6 +82,18 @@ dal_node_pure() { # <model>
     grep -q '"pure"[[:space:]]*:[[:space:]]*true' "packages/$1-node/package.json" 2> /dev/null
 }
 
+# A model with no native core: its npm package declares
+# `"desertant": {"wasmOnly": true}` (voz is the first). Voz has no `dal_*` C ABI
+# to build one from - it drives Core ML directly on Apple and ONNX Runtime Web
+# in a browser - so Node runs the same wasm core the browser does, with the
+# caller's runtime under it. Native tasks skip these; their suites still run.
+#
+# grep for the same reason `dal_node_pure` greps: the native-build containers
+# carry no JS toolchain.
+dal_node_wasm_only() { # <model>
+    grep -q '"wasmOnly"[[:space:]]*:[[:space:]]*true' "packages/$1-node/package.json" 2> /dev/null
+}
+
 # "emo" -> "Emo". The Swift product/target name, and the native library prefix.
 dal_product() { echo "$(printf '%s' "${1:0:1}" | tr '[:lower:]' '[:upper:]')${1:1}"; }
 

@@ -289,15 +289,24 @@ function install(model, version) {
     );
   }
   if (js?.status === "live") {
-    // One install line unless there are two builds to install: a pure model
-    // brings no inference runtime, and a node-only model has no browser build.
+    // Which runtime the install line brings along is the model's, not a
+    // constant: a pure-JavaScript model brings none, an ONNX one brings
+    // onnxruntime-web (and has no native core to fall back to in Node), and
+    // everything else is LiteRT.js in the browser against a prebuilt native
+    // core on the server. A model with no browser build is one line whatever
+    // it runs on, because there is only one build to install.
     const web = js.platforms?.includes("web") ?? true;
-    const lines = model.runtime.includes("pure") || !web
-      ? [`npm i ${js.package}`]
-      : [
-          `npm i ${js.package} @litertjs/core   # browser`,
-          `npm i ${js.package}                  # Node, prebuilt native core`,
-        ];
+    let lines;
+    if (model.runtime.includes("pure") || !web) {
+      lines = [`npm i ${js.package}`];
+    } else if (model.runtime.includes("onnx")) {
+      lines = [`npm i ${js.package} onnxruntime-web`];
+    } else {
+      lines = [
+        `npm i ${js.package} @litertjs/core   # browser`,
+        `npm i ${js.package}                  # Node, prebuilt native core`,
+      ];
+    }
     out.push(
       "**JavaScript** ([requirements](../../README.md#javascript-and-typescript))",
       "",

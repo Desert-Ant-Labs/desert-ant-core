@@ -38,6 +38,12 @@ packages/*/native/
 packages/*/natives/
 packages/*/LICENSE.md
 packages/*/test/fixtures/
+# Voz's is the exception: six seconds of a public-domain LibriVox recording, and
+# the only audio checked in anywhere here. Its browser and Node suites assert a
+# transcript and word times, which needs speech that does not change between
+# runs, and a download would make both of them depend on a host that is not the
+# Hub. 192 KB.
+!packages/voz-node/test/fixtures/
 packages/*/test/.model-cache/
 packages/*/src/main/jniLibs/
 packages/*/src/main/assets/

@@ -36,6 +36,17 @@ for model in $(dal_select "${usage_model:-all}" node); do
         ( cd "$dir" && npm test ${npm_args[@]+"${npm_args[@]}"} )
         continue
     fi
+    # A wasm-only package has no native core to test against; its suite runs the
+    # same core a browser does, so all it needs is dist.
+    if dal_node_wasm_only "$model"; then
+        [ -d "$dir/dist" ] || {
+            echo "error: $dir/dist is missing; run 'mise run build:wasm $model' first" >&2
+            exit 1
+        }
+        echo "== $model (wasm core) =="
+        ( cd "$dir" && npm test ${npm_args[@]+"${npm_args[@]}"} )
+        continue
+    fi
     # build:node-native has no Windows lane, so there is nothing to point the
     # reader at here: the suite cannot run and that is not a setup mistake.
     if [ "$(dal_host_os)" = windows ] && [ ! -d "$dir/native/$key" ]; then

@@ -48,6 +48,13 @@ const TOOLING = {
   "webpack-cli": "^6.0.0",
   esbuild: "^0.25.0",
   "@litertjs/core": "^2.5.2",
+  // Installed because that is what a Voz consumer does, and because a
+  // resolvable runtime is what makes the node:*-free assertions mean something:
+  // onnxruntime-web's own browser bundle references node:os, so a package that
+  // imported it for the consumer would fail the browser scenarios here rather
+  // than in their app. onnxruntime-node is deliberately absent - it is a 100 MB
+  // native addon, and nothing in this repo may reach it from a bundled graph.
+  "onnxruntime-web": "^1.30.0",
 };
 
 // ---------------------------------------------------------------- utilities
@@ -95,23 +102,44 @@ function run(cmd, cmdArgs, opts = {}) {
   return { code: res.status, out: `${res.stdout ?? ""}${res.stderr ?? ""}` };
 }
 
-/** Every emitted .js/.mjs/.cjs under `dir`, concatenated. */
-function emitted(dir) {
+/** Every emitted .js/.mjs/.cjs under `dir`, as { name, code }. */
+function emittedFiles(dir) {
   const out = [];
   const walk = (d) => {
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (/\.[cm]?js$/.test(e.name)) out.push(fs.readFileSync(p, "utf8"));
+      else if (/\.[cm]?js$/.test(e.name)) out.push({ name: path.relative(dir, p), code: fs.readFileSync(p, "utf8") });
     }
   };
   if (fs.existsSync(dir)) walk(dir);
-  return out.join("\n");
+  return out;
+}
+
+/** The same output, concatenated, for the checks that do not care where a
+ *  string came from. */
+function emitted(dir) {
+  return emittedFiles(dir).map((f) => f.code).join("\n");
 }
 
 // A `node:` *specifier*, not the minifier's `{node:r}` property shorthand: only
 // a quoted builtin counts.
 const NODE_BUILTIN = /["'`]node:[a-z_/]+["'`]/g;
+
+// A node builtin the module graph actually depends on: a static import, a
+// re-export, or a bare `require`/`import()` of one. This is the form that
+// breaks a browser, because the bundler has to resolve it.
+const NODE_DEPENDENCY =
+  /(?:\bfrom\s*|\bimport\s*|\brequire\s*\(\s*|\bimport\s*\(\s*)["'`]node:[a-z_/]+["'`]/g;
+
+// Third-party runtimes a model package imports on demand. Their own chunks may
+// mention a node builtin in a branch a browser never takes: onnxruntime-web
+// reads `node:os` for a CPU count when there is no `navigator`, which is
+// guarded, never resolved, and not something this repo can patch out of a
+// dependency. A chunk that carries the runtime is therefore allowed the weak
+// form; every chunk is still refused the strong one above, and our own code is
+// in neither camp because it never names a builtin at all.
+const VENDOR_RUNTIMES = [/onnxruntime/i];
 
 /**
  * Asserts a browser bundle carries neither the native loader nor node builtins,
@@ -120,11 +148,24 @@ const NODE_BUILTIN = /["'`]node:[a-z_/]+["'`]/g;
  *
  * Scenarios minify, so a source comment mentioning koffi cannot trip this.
  */
-function assertBrowserClean(code, label, pkgs = []) {
+function assertBrowserClean(code, label, pkgs = [], files = null) {
   const problems = [];
   if (/koffi/.test(code)) problems.push("references koffi");
-  const builtins = [...new Set([...code.matchAll(NODE_BUILTIN)].map((m) => m[0]))];
-  if (builtins.length) problems.push(`imports ${builtins.join(", ")}`);
+
+  // Per file when the scenario emitted several, because which chunk a builtin
+  // landed in is the whole question: one that carries a vendored runtime is
+  // held to the weaker rule, every other chunk to the strict one.
+  for (const file of files ?? [{ name: "bundle", code }]) {
+    const vendor = VENDOR_RUNTIMES.some((r) => r.test(file.code));
+    const resolved = [...new Set([...file.code.matchAll(NODE_DEPENDENCY)].map((m) => m[0]))];
+    if (resolved.length) {
+      problems.push(`${file.name} imports ${resolved.join(", ")}`);
+      continue;
+    }
+    if (vendor) continue;
+    const mentioned = [...new Set([...file.code.matchAll(NODE_BUILTIN)].map((m) => m[0]))];
+    if (mentioned.length) problems.push(`${file.name} mentions ${mentioned.join(", ")}`);
+  }
   for (const p of pkgs) {
     if (p.modelId && !code.includes(p.modelId)) {
       problems.push(`does not contain ${p.name} (looked for ${p.modelId})`);
@@ -156,6 +197,10 @@ function findPackages() {
         modelId: codec.match(/MODEL_ID\s*=\s*"([^"]+)"/)?.[1],
         // "./dist/EmoWeb.wasm" -> EmoWeb.wasm
         wasmFile: path.basename(String(wasm)) || "Core.wasm",
+        // Not every model has a native core: Voz has no `dal_*` C ABI, so its
+        // package ships the wasm one for both the browser and Node and has no
+        // "/native" entry for the cases below to build.
+        native: Boolean(pkg.exports?.["./native"]),
       };
     });
 }
@@ -259,7 +304,7 @@ const scenarios = [
     name: "node-native-import",
     what: "plain Node imports the /native entry (koffi path)",
     run({ work, pkgs }) {
-      for (const p of pkgs) {
+      for (const p of pkgs.filter((p) => p.native)) {
         const src = `await import(${JSON.stringify(`${p.name}/native`)}); console.log("OK");`;
         const res = run(process.execPath, ["--input-type=module", "-e", src], { cwd: work });
         if (res.code !== 0 || !res.out.includes("OK")) {
@@ -279,7 +324,7 @@ const scenarios = [
         "--platform=browser", "--outdir=" + out,
       ], { cwd: work });
       if (res.code !== 0) throw new Error(`esbuild (browser) failed:\n${res.out}`);
-      assertBrowserClean(emitted(out), "esbuild browser bundle", pkgs);
+      assertBrowserClean(emitted(out), "esbuild browser bundle", pkgs, emittedFiles(out));
     },
   },
   {
@@ -313,7 +358,8 @@ const scenarios = [
         'export default { build: { outDir: "out", emptyOutDir: true, rollupOptions: { onwarn(w, d) { if (w.code === "MODULE_LEVEL_DIRECTIVE") return; d(w); } } } };\n');
       const res = run(bin("vite"), ["build", "--logLevel", "warn"], { cwd: app });
       if (res.code !== 0) throw new Error(`vite build failed:\n${res.out}`);
-      assertBrowserClean(emitted(path.join(app, "out")), "vite browser bundle", pkgs);
+      assertBrowserClean(emitted(path.join(app, "out")), "vite browser bundle", pkgs,
+        emittedFiles(path.join(app, "out")));
     },
   },
   {
@@ -334,7 +380,8 @@ export default {
 `);
       const res = run(bin("webpack"), ["--config", path.join(app, "webpack.config.mjs")], { cwd: work });
       if (res.code !== 0) throw new Error(`webpack (web) failed:\n${res.out}`);
-      assertBrowserClean(emitted(path.join(app, "out")), "webpack browser bundle", pkgs);
+      assertBrowserClean(emitted(path.join(app, "out")), "webpack browser bundle", pkgs,
+        emittedFiles(path.join(app, "out")));
     },
   },
   {
@@ -394,9 +441,15 @@ function nextBuild({ work, pkgs, bin }, name, { args: extraArgs, native, client 
   fs.rmSync(app, { recursive: true, force: true });
   fs.mkdirSync(path.join(app, "app"), { recursive: true });
 
+  // The "/native" app covers only the packages that have that entry; the
+  // universal one covers all of them.
+  const forSubpath = (subpath) => (subpath === "/native" ? pkgs.filter((p) => p.native) : pkgs);
   const importAll = (subpath) =>
-    pkgs.map((p, i) => `import * as m${i} from ${JSON.stringify(p.name + subpath)};`).join("\n");
-  const uses = pkgs.map((_, i) => `m${i}`).join(", ");
+    forSubpath(subpath)
+      .map((p, i) => `import * as m${i} from ${JSON.stringify(p.name + subpath)};`)
+      .join("\n");
+  const usesFor = (subpath) => forSubpath(subpath).map((_, i) => `m${i}`).join(", ");
+  const uses = usesFor("");
 
   if (client) {
     fs.writeFileSync(path.join(app, "app", "model.jsx"), `"use client";
@@ -424,7 +477,7 @@ export default function Page() {
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return Response.json({ loaded: [${uses}].filter(Boolean).length });
+  return Response.json({ loaded: [${usesFor("/native")}].filter(Boolean).length });
 }
 `);
   }
@@ -449,10 +502,39 @@ ${config}};
   });
   if (res.code !== 0) throw new Error(`next build failed:\n${res.out}`);
 
-  // Build success covers the SSR/server graphs. The client chunks are what ships
-  // to a browser, so assert that half stays clean too.
+  // The client chunks are what ships to a browser, so assert that half stays
+  // clean.
   if (client) {
-    assertBrowserClean(emitted(path.join(app, ".next", "static")), `${name} client chunks`, pkgs);
+    assertBrowserClean(emitted(path.join(app, ".next", "static")), `${name} client chunks`, pkgs,
+    emittedFiles(path.join(app, ".next", "static")));
+  }
+
+  // And the SSR graph carries no native addon. A build failure covers this
+  // today, but only by accident of Turbopack's error message: a consumer hit
+  // "non-ecmascript placeable asset ... not placeable in ESM chunks" because a
+  // client component's SSR pass resolved the node export condition and reached
+  // koffi. Asserting it directly names the thing that went wrong. The /native
+  // app is exempt: that entry is server-only and declares koffi external, which
+  // is the supported way to reach it.
+  if (!native) {
+    const server = path.join(app, ".next", "server");
+    const addons = [];
+    const walk = (d) => {
+      if (!fs.existsSync(d)) return;
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (e.name.endsWith(".node")) addons.push(path.relative(server, p));
+      }
+    };
+    walk(server);
+    const requiresKoffi = emittedFiles(server)
+      .filter((f) => /require\(\s*["'`]koffi["'`]\)|from\s*["'`]koffi["'`]/.test(f.code))
+      .map((f) => f.name);
+    const problems = [];
+    if (addons.length) problems.push(`native addons in the SSR graph: ${addons.join(", ")}`);
+    if (requiresKoffi.length) problems.push(`SSR chunks require koffi: ${requiresKoffi.join(", ")}`);
+    if (problems.length) throw new Error(`${name} server graph: ${problems.join("; ")}`);
   }
 }
 

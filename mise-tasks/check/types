@@ -49,7 +49,18 @@ for model in $(dal_models_with node); do
     built=$((built + 1))
     [ -n "${first_abi:-}" ] || first_abi="$abi"
     echo "import type { Exports as Exports_$model, Imports as Imports_$model } from \"../../../$abi\";" >> "$fixture"
-    echo "export type ABI_$model = Expect<Equal<WasmCore, Exports_$model>>;" >> "$fixture"
+    # Most cores implement the shared, model-agnostic surface, so they are
+    # checked against core's `WasmCore`. A model whose core exports its own
+    # surface instead (voz: three graphs and a transcript, not one `run` over
+    # FFI payloads) declares it as `ModelCore` in its package types, and that is
+    # what its generated ABI is checked against. Either way a Swift signature
+    # change that nobody mirrored fails here.
+    if grep -q "ModelCore" "packages/$model-node/$entry"; then
+        echo "import type { ModelCore as Core_$model } from \"../../../packages/$model-node/${entry%.d.ts}.js\";" >> "$fixture"
+        echo "export type ABI_$model = Expect<Equal<Core_$model, Exports_$model>>;" >> "$fixture"
+    else
+        echo "export type ABI_$model = Expect<Equal<WasmCore, Exports_$model>>;" >> "$fixture"
+    fi
     echo "export type Host_$model = Expect<Equal<HostImports, Imports_$model>>;" >> "$fixture"
 done
 
@@ -58,8 +69,14 @@ if [ "$built" = 0 ]; then
     echo "      (run 'mise run build:wasm' to also prove the declared wasm ABI matches)"
 fi
 
+# --typeRoots at nothing: only the types these files actually import are
+# checked, not every @types package that happens to be installed. A dependency
+# can ship one that conflicts with TypeScript's own DOM lib (mediabunny brings
+# @types/dom-webcodecs, which redeclares ImageBufferSource), and that is not a
+# statement about the types this repo ships. `skipLibCheck` stays off, which is
+# the part that matters: our own .d.ts files are still checked in full.
 if ! npx --yes --package typescript@5 tsc \
-    --strict --noEmit --skipLibCheck false \
+    --strict --noEmit --skipLibCheck false --typeRoots "$PWD/.no-type-roots" \
     --target es2022 --module nodenext --moduleResolution nodenext "$fixture"; then
     echo >&2
     echo "error: the shipped types do not check out." >&2

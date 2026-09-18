@@ -13,11 +13,11 @@
  * Apply the runtime settings this model needs to a caller-supplied
  * onnxruntime-web.
  *
- * The runtime is a parameter rather than an import on purpose. Bundling it for
- * the browser drags in node:os and node:fs, which fails a webpack or Turbopack
- * client build outright, and it is 10 MB that a consumer who never transcribes
- * should not carry. The LiteRT host can import its own runtime because that one
- * is browser-clean; this one is not.
+ * The runtime is a parameter here because this module is shared and has no
+ * business choosing one: the browser wants onnxruntime-web and Node wants
+ * onnxruntime-node, which is a native addon. `packages/voz-node` picks per
+ * platform behind its `#platform` seam and imports the browser one on demand,
+ * so a consumer installs it and calls `Voz.load()` with nothing.
  *
  *     import * as ort from "onnxruntime-web/all";
  *     const voz = await loadVoz({ baseUrl, ort });
@@ -44,7 +44,8 @@ export function configureOrt({ ort, wasmDir }) {
     throw new Error(
       "voz: pass the onnxruntime-web module, e.g. " +
         'import * as ort from "onnxruntime-web/all"; loadVoz({ baseUrl, ort }). ' +
-        "It is not imported here because bundling it for the browser pulls in node:os.",
+        "This layer is model-agnostic about where the runtime came from; the voz " +
+        "package imports one for the browser itself.",
     );
   }
   if (wasmDir) ort.env.wasm.wasmPaths = wasmDir;
@@ -66,12 +67,14 @@ export function configureOrt({ ort, wasmDir }) {
  * Requires `Float16Array`. Without it this throws rather than degrading, which
  * is the intent: a silent float32 fallback would double the resident weights.
  *
- * @param {ArrayBuffer} blob packed bytes, `meta.encoder_packed.blob`
+ * @param {ArrayBuffer|Uint8Array} blob packed bytes, `meta.encoder_packed.blob`
  * @param {object} packed `encoder_packed` from meta.json
  * @returns {Uint8Array} laid out exactly as the unpacked weights file
  */
 export function expand(blob, packed) {
-  const source = new Uint8Array(blob);
+  // Taken as is when it is already a view: a copy here is another 334 MB
+  // resident beside the 1.19 GB being written.
+  const source = blob instanceof Uint8Array ? blob : new Uint8Array(blob);
   const out = new Uint8Array(packed.bytes);
   const wide = new Float16Array(out.buffer);
   const group = packed.group;
@@ -126,33 +129,57 @@ export function hasWebNN() {
  * Fetch a bundle's files, keyed by name. `meta.json` is read first because it
  * names the other two: which decode step to take, and the packed weight blob.
  *
+ * Everything comes back as bytes, including the two JSON files. The wasm core
+ * parses its own sidecars, so handing it a parsed object would mean stringifying
+ * it back; `meta` is returned parsed *as well* because the host reads it to
+ * decide what to compile.
+ *
+ * `fetchFile` is the seam a cache goes behind: it takes a URL and returns bytes,
+ * defaulting to one `fetch`. Node reads through a disk cache, a browser through
+ * the Cache API, and neither concern belongs here.
+ *
  * @param {string} baseUrl ends in "/"
  * @param {object} [o]
  * @param {boolean} [o.webnn] override the WebNN detection
+ * @param {(url: string, name: string) => Promise<ArrayBuffer|Uint8Array>} [o.fetchFile]
  */
-export async function fetchVozBundle(baseUrl, { webnn = hasWebNN() } = {}) {
-  const get = async (name) => {
-    const response = await fetch(new URL(name, baseUrl).toString());
+export async function fetchVozBundle(baseUrl, { webnn = hasWebNN(), fetchFile } = {}) {
+  const read = fetchFile ?? (async (url, name) => {
+    const response = await fetch(url);
     if (!response.ok) throw new Error(`voz: ${name} -> HTTP ${response.status}`);
-    return response;
+    return response.arrayBuffer();
+  });
+  const get = async (name) => {
+    const bytes = await read(new URL(name, baseUrl).toString(), name);
+    return bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   };
-  const meta = await (await get("meta.json")).json();
+
+  const metaBytes = await get("meta.json");
+  const meta = JSON.parse(new TextDecoder().decode(metaBytes));
   const step = decodeStepFor(meta, webnn);
   // encoder.weights is deliberately absent. When the bundle is packed the
   // weights come from encoder.q4 and are expanded at load; when it is not, the
   // graph carries them inline.
   const names = ["vocab.json", "embedding.f16", "encoder.onnx", step.file];
-  if (meta.encoder_packed) names.push(meta.encoder_packed.blob);
-  const parts = await Promise.all(
-    names.map(async (name) => [
-      name,
-      name.endsWith(".json") ? await (await get(name)).json() : await (await get(name)).arrayBuffer(),
-    ]),
-  );
+  // A bundle carries its encoder weights one of two ways. `encoder_external`
+  // names a file the graph refers to directly, which is what a quantized
+  // encoder ships: the runtime reads it as is. `encoder_packed` is the older
+  // form, float16 weights squeezed to 4 bits for the wire only and expanded
+  // here before the runtime sees them.
+  if (meta.encoder_external) names.push(meta.encoder_external);
+  else if (meta.encoder_packed) names.push(meta.encoder_packed.blob);
+  const parts = await Promise.all(names.map(async (name) => [name, await get(name)]));
   // The core is handed this manifest verbatim, so it has to describe the decode
   // step that was actually loaded rather than the one the export defaulted to.
   meta.decode_lanes = step.lanes;
-  return { meta, step, files: Object.fromEntries(parts) };
+  // Reserialized, not the bytes that arrived: `decode_lanes` above is the host's
+  // correction and the core has to see it.
+  return {
+    meta,
+    metaBytes: new TextEncoder().encode(JSON.stringify(meta)),
+    step,
+    files: Object.fromEntries(parts),
+  };
 }
 
 /**
@@ -214,6 +241,13 @@ export function makeVozHost({ ort, sessions }) {
 /**
  * Compile a bundle's graphs into sessions.
  *
+ * `ep` is the execution provider the graphs compile for. WebGPU is the point of
+ * this runtime, but the encoder's shaders need `shader-f16`, and a browser
+ * whose adapter lacks it - a software adapter, which is what a machine with no
+ * GPU exposes - fails to create the session at all rather than running slowly.
+ * "wasm" runs the same graphs on the CPU, which is what makes an inference test
+ * possible on a runner without a GPU.
+ *
  * Graph optimization is off deliberately. ONNX Runtime's MatMul+Add fusion emits
  * Gemm, whose WebGPU kernel is a naive one, and on this encoder that costs more
  * than every fusion gains. Measured three times across two graph shapes:
@@ -221,9 +255,11 @@ export function makeVozHost({ ort, sessions }) {
  *
  * @param {object} o
  * @param {any} o.ort
- * @param {Record<string, ArrayBuffer>} o.models graphs by model name
+ * @param {Record<string, ArrayBuffer|Uint8Array>} o.models graphs by model name
  * @param {Record<string, object>} [o.weights] external data by model name
  * @param {Record<string, any[]>} [o.providers] execution providers by model name
+ * @param {(name: string) => void} [o.onModel] called after each session is
+ *   built, so the caller can release that model's bytes before the next
  * @param {() => void} [o.onLoaded] called once every session exists
  */
 export async function createVozSessions({
@@ -232,6 +268,7 @@ export async function createVozSessions({
   weights = {},
   providers = {},
   ep = "webgpu",
+  onModel,
   onLoaded,
 }) {
   const base = { executionProviders: [ep], graphOptimizationLevel: "disabled" };
@@ -240,9 +277,11 @@ export async function createVozSessions({
     const external = weights[name];
     const options = providers[name] ? { ...base, executionProviders: providers[name] } : base;
     sessions[name] = await ort.InferenceSession.create(
-      new Uint8Array(bytes),
+      bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
       external ? { ...options, externalData: [external] } : options,
     );
+    // Hand this model's bytes back before compiling the next one.
+    onModel?.(name);
   }
   // The caller's copy of any external weights is dead once every session has
   // been created. Releasing it before anything else allocates matters: it is
@@ -260,14 +299,23 @@ export async function createVozSessions({
  * @param {any} o.ort the onnxruntime-web module
  * @param {string} [o.wasmDir] where the runtime's own .wasm files live
  * @param {boolean} [o.webnn] override the WebNN detection
+ * @param {(url: string, name: string) => Promise<ArrayBuffer|Uint8Array>} [o.fetchFile]
+ * @param {string} [o.ep] execution provider for the graphs; "webgpu" by
+ *   default, "wasm" to run on the CPU where there is no usable GPU
  * @returns the host, the manifest, and the sidecars the core needs at load
  */
-export async function loadVoz({ baseUrl, ort: supplied, wasmDir, webnn = hasWebNN() }) {
+export async function loadVoz({
+  baseUrl, ort: supplied, wasmDir, webnn = hasWebNN(), fetchFile, ep = "webgpu",
+}) {
   const ort = configureOrt({ ort: supplied, wasmDir });
-  const { meta, step, files } = await fetchVozBundle(baseUrl, { webnn });
+  const { meta, metaBytes, step, files } = await fetchVozBundle(baseUrl, { webnn, fetchFile });
 
   const weights = {};
-  if (meta.encoder_packed) {
+  if (meta.encoder_external) {
+    // Already in the layout the graph expects: no expansion, and the bytes the
+    // browser downloaded are the bytes the GPU gets.
+    weights.encoder = { path: meta.encoder_external, data: files[meta.encoder_external] };
+  } else if (meta.encoder_packed) {
     weights.encoder = {
       path: meta.encoder_packed.target,
       data: expand(files[meta.encoder_packed.blob], meta.encoder_packed),
@@ -276,18 +324,35 @@ export async function loadVoz({ baseUrl, ort: supplied, wasmDir, webnn = hasWebN
 
   const sessions = await createVozSessions({
     ort,
+    ep,
     models: { encoder: files["encoder.onnx"], decoder: files[step.file] },
     weights,
     providers: webnn ? { decoder: [{ name: "webnn", deviceType: "npu" }] } : {},
+    // Every byte we downloaded is dead once the runtime has compiled it, and
+    // holding them is not free: the weights alone are 349 MB, next to the
+    // ~900 MB the runtime itself keeps for the compiled session. Released as
+    // each session is built rather than after both, so the peak never holds
+    // two models' bytes at once.
+    onModel: (name) => {
+      if (name === "encoder") {
+        delete weights.encoder;
+        delete files["encoder.onnx"];
+        delete files[meta.encoder_external ?? meta.encoder_packed?.blob];
+      } else {
+        delete files[step.file];
+      }
+    },
     onLoaded: () => {
       delete weights.encoder;
-      delete files[meta.encoder_packed?.blob];
+      delete files[meta.encoder_external ?? meta.encoder_packed?.blob];
     },
   });
 
   return {
     host: makeVozHost({ ort, sessions }).install(),
     meta,
+    // Bytes, because that is what the core's `load` takes.
+    metaBytes,
     vocab: files["vocab.json"],
     embedding: files["embedding.f16"],
   };

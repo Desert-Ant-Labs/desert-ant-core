@@ -250,16 +250,23 @@ export interface VozTimings {
 
 export function configureOrt(options: { ort: any; wasmDir?: string }): any;
 
-export function expand(blob: ArrayBuffer, packed: any): Uint8Array;
+export function expand(blob: ArrayBuffer | Uint8Array, packed: any): Uint8Array;
 
 export function decodeStepFor(meta: any, webnn: boolean): { file: string; lanes: number };
 
 export function hasWebNN(): boolean;
 
-export function fetchVozBundle(baseUrl: string, options?: { webnn?: boolean }): Promise<{
+export type VozFetchFile =
+  (url: string, name: string) => Promise<ArrayBuffer | Uint8Array>;
+
+export function fetchVozBundle(baseUrl: string, options?: {
+  webnn?: boolean;
+  fetchFile?: VozFetchFile;
+}): Promise<{
   meta: any;
+  metaBytes: Uint8Array;
   step: { file: string; lanes: number };
-  files: Record<string, any>;
+  files: Record<string, Uint8Array>;
 }>;
 
 export function makeVozHost(options: { ort: any; sessions: Record<string, any> }): {
@@ -271,10 +278,11 @@ export function makeVozHost(options: { ort: any; sessions: Record<string, any> }
 
 export function createVozSessions(options: {
   ort: any;
-  models: Record<string, ArrayBuffer>;
+  models: Record<string, ArrayBuffer | Uint8Array>;
   weights?: Record<string, any>;
   providers?: Record<string, any[]>;
   ep?: string;
+  onModel?: (name: string) => void;
   onLoaded?: () => void;
 }): Promise<Record<string, any>>;
 
@@ -283,4 +291,12 @@ export function loadVoz(options: {
   ort: any;
   wasmDir?: string;
   webnn?: boolean;
-}): Promise<{ host: any; meta: any; vocab: any; embedding: ArrayBuffer }>;
+  fetchFile?: VozFetchFile;
+  ep?: string;
+}): Promise<{
+  host: any;
+  meta: any;
+  metaBytes: Uint8Array;
+  vocab: Uint8Array;
+  embedding: Uint8Array;
+}>;
