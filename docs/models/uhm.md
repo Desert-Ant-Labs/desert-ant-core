@@ -9,7 +9,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
 | **Languages** | 5 |
-| **Weights** | [612592c](https://huggingface.co/desert-ant-labs/uhm) |
+| **Weights** | [006841d](https://huggingface.co/desert-ant-labs/uhm) |
 | **Demo** | https://desertant.com/models/uhm/ |
 
 ## Install
@@ -95,7 +95,14 @@ The shipped model is a DistilHuBERT fine-tune. It is the smaller and more precis
 - **Output:** per-frame softmax over 6 classes, one prediction every 20 ms.
 - **Class indices:** `0 = not_filler, 1 = uh, 2 = um, 3 = hmm, 4 = and, 5 = other`.
 
-Core ML input shape `(1, 480000)` float32; output `(1, 1499, 6)`. Requires iOS 17 / macOS 14 or newer.
+Core ML input shape `(30, 1, 1, 16080)` float16 — the 30-second window pre-cut
+into 30 overlapping tiles — and output `(1, 6, 1, 1499)` float16. The SDK builds
+that layout for you; it exists because the Neural Engine caps every tensor axis
+at 16384, and it is what lets the whole model run there. Requires iOS 17 /
+macOS 14 or newer.
+
+The ONNX artifacts keep the plain `(1, 480000)` float32 in, `(1, 1499, 6)` out
+shape: the tiled layout is an Apple-silicon optimization and is slower on a GPU.
 
 ## Performance
 
@@ -108,6 +115,11 @@ Warm on-device runs on the published fp16 Core ML model:
 | iPad Pro M4 | ~279× |
 
 Realtime factor = audio duration ÷ analyze time; model load excluded.
+
+Those are measured on the *previous* export. The current one runs every
+operation on the Neural Engine and is 1.6× faster where it has been measured
+(M1: 115× → 188× end to end), so these numbers are conservative until they are
+re-measured on the devices themselves.
 
 ## Limitations
 

@@ -12,10 +12,17 @@ import DesertAnt
 public enum UhmModel: ModelDeclaration {
     public static let id = "uhm"
     public static let product = "Uhm"
-    // The Hub repo has no `v`-tag yet (the standalone uhm-swift SDK tracked its
-    // default branch), so pin the exact commit this SDK is built against;
-    // becomes a `v`-tag once one is published.
-    public static let revision = "612592c10ad7b2a51f3237725448a1aad212480b"
+    // Pinned to the exact commit this SDK is built against, which for now is the
+    // head of the Hub repo's `ane-resident` branch: the re-export whose every
+    // operation runs on the Neural Engine (uhm-training
+    // research/PROGRESS_ane_residency.md). Same weights as `v1.0.0`, different
+    // graph - it hands the model a pre-tiled window and gets BC1S probabilities
+    // back, which is why `FillerDetector` reads its layout off the artifact.
+    //
+    // Repin to the `v`-tag once that branch merges to `main` and is tagged.
+    // Hub revisions are immutable, so published SDKs keep resolving whatever
+    // they were built against and nothing needs to move in lockstep.
+    public static let revision = "006841d9a3d8a3ec6377c361f38c321ce9b8fb85"
     /// The standalone uhm-swift release this port matches. No published
     /// npm/Maven package yet, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with

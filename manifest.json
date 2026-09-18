@@ -601,7 +601,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/uhm",
         "url": "https://huggingface.co/desert-ant-labs/uhm",
-        "revision": "612592c10ad7b2a51f3237725448a1aad212480b",
+        "revision": "006841d9a3d8a3ec6377c361f38c321ce9b8fb85",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": ["coreml"],
