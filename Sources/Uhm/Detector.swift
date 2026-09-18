@@ -19,6 +19,7 @@ struct FillerDetector: Sendable {
         var maxWindowSec: Double      // model's fixed input length
         var hopSec: Double            // sliding window hop between successive model calls
         var frameHopSamples: Int      // conv stem hop (320 = 20ms @ 16kHz)
+        var receptiveFieldSamples: Int // conv stem receptive field (400 = 25ms)
         var minFrameProb: Double      // per-frame threshold for "is filler"
         var minDurationSec: Double    // discard runs shorter than this
         var mergeGapSec: Double       // merge adjacent runs within this gap
@@ -28,6 +29,7 @@ struct FillerDetector: Sendable {
             maxWindowSec: 30.0,
             hopSec: 25.0,                // 5s overlap between windows
             frameHopSamples: 320,
+            receptiveFieldSamples: 400,
             minFrameProb: 0.5,
             minDurationSec: 0.10,
             mergeGapSec: 0.10
@@ -58,7 +60,24 @@ struct FillerDetector: Sendable {
     private static let inputName = "audio"
     private static let outputName = "probs"
 
+    /// How the model wants its window, read off the artifact rather than assumed.
+    ///
+    /// The Neural Engine caps every tensor axis at 16384, so an ANE-resident
+    /// export cannot take a 480000-sample window as one row: it takes the window
+    /// pre-cut into overlapping tiles. Which one we have is a property of the
+    /// file, so it is detected from the declared input width instead of being a
+    /// flag someone has to keep in step with the download.
+    enum Layout: Sendable, Equatable {
+        /// One row of `maxWindowSec` samples: `(1, maxSamples)`.
+        case window
+        /// `(tiles, 1, 1, tileSamples)`, each tile overlapping the next by the
+        /// stem's receptive-field halo so the frames it produces are identical
+        /// to the ones the whole-window model produces.
+        case tiles(count: Int, samples: Int, stride: Int)
+    }
+
     let config: Config
+    let layout: Layout
     private let session: any InferenceSession
     private let maxSamples: Int
 
@@ -68,8 +87,26 @@ struct FillerDetector: Sendable {
             c.minFrameProb = v
         }
         self.session = session
-        self.maxSamples = Int(c.maxWindowSec * c.sampleRate)
+        let maxSamples = Int(c.maxWindowSec * c.sampleRate)
+        self.maxSamples = maxSamples
         self.config = c
+        self.layout = Self.layout(for: session, maxSamples: maxSamples, config: c)
+    }
+
+    /// A declared input width below the full window means a tiled export.
+    /// Everything else about the tiling follows from that one number plus the
+    /// stem's geometry, so there is nothing to keep in sync by hand.
+    private static func layout(for session: any InferenceSession,
+                              maxSamples: Int, config: Config) -> Layout {
+        guard let width = session.inputWidth(inputName), width > 0, width < maxSamples
+        else { return .window }
+        // The halo is what a tile needs beyond its own frames for the conv stem
+        // to see the same context the whole-window model sees.
+        let halo = config.receptiveFieldSamples - config.frameHopSamples
+        let stride = width - halo
+        guard stride > 0 else { return .window }
+        let count = (maxSamples + stride - 1) / stride
+        return .tiles(count: count, samples: width, stride: stride)
     }
 
     // MARK: - Detection
@@ -113,7 +150,7 @@ struct FillerDetector: Sendable {
             try Task.checkCancellation()
             let prepStart = ContinuousClock.now
             let input = normalizedWindow(samples, start: range.start, end: range.end)
-            let tensor = Tensor(float32: input, shape: [1, maxSamples])
+            let tensor = Self.tensor(for: input, layout: layout, maxSamples: maxSamples)
             t.prepSec += Self.elapsed(since: prepStart)
             let inferenceStart = ContinuousClock.now
             let outputs = try await session.run(
@@ -163,13 +200,43 @@ struct FillerDetector: Sendable {
         return window
     }
 
-    /// Per-frame filler probability from the model's `(1, T, C)` softmax:
-    /// `1 - p_not_filler` (class 0). The session backends already deliver
-    /// dense float32, so no stride/precision handling is needed here.
-    private static func fillerProbs(_ tensor: Tensor?) -> [Float] {
+    /// Lay a normalized window out the way this model's graph expects.
+    ///
+    /// Tiles overlap by the halo and the tail is zero-padded, which is exactly
+    /// what the whole-window model does at the end of a short final window.
+    static func tensor(for window: [Float], layout: Layout, maxSamples: Int) -> Tensor {
+        switch layout {
+        case .window:
+            return Tensor(float32: window, shape: [1, maxSamples])
+        case let .tiles(count, samples, stride):
+            var tiled = [Float](repeating: 0, count: count * samples)
+            for tile in 0..<count {
+                let start = tile * stride
+                guard start < window.count else { break }
+                let available = min(samples, window.count - start)
+                for k in 0..<available {
+                    tiled[tile * samples + k] = window[start + k]
+                }
+            }
+            return Tensor(float32: tiled, shape: [count, 1, 1, samples])
+        }
+    }
+
+    /// Per-frame filler probability, `1 - p_not_filler` (class 0), from either
+    /// output layout: `(1, T, C)` from the whole-window export, or BC1S
+    /// `(1, C, 1, T)` from the ANE-resident one, where the class axis has to
+    /// come second so the sequence stays in the last (DMA-aligned) position.
+    /// The session backends deliver dense float32, so no stride handling here.
+    static func fillerProbs(_ tensor: Tensor?) -> [Float] {
         guard let tensor, let values = tensor.float32Values else { return [] }
         let shape = tensor.shape
         guard shape.count >= 3 else { return values }
+        if shape.count == 4 && shape[2] == 1 {
+            // (1, C, 1, T): class 0 occupies the first T values.
+            let t = shape[3]
+            guard values.count >= t else { return [] }
+            return (0..<t).map { 1.0 - values[$0] }
+        }
         let t = shape[shape.count - 2]
         let c = shape[shape.count - 1]
         var result = [Float]()
