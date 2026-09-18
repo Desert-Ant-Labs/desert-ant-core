@@ -1,6 +1,8 @@
-#if canImport(CoreML)
+#if canImport(CoreML) || canImport(COnnxRuntime)
 import AudioIO
+#if canImport(CoreML)
 import CoreML
+#endif
 import Foundation
 
 public extension Voz {

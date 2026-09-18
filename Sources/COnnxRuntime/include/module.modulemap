@@ -1,0 +1,4 @@
+module COnnxRuntime {
+    header "COnnxRuntime.h"
+    export *
+}

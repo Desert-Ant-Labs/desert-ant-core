@@ -1,5 +1,7 @@
+#if canImport(CoreML) || canImport(COnnxRuntime)
 #if canImport(CoreML)
 import CoreML
+#endif
 import Foundation
 
 /// Model geometry, read from the export rather than assumed.

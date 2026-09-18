@@ -1,5 +1,7 @@
+#if canImport(CoreML) || canImport(COnnxRuntime)
 #if canImport(CoreML)
 import CoreML
+#endif
 import Foundation
 
 /// Element type of every model-facing buffer.
@@ -9,7 +11,17 @@ import Foundation
 /// declined to reuse its cached specialization and re-specialized the encoder on
 /// every load. Compute precision was already float16, so the narrower I/O is
 /// lossless.
+///
+/// The ONNX exports declare float32 edges with float16 weights inside, because
+/// that is what `torch.onnx.export` writes and what `Tensor` can carry. Binding
+/// float32 buffers to them means a dispatch converts nothing; the cost is twice
+/// the bytes, which on a discrete-memory path would matter and on an integrated
+/// GPU does not.
+#if canImport(CoreML)
 typealias Element = Float16
+#else
+typealias Element = Float
+#endif
 
 /// A reusable model-facing buffer with direct pointer access.
 ///
@@ -26,6 +38,7 @@ final class Buffer {
     let count: Int
     let shape: [Int]
 
+    #if canImport(CoreML)
     let array: MLMultiArray
 
     init(_ shape: [Int]) throws {
@@ -35,6 +48,21 @@ final class Buffer {
         self.shape = shape
         ptr.update(repeating: 0, count: count)
     }
+    #else
+    /// Plain owned storage off Apple. The ONNX shim takes a base pointer and a
+    /// byte count per tensor, so there is nothing to wrap it in.
+    init(_ shape: [Int]) throws {
+        count = shape.reduce(1, *)
+        self.shape = shape
+        ptr = UnsafeMutablePointer<Element>.allocate(capacity: max(count, 1))
+        ptr.initialize(repeating: 0, count: max(count, 1))
+    }
+
+    deinit {
+        ptr.deinitialize(count: max(count, 1))
+        ptr.deallocate()
+    }
+    #endif
 
     func zero() { ptr.update(repeating: 0, count: count) }
 
