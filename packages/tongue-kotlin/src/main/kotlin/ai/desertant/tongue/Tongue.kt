@@ -97,13 +97,15 @@ public class Tongue internal constructor(
             return Detection(normalized, emptyList(), Reliability.EMPTY, route)
         }
 
+        // Rank the runner-up even when one candidate was asked for: the margin
+        // between the top two is what reliability and the tie flag are made of.
         val ranked = weights.rank(normalized, allowed.toSet(), if (topK == 1) 2 else topK)
-        val candidates = if (topK == 1) TopCandidateList(ranked) else ranked
         return Detection(
             normalized,
-            candidates,
+            if (topK == 1) ranked.take(1) else ranked,
             reliabilityOf(normalized, ranked),
             route,
+            isTooCloseToCall = tooCloseToCall(ranked),
         )
     }
 
@@ -151,25 +153,19 @@ public data class Detection(
     val candidates: List<Prediction>,
     val reliability: Reliability,
     val route: Route,
+    /**
+     * True when the top two ranked candidates are too close to separate. Present
+     * both rather than crowning one: `"la casa"` is equally Italian and Spanish,
+     * and saying so is more useful than picking. Detection ranks the runner-up
+     * whatever `topK` is, so this holds even when one candidate was returned;
+     * ask for two to show them.
+     */
+    val isTooCloseToCall: Boolean = tooCloseToCall(candidates),
 ) {
     public val language: String? get() = candidates.firstOrNull()?.language
-
-    /** True when the top two ranked candidates are too close to separate. */
-    public val isTooCloseToCall: Boolean
-        get() {
-            val ranked = (candidates as? TopCandidateList)?.ranked ?: candidates
-            return ranked.size > 1 && ranked[0].probability - ranked[1].probability < 0.12
-        }
 }
 
-// Carry the runner-up through data-class copy without changing Detection's JVM ABI.
-private class TopCandidateList(val ranked: List<Prediction>) : AbstractList<Prediction>() {
-    override val size: Int get() = minOf(1, ranked.size)
-
-    override fun get(index: Int): Prediction {
-        if (index !in indices) throw IndexOutOfBoundsException("Index $index, size $size")
-        return ranked[index]
-    }
-}
+internal fun tooCloseToCall(ranked: List<Prediction>): Boolean =
+    ranked.size > 1 && ranked[0].probability - ranked[1].probability < 0.12
 
 public class TongueException(message: String) : RuntimeException(message)

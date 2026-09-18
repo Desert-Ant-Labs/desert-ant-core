@@ -185,9 +185,14 @@ private fun testDetection() {
         "topK 1 should retain the runner-up for reliability"
     }
     check(topOne.isTooCloseToCall) { "topK 1 should retain the runner-up for tie status" }
+    // The flag is a value on Detection, so it survives being carried around:
+    // rebuilding the candidate list must not quietly turn a tie into a verdict.
     check(topOne.copy(normalized = "copied").isTooCloseToCall) {
-        "copy should retain the runner-up for tie status"
+        "copy should keep the tie status"
     }
+    val rebuilt = topOne.copy(candidates = topOne.candidates.toList())
+    check(rebuilt.isTooCloseToCall) { "rebuilding the candidate list should keep the tie status" }
+    check(topOne == rebuilt) { "a rebuilt candidate list should leave the detection equal" }
     // Reads as Welsh to any character model. The point is that it says so.
     check(tongue.detect("hi i am").reliability == Reliability.TENTATIVE) {
         "'hi i am' should be tentative"

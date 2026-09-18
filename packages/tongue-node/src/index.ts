@@ -43,8 +43,11 @@ export interface Detection {
   /** Top candidate, or `null` on empty input. */
   readonly language: string | null;
   /**
-   * True when the top two ranked candidates are too close to separate.
-   * Request at least two candidates to present both.
+   * True when the top two ranked candidates are too close to separate. Present
+   * both rather than crowning one: `"la casa"` is equally Italian and Spanish,
+   * and saying so is more useful than picking. Detection ranks the runner-up
+   * whatever `topK` is, so this holds even when one candidate was returned; ask
+   * for two to show them.
    */
   readonly isTooCloseToCall: boolean;
 }
@@ -134,6 +137,8 @@ export class Tongue {
         : (this.metadata.latin_labels ?? this.metadata.labels);
     if (allowed.length === 0) return finish([], "empty");
 
+    // Rank the runner-up even when one candidate was asked for: the margin
+    // between the top two is what reliability and the tie flag are made of.
     const ranked = this.weights.rank(normalized, new Set(allowed), topK === 1 ? 2 : topK);
     const candidates = topK === 1 ? ranked.slice(0, 1) : ranked;
     return finish(candidates, this.reliability(normalized, ranked), ranked);
