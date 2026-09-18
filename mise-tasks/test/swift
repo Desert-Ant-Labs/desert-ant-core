@@ -60,11 +60,24 @@ elif [ "$(dal_host_os)" = windows ]; then
     # fixed the release path; the guard below still catches it if not.
     config="${DAL_SWIFT_TEST_CONFIG:-debug}"
     eval "$(dal_litert_link_flags)"
+    dal_vendor_onnxruntime
+    eval "$(dal_onnxruntime_link_flags)"
+    # Build before running, so the products directory exists to stage
+    # onnxruntime.dll into. dal_stage_onnxruntime says why PATH will not do
+    # for that one: System32 ships a Windows ML copy that outranks it.
+    swift build --scratch-path .build-host -c "$config" --build-tests \
+        ${litert_flags[@]+"${litert_flags[@]}"} ${onnx_flags[@]+"${onnx_flags[@]}"}
+    case "$config" in
+        release) products=Release-windows-x86_64 ;;
+        *) products=Debug-windows-x86_64 ;;
+    esac
+    dal_stage_onnxruntime ".build-host/out/Products/$products"
     log=$(mktemp)
     status=0
     PATH="$PWD/$(dal_litert_dir):$PATH" \
         swift test --scratch-path .build-host -c "$config" -Xswiftc -O --disable-xctest \
         ${filter[@]+"${filter[@]}"} ${litert_flags[@]+"${litert_flags[@]}"} \
+        ${onnx_flags[@]+"${onnx_flags[@]}"} \
         2>&1 | tee "$log" || status=$?
 
     # Before any exit below: SwiftPM copies every resource bundle into the

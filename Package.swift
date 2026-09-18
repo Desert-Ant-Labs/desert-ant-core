@@ -110,6 +110,19 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
     .product(name: "JavaScriptEventLoopTestSupport", package: "JavaScriptKit", condition: .when(platforms: [.wasi])),
 ]
 
+// The ONNX Runtime C shim lives in its own package. Windows only, because that
+// is where the NPU execution providers live: Linux and Android stay on LiteRT,
+// and adding a second runtime there would ship two copies of the same
+// capability. The `.windows` condition sits on the edges, not here, because
+// SwiftPM resolves every declared package on every platform.
+//
+// The package links `-lonnxruntime` without saying where to look; the import
+// library and DLL are vendored under Vendor/onnxruntime by Tools/dal.sh, and
+// the headers in the shim must come from the same release (DAL_ORT_VERSION).
+let onnxDependencies: [Package.Dependency] = [
+    .package(name: "COnnxRuntime", path: "../COnnxRuntime"),
+]
+
 // This is the only SwiftPM model list. Target-specific differences live here.
 struct ModelPackage {
     let name: String
@@ -334,6 +347,7 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "ModelStore", "Usage", "CStrings",
                 .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
+                .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
                 // Unconditional even though JSHost is empty off wasm: PackageToJS
                 // walks target dependencies to collect the BridgeJS skeletons it
                 // must generate glue from, and a platform-conditional edge is
@@ -497,7 +511,8 @@ let testTargets: [Target] = [
         .testTarget(
             name: "InferenceTests",
             dependencies: ["Inference"],
-            resources: [.copy("Resources/testmodel.tflite")]
+            resources: [.copy("Resources/testmodel.tflite"),
+                        .copy("Resources/testmodel.onnx")]
         ),
         .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
         .testTarget(name: "AudioIOTests", dependencies: ["AudioIO", "TestSupport"]),
@@ -591,7 +606,7 @@ let package = Package(
                 + "platforms only; pulls swift-xet and the NIO stack into the graph."
         ),
     ],
-    dependencies: jsDependencies + mlxDependencies + xetDependencies + [
+    dependencies: jsDependencies + mlxDependencies + xetDependencies + onnxDependencies + [
         .package(url: "https://github.com/apple/swift-numerics", from: "1.0.0"),
     ],
     targets: coreTargets

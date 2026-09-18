@@ -237,9 +237,10 @@ dal_windows_import_lib() { # <dll> <out.lib>
     names=$(llvm-readobj --coff-exports "$dll" | sed -n 's/^  Name: //p')
     [ -n "$names" ] || { echo "error: no exports found in $(basename "$dll")" >&2; return 1; }
     tmp=$(mktemp -d)
-    { echo "LIBRARY $(basename "$dll")"; echo EXPORTS; echo "$names"; } > "$tmp/LiteRt.def"
+    local def="$tmp/$(basename "${out%.lib}").def"
+    { echo "LIBRARY $(basename "$dll")"; echo EXPORTS; echo "$names"; } > "$def"
     # llvm-lib is a native tool: it cannot read Git Bash's /c/... paths.
-    llvm-lib "/def:$(cygpath -w "$tmp/LiteRt.def")" /machine:x64 \
+    llvm-lib "/def:$(cygpath -w "$def")" /machine:x64 \
         "/out:$(cygpath -w "$out")" /nologo > /dev/null
     rm -rf "$tmp"
     echo "Generated $(basename "$out") ($(echo "$names" | wc -l | tr -d ' ') exports)" >&2
@@ -274,6 +275,106 @@ dal_litert_link_flags() {
         echo "litert_flags=(-Xlinker \"/LIBPATH:$dir\")"
     else
         echo "litert_flags=(-Xlinker \"-L$dir\")"
+    fi
+}
+
+# ----------------------------------------------------------- onnxruntime
+
+# The ONNX Runtime version vendored below. The headers in the COnnxRuntime
+# package (see Package.swift) came out of this same release, so moving one
+# without the other is how the shim starts compiling against an API table the
+# DLL does not have.
+DAL_ORT_VERSION=1.23.0
+
+# Windows only. Linux and Android have LiteRT and need no second runtime; Apple
+# has Core ML. This exists because the NPU execution providers are Windows-only.
+dal_onnxruntime_dir() {
+    [ "$(dal_host_os)" = windows ] || return 0
+    echo "Vendor/onnxruntime/lib/windows-x64"
+}
+
+# Vendor ONNX Runtime into Vendor/onnxruntime/lib/windows-x64.
+#
+# The DirectML build, not the stock one, and that is the whole point: the plain
+# GitHub release carries no GPU execution provider, and on this hardware the GPU
+# is what makes the models fast. Measured on a Radeon 8060S, Voz end to end runs
+# at 366x real time on DirectML against 38.7x on the CPU provider, on the same
+# float16 weights and with a character-identical transcript.
+#
+# It comes from the PyPI wheel because that is the only place the DirectML build
+# is published; the wheel ships no import library, so one is synthesized from the
+# DLL's export table exactly as the LiteRT path does.
+dal_vendor_onnxruntime() {
+    local dest tmp url
+    dest=$(dal_onnxruntime_dir)
+    [ -n "$dest" ] || return 0
+    [ -f "$dest/onnxruntime.dll" ] && [ -f "$dest/onnxruntime.lib" ] \
+        && [ -f "$dest/DirectML.dll" ] && return 0
+
+    mkdir -p "$dest"
+    echo "Fetching ONNX Runtime $DAL_ORT_VERSION (DirectML, windows-x64, one-time)..." >&2
+    tmp=$(mktemp -d)
+    python -m pip download --quiet --no-deps --only-binary=:all: -d "$tmp" \
+        "onnxruntime-directml==$DAL_ORT_VERSION" > /dev/null 2>&1 \
+        || { echo "error: could not download onnxruntime-directml==$DAL_ORT_VERSION" >&2
+             rm -rf "$tmp"; return 1; }
+    local whl
+    whl=$(find "$tmp" -name '*.whl' | head -1)
+    [ -n "$whl" ] || { echo "error: no wheel downloaded" >&2; rm -rf "$tmp"; return 1; }
+    # A wheel is a zip; Git Bash's tar is GNU tar and does not read zips, and
+    # PowerShell wants the extension to say so.
+    cp "$whl" "$tmp/ort.zip"
+    powershell -NoProfile -Command \
+        "Expand-Archive -Path '$(cygpath -w "$tmp/ort.zip")' -DestinationPath '$(cygpath -w "$tmp/x")' -Force" \
+        > /dev/null || { echo "error: could not unpack the wheel" >&2; rm -rf "$tmp"; return 1; }
+
+    local capi="$tmp/x/onnxruntime/capi"
+    [ -f "$capi/onnxruntime.dll" ] && [ -f "$capi/DirectML.dll" ] \
+        || { echo "error: onnxruntime.dll / DirectML.dll are not in the wheel" >&2
+             rm -rf "$tmp"; return 1; }
+    cp "$capi/onnxruntime.dll" "$capi/DirectML.dll" "$dest/"
+    [ -f "$capi/onnxruntime_providers_shared.dll" ] \
+        && cp "$capi/onnxruntime_providers_shared.dll" "$dest/"
+    dal_windows_import_lib "$dest/onnxruntime.dll" "$dest/onnxruntime.lib"
+    rm -rf "$tmp"
+}
+
+# Copy onnxruntime.dll next to the binaries in <products-dir>.
+#
+# PATH is not enough for this one, unlike libLiteRt.dll. Windows searches the
+# application directory and then System32 BEFORE PATH, and Windows ML ships its
+# own C:\Windows\System32\onnxruntime.dll - 1.17 on a 26200 host. A PATH entry
+# therefore loses to it silently, and the shim fails at
+# `OrtGetApiBase()->GetApi(ORT_API_VERSION)` with "The requested API version
+# [23] is not available", which reads like a build error and is not one. The
+# application directory outranks System32, so staging the DLL there is what
+# makes the vendored copy win.
+dal_stage_onnxruntime() { # <products-dir>
+    local dir src f
+    src=$(dal_onnxruntime_dir)
+    [ -n "$src" ] || return 0
+    dir="$1"
+    [ -d "$dir" ] || return 0
+    # DirectML.dll travels with it: onnxruntime.dll loads it by name when the
+    # GPU provider is asked for, and without it a .gpu session silently becomes
+    # a CPU one.
+    for f in onnxruntime.dll DirectML.dll onnxruntime_providers_shared.dll; do
+        [ -f "$src/$f" ] && cp -f "$src/$f" "$dir/" 2> /dev/null
+    done
+    return 0
+}
+
+# Link flags for the vendored ONNX Runtime, in the same shape as
+# dal_litert_link_flags:
+#
+#     eval "$(dal_onnxruntime_link_flags)"   # sets onnx_flags
+dal_onnxruntime_link_flags() {
+    local dir
+    dir=$(dal_onnxruntime_dir)
+    if [ -z "$dir" ]; then
+        echo "onnx_flags=()"
+    else
+        echo "onnx_flags=(-Xlinker \"/LIBPATH:$dir\")"
     fi
 }
 
