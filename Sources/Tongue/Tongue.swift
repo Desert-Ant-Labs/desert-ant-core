@@ -22,7 +22,10 @@ public struct Detection: Sendable {
     /// Which stage answered: the script router, or the head.
     public let route: Route
     /// True when the top two ranked candidates are too close to separate.
-    /// Request at least two candidates to present both.
+    /// Present both rather than crowning one: `"la casa"` is equally Italian and
+    /// Spanish, and saying so is more useful than picking. Detection ranks the
+    /// runner-up whatever `topK` is, so this holds even when one candidate was
+    /// returned; ask for two to show them.
     public let isTooCloseToCall: Bool
 
     public var language: String? { candidates.first?.language }
@@ -80,6 +83,8 @@ public struct Tongue: Sendable {
                              reliability: .empty, route: route, isTooCloseToCall: false)
         }
 
+        // Rank the runner-up even when one candidate was asked for: the margin
+        // between the top two is what reliability and the tie flag are made of.
         let ranked = weights.rank(
             normalized,
             restrictedTo: Set(allowed),

@@ -63,7 +63,7 @@ rather than as an answer, and ask for more text where the product allows it.
 | `Detection.language` | top candidate, or `null` on empty input |
 | `Detection.candidates` | `Prediction[]` with probabilities |
 | `Detection.reliability` | `"confident"` · `"likely"` · `"tentative"` · `"empty"` |
-| `Detection.isTooCloseToCall` | top two within 0.12 |
+| `Detection.isTooCloseToCall` | top two ranked within 0.12, whatever `topK` is |
 | `Detection.route.verdict` | `"decisive"` (script alone settled it) · `"narrowing"` · `"ambiguous"` |
 
 `normalize`, `route`, `fnv1a` and `buckets` are also exported, for anyone
