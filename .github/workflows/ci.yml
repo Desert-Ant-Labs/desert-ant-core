@@ -333,7 +333,20 @@ jobs:
 
       # The browser is the default entry of every model package, so it gets a
       # real engine and real weights, not just a bundle that compiles.
+      #
+      # This runner has no GPU, and Voz is the model that notices: its encoder's
+      # shaders need `shader-f16`, which the software adapter a GPU-less machine
+      # exposes does not have, and a session fails to compile rather than
+      # running slowly. Its case asks the adapter and falls back to the wasm
+      # (CPU) provider, which runs the same graphs through the same pipeline at
+      # a speed a six-second fixture can afford. Reproduce that here with
+      # DAL_BROWSER_SOFTWARE=1 on a machine that does have a GPU.
+      #
+      # The timeout is generous because Voz's bundle is a 390 MB download per
+      # run, which is the part of this step that varies with the weather.
       - run: mise run test:browser
+        env:
+          DAL_BROWSER_TIMEOUT_MS: "900000"
 
       # Then the packages through the real bundlers, against the real dist.
       # Every SSR break we ever shipped passed the unit tests and failed in a

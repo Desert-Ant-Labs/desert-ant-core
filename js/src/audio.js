@@ -21,8 +21,17 @@ async function decodeBrowser(bytes, sampleRate) {
   const Offline = globalThis.OfflineAudioContext || globalThis.webkitOfflineAudioContext;
   if (!Offline) throw new Error("__DalAudioHost.decode: no OfflineAudioContext");
 
-  // decodeAudioData consumes (detaches) its ArrayBuffer, so hand it an owned copy.
-  const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  // decodeAudioData consumes (detaches) its ArrayBuffer, so it needs one the
+  // caller is not going to reuse. A view that covers its whole buffer already
+  // is one: callers here build it from `blob.arrayBuffer()` and drop it.
+  //
+  // Copying unconditionally is what this used to do, and on a large file it is
+  // the difference between working and not: a 1.8 GB video became 3.6 GB before
+  // the decoder started, on top of the 675 MB it decodes into, and
+  // decodeAudioData answers memory pressure by returning a SHORT buffer with no
+  // error rather than failing.
+  const whole = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength;
+  const ab = whole ? bytes.buffer : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const probe = new Offline(1, 1, 44100);
   const decoded = await probe.decodeAudioData(ab);
 

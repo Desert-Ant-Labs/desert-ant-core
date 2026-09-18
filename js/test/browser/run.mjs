@@ -17,7 +17,11 @@
 //      it, which downloads the pinned model from the Hub and does inference;
 //   4. asserts the case's own check() back in Node.
 //
-// Adding a model means adding its browser-case.js - nothing here changes.
+// Adding a model means adding its browser-case.js - nothing here changes. A
+// case that needs a runtime of its own says so by exporting `imports`, a list
+// of specifiers resolved from its own package and added to the page's import
+// map: Voz's runtime (onnxruntime-web) is the caller's to supply, so it cannot
+// be a fixed part of the page the way LiteRT.js is.
 //
 // Needs `mise run build:wasm` first (a stub dist cannot infer) and network for
 // the model download.
@@ -63,6 +67,16 @@ function findCases() {
     .sort((a, b) => a.model.localeCompare(b.model));
 }
 
+/** Load each case in Node, for the `imports` it declares and the `check` it
+ *  runs afterwards. Top-level code in a case must therefore be Node-safe,
+ *  which is why a case imports a browser runtime inside `run`. */
+async function loadCases(entries) {
+  return Promise.all(entries.map(async (entry) => ({
+    ...entry,
+    module: await import(pathToFileURL(path.join(entry.dir, "test", "browser-case.js"))),
+  })));
+}
+
 /** An absolute path inside the repo, as a URL the harness server will serve. */
 const urlFor = (abs) => "/" + path.relative(REPO, abs).split(path.sep).join("/");
 
@@ -73,7 +87,7 @@ const urlFor = (abs) => "/" + path.relative(REPO, abs).split(path.sep).join("/")
  * resolve to the local js/ through the workspace symlink rather than to a
  * published copy.
  */
-function importMap({ model, dir }) {
+function importMap({ model, dir, module }) {
   const require = createRequire(path.join(dir, "package.json"));
   const resolve = (spec) => {
     try {
@@ -82,31 +96,65 @@ function importMap({ model, dir }) {
       die(`${model}: cannot resolve ${spec}; run \`mise run build:wasm\` and \`npm install\``);
     }
   };
-  return {
+  // LiteRT.js is every other model's runtime, and Voz's package does not depend
+  // on it, so it is included when the package can resolve it rather than
+  // always.
+  const optional = (spec) => {
+    try {
+      return urlFor(require.resolve(spec));
+    } catch {
+      return null;
+    }
+  };
+  // A case's own runtime has to be resolved under the *import* condition, not
+  // require's: onnxruntime-web maps "./all" to a CJS bundle for require and an
+  // ESM one for import, and a page given the CJS file gets a module with no
+  // exports on it. `require.resolve` cannot ask for a condition, so this goes
+  // through ESM resolution and falls back for anything it cannot see.
+  const resolveModule = (spec) => {
+    try {
+      return urlFor(fileURLToPath(import.meta.resolve(spec)));
+    } catch {
+      return resolve(spec);
+    }
+  };
+  const map = {
     // The package under test, and the browser side of its `#platform` condition,
     // which an import map has to spell out (it is package-internal).
     [`@desert-ant-labs/${model}`]: urlFor(path.join(dir, "browser.js")),
     "#platform": urlFor(path.join(dir, "platform-browser.js")),
     "@desert-ant-labs/core": resolve("@desert-ant-labs/core"),
-    "@bjorn3/browser_wasi_shim": resolve("@bjorn3/browser_wasi_shim"),
-    "@litertjs/core": resolve("@litertjs/core"),
-    "@litertjs/wasm-utils": resolve("@litertjs/wasm-utils"),
+    // Whatever the case asked for.
+    ...Object.fromEntries((module?.imports ?? []).map((spec) => [spec, resolveModule(spec)])),
   };
+  for (const spec of [
+    "@desert-ant-labs/core/audio", "@bjorn3/browser_wasi_shim",
+    "@litertjs/core", "@litertjs/wasm-utils",
+  ]) {
+    const url = optional(spec);
+    if (url) map[spec] = url;
+  }
+  return map;
 }
 
 function renderPage(entry) {
   const map = importMap(entry);
-  const wasmDir = path.posix.join(path.posix.dirname(map["@litertjs/core"]), "../wasm/");
+  // The runtime's own wasm/ sits beside the package entry LiteRT.js resolves to.
+  const litert = map["@litertjs/core"];
+  const wasmDir = litert ? path.posix.join(path.posix.dirname(litert), "../wasm/") : "";
+  const caseDir = urlFor(path.join(entry.dir, "test"));
   return `<!doctype html>
 <html><body>
 <script type="importmap">${JSON.stringify({ imports: map })}</script>
 <script type="module">
-  import * as litert from "@litertjs/core";
-  import { run } from "${urlFor(path.join(entry.dir, "test", "browser-case.js"))}";
+  import { run } from "${caseDir}/browser-case.js";
 
+  // Only for the models whose runtime this is; a case that brings its own
+  // imports it itself.
+  const litert = ${litert ? 'await import("@litertjs/core")' : "null"};
   const mod = await import("@desert-ant-labs/${entry.model}");
   const started = performance.now();
-  run(mod, { litert, litertWasmDir: "${wasmDir}" }).then(
+  run(mod, { litert, litertWasmDir: "${wasmDir}", caseDir: "${caseDir}" }).then(
     (result) => { window.__result = { result, ms: Math.round(performance.now() - started) }; },
     (error) => { window.__error = String((error && error.stack) || error); },
   );
@@ -152,7 +200,7 @@ function serve(pages) {
 
 // ---------------------------------------------------------------- run
 
-const cases = findCases();
+const cases = await loadCases(findCases());
 if (!cases.length) die("no model package has test/browser-case.js");
 
 // A stub dist cannot run inference, so say so before launching anything.
@@ -175,7 +223,33 @@ await new Promise((resolve, reject) => {
   server.listen(PORT, resolve);
 });
 
-const browser = await chromium.launch({ headless: !args.includes("--headed") });
+// GPU flags for every case, not just the ones that need them. LiteRT.js runs on
+// wasm here and does not care; Voz compiles its encoder for WebGPU and its
+// decode step for WebNN, and headless Chromium exposes neither without being
+// asked. `--use-angle=metal` is what gets a real adapter rather than the
+// software one, which would make a timing number meaningless.
+// ANGLE's Metal backend is what gets a real adapter on macOS; a Linux runner
+// has no Metal and needs Vulkan, falling back to SwiftShader when the runner
+// has no GPU at all. Naming the wrong one is not fatal (Chromium ignores it)
+// but naming the right one is the difference between a real adapter and none.
+// DAL_BROWSER_SOFTWARE=1 forces the software adapter, which is what a runner
+// with no GPU has: it is how the no-GPU path gets tested from a machine that
+// does have one.
+const gpuArgs = process.env.DAL_BROWSER_SOFTWARE === "1"
+  ? ["--enable-unsafe-swiftshader", "--use-angle=swiftshader", "--disable-gpu"]
+  : process.platform === "darwin"
+    ? ["--use-angle=metal"]
+    : ["--use-angle=vulkan", "--enable-unsafe-swiftshader"];
+const browser = await chromium.launch({
+  headless: !args.includes("--headed"),
+  args: [
+    "--enable-unsafe-webgpu",
+    "--enable-features=WebNN,WebMachineLearningNeuralNetwork",
+    ...gpuArgs,
+    "--ignore-gpu-blocklist",
+    "--enable-gpu",
+  ],
+});
 const failures = [];
 
 for (const entry of cases) {
@@ -197,8 +271,7 @@ for (const entry of cases) {
     if (typeof value === "string") throw new Error(value);
 
     // The case owns its own assertion, so the harness stays model-agnostic.
-    const { check } = await import(pathToFileURL(path.join(entry.dir, "test", "browser-case.js")));
-    check(value.result);
+    entry.module.check(value.result);
     log(`ok   ${entry.model}  (${value.ms} ms in browser)  ${JSON.stringify(value.result).slice(0, 120)}`);
   } catch (error) {
     const detail = await tab.evaluate(() => window.__error).catch(() => null);

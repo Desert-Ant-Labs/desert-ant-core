@@ -1,0 +1,87 @@
+{
+  "name": "@desert-ant-labs/voz",
+  "version": "3.3.0",
+  "description": "On-device speech recognition for JavaScript: transcripts with word-level timestamps, 25 languages. Runs in the browser on WebAssembly + ONNX Runtime Web (WebGPU, with the decode step on WebNN where the browser has it), and server-side in Node from one import.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://desertant.com/models/voz/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+    "directory": "packages/voz-node"
+  },
+  "keywords": [
+    "speech-recognition",
+    "asr",
+    "transcription",
+    "word-timestamps",
+    "subtitles",
+    "on-device",
+    "wasm",
+    "onnxruntime",
+    "webgpu",
+    "webnn",
+    "isomorphic"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./index.d.ts",
+  "desertant": {
+    "wasmOnly": true
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "DAL_USAGE_DISABLED=1 node --test test/voz.test.mjs test/stream.test.mjs test/inference.test.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./wasm": "./dist/VozWeb.wasm"
+  },
+  "imports": {
+    "#platform": {
+      "browser": "./platform-browser.js",
+      "default": "./platform-node.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "voz.js",
+    "stream.js",
+    "codec.js",
+    "audio.js",
+    "platform-browser.js",
+    "platform-node.js",
+    "index.d.ts",
+    "dist",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@desert-ant-labs/core": "^3.3.0",
+    "mediabunny": "^1.59.0"
+  },
+  "peerDependencies": {
+    "onnxruntime-web": ">=1.23.0"
+  },
+  "peerDependenciesMeta": {
+    "onnxruntime-web": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "onnxruntime-web": "^1.30.0"
+  }
+}

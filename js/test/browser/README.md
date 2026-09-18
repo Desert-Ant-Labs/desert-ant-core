@@ -72,3 +72,17 @@ mise run test:browser --headed # watch it
 
 Chromium is fetched on demand on first run. The model download needs network;
 `DAL_BROWSER_TIMEOUT_MS` (default 300000) covers a cold one.
+
+## Running it as a machine with no GPU
+
+CI runners have no GPU, and one model notices. Voz's encoder compiles shaders
+that need `shader-f16`; the software adapter a GPU-less machine exposes does not
+have it, and ONNX Runtime fails to create the session rather than running it
+slowly. Voz's case asks the adapter and falls back to the wasm (CPU) provider,
+which runs the same graphs through the same pipeline.
+
+    DAL_BROWSER_SOFTWARE=1 mise run test:browser
+
+forces the software adapter on a machine that has a real one, which is how that
+path stays tested from a laptop. Every case passes that way; Voz takes about ten
+seconds instead of one.

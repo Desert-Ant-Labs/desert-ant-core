@@ -513,9 +513,21 @@ let vozTargets: [Target] = [
 ] + (noJavaScriptKit ? [] : [
     .executableTarget(
         name: "VozWeb",
-        dependencies: [.byName(name: "Voz"), .byName(name: "WasmBindings")]
+        // No WasmBindings, unlike every other model's web entry. That module's
+        // @JS surface is the single-session `dalModelHost` seam, which Voz does
+        // not use: linking it would make a consumer supply an import Voz never
+        // calls (the generated instantiator asks for it unconditionally) and
+        // carry the FFI plumbing in the binary for nothing.
+        dependencies: [.byName(name: "Voz")]
             + jsWasi + jsEventLoop,
-        path: "Sources/Voz/Web"
+        path: "Sources/Voz/Web",
+        // `Bridge.swift` declares this module's exported JS surface with
+        // BridgeJS (`@JS`), so it needs the `Extern` feature the generated glue
+        // uses and the plugin that generates it, exactly as `WasmBindings`
+        // does. Unconditional because this target only exists when
+        // JavaScriptKit is in the graph.
+        swiftSettings: [.enableExperimentalFeature("Extern")],
+        plugins: [.plugin(name: "BridgeJS", package: "JavaScriptKit")]
     ),
 ])
 

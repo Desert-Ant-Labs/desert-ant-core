@@ -113,6 +113,14 @@ for (const dir of packageDirs) {
   test(`packages/${dir} keeps koffi optional, not required`, () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO, "packages", dir, "package.json"), "utf8"));
     assert.equal(pkg.dependencies?.koffi, undefined, "koffi is not a hard dependency");
+    // A package with no native core has no koffi at all, which is the same
+    // guarantee this asserts for the others: a consumer's install never needs
+    // a native addon to succeed.
+    if (pkg.desertant?.wasmOnly) {
+      assert.equal(pkg.optionalDependencies?.koffi, undefined,
+        "a wasm-only package must not carry koffi at all");
+      return;
+    }
     assert.equal(typeof pkg.optionalDependencies?.koffi, "string", "koffi is an optional dependency");
   });
 }

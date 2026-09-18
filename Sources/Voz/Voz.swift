@@ -188,8 +188,8 @@ public actor Voz {
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
         guard !samples.isEmpty else { throw VozError.invalidAudio("no samples") }
-        var stream = ArrayAudioStream(samples)
-        return try await transcribe(stream: &stream,
+        let stream = ArrayAudioStream(samples)
+        return try await transcribe(stream: stream,
                               duration: Double(samples.count) / sampleRate,
                               progress: progress)
     }
@@ -197,7 +197,7 @@ public actor Voz {
     /// Transcribe from a source that is read as it goes, so that a long
     /// recording does not have to be resident all at once.
     func transcribe(
-        stream: inout some AudioStream,
+        stream: some AudioStream,
         duration: Double,
         progress: @Sendable (Progress) -> Void
     ) async throws -> Result {
@@ -212,7 +212,7 @@ public actor Voz {
         if let usage { await usage.record() }
         #endif
         let started = Date()
-        let (text, words) = try await pipeline.run(stream: &stream) {
+        let (text, words) = try await pipeline.run(stream: stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))
         }
         progress(Progress(fractionCompleted: 1))
@@ -229,7 +229,53 @@ public actor Voz {
 }
 
 #if os(WASI)
+/// Samples pulled from the JavaScript host a chunk at a time.
+///
+/// The point is what it does NOT hold. A caller who hands over a whole
+/// `Float32Array` pays for the file twice: once in JS and once copied into wasm
+/// memory, which for an hour of audio is 460 MB before the model has allocated
+/// anything. This asks for the next chunk when the pipeline needs it, and the
+/// pipeline releases audio behind the window it is working on, so what stays
+/// resident is a window and a chunk however long the recording is.
+final class PulledAudioStream: AudioStream {
+    /// Asks the host for up to `count` more samples, and returns however many
+    /// it gave. Empty means the source is finished.
+    private let pull: (Int) async throws -> [Float]
+    let totalSamples: Int?
+    private var finished = false
+
+    init(totalSamples: Int?, pull: @escaping (Int) async throws -> [Float]) {
+        self.totalSamples = totalSamples
+        self.pull = pull
+    }
+
+    nonisolated(nonsending) func read(
+        _ count: Int, into buffer: inout [Float]
+    ) async throws -> Int {
+        guard !finished else { return 0 }
+        let chunk = try await pull(count)
+        if chunk.isEmpty { finished = true; return 0 }
+        buffer.append(contentsOf: chunk)
+        return chunk.count
+    }
+}
+
 public extension Voz {
+    /// Transcribe audio the host reads in pieces, so neither side holds the
+    /// whole recording: `pull` is asked for the next samples when the pipeline
+    /// wants them and returns nothing when the source is finished.
+    ///
+    /// `duration` is what the container says, for progress reporting only.
+    @_spi(VozWeb)
+    func transcribe(
+        duration: TimeInterval, totalSamples: Int?,
+        pull: @escaping (Int) async throws -> [Float],
+        progress: @Sendable (Progress) -> Void = { _ in }
+    ) async throws -> Result {
+        try await transcribe(stream: PulledAudioStream(totalSamples: totalSamples, pull: pull),
+                             duration: duration, progress: progress)
+    }
+
     /// Build a recogniser from sidecars the browser already fetched, running
     /// the models through the JavaScript host on `globalThis.__vozHost`.
     ///

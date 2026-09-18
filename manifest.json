@@ -651,7 +651,12 @@
           "status": "none"
         },
         "js": {
-          "status": "none"
+          "status": "live",
+          "package": "@desert-ant-labs/voz",
+          "platforms": [
+            "web",
+            "node"
+          ]
         }
       },
       "weights": {
@@ -662,7 +667,8 @@
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": [
-        "coreml"
+        "coreml",
+        "onnx"
       ],
       "variants": [],
       "hub": {

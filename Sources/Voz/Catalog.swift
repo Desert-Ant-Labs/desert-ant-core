@@ -55,6 +55,15 @@ public enum VozModel: ModelDeclaration {
     /// Neural Engine, where it is throughput-bound and narrow lanes win; a
     /// browser with only WebGPU is dispatch-bound and wants fewer, wider steps.
     /// Worth 13.0 RTFx to 23.7 in Safari, and 1.2 the other way on WebNN.
+    /// The revision the browser bundle is served from.
+    ///
+    /// `main` rather than `revision` above, because the browser bundle is newer
+    /// than the last Core ML tag: `v0.1.0` carries no `web/` directory, so the
+    /// two cannot be the same string until the next tag includes both. Tagging
+    /// is what this wants, since a branch is a moving target for a shipped
+    /// SDK - at which point this becomes `revision` and goes away.
+    public static let webRevision = "main"
+
     public static let webEncoder = "web/encoder.onnx"
     public static let webEncoderWeights = "web/encoder.q4"
     public static let webDecodeStep = "web/decoder.onnx"

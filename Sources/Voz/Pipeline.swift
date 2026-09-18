@@ -569,7 +569,7 @@ final class Pipeline: @unchecked Sendable {
     /// the batch size and not by the length of the recording: an hour of audio
     /// is 230 MB of `Float`, and a video editor has a timeline and its own
     /// buffers to fit alongside it.
-    func run(stream: inout some AudioStream, progress: (Double) -> Void,
+    func run(stream: some AudioStream, progress: (Double) -> Void,
              isolation: isolated (any Actor)? = #isolation) async throws -> (String, [Word]) {
         let c = configuration
         let frames = c.encFrames
@@ -582,10 +582,10 @@ final class Pipeline: @unchecked Sendable {
         var available: Int { origin + buffer.count }
 
         /// Read until the buffer covers up to `absolute`, or the source ends.
-        func ensure(through absolute: Int) throws {
+        func ensure(through absolute: Int) async throws {
             while !exhausted && available < absolute {
                 let wanted = Swift.max(absolute - available, c.sampleRate * 4)
-                if try stream.read(wanted, into: &buffer) == 0 { exhausted = true }
+                if try await stream.read(wanted, into: &buffer) == 0 { exhausted = true }
             }
         }
         /// Release audio behind `absolute`; it is never looked at again.
@@ -625,7 +625,7 @@ final class Pipeline: @unchecked Sendable {
             // than one, and left the transcript reading perfectly well.
             while starts.count - processed < Self.batchWindows {
                 let last = starts[starts.count - 1]
-                try ensure(through: last + window + 1)
+                try await ensure(through: last + window + 1)
                 guard available > last + window else { break }
                 starts.append(nextBoundary(after: last) { buffer[$0 - origin] })
             }
@@ -637,7 +637,7 @@ final class Pipeline: @unchecked Sendable {
             // processed, so the release never fired and the buffer grew with the
             // file - 5.8 MB for every minute of audio.
             release(before: starts[group.lowerBound])
-            try ensure(through: starts[group.upperBound - 1] + window)
+            try await ensure(through: starts[group.upperBound - 1] + window)
             // Shared between the two threads for the length of the group, so it
             // is allocated rather than held in an array whose buffer only one
             // of them may borrow at a time.

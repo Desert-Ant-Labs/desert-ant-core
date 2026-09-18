@@ -13,10 +13,10 @@ public extension Voz {
         #if canImport(AVFoundation)
         // Read and convert as we go. Decoding the file up front costs 230 MB of
         // `Float` per hour of audio before the model has allocated anything.
-        var stream = try FileAudioStream(url: URL(fileURLWithPath: path),
+        let stream = try FileAudioStream(url: URL(fileURLWithPath: path),
                                          sampleRate: sampleRate)
         let duration = Double(stream.totalSamples ?? 0) / sampleRate
-        return try await transcribe(stream: &stream, duration: duration, progress: progress)
+        return try await transcribe(stream: stream, duration: duration, progress: progress)
         #else
         let samples = try await AudioIO.decode(path: path, sampleRate: sampleRate)
         guard !samples.isEmpty else {

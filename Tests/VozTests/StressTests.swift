@@ -300,9 +300,9 @@ struct VozAudioStreamTests {
         let corpus = Corpus()!
         for file in corpus.files {
             let whole = try await AudioIO.decode(path: file.path, sampleRate: 16000)
-            var stream = try FileAudioStream(url: file, sampleRate: 16000)
+            let stream = try FileAudioStream(url: file, sampleRate: 16000)
             var streamed: [Float] = []
-            while try stream.read(1 << 16, into: &streamed) > 0 {}
+            while try await stream.read(1 << 16, into: &streamed) > 0 {}
             let name = file.lastPathComponent
             #expect(abs(streamed.count - whole.count) <= 16000 / 100,
                     "\(name): streamed \(streamed.count) samples, whole file has \(whole.count)")

@@ -13,16 +13,29 @@ import Foundation
 /// a long recording it is an expensive one: an hour of audio is 230 MB of
 /// `Float` before the model has allocated anything, and a video editor is
 /// working with an hour-long timeline and its own buffers at the same time.
-protocol AudioStream {
+/// A reference type, not a value: `read` is `async` (see below) and an `inout`
+/// value cannot be handed across a suspension point without the compiler
+/// rightly objecting that it could be raced. A class says what is true - a
+/// stream is one moving cursor over one source - rather than copying it.
+protocol AudioStream: AnyObject {
     /// Total samples, if the source knows. Used only for progress reporting.
     var totalSamples: Int? { get }
     /// Append up to `count` further samples to `into`, returning how many were
     /// added. Zero means the source is exhausted.
-    mutating func read(_ count: Int, into: inout [Float]) throws -> Int
+    ///
+    /// `async` for the browser's sake: there the source is a JavaScript
+    /// decoder, and decoding a chunk of a compressed file is a promise. The
+    /// Apple sources never suspend, so this costs them nothing.
+    ///
+    /// `nonisolated(nonsending)` so it runs where its caller does. Without it
+    /// an `async` requirement is `@concurrent`, and handing the stream to it
+    /// would be sending a cursor into another isolation domain - which the
+    /// compiler refuses, correctly, since the pipeline goes on using it.
+    nonisolated(nonsending) func read(_ count: Int, into: inout [Float]) async throws -> Int
 }
 
 /// An already-decoded buffer, for callers that hand over samples directly.
-struct ArrayAudioStream: AudioStream {
+final class ArrayAudioStream: AudioStream {
     private let samples: [Float]
     private var position = 0
 
@@ -30,7 +43,9 @@ struct ArrayAudioStream: AudioStream {
 
     var totalSamples: Int? { samples.count }
 
-    mutating func read(_ count: Int, into buffer: inout [Float]) throws -> Int {
+    nonisolated(nonsending) func read(
+        _ count: Int, into buffer: inout [Float]
+    ) async throws -> Int {
         let n = Swift.min(count, samples.count - position)
         guard n > 0 else { return 0 }
         buffer.append(contentsOf: samples[position..<(position + n)])
@@ -41,7 +56,7 @@ struct ArrayAudioStream: AudioStream {
 
 #if canImport(AVFoundation)
 /// Reads and converts a file incrementally, a few seconds at a time.
-struct FileAudioStream: AudioStream {
+final class FileAudioStream: AudioStream {
     private let file: AVAudioFile
     private let converter: AVAudioConverter
     private let outputFormat: AVAudioFormat
@@ -70,7 +85,7 @@ struct FileAudioStream: AudioStream {
         totalSamples = Int(Double(file.length) * sampleRate / inputFormat.sampleRate)
     }
 
-    mutating func read(_ count: Int, into buffer: inout [Float]) throws -> Int {
+    func read(_ count: Int, into buffer: inout [Float]) async throws -> Int {
         if finished { return try drain(into: &buffer) }
         let format = file.processingFormat
         // Convert in whole chunks and stop once the request is met. The
@@ -125,7 +140,7 @@ struct FileAudioStream: AudioStream {
     /// now" between chunks correctly does not release that. Only end-of-stream
     /// does, and without this the last few hundred samples of every file were
     /// silently lost - 40 ms of an eleven-second clip, which is a whole word.
-    private mutating func drain(into buffer: inout [Float]) throws -> Int {
+    private func drain(into buffer: inout [Float]) throws -> Int {
         guard !drained else { return 0 }
         drained = true
         guard let output = AVAudioPCMBuffer(pcmFormat: outputFormat,

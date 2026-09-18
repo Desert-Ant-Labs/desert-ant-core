@@ -47,6 +47,10 @@ traits=()
 grep -q "traits:" Package.swift && traits=(--disable-default-traits)
 
 for model in $(dal_select "${usage_model:-all}" node); do
+    if dal_node_wasm_only "$model"; then
+        echo "== $model has no native core, only wasm =="
+        continue
+    fi
     if dal_node_pure "$model"; then
         echo "== $model is pure, no native core =="
         continue
