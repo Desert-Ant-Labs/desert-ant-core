@@ -8,6 +8,10 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 dal_vendor_litert
 # Sets `litert_flags`: -L on Linux, /LIBPATH: on Windows, empty on Apple.
 eval "$(dal_litert_link_flags)"
+# ONNX Runtime is Windows-only (the NPU execution providers live there);
+# `onnx_flags` is empty everywhere else.
+dal_vendor_onnxruntime
+eval "$(dal_onnxruntime_link_flags)"
 
 # The per-model loop below used to be the only mode, one serial `swift build
 # --target` per model, to prove each model compiles against its own dependency
@@ -34,7 +38,7 @@ if [ "${usage_model:-all}" = all ]; then
     else
         # MLX has no Linux or Windows port; `Title` is only its stub here.
         swift build --scratch-path .build-host -c release \
-            --explicit-target-dependency-import-check error ${litert_flags[@]+"${litert_flags[@]}"}
+            --explicit-target-dependency-import-check error ${litert_flags[@]+"${litert_flags[@]}"} ${onnx_flags[@]+"${onnx_flags[@]}"}
     fi
 else
 for model in $(dal_select "$usage_model"); do
@@ -53,7 +57,7 @@ for model in $(dal_select "$usage_model"); do
     else
         # MLX has no Linux or Windows port; `Title` never enters the graph here.
         [ "$product" = Title ] && { echo "skip: MLX is Apple-only"; continue; }
-        swift build --scratch-path .build-host -c release --target "$product" ${litert_flags[@]+"${litert_flags[@]}"}
+        swift build --scratch-path .build-host -c release --target "$product" ${litert_flags[@]+"${litert_flags[@]}"} ${onnx_flags[@]+"${onnx_flags[@]}"}
     fi
 done
 fi

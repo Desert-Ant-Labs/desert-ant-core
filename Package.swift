@@ -333,11 +333,19 @@ let libraryTargets: [Target] = [
             name: "CLiteRt",
             linkerSettings: [.linkedLibrary("LiteRt")]
         ),
+        // Windows only, because that is where the NPU execution providers live.
+        // Linux and Android stay on LiteRT: adding a second runtime there would
+        // ship two copies of the same capability.
+        .target(
+            name: "COnnxRuntime",
+            linkerSettings: [.linkedLibrary("onnxruntime")]
+        ),
         .target(
             name: "Inference",
             dependencies: [
                 "ModelStore", "Usage",
                 .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
+                .target(name: "COnnxRuntime", condition: .when(platforms: [.windows])),
                 // Unconditional even though JSHost is empty off wasm: PackageToJS
                 // walks target dependencies to collect the BridgeJS skeletons it
                 // must generate glue from, and a platform-conditional edge is
@@ -483,7 +491,8 @@ let testTargets: [Target] = [
         .testTarget(
             name: "InferenceTests",
             dependencies: ["Inference"],
-            resources: [.copy("Resources/testmodel.tflite")]
+            resources: [.copy("Resources/testmodel.tflite"),
+                        .copy("Resources/testmodel.onnx")]
         ),
         .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
         .testTarget(name: "AudioIOTests", dependencies: ["AudioIO", "TestSupport"]),
