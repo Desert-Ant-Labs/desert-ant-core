@@ -15,7 +15,7 @@ public enum AlignModel: ModelDeclaration {
     /// model page quotes; v0.1.0 tags the weights that shipped before it.
     public static let revision = "v1.0.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
-    public static let sdkVersion = "3.1.0"
+    public static let sdkVersion = "3.2.0"
     public static let summary = "Word-timestamp refinement for Apple's SpeechAnalyzer pipeline."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).
