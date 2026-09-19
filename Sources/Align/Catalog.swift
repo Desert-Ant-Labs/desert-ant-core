@@ -4,8 +4,7 @@
 
 import DesertAnt
 
-/// Word-timestamp refinement for any transcript: Core ML on Apple, LiteRT elsewhere;
-/// no web, the cascade is two graphs.
+/// Word-timestamp refinement for any transcript: Core ML on Apple, LiteRT elsewhere; no web, the cascade is two graphs.
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
