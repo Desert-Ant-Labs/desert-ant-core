@@ -25,8 +25,5 @@ struct RefinerConfig: Decodable {
     let coarse_frames: Int
     let fine_frames: Int
     let hop_seconds: Double
-    let byte_context: Int
-    let pad_byte: Int
-    let n_fft_bins: Int
     let languages: [String: Int]
 }
