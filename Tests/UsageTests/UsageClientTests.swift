@@ -104,38 +104,54 @@ struct UsageClientTests {
         #expect(h.sent.count == 1)
         #expect(h.events[0].callCount == 1)
 
-        // Flushes within the hour are held, not sent.
-        for _ in 0..<3 {
+        // The FIRST delta is not held: it goes out and opens the interval (see
+        // firstDeltaIsNotHeldForAWholeInterval). Coalescing applies from there.
+        h.advance(60_000)
+        h.client.recordCall(2)
+        h.client.flush()
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].callCount == 2)
+
+        // Flushes inside the interval after that are held, not sent.
+        for _ in 0..<2 {
             h.advance(60_000)
             h.client.recordCall(2)
             h.client.flush()
         }
-        #expect(h.sent.count == 1)
-        #expect(h.state.carryCallCount == 6)
+        #expect(h.sent.count == 2)
+        #expect(h.state.carryCallCount == 4)
 
-        // Past the hour: one delta carrying everything held.
+        // Past the interval: one delta carrying everything held.
         h.advance(hourMs)
         h.client.recordCall(2)
         h.client.flush()
-        #expect(h.sent.count == 2)
-        #expect(h.events[1].callCount == 8)
+        #expect(h.sent.count == 3)
+        #expect(h.events[2].callCount == 6)
         #expect(h.state.carryCallCount == 0)
     }
 
     @Test func beaconFlushesHeldDeltasImmediately() {
         let h = Harness(UsageState(lastActiveAt: 0), emitIntervalMs: hourMs)
         h.client.start()
-        h.client.flush()
+        h.client.flush() // turnstile
+        #expect(h.sent.count == 1)
+
         h.advance(60_000)
         h.client.recordCall(5)
-        h.client.flush() // held within the hour
-        #expect(h.sent.count == 1)
+        h.client.flush() // first delta: sent, opens the interval
+        #expect(h.sent.count == 2)
+
+        h.advance(60_000)
+        h.client.recordCall(3)
+        h.client.flush() // inside the interval: held
+        #expect(h.sent.count == 2)
+        #expect(h.state.carryCallCount == 3)
 
         h.client.recordCall(2)
         h.client.flush(SendOptions(beacon: true)) // unload drains held + new
-        #expect(h.sent.count == 2)
-        #expect(h.events[1].callCount == 7)
-        #expect(h.sent[1].opts.beacon == true)
+        #expect(h.sent.count == 3)
+        #expect(h.events[2].callCount == 5)
+        #expect(h.sent[2].opts.beacon == true)
     }
 
     @Test func manualLoadBypassesWindow() {
@@ -247,5 +263,56 @@ struct WireTests {
         let parts = id.split(separator: "-")
         #expect(parts.count == 5)
         #expect(parts[2].first == "4") // version nibble
+    }
+}
+
+// Wire schema 2: batch id, schema version (decision memo step 3b).
+struct UsageWireSchema2Tests {
+    @Test func eachBodyHasItsOwnBatchIdAndDeclaresSchema2() {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        h.client.recordCall()
+        h.client.flush()
+        let batches = h.sent.map(\.body.batchId)
+        #expect(batches.allSatisfy { $0 != nil })
+        #expect(batches[0] != batches[1])
+        #expect(h.sent.allSatisfy { $0.body.schemaVersion == wireSchemaVersion })
+        #expect(wireSchemaVersion == 2)
+    }
+
+    @Test func anElapsedWindowOpensANewTurnstile() {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        h.advance(dayMs)          // window elapsed: the next start() opens a new turnstile
+        h.client.start()
+        h.client.flush()
+        #expect(h.sent.count == 2)
+    }
+
+    @Test func firstDeltaIsNotHeldForAWholeInterval() {
+        let h = Harness(UsageState(lastActiveAt: 0), emitIntervalMs: quarterHourMs)
+        h.client.start()
+        h.client.flush()          // turnstile
+        h.client.recordCall(4)
+        h.advance(3_000)
+        h.client.flush()          // first delta: must go out now, not 15 min later
+        #expect(h.sent.count == 2)
+        #expect(h.events[1].callCount == 4)
+        h.client.recordCall(1)
+        h.advance(3_000)
+        h.client.flush()          // second delta inside the interval: coalesced
+        #expect(h.sent.count == 2)
+        #expect(h.state.carryCallCount == 1)
+    }
+
+    @Test func schema2FieldsAreOnTheWire() throws {
+        let h = Harness(UsageState(lastActiveAt: 0))
+        h.client.start()
+        h.client.flush()
+        let json = try buildBody(h.sent[0].body)
+        #expect(json.contains("\"batchId\":\""))
+        #expect(json.contains("\"schemaVersion\":2"))
     }
 }
