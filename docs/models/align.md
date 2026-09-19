@@ -117,8 +117,9 @@ A `StreamingRefiner` checks the language it was created with the same way, with
 synchronous check with the same meaning.
 
 `refine` also keeps the original timestamp for any single word whose correction is
-structurally invalid, lacks streaming context, or hits the search edge, so a correction can
-only improve a word or leave it alone.
+structurally invalid, lacks streaming context, or hits the search edge. That fallback is a
+check on structure, not on accuracy: a correction that looks plausible but is wrong still
+lands. See Limitations.
 
 ### Loading the model
 
@@ -159,9 +160,12 @@ directories on Linux, Windows and Node.
 
 ## Accuracy
 
-Align cuts the proposer's raw timing error by roughly two-thirds across the nine languages, and
-the LiteRT export is scored on the same gold set as the Core ML pair, within 1 ms of it. Full
-per-language and per-condition figures are on the
+On the clean condition, macro-averaged over the nine languages, Align cuts the proposer's raw
+timing error by roughly two-thirds. Per language it ranges from a third to over three quarters,
+and the noisy condition is lower. The LiteRT export is scored on `gold-en-us` and matches the
+training-time reference to five significant figures; it is not scored side by side against Core
+ML on one gold set, and the Core ML figures for this release are re-measured on device rather
+than carried over. Full per-language and per-condition figures are on the
 [model card](https://huggingface.co/desert-ant-labs/align).
 
 ## Languages
@@ -180,8 +184,10 @@ outside this set is passed through unchanged.
 - Number timings are the weakest remaining case. On a small sample refinement moved digit
   boundaries further from the reference than leaving them alone, so treat spoken numbers as
   unimproved until a larger sample settles it.
-- The LiteRT export is a third numeric path alongside Core ML and the training-time reference, so
-  a boundary can land a fraction of a millisecond from the Core ML result even on the same audio.
+- The LiteRT export is a third numeric path alongside Core ML and the training-time reference. The
+  parity fixture is Core ML's own recorded output, and Core ML on the CPU reproduces it exactly
+  while LiteRT drifts 10.4 ms from it (linux-arm64, 2026-09-17). Treat the two runtimes as able
+  to disagree by around 10 ms on the same audio, not as agreeing to sub-millisecond.
 - No browser build: the cascade is two graphs, and the WebAssembly host compiles one model per
   module.
 - No Android SDK.

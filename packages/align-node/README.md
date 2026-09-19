@@ -35,7 +35,7 @@ align.dispose(); // release the model
 
 `samples` is mono float32 PCM. Any sample rate is accepted and resampled internally. Every key you put on a word comes back untouched, so a word that carried a confidence or a speaker id still carries it; only `start` and `end` are replaced, and `refined` is added.
 
-`refined` is per word. It is `false` when the correction would have been structurally invalid, or when the search ran into the edge of the audio, and that word keeps the times you passed in. A result is therefore never worse than its input.
+`refined` is per word. It is `false` when the correction would have been structurally invalid, or when the search ran into the edge of the audio, and that word keeps the times you passed in. That fallback is a check on structure, not on accuracy: a correction that looks plausible but is wrong still lands, and spoken numbers are the known weak case. Validate per word if your pipeline depends on it.
 
 ## Languages
 
@@ -81,7 +81,7 @@ await align.withCallGroup(async (group) => {
 
 ## Platforms
 
-The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. `darwin-arm64` and `linux-arm64` are tested; `linux-x64` is built and not yet tested. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
+The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. All three are verified by installing the packed tarball into a clean project and refining: `darwin-arm64` on macOS on the Core ML backend, and both Linux targets on LiteRT in a `node:22` container. The Linux libraries are built against glibc 2.34, so they run on AWS Lambda's managed Node runtimes as well as Ubuntu 22.04+ and Debian 12+. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
 
 If you import this package from a framework that bundles server code, mark it external so the bundler leaves the native binary alone. In Next.js:
 
