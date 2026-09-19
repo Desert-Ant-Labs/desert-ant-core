@@ -8,9 +8,7 @@ import DesertAnt
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
-    /// Pinned tag; v1.1.0 adds the LiteRT export and renames the unchanged Core ML weights
-    /// to kebab-case. The SDK resolves weights by this revision, so tracking a branch would
-    /// change behavior for every installed copy the moment new weights land on the Hub.
+    /// Pinned tag, never a branch: a branch would swap weights under every installed copy.
     public static let revision = "v1.1.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.2.0"
