@@ -83,8 +83,7 @@ public final class Align: Sendable {
                                          sampleOffset: 0, streaming: false)
     }
 
-    struct Boundary { let word: Int; let isEnd: Bool; let time: Double; let frame: Int
-                      let bytes: [Int32]; let kind: Int32 }
+    struct Boundary { let frame: Int; let bytes: [Int32]; let kind: Int32 }
 
     static func runCascade(_ rt: Runtime, _ words: [WordTiming], logmel: [Float], nFrames: Int,
                            langId: Int32, sampleOffset: Int, streaming: Bool) async throws -> [WordTiming] {
@@ -98,11 +97,9 @@ public final class Align: Sendable {
         bounds.reserveCapacity(words.count * 2)
         for (i, w) in words.enumerated() {
             let prev = i > 0 ? words[i - 1].text : "", next = i + 1 < words.count ? words[i + 1].text : ""
-            bounds.append(Boundary(word: i, isEnd: false, time: w.start,
-                                   frame: rt.frontend.timeToFrame(w.start) - baseFrame,
+            bounds.append(Boundary(frame: rt.frontend.timeToFrame(w.start) - baseFrame,
                                    bytes: Lexical.bytes(preceding: prev, following: w.text), kind: 0))
-            bounds.append(Boundary(word: i, isEnd: true, time: w.end,
-                                   frame: rt.frontend.timeToFrame(w.end) - baseFrame,
+            bounds.append(Boundary(frame: rt.frontend.timeToFrame(w.end) - baseFrame,
                                    bytes: Lexical.bytes(preceding: w.text, following: next), kind: 1))
         }
 
