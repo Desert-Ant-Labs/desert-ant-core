@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/align",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "desertant": {
     "nodeOnly": true
   },
@@ -56,7 +56,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@desert-ant-labs/core": "^3.1.0"
+    "@desert-ant-labs/core": "^3.2.0"
   },
   "optionalDependencies": {
     "koffi": "^2.9.0"
