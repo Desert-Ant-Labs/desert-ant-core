@@ -139,8 +139,8 @@ let offline = Align(directory: myModelDirectory)   // adopted as-is, nothing dow
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `align_coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage |
-| `align_fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage |
+| `align-coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage |
+| `align-fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage |
 | `align-coarse.tflite` | LiteRT (FP32) | ~0.5 MB | Coarse stage |
 | `align-fine.tflite` | LiteRT (FP32) | ~0.5 MB | Fine stage |
 | `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |

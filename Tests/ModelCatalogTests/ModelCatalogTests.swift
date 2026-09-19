@@ -190,7 +190,7 @@ struct ModelOSFloorTests {
 
     /// A Core ML package states its own availability. Read it and compare.
     ///
-    /// Skips loudly rather than passing when the artifact is absent — the packages are ~284 MB
+    /// Skips loudly rather than passing when the artifact is absent: the packages are ~284 MB
     /// and are not in the repository, so a green tick here with nothing checked would be worse
     /// than no test.
     @Test("A model's declared floor matches its compiled artifact")
@@ -198,7 +198,7 @@ struct ModelOSFloorTests {
         let root = ProcessInfo.processInfo.environment["DAL_CLIP_REAL_MODEL_DIR"]
         guard let root else {
             print("SKIP: set DAL_CLIP_REAL_MODEL_DIR to check the floor against the artifact. "
-                  + "NOT PASSING — nothing was compared.")
+                  + "NOT PASSING: nothing was compared.")
             return
         }
         let metadata = URL(fileURLWithPath: root)
