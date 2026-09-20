@@ -63,11 +63,26 @@ public struct ModelStore: Sendable {
 
     // MARK: public API
 
+    /// How much of a downloaded model ``isDownloaded(_:verification:)`` checks.
+    public enum Verification: Sendable {
+        /// Re-hash every file against its recorded SHA-256. Reads the whole
+        /// model, so it costs time proportional to its size on every call.
+        case full
+        /// Trust the manifest and check that every file is present at its
+        /// recorded size. Files only reach their final path after a size and
+        /// hash check plus an atomic move, so this catches a truncated,
+        /// missing or replaced file without reading any content. It cannot
+        /// see corruption that keeps the size, which only `.full` finds.
+        case quick
+    }
+
     /// Whether the model is fully present and intact. Reads the resolved
     /// manifest written at download time (so it knows the exact files, folders
-    /// already expanded) and re-hashes each against its recorded SHA-256. A
-    /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
-    public func isDownloaded(_ model: ModelSpec) -> Bool {
+    /// already expanded) and checks each file against it: by default (`.full`)
+    /// by re-hashing against its recorded SHA-256, so a truncated/corrupted
+    /// file reports `false` and re-downloads. `.quick` compares sizes only and
+    /// reads no file content. Fully offline either way.
+    public func isDownloaded(_ model: ModelSpec, verification: Verification = .full) -> Bool {
         guard isValid(model),
               let bytes = try? fs.read(manifestPath(model)),
               let manifest = Manifest.parse(bytes),
@@ -75,10 +90,15 @@ public struct ModelStore: Sendable {
               !manifest.entries.isEmpty else { return false }
         for e in manifest.entries {
             guard isSafeRelativePath(e.path), e.size >= 0,
-                  e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
-                  let d = try? fs.digest(filePath(model, e.path)),
-                  d.size == e.size,
-                  d.sha256 == e.sha256 else { return false }
+                  e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }) else { return false }
+            switch verification {
+            case .quick:
+                guard fs.size(filePath(model, e.path)) == e.size else { return false }
+            case .full:
+                guard let d = try? fs.digest(filePath(model, e.path)),
+                      d.size == e.size,
+                      d.sha256 == e.sha256 else { return false }
+            }
         }
         return true
     }
