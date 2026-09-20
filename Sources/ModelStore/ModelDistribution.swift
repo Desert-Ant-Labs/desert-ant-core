@@ -94,6 +94,12 @@ public struct ModelDistribution: Sendable, Equatable {
 
     /// Download and verify the current platform's file list, returning the
     /// cached model directory. A no-op (no network) once cached.
+    ///
+    /// The cached check is size-only (`.quick`): every model SDK calls this on
+    /// each launch, and re-hashing hundreds of MB there costs minutes on a
+    /// device. Files are hashed when they are downloaded, so this still catches
+    /// a missing or truncated file; use ``ModelStore/isDownloaded(_:verification:)``
+    /// with `.full` to audit content.
     /// - Parameter cacheDirectory: an explicit directory for this model's files
     ///   (direct layout), or `nil` for the managed nested layout.
     /// - Parameter cacheRoot: the platform base under which the managed layout
@@ -106,7 +112,7 @@ public struct ModelDistribution: Sendable, Equatable {
     ) async throws -> StoredModel {
         _ = try requiredFiles()
         let store = try ModelStore.platformDefault(cacheRoot: cacheRoot)
-        return try await store.download(spec(cacheDirectory), progress: progress)
+        return try await store.download(spec(cacheDirectory), verification: .quick, progress: progress)
     }
 
     /// Adopt model files from one local directory instead of downloading. The

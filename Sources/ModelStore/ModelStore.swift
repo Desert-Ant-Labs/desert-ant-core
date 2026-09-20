@@ -109,9 +109,18 @@ public struct ModelStore: Sendable {
     /// Downloads go to a `.part` temp file, are size- and SHA256-verified, then
     /// atomically moved into place; the manifest is written last, so a crash
     /// mid-download never yields a "downloaded" but broken model.
+    ///
+    /// `verification` is how hard the "already downloaded" short-circuit looks
+    /// before returning without a network call. `.full` (the default) re-hashes
+    /// every file, so a same-size corruption is found and repaired, at the cost
+    /// of reading the whole model on every call. `.quick` checks sizes against
+    /// the manifest only: launch-time callers get a no-op in milliseconds, and
+    /// a damaged file of the right size is left for `isDownloaded(_:verification:)`
+    /// with `.full`, or the consumer's own load, to surface.
     @discardableResult
     public func download(
         _ model: ModelSpec,
+        verification: Verification = .full,
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
     ) async throws -> StoredModel {
         guard isValid(model) else { throw ModelStoreError.invalidSpec }
@@ -121,17 +130,18 @@ public struct ModelStore: Sendable {
         // in-flight download shares its outcome; its own `progress` closure is
         // not driven, which no caller depends on for correctness.
         return try await DownloadCoordinator.shared.run(location: location(of: model)) {
-            try await self.performDownload(model, progress: progress)
+            try await self.performDownload(model, verification: verification, progress: progress)
         }
     }
 
     @discardableResult
     private func performDownload(
         _ model: ModelSpec,
+        verification: Verification,
         progress: @Sendable @escaping (DownloadProgress) -> Void
     ) async throws -> StoredModel {
         try fs.makeDirectory(location(of: model))
-        if isDownloaded(model) {
+        if isDownloaded(model, verification: verification) {
             if let bytes = try? fs.read(manifestPath(model)), let m = Manifest.parse(bytes) {
                 let total = m.entries.reduce(0) { $0 + $1.size }
                 progress(DownloadProgress(completedBytes: total, totalBytes: total))
