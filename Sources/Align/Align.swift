@@ -67,7 +67,8 @@ public final class Align: Sendable {
 
     static func key(_ languageCode: String) -> String { String(languageCode.prefix(2)).lowercased() }
 
-    /// A word keeps its input times when a correction is structurally invalid or hits the search edge.
+    /// A word keeps its input times when its correction hits the search edge, would end before it
+    /// starts, or, when streaming, has no forward context buffered yet.
     public func refine(_ words: [WordTiming], audio samples: [Float], sampleRate: Double = 16000,
                        languageCode: String) async throws -> [WordTiming] {
         guard !words.isEmpty else { return words }
