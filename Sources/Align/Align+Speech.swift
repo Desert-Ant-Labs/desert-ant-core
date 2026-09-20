@@ -7,8 +7,7 @@ import Speech
 /// Live refinement against audio that is still arriving: feed it the same audio you feed
 /// SpeechAnalyzer, then refine each finalized result against what has been buffered.
 ///
-/// A boundary whose +/-1.2 s context is not buffered yet keeps its input timestamp, so a
-/// word refined late is never worse than the recognizer's own answer.
+/// A boundary whose +/-1.2 s context is not buffered yet keeps its input timestamp.
 // Unchecked: the ring buffer is mutable state guarded by `lock` on every access.
 public final class StreamingRefiner: @unchecked Sendable {
     /// The un-gated refiner underneath, for callers who also have complete audio.
