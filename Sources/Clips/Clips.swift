@@ -9,11 +9,20 @@ public enum ClipError: MessageError, Sendable {
     case modelNotFound
     /// On-device selection failed or returned an unexpected output.
     case predictionFailed
+    /// The loaded model cannot produce chapters: it is missing the chapter head, or its
+    /// `select` graph does not emit the per-sentence `pooled` output chapters read.
+    ///
+    /// A distinct case rather than ``predictionFailed`` because the remedy is completely
+    /// different: this one means "update the artifact", not "the input was bad".
+    case chaptersUnsupported
 
     public var message: String {
         switch self {
         case .modelNotFound: "A Clips model resource was not found."
         case .predictionFailed: "On-device clip selection failed."
+        case .chaptersUnsupported:
+            "This Clips model does not support chapters. It needs a build whose `select` "
+            + "function emits `pooled`, plus the `chapters.bin` head alongside it."
         }
     }
 }
@@ -147,5 +156,53 @@ public final class Clips: @unchecked Sendable {
     public func clips(in transcript: [String],
                       limit: Int? = Clips.defaultClipLimit) async throws -> [Clip] {
         try await model.value().clips(in: transcript, limit: limit)
+    }
+
+    /// Chapter markers for `transcript`: contiguous sections covering every sentence.
+    ///
+    /// - Parameter transcript: sentences in spoken order, WITH timings. The chapter length
+    ///   prior is expressed in seconds, so real timings are worth having; see the `[String]`
+    ///   overload for what it costs to go without them.
+    /// - Returns: chapters in time order, tiling the transcript with no gaps and no overlaps.
+    ///   `title` is always nil.
+    ///
+    /// **Chapters are not clips and the shape of the answer differs.** Clips are a ranked,
+    /// sparse, non-overlapping SELECTION and the caller decides how many to keep. Chapters are
+    /// an exhaustive PARTITION: every sentence belongs to exactly one, the count follows from
+    /// the video's duration rather than from a caller's limit, and there is nothing to filter.
+    ///
+    /// **Cheap alongside ``clips(in:limit:)``, not free on its own.** Both read the same trunk
+    /// pass, so a view that already asked for clips pays almost nothing more for chapters. A
+    /// caller that only wants chapters still pays the trunk once (~2.4 s for a 30-minute
+    /// video); the chapter head itself is ~16 ms at 800 sentences.
+    ///
+    /// **Titles come from the Title model.** ``Chapter/title`` is nil here and naming is text
+    /// generation, which this module does not do. Pass each chapter's `text` to
+    /// `Titles.describe(_:)`.
+    ///
+    /// Throws ``ClipError/chaptersUnsupported`` when the loaded artifact predates chapters.
+    public func chapters(in transcript: [Sentence]) async throws -> [Chapter] {
+        try await model.value().chapters(in: transcript)
+    }
+
+    /// Chapters from bare sentences, with durations ESTIMATED from word count.
+    ///
+    /// A convenience for callers holding what ``clips(in:limit:)`` takes. It estimates each
+    /// sentence's duration at ``Pipeline/wordsPerSecond``, the same proxy the offline pipeline
+    /// uses when a corpus has no timings.
+    ///
+    /// Prefer the `[Sentence]` overload wherever real timings exist. The chapter length prior
+    /// is in SECONDS, so on a video whose speaking rate is far from the proxy this shifts how
+    /// many chapters come back. It does not shift where the model thinks the topic changes:
+    /// the boundary logits never see a timestamp.
+    public func chapters(in transcript: [String]) async throws -> [Chapter] {
+        var start = 0.0
+        let sentences = transcript.enumerated().map { index, text -> Sentence in
+            let words = max(1, text.split(separator: " ").count)
+            let duration = Double(words) / Pipeline.wordsPerSecond
+            defer { start += duration }
+            return Sentence(id: index, text: text, start: start, end: start + duration)
+        }
+        return try await chapters(in: sentences)
     }
 }

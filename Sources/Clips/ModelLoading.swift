@@ -25,14 +25,19 @@ public struct ModelAssets: Sendable {
     let selector: any InferenceSession
     /// Per-span quality score.
     let scorer: any InferenceSession
+    /// Contents of `chapters.bin`, or nil when the resolved model predates chapters.
+    /// Optional so an older artifact still loads for every clips consumer.
+    let chapterHead: [UInt8]?
 
     /// Bindings entry point: build from already-constructed sessions plus the
     /// sidecar.
     @_spi(ClipBindings)
-    public init(tokenizer: [UInt8], selector: any InferenceSession, scorer: any InferenceSession) {
+    public init(tokenizer: [UInt8], selector: any InferenceSession, scorer: any InferenceSession,
+                chapterHead: [UInt8]? = nil) {
         self.tokenizer = tokenizer
         self.selector = selector
         self.scorer = scorer
+        self.chapterHead = chapterHead
     }
 
     /// Build from a resolved model directory: read the sidecar and let the core
@@ -41,7 +46,10 @@ public struct ModelAssets: Sendable {
         ModelAssets(
             tokenizer: try files.read(ClipModel.tokenizer),
             selector: try await files.session(ClipModel.selector, computeUnits: computeUnits),
-            scorer: try await files.session(ClipModel.scorer, computeUnits: computeUnits))
+            scorer: try await files.session(ClipModel.scorer, computeUnits: computeUnits),
+            // Best-effort. A missing chapter head is an artifact without chapters, not a
+            // broken model, and every clips consumer must keep loading.
+            chapterHead: try? files.read(ClipModel.chapterHead))
     }
 }
 
