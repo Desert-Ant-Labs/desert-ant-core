@@ -135,6 +135,11 @@ Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
 frameworks run in Node. For inference in plain Node, import the `/native`
 subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
 
+A Node-only package is the exception, and `@desert-ant-labs/align` is one today.
+Its default entry still imports cleanly everywhere, including the SSR pass, but
+`load()` refuses and points at `/native`. See that model's page for why the
+browser build cannot exist.
+
 ## Command line
 
 Transcribe a recording, cut clips, clean up audio, or redact a text from the

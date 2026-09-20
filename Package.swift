@@ -122,6 +122,9 @@ struct ModelPackage {
     /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
     /// platform, and a product promising an artifact that cannot load is worse than its absence.
     var appleOnly: Bool = false
+    /// Whether this model gets an `Android` dynamic library. `Align` has no `.android` artifact:
+    /// the host bridge has no NFC, so the lexical bytes could not match training.
+    var androidLibrary: Bool = true
 }
 
 let models: [ModelPackage] = [
@@ -167,7 +170,8 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/golden.json"),
             .copy("Resources/calibration_golden.json"),
-        ]
+        ],
+        androidLibrary: false
     ),
 ] + [
     // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
@@ -252,14 +256,14 @@ let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.ap
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
-let modelProducts: [Product] = models.flatMap { model in
+let modelProducts: [Product] = models.flatMap { model -> [Product] in
     model.appleOnly || !noJavaScriptKit
         ? [.library(name: model.name, targets: [model.name])]
-        : [
-            .library(name: model.name, targets: [model.name]),
-            .library(name: "\(model.name)Android", type: .dynamic, targets: [model.name]),
-            .library(name: "\(model.name)Node", type: .dynamic, targets: [model.name]),
-        ]
+        : [.library(name: model.name, targets: [model.name])]
+            + (model.androidLibrary
+                ? [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
+                : [])
+            + [.library(name: "\(model.name)Node", type: .dynamic, targets: [model.name])]
 } + modelWasmProducts
 
 let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
