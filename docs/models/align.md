@@ -121,9 +121,10 @@ A `StreamingRefiner` checks the language it was created with the same way, with
 synchronous check with the same meaning.
 
 `refine` also keeps the original timestamp for any single word whose correction runs into the
-search edge, or, when streaming, whose forward context is not buffered yet. That fallback is a
-check on structure, not on accuracy: a correction that looks plausible but is wrong still
-lands. A stage that fails outright throws rather than falling back. See Limitations.
+search edge, whose corrected range would end before it starts, or, when streaming, whose forward
+context is not buffered yet. Those fallbacks are checks on structure, not on accuracy: a
+correction that looks plausible but is wrong still lands. A stage that fails outright throws
+rather than falling back. See Limitations.
 
 ### Loading the model
 
@@ -172,8 +173,9 @@ training-time reference to five significant figures. That is one corpus average,
 per-boundary guarantee, and it is not a side-by-side comparison against Core ML. The figures on
 this page are the training-side measurement; the Apple runtime's frontend changed at this
 release, so on-device Core ML numbers differ from v1.0.0's and are not carried over from it.
-Full per-language and per-condition figures are on the
-[model card](https://huggingface.co/desert-ant-labs/align).
+The same per-condition figures are on the
+[model card](https://huggingface.co/desert-ant-labs/align), which also names the three
+weakest languages.
 
 ## Languages
 
@@ -182,9 +184,9 @@ outside this set is passed through unchanged.
 
 ## Limitations
 
-- The per-language and per-condition figures are measured against machine forced-alignment
-  estimates, not human annotations, so they show a large, consistent reduction of the proposer's
-  timing error rather than sample-accurate ground truth.
+- The macro-averaged figures are measured against machine forced-alignment estimates, not human
+  annotations, so they show a large, consistent reduction of the proposer's timing error rather
+  than sample-accurate ground truth.
 - A learned correction is not guaranteed to improve every boundary; the structural fallback keeps
   the original timestamp when a correction looks unsafe but cannot catch every plausible-looking error.
 - Japanese, Korean, and Chinese were the weakest languages before v1.0.0. They now improve their
