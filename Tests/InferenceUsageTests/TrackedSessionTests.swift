@@ -65,6 +65,58 @@ struct TrackedSessionTests {
         #expect(devices == ["user-A", "user-B"])
     }
 
+    /// The documented contract is one call per device inside a group, so a second run on the
+    /// same session must not count again.
+    @Test func aCallGroupCollapsesRunsOnOneSession() async throws {
+        let sink = Sink()
+        let tracked = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
+
+        try await InferenceContext.withCallGroup {
+            _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "ch-1")
+            _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "ch-1")
+        }
+        await tracked.flush()
+
+        let calls = sink.events.filter { $0.name == "load" }.compactMap { $0.callCount }.reduce(0, +)
+        #expect(calls == 1)
+    }
+
+    /// The align cascade runs one operation over two sessions (coarse and fine), and each
+    /// session has its own client for the same device. Grouping per device must still bill
+    /// once; grouping per client billed twice, which is what this pins.
+    @Test func aCallGroupCollapsesRunsAcrossSessions() async throws {
+        let sink = Sink()
+        // A factory each, as production has: the session factory builds one per session.
+        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
+        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
+
+        try await InferenceContext.withCallGroup {
+            _ = try await coarse.run(inputs: [:], outputs: [], deviceId: "ch-1")
+            _ = try await fine.run(inputs: [:], outputs: [], deviceId: "ch-1")
+        }
+        await coarse.flush()
+        await fine.flush()
+
+        let calls = sink.events.filter { $0.name == "load" }.compactMap { $0.callCount }.reduce(0, +)
+        #expect(calls == 1, "one operation bills one call, however many sessions it runs")
+    }
+
+    /// Per device, so a group spanning two end users still counts each of them.
+    @Test func aCallGroupCountsEachDeviceOnce() async throws {
+        let sink = Sink()
+        let tracked = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
+
+        try await InferenceContext.withCallGroup {
+            _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "user-A")
+            _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "user-B")
+            _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "user-A")
+        }
+        await tracked.flush()
+
+        let calls = sink.events.filter { $0.name == "load" }.compactMap { $0.callCount }.reduce(0, +)
+        #expect(calls == 2, "one call per distinct device, not one per group")
+    }
+
     @Test func nothingIsSentIfInferenceNeverRan() async throws {
         let sink = Sink()
         let tracked = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))

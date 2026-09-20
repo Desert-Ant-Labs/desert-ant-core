@@ -124,30 +124,35 @@ public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
 #endif
 
 /// Identity for a set of inference runs that should bill as a single usage call.
-/// It records which usage clients have already been attributed within the group,
-/// so a second run to the same device does not record another call. Created by
+/// It records which devices have already been attributed within the group, so a
+/// second run to the same device does not record another call. Created by
 /// `InferenceContext.withCallGroup`; opaque to callers.
+///
+/// Keyed on the device rather than on the usage client, because one operation can
+/// run over several sessions and each session builds its own client for the same
+/// device. Keying on the client counted once per session, which billed a
+/// two-stage model as two calls inside a group that documents one per device.
 #if os(WASI)
 public final class InferenceCallGroup: @unchecked Sendable {
-    private var counted: Set<ObjectIdentifier> = []   // single-threaded: no lock
+    private var counted: Set<String> = []   // single-threaded: no lock
     public init() {}
 
-    /// Mark `key` counted for this group; returns true only the first time.
-    func markCounted(_ key: ObjectIdentifier) -> Bool {
-        counted.insert(key).inserted
+    /// Mark `device` counted for this group; returns true only the first time.
+    func markCounted(_ device: String) -> Bool {
+        counted.insert(device).inserted
     }
 }
 #else
 public final class InferenceCallGroup: @unchecked Sendable {
     private let mutex = PlatformMutex()
-    private var counted: Set<ObjectIdentifier> = []
+    private var counted: Set<String> = []
 
     public init() {}
 
-    /// Mark `key` counted for this group; returns true only the first time.
-    func markCounted(_ key: ObjectIdentifier) -> Bool {
+    /// Mark `device` counted for this group; returns true only the first time.
+    func markCounted(_ device: String) -> Bool {
         mutex.lock(); defer { mutex.unlock() }
-        return counted.insert(key).inserted
+        return counted.insert(device).inserted
     }
 }
 #endif
