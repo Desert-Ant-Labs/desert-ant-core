@@ -15,7 +15,7 @@ public extension StreamingRefiner {
         audioFile: AVAudioFile,
         directory: String? = nil,
         maxBufferedSeconds: Double = 30,
-        computeUnits: ComputeUnits = .all
+        computeUnits: ComputeUnits = .cpuAndNeuralEngine
     ) async throws {
         self.init(locale: locale, directory: directory, maxBufferedSeconds: maxBufferedSeconds,
                   computeUnits: computeUnits)
