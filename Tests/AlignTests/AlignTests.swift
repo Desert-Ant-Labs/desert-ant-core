@@ -64,7 +64,7 @@ func makeFrontend() async throws -> Frontend {
         mse /= Double(lm.count)
         let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
         print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse)), max abs diff \(maxAbs)")
-        #expect(psnr > 30.0, "log-mel frontend diverges from Python reference")
+        #expect(psnr > 60.0, "log-mel frontend diverges from Python reference")
     }
 }
 

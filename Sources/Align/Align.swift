@@ -30,14 +30,14 @@ public final class Align: Sendable {
     /// (you pre-downloaded or shipped it there) it is used offline; otherwise the
     /// model is downloaded into it and reused offline afterward. With no
     /// `directory` (the default), a managed cache location is used.
-    public convenience init(directory: String? = nil, computeUnits: ComputeUnits = .all) {
+    public convenience init(directory: String? = nil, computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         self.init(directory: directory, cacheRoot: nil, computeUnits: computeUnits)
     }
 
     /// Binding entry point that also supplies the platform base cache root under
     /// which the managed layout lives.
     @_spi(AlignBindings)
-    public init(directory: String?, cacheRoot: String?, computeUnits: ComputeUnits = .all) {
+    public init(directory: String?, cacheRoot: String?, computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         model = LoadedModel(AlignModel.self, directory: directory, cacheRoot: cacheRoot) { files in
             Runtime(assets: try await .align(files: files, computeUnits: computeUnits, revision: AlignModel.revision))
         }
@@ -124,8 +124,7 @@ public final class Align: Sendable {
             // forward context is not buffered yet.
             let futureMissing = streaming && bounds[i].frame + coarseCenter >= nFrames
             let pastMissing = streaming && bounds[i].frame < 0
-            if !coarsePred[i].isValid || !finePred[i].isValid || abs(cOff) >= Double(coarseCenter - 2)
-                || futureMissing || pastMissing {
+            if abs(cOff) >= Double(coarseCenter - 2) || futureMissing || pastMissing {
                 ok[i] = false
             }
         }
@@ -164,20 +163,16 @@ public final class Align: Sendable {
 
     private static func batched(_ rt: Runtime, _ bounds: [Boundary], width: Int, logmel: [Float], nFrames: Int,
                                 langId: Int32, centers: [Int], model: StageModel) async throws -> [StagePrediction] {
-        let uniformDeviation = ((Double(width * width) - 1) / 12).squareRoot() / Double(width)
-        let fallback = StagePrediction(isValid: false, position: Double(width / 2), entropy: 1,
-                                       normalizedDeviation: uniformDeviation, maxProbability: 1 / Double(width),
-                                       probabilityMargin: 0, edgeProbability: 10 / Double(width))
-        var result = [StagePrediction](repeating: fallback, count: bounds.count)
+        var result: [StagePrediction] = []
+        result.reserveCapacity(bounds.count)
         var i = 0
         while i < bounds.count {
             let j = min(i + StageModel.batch, bounds.count)
             let slice = Array(i..<j)
             let mel = slice.map { rt.frontend.crop(logmel, nFrames: nFrames, centerFrame: centers[$0], width: width) }
-            let predictions = try await model.predictions(mel: mel, bytes: slice.map { bounds[$0].bytes },
-                                                          langs: slice.map { _ in langId },
-                                                          kinds: slice.map { bounds[$0].kind })
-            for (k, idx) in slice.enumerated() { result[idx] = predictions[k] }
+            result.append(contentsOf: try await model.predictions(mel: mel, bytes: slice.map { bounds[$0].bytes },
+                                                                  langs: slice.map { _ in langId },
+                                                                  kinds: slice.map { bounds[$0].kind }))
             i = j
         }
         return result

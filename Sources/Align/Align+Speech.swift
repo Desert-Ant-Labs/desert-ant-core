@@ -25,7 +25,7 @@ public final class StreamingRefiner: @unchecked Sendable {
     /// Create a streaming refiner for `locale`. Construction does no work and starts no
     /// download; the model loads on the first call that needs it.
     public convenience init(locale: Locale, directory: String? = nil, maxBufferedSeconds: Double = 30,
-                            computeUnits: ComputeUnits = .all) {
+                            computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         self.init(align: Align(directory: directory, computeUnits: computeUnits),
                   languageCode: locale.language.languageCode?.identifier ?? "",
                   maxBufferedSeconds: maxBufferedSeconds)

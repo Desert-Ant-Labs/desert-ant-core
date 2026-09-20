@@ -32,16 +32,20 @@ npm i @desert-ant-labs/align
 
 - `refine` is `async` and takes `languageCode`; it works on any transcript's words, not only
   `SpeechAnalyzer` output.
-- The handle is `Align`. `SpeechTimestampRefiner` is a deprecated alias kept for source
-  compatibility.
+- The handle is `Align`. `SpeechTimestampRefiner` remains as a deprecated alias for the name
+  only: `Align` has no `locale:` initializer, and both `refine` and `isSupported` changed
+  shape, so a 3.x call site does not compile through it.
 - Streaming callers move to `StreamingRefiner`, which wraps an `Align` and keeps the
-  `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles; the
-  alias covers the offline API only.
+  `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles.
 - The Apple runtime's log-mel frontend is corrected: it scaled power by 4 before the log.
-  On-device results change and are re-measured for this release.
+  On-device results change at this release.
 - A LiteRT export adds Linux, Windows and Node.
-- The npm package is Node-only. The refiner is a cascade of two graphs, and the WebAssembly
-  host compiles one model per module, so there is no browser build.
+- The npm package is Node-only, and its default entry refuses in the browser with an
+  actionable error. The refiner is a cascade of two graphs, and the WebAssembly host compiles
+  one model per module, so there is no browser build.
+- Three further changes break source on 3.x callers, separately from the two above:
+  `isSupported` is now `async throws -> Bool` and takes a language code rather than being a
+  property; `reset()` is no longer on the offline handle; and `AlignResourceError` is removed.
 
 ## Usage
 
@@ -116,10 +120,10 @@ A `StreamingRefiner` checks the language it was created with the same way, with
 `try await refiner.isSupported()`. On JavaScript, `Align.isSupported(language)` is a
 synchronous check with the same meaning.
 
-`refine` also keeps the original timestamp for any single word whose correction is
-structurally invalid, lacks streaming context, or hits the search edge. That fallback is a
+`refine` also keeps the original timestamp for any single word whose correction runs into the
+search edge, or, when streaming, whose forward context is not buffered yet. That fallback is a
 check on structure, not on accuracy: a correction that looks plausible but is wrong still
-lands. See Limitations.
+lands. A stage that fails outright throws rather than falling back. See Limitations.
 
 ### Loading the model
 
@@ -162,10 +166,13 @@ directories on Linux, Windows and Node.
 
 On the clean condition, macro-averaged over the nine languages, Align cuts the proposer's raw
 timing error by roughly two-thirds. Per language it ranges from a third to over three quarters,
-and the noisy condition is lower. The LiteRT export is scored on `gold-en-us` and matches the
-training-time reference to five significant figures; it is not scored side by side against Core
-ML on one gold set, and the Core ML figures for this release are re-measured on device rather
-than carried over. Full per-language and per-condition figures are on the
+and the noisy condition is lower. The LiteRT export is scored on `gold-en-us`, the 258-boundary
+set corrected by hand against the waveform, where its corpus mean boundary error matches the
+training-time reference to five significant figures. That is one corpus average, not a
+per-boundary guarantee, and it is not a side-by-side comparison against Core ML. The figures on
+this page are the training-side measurement; the Apple runtime's frontend changed at this
+release, so on-device Core ML numbers differ from v1.0.0's and are not carried over from it.
+Full per-language and per-condition figures are on the
 [model card](https://huggingface.co/desert-ant-labs/align).
 
 ## Languages
@@ -175,8 +182,9 @@ outside this set is passed through unchanged.
 
 ## Limitations
 
-- References are machine forced-alignment estimates, not human annotations, so the figures show a
-  large, consistent reduction of the proposer's timing error rather than sample-accurate ground truth.
+- The per-language and per-condition figures are measured against machine forced-alignment
+  estimates, not human annotations, so they show a large, consistent reduction of the proposer's
+  timing error rather than sample-accurate ground truth.
 - A learned correction is not guaranteed to improve every boundary; the structural fallback keeps
   the original timestamp when a correction looks unsafe but cannot catch every plausible-looking error.
 - Japanese, Korean, and Chinese were the weakest languages before v1.0.0. They now improve their
@@ -185,9 +193,10 @@ outside this set is passed through unchanged.
   boundaries further from the reference than leaving them alone, so treat spoken numbers as
   unimproved until a larger sample settles it.
 - The LiteRT export is a third numeric path alongside Core ML and the training-time reference. The
-  parity fixture is Core ML's own recorded output, and Core ML on the CPU reproduces it exactly
-  while LiteRT drifts 10.4 ms from it (linux-arm64, 2026-09-17). Treat the two runtimes as able
-  to disagree by around 10 ms on the same audio, not as agreeing to sub-millisecond.
+  parity fixture is Core ML's own recorded output on synthetic audio: Core ML on the CPU
+  reproduces it where it was measured (0.0 ms, against a 25 ms tolerance) while LiteRT drifts
+  10.4 ms from it (linux-arm64, 2026-09-17). Treat the two runtimes as able to disagree by around
+  10 ms on the same audio, not as agreeing to sub-millisecond.
 - No browser build: the cascade is two graphs, and the WebAssembly host compiles one model per
   module.
 - No Android SDK.

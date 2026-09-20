@@ -2,7 +2,6 @@ import Inference
 import RealModule
 
 struct StagePrediction {
-    let isValid: Bool
     let position: Double
     let entropy: Double
     let normalizedDeviation: Double
@@ -67,7 +66,7 @@ final class StageModel: Sendable {
                 if p > first { second = first; first = p } else if p > second { second = p }
             }
             result.append(StagePrediction(
-                isValid: true, position: mean, entropy: entropy / Double.log(Double(width)),
+                position: mean, entropy: entropy / Double.log(Double(width)),
                 normalizedDeviation: variance.squareRoot() / Double(width),
                 maxProbability: first, probabilityMargin: first - second, edgeProbability: edge))
         }
