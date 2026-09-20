@@ -8,11 +8,17 @@ final class CountingFileSystem: FileSystem, @unchecked Sendable {
     private let inner = FoundationFileSystem()
     private let lock = NSLock()
     private var digests = 0
+    private var reads: [String] = []
     var digestCount: Int { lock.withLock { digests } }
+    /// Paths handed to `read`, i.e. files pulled into memory whole.
+    var readPaths: [String] { lock.withLock { reads } }
 
     func exists(_ path: String) -> Bool { inner.exists(path) }
     func size(_ path: String) -> Int64? { inner.size(path) }
-    func read(_ path: String) throws -> [UInt8] { try inner.read(path) }
+    func read(_ path: String) throws -> [UInt8] {
+        lock.withLock { reads.append(path) }
+        return try inner.read(path)
+    }
     func write(_ path: String, _ bytes: [UInt8]) throws { try inner.write(path, bytes) }
     func makeDirectory(_ path: String) throws { try inner.makeDirectory(path) }
     func move(_ from: String, to: String) throws { try inner.move(from, to: to) }
@@ -71,6 +77,39 @@ final class CountingFileSystem: FileSystem, @unchecked Sendable {
         try await s.download(spec())  // default is .full
         #expect(t.downloadCount == 2)
         #expect(s.isDownloaded(spec(), verification: .full))
+    }
+
+    @Test func fetchHashesTheDownloadWithoutReadingItWhole() async throws {
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let fs = CountingFileSystem()
+        let s = ModelStore(transport: MockTransport(["m.bin": good]), fileSystem: fs, endpoint: "https://hub.test")
+        try await s.download(spec())
+        #expect(!fs.readPaths.contains { $0.hasSuffix("m.bin") || $0.hasSuffix("m.bin.part") },
+                "a model file was read into memory whole: \(fs.readPaths)")
+        #expect(s.isDownloaded(spec(), verification: .full))
+    }
+
+    @Test func resumeSkipsAVerifiedFileWithoutReadingItWhole() async throws {
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let fs = CountingFileSystem()
+        let t = MockTransport(["m.bin": good])
+        let s = ModelStore(transport: t, fileSystem: fs, endpoint: "https://hub.test")
+        try await s.download(spec())
+        // A prior run that finished the file but not the manifest.
+        try FileManager.default.removeItem(atPath: tmp + "/.dal-meta/manifest")
+
+        try await s.download(spec())
+        #expect(t.downloadCount == 1, "an intact LFS file was downloaded again")
+        #expect(!fs.readPaths.contains { $0.hasSuffix("m.bin") }, "resume read the file whole")
+        #expect(s.isDownloaded(spec(), verification: .full))
+    }
+
+    @Test func aWrongSizeDownloadStillFailsIntegrity() async throws {
+        defer { try? FileManager.default.removeItem(atPath: tmp) }
+        let s = ModelStore(transport: MockTransport(["m.bin": good], sizeOverride: 5000),
+                           fileSystem: FoundationFileSystem(), endpoint: "https://hub.test")
+        await #expect(throws: ModelStoreError.self) { try await s.download(spec()) }
+        #expect(!FileManager.default.fileExists(atPath: tmp + "/m.bin"))
     }
 }
 #endif

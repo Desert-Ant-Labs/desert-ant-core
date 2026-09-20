@@ -190,8 +190,8 @@ public struct ModelStore: Sendable {
             let dest = filePath(model, e.path)
             // Skip a file already present and matching its LFS hash (resumes a
             // partial prior run without re-downloading verified LFS files).
-            if let expected = e.sha256, fs.exists(dest), let data = try? fs.read(dest),
-               SHA256.hexDigest(data) == expected {
+            if let expected = e.sha256, let d = try? fs.digest(dest),
+               d.size == e.size, d.sha256 == expected {
                 completedBytes += e.size
                 manifest.append(.init(path: e.path, size: e.size, sha256: expected))
                 report(completedBytes)
@@ -289,13 +289,14 @@ public struct ModelStore: Sendable {
             throw error
         }
 
-        guard let got = fs.size(part), got == e.size else {
+        // Streamed: reading the part file whole would hold the largest weight in
+        // memory (twice, as Data and [UInt8]) just to hash it.
+        guard let d = try? fs.digest(part), d.size == e.size else {
             let actual = fs.size(part).map(String.init) ?? "missing"
             fs.remove(part)
             throw ModelStoreError.integrityCheckFailed("\(e.path): size \(actual) != \(e.size)")
         }
-        let bytes = try fs.read(part)
-        let sha = SHA256.hexDigest(bytes)
+        let sha = d.sha256
         if let expected = e.sha256, sha != expected {
             fs.remove(part)
             throw ModelStoreError.integrityCheckFailed("\(e.path): sha256 mismatch")
