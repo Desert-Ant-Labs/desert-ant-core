@@ -124,12 +124,15 @@ public struct ModelDistribution: Sendable, Equatable {
     }
 
     /// Whether the current platform's files are cached and intact (offline).
+    /// Checked by size against the manifest (`.quick`), like ``install``: a
+    /// launch-time "is it there?" question should not read the whole model. It
+    /// finds a missing or truncated file, not same-size corruption.
     public func isInstalled(cacheDirectory: String? = nil, cacheRoot: String? = nil) -> Bool {
         guard currentFiles != nil,
               let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else {
             return false
         }
-        return store.isDownloaded(spec(cacheDirectory))
+        return store.isDownloaded(spec(cacheDirectory), verification: .quick)
     }
 
     /// Directories of every downloaded version of this model's repo in the
