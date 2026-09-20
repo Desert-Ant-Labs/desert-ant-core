@@ -63,20 +63,31 @@ public struct ModelStore: Sendable {
 
     // MARK: public API
 
-    /// Whether the model is fully present and intact. Reads the resolved
-    /// manifest written at download time (so it knows the exact files, folders
-    /// already expanded) and re-hashes each against its recorded SHA-256. A
-    /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
+    /// Whether the model is fully present and usable offline. Reads the
+    /// resolved manifest written at download time (so it knows the exact files,
+    /// folders already expanded) and checks every entry is on disk at its
+    /// recorded size: one `stat` per file, and no file read.
+    ///
+    /// Availability, not integrity. The manifest is written last, after every
+    /// file is hashed and atomically moved into place, so a manifest whose
+    /// files are all present at their recorded size is a download that
+    /// finished. Re-hashing here never protected against tampering either,
+    /// since whoever can rewrite a file can rewrite the manifest beside it.
+    /// ``verify(_:)`` is the explicit integrity check.
     public func isDownloaded(_ model: ModelSpec) -> Bool {
-        guard isValid(model),
-              let bytes = try? fs.read(manifestPath(model)),
-              let manifest = Manifest.parse(bytes),
-              manifest.requested == model.files,
-              !manifest.entries.isEmpty else { return false }
+        guard let manifest = validManifest(model) else { return false }
+        return manifest.entries.allSatisfy { fs.size(filePath(model, $0.path)) == $0.size }
+    }
+
+    /// Re-hash every file against the SHA-256 the manifest recorded at download
+    /// time. This reads the model whole, so it belongs in a "something is
+    /// wrong" path rather than before an ordinary load, and it catches the one
+    /// thing ``isDownloaded(_:)`` cannot: a file corrupted without changing
+    /// its length.
+    public func verify(_ model: ModelSpec) -> Bool {
+        guard let manifest = validManifest(model) else { return false }
         for e in manifest.entries {
-            guard isSafeRelativePath(e.path), e.size >= 0,
-                  e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
-                  let d = try? fs.digest(filePath(model, e.path)),
+            guard let d = try? fs.digest(filePath(model, e.path)),
                   d.size == e.size,
                   d.sha256 == e.sha256 else { return false }
         }
@@ -160,8 +171,7 @@ public struct ModelStore: Sendable {
             let dest = filePath(model, e.path)
             // Skip a file already present and matching its LFS hash (resumes a
             // partial prior run without re-downloading verified LFS files).
-            if let expected = e.sha256, fs.exists(dest), let data = try? fs.read(dest),
-               SHA256.hexDigest(data) == expected {
+            if let expected = e.sha256, let d = try? fs.digest(dest), d.sha256 == expected {
                 completedBytes += e.size
                 manifest.append(.init(path: e.path, size: e.size, sha256: expected))
                 report(completedBytes)
@@ -272,6 +282,19 @@ public struct ModelStore: Sendable {
         }
         try fs.move(part, to: dest)
         return sha
+    }
+
+    /// The manifest for `model`, if one was written for exactly these requested
+    /// paths and names only paths inside the model's own directory. What both
+    /// availability and verification need before either looks at a file.
+    private func validManifest(_ model: ModelSpec) -> Manifest? {
+        guard isValid(model),
+              let bytes = try? fs.read(manifestPath(model)),
+              let manifest = Manifest.parse(bytes),
+              manifest.requested == model.files,
+              !manifest.entries.isEmpty,
+              manifest.entries.allSatisfy({ isSafeRelativePath($0.path) }) else { return nil }
+        return manifest
     }
 
     private func isValid(_ model: ModelSpec) -> Bool {

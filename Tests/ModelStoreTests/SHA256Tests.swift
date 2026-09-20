@@ -31,8 +31,8 @@ struct SHA256Tests {
     }
 
     @Test func largeInput() {
-        // isDownloaded re-hashes every file on every call, so exercise a
-        // model-sized buffer: correct length and deterministic. (No wall-clock
+        // Downloads and `ModelStore.verify` hash model-sized inputs, so
+        // exercise one: correct length and deterministic. (No wall-clock
         // timing assertion: Swift Testing runs tests in parallel, so elapsed
         // wall time reflects scheduler contention, not hashing work.)
         let data = [UInt8](repeating: 0x5a, count: 16 * 1024 * 1024)

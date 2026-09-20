@@ -1,7 +1,8 @@
 // FIPS 180-4 SHA-256, pure Swift (no Foundation, no swift-crypto/BoringSSL), so
 // it works identically on Apple, Linux, Android, and wasm. Model files are
-// hashed once on download (not a hot path), so a straightforward streaming
-// implementation is the right tradeoff: one algorithm, zero platform seams.
+// hashed on download and by an explicit `ModelStore.verify`, never by an
+// availability check, so a straightforward streaming implementation is the
+// right tradeoff: one algorithm, zero platform seams.
 
 public struct SHA256 {
     private static let k: [UInt32] = [

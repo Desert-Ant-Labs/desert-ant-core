@@ -117,7 +117,7 @@ public struct ModelDistribution: Sendable, Equatable {
         return files
     }
 
-    /// Whether the current platform's files are cached and intact (offline).
+    /// Whether the current platform's files are cached and complete (offline).
     public func isInstalled(cacheDirectory: String? = nil, cacheRoot: String? = nil) -> Bool {
         guard currentFiles != nil,
               let store = try? ModelStore.platformDefault(cacheRoot: cacheRoot) else {
@@ -188,7 +188,7 @@ public struct ModelDistribution: Sendable, Equatable {
     }
 
     /// Whether the model is available offline for `cacheDirectory`: files you
-    /// placed there, or our verified cache. An interrupted download is not.
+    /// placed there, or our own completed cache. An interrupted download is not.
     public func isAvailable(cacheDirectory: String? = nil, cacheRoot: String? = nil) -> Bool {
         userPlacedFiles(cacheDirectory) != nil || isInstalled(cacheDirectory: cacheDirectory, cacheRoot: cacheRoot)
             || (hasFallback && platformDefault.isAvailable(cacheDirectory: cacheDirectory, cacheRoot: cacheRoot))

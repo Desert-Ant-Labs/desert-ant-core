@@ -249,7 +249,7 @@ final class ModelStoreTests {
         catch let e as ModelStoreError { if case .notInRepo = e {} else { Issue.record("\(e)") } }
     }
 
-    @Test func corruptionIsDetectedAndReDownloaded() async throws {
+    @Test func truncationIsDetectedAndReDownloaded() async throws {
         let good = [UInt8](repeating: 0x9, count: 4096)
         let t = MockTransport(["redact.tflite": good])
         let s = store(t)
@@ -257,8 +257,11 @@ final class ModelStoreTests {
         try await s.download(m)
         #expect(s.isDownloaded(m))
 
-        try FoundationFileSystem().write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0xFF, count: 4096))
-        #expect(!s.isDownloaded(m))   // always re-hashes
+        // Availability is by the manifest's recorded size, so a file that lost
+        // bytes - the shape an interrupted write leaves behind - is caught.
+        try FoundationFileSystem().write(s.location(of: m) + "/redact.tflite",
+                                         [UInt8](repeating: 0x9, count: 2048))
+        #expect(!s.isDownloaded(m))
         try await s.download(m)
         #expect(t.downloadCount == 2)  // re-fetched
         #expect(s.isDownloaded(m))
@@ -352,7 +355,8 @@ final class ModelStoreTests {
         #expect(s.isDownloaded(m))
         #expect(posix.exists(s.location(of: m) + "/redact.mlmodelc/weights/weight.bin"))
 
-        try posix.write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0, count: 6000))
+        // Short of its recorded 6000 bytes, so availability rejects it.
+        try posix.write(s.location(of: m) + "/redact.tflite", [UInt8](repeating: 0, count: 3000))
         #expect(!s.isDownloaded(m))
     }
     #endif

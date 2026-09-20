@@ -69,7 +69,8 @@ public protocol FileSystem: Sendable {
     /// size of the largest file twice over (once for the `Data`, once for the
     /// `[UInt8]` copy). That is invisible for a 14 MB model and not for a
     /// 449 MB one: checking Voz cost 914 MB, against the 91 MB running it
-    /// actually needs, and every model paid it on every launch.
+    /// actually needs. Availability no longer hashes; the download, its resume
+    /// check, and `ModelStore.verify` are what reach here.
     func digest(_ path: String) throws -> (size: Int64, sha256: String)
 }
 
