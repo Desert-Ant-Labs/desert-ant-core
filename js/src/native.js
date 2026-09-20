@@ -78,7 +78,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
       throw new Error(
         `${packageName}: no prebuilt native for ${key}. ` +
           `Supported server-side targets: ${supported}. ` +
-          `Use the Swift package or a browser on this platform.`,
+          `Use the Swift package or a browser build where this model has one.`,
       );
     }
     return dir;
