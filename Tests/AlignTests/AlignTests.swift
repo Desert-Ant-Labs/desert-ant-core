@@ -240,7 +240,7 @@ import Speech
         #expect(out == words)
     }
 
-    // 3.1.0 callers keep compiling against the old name, with a deprecation warning.
+    // The old name still resolves for the asset init, with a deprecation warning.
     @Test func deprecatedNameStillResolves() async throws {
         let files = try await ModelFixture.files(AlignModel.self)
         let refiner = SpeechTimestampRefiner(
