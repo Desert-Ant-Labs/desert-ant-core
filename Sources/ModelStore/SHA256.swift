@@ -1,9 +1,14 @@
-// FIPS 180-4 SHA-256, pure Swift (no Foundation, no swift-crypto/BoringSSL), so
-// it works identically on Apple, Linux, Android, and wasm. Model files are
-// hashed once on download (not a hot path), so a straightforward streaming
-// implementation is the right tradeoff: one algorithm, zero platform seams.
+// FIPS 180-4 SHA-256. `SoftwareSHA256` is a pure-Swift implementation (no
+// Foundation, no swift-crypto/BoringSSL), so it works identically on Android,
+// Linux and wasm. Where CryptoKit exists, `SHA256` uses it instead: verifying a
+// model re-hashes hundreds of MB, and the hardware-accelerated path is several
+// times faster than a portable loop, which matters most in an unoptimized build.
 
-public struct SHA256 {
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
+
+struct SoftwareSHA256 {
     private static let k: [UInt32] = [
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -21,19 +26,19 @@ public struct SHA256 {
     private var w = [UInt32](repeating: 0, count: 64)  // reused message schedule (no per-block alloc)
     private var totalBytes: UInt64 = 0
 
-    public init() { pending.reserveCapacity(64) }
+    init() { pending.reserveCapacity(64) }
 
     /// Feed more bytes. Call any number of times before `finalize()`.
     /// Processes 64-byte blocks straight from contiguous storage; only a
     /// sub-block remainder is copied, so hashing large files is fast.
-    public mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
+    mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
         if bytes.withContiguousStorageIfAvailable({ update(buffer: $0) }) != nil { return }
         let contiguous = Array(bytes)  // rare: non-contiguous collection
         contiguous.withUnsafeBufferPointer { update(buffer: $0) }
     }
 
-    public mutating func update(_ bytes: [UInt8]) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
-    public mutating func update(_ bytes: ArraySlice<UInt8>) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
+    mutating func update(_ bytes: [UInt8]) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
+    mutating func update(_ bytes: ArraySlice<UInt8>) { bytes.withUnsafeBufferPointer { update(buffer: $0) } }
 
     private mutating func update(buffer buf: UnsafeBufferPointer<UInt8>) {
         guard let base = buf.baseAddress, buf.count > 0 else { return }
@@ -59,7 +64,7 @@ public struct SHA256 {
     }
 
     /// Finish and return the 32-byte digest. The value is consumed.
-    public mutating func finalize() -> [UInt8] {
+    mutating func finalize() -> [UInt8] {
         let bitLen = totalBytes &* 8
         pending.append(0x80)
         if pending.count > 56 {
@@ -108,8 +113,37 @@ public struct SHA256 {
 
     @inline(__always)
     private func rotr(_ x: UInt32, _ n: UInt32) -> UInt32 { (x >> n) | (x << (32 - n)) }
+}
 
-    // MARK: one-shot helpers
+/// Streaming SHA-256. Backed by CryptoKit on Apple platforms and by
+/// `SoftwareSHA256` everywhere else; both produce the same digest.
+public struct SHA256 {
+    #if canImport(CryptoKit)
+    private var impl = CryptoKit.SHA256()
+    #else
+    private var impl = SoftwareSHA256()
+    #endif
+
+    public init() {}
+
+    /// Feed more bytes. Call any number of times before `finalize()`.
+    public mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
+        #if canImport(CryptoKit)
+        if bytes.withContiguousStorageIfAvailable({ impl.update(bufferPointer: UnsafeRawBufferPointer($0)) }) != nil { return }
+        impl.update(data: Array(bytes))  // rare: non-contiguous collection
+        #else
+        impl.update(bytes)
+        #endif
+    }
+
+    /// Finish and return the 32-byte digest. The value is consumed.
+    public mutating func finalize() -> [UInt8] {
+        #if canImport(CryptoKit)
+        return Array(impl.finalize())
+        #else
+        return impl.finalize()
+        #endif
+    }
 
     /// The 32-byte SHA-256 digest of `bytes`.
     public static func digest<C: Collection>(_ bytes: C) -> [UInt8] where C.Element == UInt8 {
