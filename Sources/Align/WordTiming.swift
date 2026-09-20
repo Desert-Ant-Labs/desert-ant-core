@@ -4,7 +4,7 @@ public struct WordTiming: Sendable, Equatable {
     public var text: String
     public var start: Double
     public var end: Double
-    /// True when the refiner adjusted this word (false = kept Apple's original as a safe fallback).
+    /// True when the refiner adjusted this word (false = kept the input times as a safe fallback).
     public var refined: Bool
 
     public init(text: String, start: Double, end: Double, refined: Bool = false) {
