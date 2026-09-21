@@ -21,7 +21,7 @@ private final class Sink: @unchecked Sendable {
 
 /// One turnstile per device, as the platform storage keeps it. Two sessions in a
 /// process share this, which is what makes a group collapse across them.
-final class UsageStore: @unchecked Sendable { var byDevice: [String: UsageState] = [:] }
+private final class UsageStore: @unchecked Sendable { var byDevice: [String: UsageState] = [:] }
 
 /// A client wired to `sink`, reading and writing `store`.
 private func testClientFactory(_ sink: Sink, _ store: UsageStore = UsageStore()) -> (String) -> UsageClient {
@@ -104,8 +104,7 @@ struct TrackedSessionTests {
         let loads = sink.events.filter { $0.name == "load" }
         #expect(loads.compactMap { $0.callCount }.reduce(0, +) == 1, "one operation bills one call, however many sessions it runs")
         #expect(loads.count == 1, "and only the session that counted posts, as the shared turnstile does in production")
-        // The other shape a second call takes: carried into the next turnstile
-        // rather than posted now, which is where the shared storage hides it.
+        // The shape the shared storage hides: the second call is carried, not posted.
         #expect(store.byDevice["ch-1"]?.carryCallCount ?? 0 == 0, "and nothing is left carried for the next load to add")
     }
 
