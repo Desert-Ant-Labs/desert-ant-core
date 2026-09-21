@@ -47,9 +47,10 @@ public enum InferenceContext {
     ///
     /// Runs outside any group count individually, as before. Nesting reuses the
     /// enclosing group, so wrapping an already-grouped operation is a no-op.
-    /// Mixing the two APIs does not: `withCallGroup(id:)` inside this one binds
-    /// its own group, and a device already counted by the outer group counts
-    /// again inside it. Combine with `$deviceId` freely; the two task-locals are
+    /// Mixing the two APIs does not: `withCallGroup(id:)` with a non-nil id
+    /// inside this one binds its own group, so a device already counted by the
+    /// outer group counts again inside it. A `nil` id opens nothing and stays
+    /// in this group. Combine with `$deviceId` freely; the two task-locals are
     /// independent.
     public static func withCallGroup<T>(
         _ body: () async throws -> T
@@ -60,7 +61,8 @@ public enum InferenceContext {
     }
 
     /// Bind the process-global call group named `id` for `body` (created on first
-    /// use), so every run inside bills as one call. A `nil` id runs ungrouped.
+    /// use), so every run inside bills as one call. A `nil` id opens no group of
+    /// its own, leaving any enclosing one in effect.
     ///
     /// This is the reuse path for hosts whose calls cross a boundary that does
     /// not preserve a task-local — chiefly a native C ABI invoked once per host
