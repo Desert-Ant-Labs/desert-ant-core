@@ -144,6 +144,8 @@ struct ModelPackage {
     let name: String
     var dependencies: [Target.Dependency] = []
     var resources: [Resource] = []
+    /// Files in the target directory that are neither source nor resource (design notes).
+    var exclude: [String] = []
     var testDependencies: [Target.Dependency] = []
     var testResources: [Resource] = []
     /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
@@ -198,6 +200,21 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/moderator_golden.json"),
             .copy("Resources/sfw_beach.png"),
+        ]
+    ),
+    // Core ML on Apple, LiteRT elsewhere, through the shared `Inference` seam:
+    // the pipeline names no backend, so this is a normal model target rather
+    // than an Apple-only one like Align.
+    .init(
+        name: "Schemer",
+        exclude: ["README.md"],
+        testDependencies: ["FFIBuffer"],
+        testResources: [
+            .copy("Resources/schemer_golden.json"),
+            .copy("Resources/schemer_segments.json"),
+            .copy("Resources/schemer_tokenizer_fixtures.json"),
+            .copy("Resources/schemer_wire.input"),
+            .copy("Resources/schemer_wire.options"),
         ]
     ),
     .init(
@@ -318,7 +335,7 @@ let modelTargets: [Target] = models.map { model in
         path: "Sources/\(model.name)",
         // Only models with a wasm entry point have a `Web/` directory to exclude. An exclude
         // naming a path that does not exist is a warning today and could become an error.
-        exclude: model.appleOnly ? [] : ["Web"],
+        exclude: (model.appleOnly ? [] : ["Web"]) + model.exclude,
         resources: model.resources
     )
 } + modelWasmTargets
