@@ -167,13 +167,15 @@ directories on Linux, Windows and Node.
 
 On the clean condition, macro-averaged over the nine languages, Align cuts the proposer's raw
 timing error by roughly two-thirds. Per language it ranges from a third to over three quarters,
-and the noisy condition is lower. The LiteRT export is scored on `gold-en-us`, the 258-boundary
-set corrected by hand against the waveform, where its corpus mean boundary error matches the
-training-time reference to five significant figures. That is one corpus average, not a
-per-boundary guarantee, and it is not a side-by-side comparison against Core ML. The figures on
-this page are the training-side measurement; the Apple runtime's frontend changed at this
-release, so on-device Core ML numbers differ from v1.0.0's and are not carried over from it.
-The same per-condition figures are on the
+and the noisy condition is lower. Both runtimes are scored on `gold-en-us`, the 258-boundary set
+corrected by hand against the waveform. There the on-device Core ML runtime's corpus mean boundary
+error is 44.8 ms (darwin-arm64, 2026-09-21), within 0.2 ms of the same checkpoint through the
+training-time frontend (45.0) and less than half the proposer's 100.8 ms, and the LiteRT export's
+corpus mean boundary error on that set matches the training-time reference to five significant
+figures. That is one corpus average in one language, not a per-boundary guarantee. The
+per-condition and per-language figures on this page are the training-side measurement; the Apple
+runtime's frontend changed at this release, so on-device Core ML numbers differ from v1.0.0's and
+are not carried over from it. The same per-condition figures are on the
 [model card](https://huggingface.co/desert-ant-labs/align), which also names the three
 weakest languages.
 
