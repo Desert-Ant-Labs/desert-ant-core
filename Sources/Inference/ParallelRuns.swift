@@ -48,29 +48,40 @@ public enum ParallelRuns {
     /// Items may complete in any order. A caller that needs ordering should
     /// write into a preallocated slot per index, which is what every caller
     /// here does anyway.
+    ///
+    /// An item is handed to the session whose turn it is, and only while that
+    /// session holds fewer than its `depth`, so a session that serializes never
+    /// sees two runs at once.
     public static func run(
         count: Int,
         sessions: [any InferenceSession],
         body: @escaping @Sendable (Int, any InferenceSession) async throws -> Void
     ) async throws {
-        guard count > 0, let first = sessions.first else { return }
-        let inFlight = max(1, min(count, sessions.count * depth(perSession: first)))
-        try await withThrowingTaskGroup(of: Void.self) { group in
+        guard count > 0, !sessions.isEmpty else { return }
+        // Per session, since depth is a property of the backend behind each one.
+        let capacity = sessions.map { depth(perSession: $0) }
+        try await withThrowingTaskGroup(of: Int.self) { group in
             var issued = 0
             var running = 0
+            var inFlight = [Int](repeating: 0, count: sessions.count)
             while issued < count || running > 0 {
-                while running < inFlight, issued < count {
+                // Item n waits for its own session's slot, not any slot in the
+                // pool, which is what let a busy session be handed a second run.
+                while issued < count, inFlight[issued % sessions.count] < capacity[issued % sessions.count] {
                     let item = issued
-                    // Items are spread over the pool rather than striped across
-                    // it: with one session this is always that session, and
-                    // with several it keeps each equally loaded however uneven
-                    // the items turn out to be.
-                    let session = sessions[item % sessions.count]
-                    group.addTask { try await body(item, session) }
+                    let index = item % sessions.count
+                    let session = sessions[index]
+                    inFlight[index] += 1
+                    group.addTask {
+                        try await body(item, session)
+                        return index
+                    }
                     issued += 1
                     running += 1
                 }
-                try await group.next()
+                // A task is always in flight here, so this never breaks.
+                guard running > 0, let finished = try await group.next() else { break }
+                inFlight[finished] -= 1
                 running -= 1
             }
         }

@@ -7,10 +7,14 @@ import Testing
 
 private final class Session: InferenceSession, @unchecked Sendable {
     let runsConcurrently: Bool
+    /// Nanoseconds the first run sleeps for, so one session can be made to lag
+    /// the rest of the pool.
+    var firstRunDelay: UInt64 = 1_000_000
     private let lock = NSLock()
     private var _seen: [Int] = []
     private var _peak = 0
     private var active = 0
+    private var runs = 0
 
     init(concurrent: Bool) { runsConcurrently = concurrent }
 
@@ -23,8 +27,13 @@ private final class Session: InferenceSession, @unchecked Sendable {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
-        locked { active += 1; _peak = max(_peak, active) }
-        try? await Task.sleep(nanoseconds: 1_000_000)
+        let delay: UInt64 = locked {
+            active += 1
+            _peak = max(_peak, active)
+            runs += 1
+            return runs == 1 ? firstRunDelay : 1_000_000
+        }
+        try? await Task.sleep(nanoseconds: delay)
         locked { active -= 1 }
         return []
     }
@@ -59,8 +68,22 @@ private func drive(_ sessions: [Session], count: Int) async throws {
 @Test func aPoolSpreadsTheWorkEvenly() async throws {
     let pool = (0..<4).map { _ in Session(concurrent: false) }
     try await drive(pool, count: 16)
-    #expect(pool.allSatisfy { $0.seen.count == 4 })
+    for (index, session) in pool.enumerated() {
+        #expect(session.seen == Array(stride(from: index, to: 16, by: 4)))
+    }
     #expect(pool.allSatisfy { $0.peak == 1 })
+}
+
+@Test func aSessionIsNeverGivenTwoRunsAtOnceWhenAnotherFinishesFirst() async throws {
+    // The pool's first session is slow on its first run, so the others finish
+    // and ask for more work while it is still busy. That work belongs to their
+    // own slots: the slow session is not free, and a run handed to it now would
+    // overlap the one already in flight.
+    let pool = (0..<4).map { _ in Session(concurrent: false) }
+    pool[0].firstRunDelay = 50_000_000
+    try await drive(pool, count: 16)
+    #expect(pool[0].peak == 1, "a locked session must never run two at once")
+    #expect(pool.flatMap { $0.seen }.sorted() == Array(0..<16), "and every item still ran once")
 }
 
 @Test func nothingToRunIsNotAnError() async throws {
