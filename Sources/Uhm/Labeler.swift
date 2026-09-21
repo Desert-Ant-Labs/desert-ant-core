@@ -9,6 +9,7 @@
 // honest shape until a cross-platform labeler export lands.
 
 #if canImport(SoundAnalysis) && canImport(CoreML)
+import AVFoundation
 import Foundation
 import CoreML
 import SoundAnalysis
@@ -45,6 +46,43 @@ final class FillerTypeClassifier: NSObject, @unchecked Sendable {
             compiled = try MLModel.compileModel(at: url)
         }
         self.model = try MLModel(contentsOf: compiled)
+    }
+
+    /// The winning filler type for one clip of samples, or `nil` when nothing
+    /// cleared the confidence bar.
+    ///
+    /// Takes the samples the caller already holds. The file-based path below
+    /// needs an audio file, so labelling a detection used to mean writing a 1 s
+    /// WAV to the temp directory, analyzing it, and deleting it - three
+    /// filesystem operations per filler for audio that was already in memory.
+    func bestLabel(for clip: [Float], sampleRate: Int) throws -> String? {
+        guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                         sampleRate: Double(sampleRate),
+                                         channels: 1, interleaved: false),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format,
+                                            frameCapacity: AVAudioFrameCount(clip.count)),
+              let channel = buffer.floatChannelData
+        else { return nil }
+        buffer.frameLength = AVAudioFrameCount(clip.count)
+        clip.withUnsafeBufferPointer { source in
+            channel[0].update(from: source.baseAddress!, count: clip.count)
+        }
+
+        let analyzer = SNAudioStreamAnalyzer(format: format)
+        let request = try SNClassifySoundRequest(mlModel: model)
+        request.overlapFactor = config.overlapFactor
+        let observer = ResultsObserver(fillerLabel: config.fillerLabel,
+                                       minConfidence: config.minConfidence)
+        try analyzer.add(request, withObserver: observer)
+        analyzer.analyze(buffer, atAudioFramePosition: 0)
+        analyzer.completeAnalysis()
+        return Self.best(of: mergeAdjacent(observer.hits))
+    }
+
+    /// Highest-confidence label among merged events, which is what a caller
+    /// attaching one type to one detection wants.
+    static func best(of fillers: [Filler]) -> String? {
+        fillers.max(by: { $0.confidence < $1.confidence })?.label
     }
 
     func detect(audioPath: String) throws -> [Filler] {

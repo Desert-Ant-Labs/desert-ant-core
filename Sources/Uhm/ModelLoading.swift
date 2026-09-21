@@ -36,7 +36,7 @@ public struct ModelAssets: Sendable {
     }
 
     /// A session over an artifact already on disk (a `.mlmodelc` on Apple).
-    init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
+    init(modelPath: String, computeUnits: ComputeUnits = .cpuAndNeuralEngine) throws {
         self.init(session: try inferenceSession(
             modelPath: modelPath, computeUnits: computeUnits, sdk: UhmModel.sdkInfo),
             labelerModelPath: nil)

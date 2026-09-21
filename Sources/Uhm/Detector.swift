@@ -6,6 +6,73 @@
 
 import DesertAnt
 
+#if os(Android)
+import Android
+private final class WindowLock {
+    private var mutex = pthread_mutex_t()
+    init() { pthread_mutex_init(&mutex, nil) }
+    deinit { pthread_mutex_destroy(&mutex) }
+    func lock() { pthread_mutex_lock(&mutex) }
+    func unlock() { pthread_mutex_unlock(&mutex) }
+}
+#elseif os(WASI)
+private final class WindowLock {
+    func lock() {}
+    func unlock() {}
+}
+#else
+import Foundation
+private typealias WindowLock = NSLock
+#endif
+
+/// One slot per window, written by whichever task ran it.
+///
+/// The windows complete in whatever order the backend finishes them, so each
+/// writes its own index and the reduction reads them back in order afterwards:
+/// the frame probabilities do not depend on how widely the run was spread.
+/// A lock rather than an actor so a task never suspends to store a result.
+private final class WindowResults: @unchecked Sendable {
+    private let lock = WindowLock()
+    private var slots: [[Float]]
+
+    init(count: Int) { slots = Array(repeating: [], count: count) }
+
+    func set(_ index: Int, _ probs: [Float]) {
+        lock.lock()
+        slots[index] = probs
+        lock.unlock()
+    }
+
+    func get(_ index: Int) -> [Float] {
+        lock.lock()
+        defer { lock.unlock() }
+        return slots[index]
+    }
+}
+
+/// Counts finished windows and reports the fraction, since "window n of m"
+/// stops being the same thing as "m windows done" once they overlap.
+private final class ProgressCounter: @unchecked Sendable {
+    private let lock = WindowLock()
+    private let total: Int
+    private let report: (@Sendable (Double) -> Void)?
+    private var done = 0
+
+    init(total: Int, report: (@Sendable (Double) -> Void)?) {
+        self.total = max(1, total)
+        self.report = report
+    }
+
+    func finishOne() {
+        guard let report else { return }
+        lock.lock()
+        done += 1
+        let fraction = min(1, Double(done) / Double(total))
+        lock.unlock()
+        report(fraction)
+    }
+}
+
 /// Frame-level filler detector. Wraps an inference session that emits a
 /// per-frame softmax (20 ms frames) over filler classes; this type thresholds
 /// and merges consecutive positive frames into `Filler` spans. Pair with
@@ -146,17 +213,39 @@ struct FillerDetector: Sendable {
         }
 
         progressHandler?(0)
-        for (index, range) in winOffsets.enumerated() {
+        // The windows do not depend on each other, so how many run at once is a
+        // property of the backend rather than of this loop: `ParallelRuns` keeps
+        // as many in flight as the session it is given can take. One window at a
+        // time leaves a two-engine part running on one of them (measured on an
+        // M3 Ultra: 121 ms per window alone, 38 ms with four in flight; on
+        // single-engine chips the same depth changes nothing, because one window
+        // already fills the engine).
+        //
+        // Each window writes its own slot and the reduction happens after, so
+        // the result does not depend on completion order.
+        let windows = winOffsets   // immutable for the concurrent reads below
+        let windowResults = WindowResults(count: windows.count)
+        let progress = ProgressCounter(total: windows.count, report: progressHandler)
+        let parallelStart = ContinuousClock.now
+        try await ParallelRuns.run(count: windows.count, sessions: [session]) { index, session in
             try Task.checkCancellation()
-            let prepStart = ContinuousClock.now
-            let input = normalizedWindow(samples, start: range.start, end: range.end)
-            let tensor = Self.tensor(for: input, layout: layout, maxSamples: maxSamples)
-            t.prepSec += Self.elapsed(since: prepStart)
-            let inferenceStart = ContinuousClock.now
+            let range = windows[index]
+            // Prep sits inside the task so it overlaps the runs already in
+            // flight instead of stalling them between windows.
+            let input = self.normalizedWindow(samples, start: range.start, end: range.end)
+            let tensor = Self.tensor(for: input, layout: self.layout, maxSamples: self.maxSamples)
             let outputs = try await session.run(
                 inputs: [Self.inputName: tensor], outputs: [Self.outputName])
-            t.inferenceSec += Self.elapsed(since: inferenceStart)
-            let probs = Self.fillerProbs(outputs.first)
+            windowResults.set(index, Self.fillerProbs(outputs.first))
+            progress.finishOne()
+        }
+        // Wall, not summed CPU: the windows overlap, so what the caller waited
+        // for is the span of the whole group. Prep is inside it for the same
+        // reason - it no longer happens anywhere a clock could separate it.
+        t.inferenceSec = Self.elapsed(since: parallelStart)
+
+        for (index, range) in winOffsets.enumerated() {
+            let probs = windowResults.get(index)
             let frameOffset = range.start / config.frameHopSamples
             let usableFrames = (range.end - range.start + config.frameHopSamples - 1)
                 / config.frameHopSamples
@@ -167,7 +256,6 @@ struct FillerDetector: Sendable {
                     counts[g] += 1
                 }
             }
-            progressHandler?(min(1.0, Double(index + 1) / Double(winOffsets.count)))
         }
 
         // Average overlapping windows.
