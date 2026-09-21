@@ -9,7 +9,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
 | **Languages** | 5 |
-| **Weights** | [006841d](https://huggingface.co/desert-ant-labs/uhm) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/uhm) |
 | **Demo** | https://desertant.com/models/uhm/ |
 
 ## Install
