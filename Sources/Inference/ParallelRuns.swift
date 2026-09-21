@@ -51,7 +51,7 @@ public enum ParallelRuns {
     ///
     /// An item is handed to the session whose turn it is, and only while that
     /// session holds fewer than its `depth`, so a session that serializes never
-    /// sees two runs at once.
+    /// sees two runs at once at its default depth.
     public static func run(
         count: Int,
         sessions: [any InferenceSession],
@@ -65,8 +65,7 @@ public enum ParallelRuns {
             var running = 0
             var inFlight = [Int](repeating: 0, count: sessions.count)
             while issued < count || running > 0 {
-                // Item n waits for its own session's slot, not any slot in the
-                // pool, which is what let a busy session be handed a second run.
+                // Item n waits for its own session's slot, never any slot in the pool.
                 while issued < count, inFlight[issued % sessions.count] < capacity[issued % sessions.count] {
                     let item = issued
                     let index = item % sessions.count
@@ -79,8 +78,7 @@ public enum ParallelRuns {
                     issued += 1
                     running += 1
                 }
-                // A task is always in flight here, so this never breaks.
-                guard running > 0, let finished = try await group.next() else { break }
+                guard let finished = try await group.next() else { break }
                 inFlight[finished] -= 1
                 running -= 1
             }

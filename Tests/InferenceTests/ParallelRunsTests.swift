@@ -75,10 +75,7 @@ private func drive(_ sessions: [Session], count: Int) async throws {
 }
 
 @Test func aSessionIsNeverGivenTwoRunsAtOnceWhenAnotherFinishesFirst() async throws {
-    // The pool's first session is slow on its first run, so the others finish
-    // and ask for more work while it is still busy. That work belongs to their
-    // own slots: the slow session is not free, and a run handed to it now would
-    // overlap the one already in flight.
+    // Session 0's first run is slow, so the others finish while it is busy.
     let pool = (0..<4).map { _ in Session(concurrent: false) }
     pool[0].firstRunDelay = 50_000_000
     try await drive(pool, count: 16)
