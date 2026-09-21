@@ -19,18 +19,20 @@ private final class Sink: @unchecked Sendable {
     func add(_ e: [IngestEvent]) { events.append(contentsOf: e) }
 }
 
-/// A client wired to `sink`, with its own in-memory turnstile state, for `deviceId`.
-private func testClientFactory(_ sink: Sink) -> (String) -> UsageClient {
+/// One turnstile per device, as the platform storage keeps it. Two sessions in a
+/// process share this, which is what makes a group collapse across them.
+final class UsageStore: @unchecked Sendable { var byDevice: [String: UsageState] = [:] }
+
+/// A client wired to `sink`, reading and writing `store`.
+private func testClientFactory(_ sink: Sink, _ store: UsageStore = UsageStore()) -> (String) -> UsageClient {
     { deviceId in
-        final class Box: @unchecked Sendable { var state = UsageState() }
-        let box = Box()
-        return UsageClient(ClientDeps(
+        UsageClient(ClientDeps(
             deviceId: deviceId,
             key: "test",
             platform: "test",
             now: { 1_000_000_000_000 },
-            loadState: { box.state },
-            saveState: { box.state = $0 },
+            loadState: { store.byDevice[deviceId] ?? UsageState() },
+            saveState: { store.byDevice[deviceId] = $0 },
             send: { body, _ in sink.add(body.events) }
         ))
     }
@@ -87,8 +89,10 @@ struct TrackedSessionTests {
     @Test func aCallGroupCollapsesRunsAcrossSessions() async throws {
         let sink = Sink()
         // A factory each, as production has: the session factory builds one per session.
-        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
-        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink))
+        // One store, as production has: the platform storage is per process, not per session.
+        let store = UsageStore()
+        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store))
+        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store))
 
         try await InferenceContext.withCallGroup {
             _ = try await coarse.run(inputs: [:], outputs: [], deviceId: "ch-1")
@@ -97,8 +101,12 @@ struct TrackedSessionTests {
         await coarse.flush()
         await fine.flush()
 
-        let calls = sink.events.filter { $0.name == "load" }.compactMap { $0.callCount }.reduce(0, +)
-        #expect(calls == 1, "one operation bills one call, however many sessions it runs")
+        let loads = sink.events.filter { $0.name == "load" }
+        #expect(loads.compactMap { $0.callCount }.reduce(0, +) == 1, "one operation bills one call, however many sessions it runs")
+        #expect(loads.count == 1, "and only the session that counted posts, as the shared turnstile does in production")
+        // The other shape a second call takes: carried into the next turnstile
+        // rather than posted now, which is where the shared storage hides it.
+        #expect(store.byDevice["ch-1"]?.carryCallCount ?? 0 == 0, "and nothing is left carried for the next load to add")
     }
 
     /// Per device, so a group spanning two end users still counts each of them.
