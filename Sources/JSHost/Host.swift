@@ -45,6 +45,35 @@ import JavaScriptKit
     @JSFunction public func run(
         _ inputs: [String: HostTensor]
     ) async throws(JSException) -> [String: HostTensor]
+
+    // A model of several graphs. The three methods above hold one compiled
+    // model per module, which is every model's shape but schemer's: it runs
+    // three files, two of which carry a signature per sequence window. These
+    // compile a file into a model of its own, named by a handle, and run any
+    // of its signatures. Handle 0 is the model the methods above compiled (or
+    // the page compiled itself on the `modelBaseUrl` path), so a self-hosted
+    // model's signatures are reachable too.
+
+    /// The handle of a model already compiled under `key`, or 0. Asked first
+    /// so the browser does not copy a file's bytes out of wasm to compile a
+    /// model it already has.
+    @JSFunction public func findModel(_ key: String) throws(JSException) -> Int
+
+    /// Compile the model at a cached path (node) and return its handle (> 0).
+    /// The path is its key.
+    @JSFunction public func loadModelFromPath(_ path: String) async throws(JSException) -> Int
+
+    /// Compile the model from its bytes (browser) under `key` and return its
+    /// handle (> 0).
+    @JSFunction public func loadModelFromBytes(
+        _ bytes: JSUint8Array, _ key: String
+    ) async throws(JSException) -> Int
+
+    /// Run one signature of a compiled model; an empty `signature` runs its
+    /// default one.
+    @JSFunction public func runModel(
+        _ model: Int, _ signature: String, _ inputs: [String: HostTensor]
+    ) async throws(JSException) -> [String: HostTensor]
 }
 
 /// The host the JS seam supplied at instantiation.

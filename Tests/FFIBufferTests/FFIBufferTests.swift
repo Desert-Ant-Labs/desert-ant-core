@@ -46,5 +46,8 @@ struct FFIBufferTests {
         var r = FFIReader([0x00, 0x01])  // too short for a u32
         #expect(r.u32() == 0)  // an underflowing read yields the default, not a partial value
         #expect(r.f32Array() == [])
+        var s = FFIReader([0xFF, 0xFF, 0xFF, 0xFF])  // a string count with no strings behind it
+        #expect(s.strings() == [])
+        #expect(s.isAtEnd)
     }
 }

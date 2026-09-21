@@ -101,6 +101,11 @@ export function makeModelHostSeam() {
         createSessionFromPath: async (path) => live().createSessionFromPath(path),
         createSessionFromBytes: async (bytes) => live().createSessionFromBytes(bytes),
         run: async (inputs) => live().run(inputs),
+        // Synchronous on the Swift side, so this one throws rather than rejects.
+        findModel: (key) => live().findModel(key),
+        loadModelFromPath: async (path) => live().loadModelFromPath(path),
+        loadModelFromBytes: async (bytes, key) => live().loadModelFromBytes(bytes, key),
+        runModel: async (model, signature, inputs) => live().runModel(model, signature, inputs),
       },
     },
     install: (implementation) => {
@@ -113,9 +118,40 @@ export function makeModelHostSeam() {
  * The LiteRT.js implementation of that contract. `setModel` lets the
  * `modelBaseUrl` path hand over a model the page compiled itself, instead of one
  * of the `createSessionFrom*` calls.
+ *
+ * Beside that one model, a host keeps any number of others under handles, for a
+ * model of several graphs (`loadModelFrom*` / `runModel`). Handle 0 is the one
+ * model, so its signatures are reachable the same way. A file is compiled once
+ * per key however many of its signatures are asked for.
  */
 export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, readModelSource }) {
   let model;
+  const models = new Map(); // handle -> compiled model
+  const byKey = new Map(); // key -> handle
+  let nextHandle = 1;
+  const pending = new Map(); // key -> Promise<handle>, so two loads compile once
+  const load = (key, source) => {
+    if (byKey.has(key)) return Promise.resolve(byKey.get(key));
+    if (!pending.has(key)) {
+      pending.set(key, (async () => {
+        try {
+          const compiled = await loadAndCompile(await readModelSource(source), { accelerator });
+          const handle = nextHandle++;
+          models.set(handle, compiled);
+          byKey.set(key, handle);
+          return handle;
+        } finally {
+          pending.delete(key);
+        }
+      })());
+    }
+    return pending.get(key);
+  };
+  const modelFor = (handle) => {
+    const m = handle === 0 ? model : models.get(handle);
+    if (!m) throw new Error(`no compiled model for handle ${handle}`);
+    return m;
+  };
 
   const typedArray = (t) => {
     const bytes = t.data.slice(); // own, aligned buffer
@@ -131,6 +167,36 @@ export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, r
     }
   };
 
+  // One run of one signature: marshal, run, copy out, free. LiteRT.js tensors are
+  // manual, so every tensor made or produced here is deleted before returning.
+  const runOn = async (compiled, signature, inputs) => {
+    const feeds = {};
+    const made = [];
+    for (const [name, t] of Object.entries(inputs)) {
+      const tensor = new Tensor(typedArray(t), Array.from(t.dims));
+      feeds[name] = tensor;
+      made.push(tensor);
+    }
+    const results = signature
+      ? await compiled.run(signature, feeds)
+      : await compiled.run(feeds);
+    const outputs = {};
+    const toDelete = [...made];
+    for (const [name, out] of Object.entries(results)) {
+      const host = accelerator === "wasm" ? out : await out.moveTo("wasm");
+      const arr = host.toTypedArray();
+      outputs[name] = {
+        data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
+        dims: Array.from(host.type.layout.dimensions),
+        type: host.type.dtype,
+      };
+      toDelete.push(out);
+      if (host !== out) toDelete.push(host);
+    }
+    for (const t of toDelete) t.delete();
+    return outputs;
+  };
+
   return {
     host: {
       // node hands over the cached path, the browser the bytes it fetched: two
@@ -141,31 +207,11 @@ export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, r
       createSessionFromBytes: async (bytes) => {
         model = await loadAndCompile(await readModelSource(bytes), { accelerator });
       },
-      run: async (inputs) => {
-        const feeds = {};
-        const made = [];
-        for (const [name, t] of Object.entries(inputs)) {
-          const tensor = new Tensor(typedArray(t), Array.from(t.dims));
-          feeds[name] = tensor;
-          made.push(tensor);
-        }
-        const results = await model.run(feeds);
-        const outputs = {};
-        const toDelete = [...made];
-        for (const [name, out] of Object.entries(results)) {
-          const host = accelerator === "wasm" ? out : await out.moveTo("wasm");
-          const arr = host.toTypedArray();
-          outputs[name] = {
-            data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
-            dims: Array.from(host.type.layout.dimensions),
-            type: host.type.dtype,
-          };
-          toDelete.push(out);
-          if (host !== out) toDelete.push(host);
-        }
-        for (const t of toDelete) t.delete();
-        return outputs;
-      },
+      run: async (inputs) => runOn(modelFor(0), "", inputs),
+      findModel: (key) => byKey.get(key) ?? 0,
+      loadModelFromPath: async (path) => load(path, path),
+      loadModelFromBytes: async (bytes, key) => load(key, bytes),
+      runModel: async (handle, signature, inputs) => runOn(modelFor(handle), signature, inputs),
     },
     setModel: (m) => {
       model = m;

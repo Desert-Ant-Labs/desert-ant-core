@@ -527,7 +527,8 @@ let testTargets: [Target] = [
             name: "InferenceTests",
             dependencies: ["Inference"],
             resources: [.copy("Resources/testmodel.tflite"),
-                        .copy("Resources/testmodel.onnx")]
+                        .copy("Resources/testmodel.onnx"),
+                        .copy("Resources/signatures.tflite")]
         ),
         .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
         .testTarget(name: "AudioIOTests", dependencies: ["AudioIO", "TestSupport"]),

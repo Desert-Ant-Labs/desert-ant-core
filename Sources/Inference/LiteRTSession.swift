@@ -46,18 +46,26 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         case auto = 3   // gpu | cpu
     }
 
+    /// - Parameter signature: which signature of a multi-signature model this
+    ///   session runs; `nil` runs the first. The LiteRT counterpart of a Core ML
+    ///   multifunction package's `functionName`: one file, one copy of the
+    ///   weights, several fixed shapes. Sessions over the same file share its
+    ///   compiled model (see `CLiteRt.h`).
     init(modelPath: String, modelBytes: [UInt8]? = nil,
-                accelerator: Accelerator = .auto) throws {
+         accelerator: Accelerator = .auto, signature: String? = nil) throws {
         var errbuf = [CChar](repeating: 0, count: 256)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
-            if let modelBytes {
-                return modelBytes.withUnsafeBytes { bytes in
-                    dal_lrt_create(nil, bytes.baseAddress, bytes.count,
-                                   accelerator.rawValue, err.baseAddress, Int32(err.count))
-                }
-            } else {
-                return modelPath.withCString { path in
-                    dal_lrt_create(path, nil, 0, accelerator.rawValue, err.baseAddress, Int32(err.count))
+            withOptionalCString(signature) { sig in
+                if let modelBytes {
+                    return modelBytes.withUnsafeBytes { bytes in
+                        dal_lrt_create(nil, bytes.baseAddress, bytes.count,
+                                       accelerator.rawValue, sig, err.baseAddress, Int32(err.count))
+                    }
+                } else {
+                    return modelPath.withCString { path in
+                        dal_lrt_create(path, nil, 0, accelerator.rawValue, sig,
+                                       err.baseAddress, Int32(err.count))
+                    }
                 }
             }
         }
@@ -136,4 +144,8 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
     }
 }
 
+private func withOptionalCString<R>(_ s: String?, _ body: (UnsafePointer<CChar>?) -> R) -> R {
+    guard let s else { return body(nil) }
+    return s.withCString(body)
+}
 #endif

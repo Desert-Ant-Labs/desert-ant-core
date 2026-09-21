@@ -58,6 +58,15 @@ export interface ModelHost {
   createSessionFromPath(path: string): Promise<void>;
   createSessionFromBytes(bytes: Uint8Array): Promise<void>;
   run(inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
+  /** The handle of a model compiled under `key`, or 0. */
+  findModel(key: string): number;
+  /** Compile a model of its own (node: a cached path, which is its key). */
+  loadModelFromPath(path: string): Promise<number>;
+  /** Compile a model of its own from bytes (browser), under `key`. */
+  loadModelFromBytes(bytes: Uint8Array, key: string): Promise<number>;
+  /** Run one signature of a compiled model ("" for its default). Handle 0 is
+   *  the model `createSessionFrom*` compiled or `setModel` supplied. */
+  runModel(model: number, signature: string, inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
 }
 
 /** The import object a core is instantiated with. */

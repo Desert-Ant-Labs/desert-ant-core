@@ -2,8 +2,8 @@
 // Swift can drive on-device inference without touching LiteRT's C bit-field
 // structs (which Swift cannot access) or its multi-step tensor-buffer dance.
 //
-// The shim owns one compiled model plus its fixed-shape input/output host
-// buffers, and exposes a tiny name/run/read surface that `LiteRTSession` (in the
+// A session owns one signature of a compiled model plus its fixed-shape
+// input/output host buffers, and exposes a tiny name/run/read surface that `LiteRTSession` (in the
 // Inference module) marshals `Tensor`s through. All of LiteRT's intricate
 // lifecycle (environment, model, options, compiled model, tensor buffer
 // requirements, lock/unlock) stays here in C. The environment is one per
@@ -32,8 +32,16 @@ typedef struct DalLrtSession DalLrtSession;
 // Create a session from a model file or from in-memory model bytes (pass one;
 // the other NULL/0). On failure returns NULL and, if errbuf is non-NULL, writes
 // a message. `accelerator` is a LiteRtHwAccelerators bitset (1 = CPU).
+//
+// `signature` names the signature this session runs, for a model that carries
+// several over one set of weights; NULL or "" runs the first. Sessions that
+// name different signatures of the same path share one compiled model, so a
+// second signature of a file costs its buffers and not another copy of the
+// weights. Anything else (no signature named, or a signature already in use,
+// as in a pool of sessions) compiles its own, so pooled runs still overlap.
 DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_len,
-                              int accelerator, char* errbuf, int errbuf_len);
+                              int accelerator, const char* signature,
+                              char* errbuf, int errbuf_len);
 void dal_lrt_free(DalLrtSession* session);
 
 int dal_lrt_num_inputs(const DalLrtSession* session);
