@@ -105,12 +105,12 @@ actor TrackedSession: InferenceSession {
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         startIfNeeded()
-        let client = clientFor(device(deviceId))
+        let resolvedDevice = device(deviceId)
+        let client = clientFor(resolvedDevice)
         client.start()
-        // Inside a call group, only the first run per device records a call, so a
-        // multi-run operation bills as one. Outside a group, every run counts.
+        // Outside a group every run counts; inside one, only the first per device.
         // The task-local propagates into this actor method on the caller's task.
-        if InferenceContext.callGroup?.markCounted(ObjectIdentifier(client)) ?? true {
+        if InferenceContext.callGroup?.markCounted(resolvedDevice) ?? true {
             client.recordCall()
         }
         let result = try await wrapped.run(inputs: inputs, outputs: outputs)

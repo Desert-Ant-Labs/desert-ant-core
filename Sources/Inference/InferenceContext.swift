@@ -47,7 +47,11 @@ public enum InferenceContext {
     ///
     /// Runs outside any group count individually, as before. Nesting reuses the
     /// enclosing group, so wrapping an already-grouped operation is a no-op.
-    /// Combine with `$deviceId` freely; the two task-locals are independent.
+    /// Mixing the two APIs does not: `withCallGroup(id:)` with a non-nil id
+    /// inside this one binds its own group, so a device already counted by the
+    /// outer group counts again inside it. A `nil` id opens nothing and stays
+    /// in this group. Combine with `$deviceId` freely; the two task-locals are
+    /// independent.
     public static func withCallGroup<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
@@ -57,14 +61,18 @@ public enum InferenceContext {
     }
 
     /// Bind the process-global call group named `id` for `body` (created on first
-    /// use), so every run inside bills as one call. A `nil` id runs ungrouped.
+    /// use), so every run inside bills as one call. A `nil` id opens no group of
+    /// its own, leaving any enclosing one in effect.
     ///
     /// This is the reuse path for hosts whose calls cross a boundary that does
     /// not preserve a task-local — chiefly a native C ABI invoked once per host
     /// call (the JS/koffi SDKs): the host passes a stable id per logical
     /// operation and releases it with `endCallGroup(_:)` (or the
     /// `dal_call_group_end` C entry point) when done. Every SDK reuses this
-    /// registry, so none reimplements the grouping bookkeeping.
+    /// registry, so none reimplements the grouping bookkeeping. Release it: a
+    /// group remembers the devices it has counted for as long as the id lives,
+    /// so an id never released suppresses every later run for those devices.
+    /// The JS hosts release in a `finally`.
     public static func withCallGroup<T>(
         id: String?,
         _ body: () async throws -> T
@@ -124,30 +132,35 @@ public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
 #endif
 
 /// Identity for a set of inference runs that should bill as a single usage call.
-/// It records which usage clients have already been attributed within the group,
-/// so a second run to the same device does not record another call. Created by
+/// It records which devices have already been attributed within the group, so a
+/// second run to the same device does not record another call. Created by
 /// `InferenceContext.withCallGroup`; opaque to callers.
+///
+/// Keyed on the device rather than on the usage client, because one operation can
+/// run over several sessions and each session builds its own client for the same
+/// device. Keying on the client counted once per session, which billed a
+/// two-stage model as two calls inside a group that documents one per device.
 #if os(WASI)
 public final class InferenceCallGroup: @unchecked Sendable {
-    private var counted: Set<ObjectIdentifier> = []   // single-threaded: no lock
+    private var counted: Set<String> = []   // single-threaded: no lock
     public init() {}
 
-    /// Mark `key` counted for this group; returns true only the first time.
-    func markCounted(_ key: ObjectIdentifier) -> Bool {
-        counted.insert(key).inserted
+    /// Mark `device` counted for this group; returns true only the first time.
+    func markCounted(_ device: String) -> Bool {
+        counted.insert(device).inserted
     }
 }
 #else
 public final class InferenceCallGroup: @unchecked Sendable {
     private let mutex = PlatformMutex()
-    private var counted: Set<ObjectIdentifier> = []
+    private var counted: Set<String> = []
 
     public init() {}
 
-    /// Mark `key` counted for this group; returns true only the first time.
-    func markCounted(_ key: ObjectIdentifier) -> Bool {
+    /// Mark `device` counted for this group; returns true only the first time.
+    func markCounted(_ device: String) -> Bool {
         mutex.lock(); defer { mutex.unlock() }
-        return counted.insert(key).inserted
+        return counted.insert(device).inserted
     }
 }
 #endif
