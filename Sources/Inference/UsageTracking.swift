@@ -108,11 +108,8 @@ actor TrackedSession: InferenceSession {
         let resolvedDevice = device(deviceId)
         let client = clientFor(resolvedDevice)
         client.start()
-        // Inside a call group, only the first run per device records a call, so a
-        // multi-run operation bills as one. Outside a group, every run counts.
+        // Outside a group every run counts; inside one, only the first per device.
         // The task-local propagates into this actor method on the caller's task.
-        // Keyed on the device: a multi-stage model runs one operation over one
-        // session per stage, each with its own client for that device.
         if InferenceContext.callGroup?.markCounted(resolvedDevice) ?? true {
             client.recordCall()
         }

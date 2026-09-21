@@ -47,7 +47,10 @@ public enum InferenceContext {
     ///
     /// Runs outside any group count individually, as before. Nesting reuses the
     /// enclosing group, so wrapping an already-grouped operation is a no-op.
-    /// Combine with `$deviceId` freely; the two task-locals are independent.
+    /// Mixing the two APIs does not: `withCallGroup(id:)` inside this one binds
+    /// its own group, and a device already counted by the outer group counts
+    /// again inside it. Combine with `$deviceId` freely; the two task-locals are
+    /// independent.
     public static func withCallGroup<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
@@ -64,7 +67,10 @@ public enum InferenceContext {
     /// call (the JS/koffi SDKs): the host passes a stable id per logical
     /// operation and releases it with `endCallGroup(_:)` (or the
     /// `dal_call_group_end` C entry point) when done. Every SDK reuses this
-    /// registry, so none reimplements the grouping bookkeeping.
+    /// registry, so none reimplements the grouping bookkeeping. Release it: a
+    /// group remembers the devices it has counted for as long as the id lives,
+    /// so an id never released suppresses every later run for those devices.
+    /// The JS hosts release in a `finally`.
     public static func withCallGroup<T>(
         id: String?,
         _ body: () async throws -> T
