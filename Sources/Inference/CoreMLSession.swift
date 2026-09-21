@@ -104,18 +104,100 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
         return last
     }
 
-    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
+    func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         let binding = try lease(inputs)
         defer { release(binding) }
         for (name, tensor) in inputs { write(tensor, into: binding.arrays[name]!) }
 
-        let prediction = try model.prediction(from: binding.provider)
+        // The async entry point, not the synchronous one. The synchronous call
+        // holds its caller's thread for the whole prediction and Core ML does
+        // not overlap two of them, so a caller with several independent items
+        // got one at a time however widely it spread them - measured on an M3
+        // Ultra, uhm's 12 windows spent 1.45 s in the model through the
+        // synchronous call and 0.42 s through this one, four in flight. Which is
+        // the one thing `runsConcurrently` above promises.
+        let prediction: MLFeatureProvider
+        if !enterConcurrent() {
+            prediction = try predictAlone(binding.provider)
+        } else {
+            do {
+                defer { leaveConcurrent() }
+                if #available(macOS 14.0, iOS 17.0, tvOS 17.0, visionOS 1.0, *) {
+                    prediction = try await model.prediction(from: binding.provider)
+                } else {
+                    prediction = try predictSynchronously(binding.provider)
+                }
+            } catch {
+                // Some graphs cannot take a second request in flight: the older
+                // whole-window uhm export fails it on an M1's Neural Engine
+                // (`ANEProgramProcessRequestDirect ... status=0x16`) rather than
+                // queueing it. So a failure is retried once, alone, and if that
+                // works the session runs alone from then on. The retry is this
+                // one prediction inside this one `run`, so a caller - and the
+                // usage count around it - sees one call either way. A model that
+                // fails alone as well was not a concurrency problem, and the
+                // original error is the one worth reporting.
+                markSerialized()
+                guard let retried = try? predictAlone(binding.provider) else { throw error }
+                prediction = retried
+            }
+        }
         return try outputs.map { name in
             guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
                 throw InferenceError.runFailed("the model returned no '\(name)'")
             }
             return readTensor(array)
         }
+    }
+
+    /// Whether this session has learned to run one prediction at a time. Sticky:
+    /// a graph that refused a concurrent request once will refuse the next, and
+    /// paying for the refusal on every call is slower than never overlapping.
+    private var refusedConcurrency = false
+    /// Predictions on the concurrent path right now. The serialized path waits
+    /// for this to reach zero: a request that failed because another was in
+    /// flight would fail its retry too if that other one were still running.
+    private var inFlight = 0
+    /// Held across a prediction only on the serialized path, so it is the queue
+    /// the model needs and never taken while predictions are allowed to overlap.
+    private let alone = NSLock()
+
+    /// Join the concurrent path, unless this session has learned not to. One
+    /// check-and-count under the lock, so nothing can join after the switch.
+    private func enterConcurrent() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !refusedConcurrency else { return false }
+        inFlight += 1
+        return true
+    }
+
+    private func leaveConcurrent() {
+        lock.lock(); inFlight -= 1; lock.unlock()
+    }
+
+    private func markSerialized() {
+        lock.lock(); refusedConcurrency = true; lock.unlock()
+    }
+
+    private func concurrentInFlight() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        return inFlight
+    }
+
+    /// One prediction with nothing else running on this model. Waits out the
+    /// concurrent ones that were already in flight when the session switched,
+    /// which is a handful at most (the caller's depth) and only ever once.
+    private func predictAlone(_ provider: MLFeatureProvider) throws -> MLFeatureProvider {
+        alone.lock(); defer { alone.unlock() }
+        while concurrentInFlight() > 0 { usleep(1_000) }
+        return try predictSynchronously(provider)
+    }
+
+    /// The synchronous prediction: the pre-iOS-17 path, and the serialized one.
+    /// It lives in a synchronous function because inside an `async` one the
+    /// compiler picks Core ML's `async` overload of the same name.
+    private func predictSynchronously(_ provider: MLFeatureProvider) throws -> MLFeatureProvider {
+        try model.prediction(from: provider)
     }
 
     /// A set of input arrays this run owns until it is done with them.

@@ -203,9 +203,24 @@ public final class Uhm: @unchecked Sendable {
     ///   - directory: An explicit model home (adopt files there, else download
     ///     into it), or `nil` for the managed cache.
     ///   - quality: Which model tier to load. Default `.auto` (see ``Quality``).
-    ///   - computeUnits: Core ML compute-unit policy. Default `.all`.
+    ///   - computeUnits: Core ML compute-unit policy. Default
+    ///     `.cpuAndNeuralEngine`.
+    ///
+    /// The default asks for the Neural Engine rather than `.all` because this
+    /// artifact is authored for it: every operation in `uhm.mlmodelc` has an
+    /// ANE path. `.all` does not mean "the fastest device" - it lets Core ML's
+    /// cost model choose per chip, and on a part with a large GPU it splits the
+    /// graph and the transfers cost more than the split saves. Measured over 5
+    /// minutes of audio, realtime factor: M1 205x both ways, M5 315x both ways,
+    /// M3 Ultra 468x asking for the engine against 450x with `.all` - and 178x
+    /// with `.all` before the runs were allowed to overlap. Asking for the
+    /// engine is also what keeps the placement the same on a phone as on the
+    /// desk it was measured on.
+    ///
+    /// A caller that wants Core ML to decide, or that knows it is on a machine
+    /// with a large GPU and does not care about power, can still pass `.all`.
     public convenience init(directory: String? = nil, quality: Quality = .auto,
-                            computeUnits: ComputeUnits = .all) {
+                            computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         self.init(directory: directory, cacheRoot: nil, quality: quality,
                   computeUnits: computeUnits)
     }
@@ -215,7 +230,7 @@ public final class Uhm: @unchecked Sendable {
     /// so the public `init(directory:...)` passes `nil`.
     @_spi(UhmBindings)
     public init(directory: String?, cacheRoot: String?, quality: Quality = .auto,
-                computeUnits: ComputeUnits = .all) {
+                computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         // A tier is its own slice of the model repo, so the loader resolves
         // that distribution rather than the catalog entry's default one.
         let resolved = quality.resolved
@@ -239,7 +254,7 @@ public final class Uhm: @unchecked Sendable {
     /// ship its own variant. For tests and custom deployments; apps point
     /// `directory` at their files instead. The tier is read off the file name
     /// when it matches a published one (`uhm.*`).
-    public init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
+    public init(modelPath: String, computeUnits: ComputeUnits = .cpuAndNeuralEngine) throws {
         let assets = try ModelAssets(modelPath: modelPath, computeUnits: computeUnits)
         resolvedQuality = Quality.inferred(fromPath: modelPath)
         model = LoadedModel { assets }
@@ -407,36 +422,77 @@ public final class Uhm: @unchecked Sendable {
     // MARK: - Type labeling (Apple only)
 
     #if canImport(SoundAnalysis) && canImport(CoreML)
+    /// One label slot per detection, written by whichever task labelled it.
+    /// A lock rather than an actor so a task never suspends to store a result,
+    /// and slots rather than an append so the order does not depend on which
+    /// clip finished first.
+    private final class LabelResults: @unchecked Sendable {
+        private let lock = NSLock()
+        private var slots: [FillerType?]
+        init(count: Int) { slots = Array(repeating: nil, count: count) }
+        func set(_ index: Int, _ type: FillerType?) {
+            lock.lock(); slots[index] = type; lock.unlock()
+        }
+        func get(_ index: Int) -> FillerType? {
+            lock.lock(); defer { lock.unlock() }
+            return slots[index]
+        }
+    }
+
+    /// The classifier and the sample buffer are read-only for the length of the
+    /// group and every task reads its own slice, which is what the checker
+    /// cannot see.
+    private struct Unchecked<Value>: @unchecked Sendable { let value: Value }
+
     private func labelDetections(_ detections: [Detection], samples: [Float], assets: ModelAssets) async throws -> [Detection] {
         guard !detections.isEmpty,
               let labelerPath = assets.labelerModelPath,
               let labeler = try? FillerTypeClassifier(modelURL: URL(fileURLWithPath: labelerPath))
         else { return detections }
         let window = Self.sampleRate  // 1 s clip centered on each detection
-        var out: [Detection] = []
-        for d in detections {
-            // Bail between detections so cancellation lands promptly when the
-            // caller flips away (e.g. a setting change invalidates these fillers).
-            try Task.checkCancellation()
-            let center = Int((d.start + d.end) / 2 * Double(Self.sampleRate))
-            let start = max(0, center - window / 2)
-            let end = min(samples.count, start + window)
-            var clip = Array(samples[start..<end])
-            if clip.count < window {
-                clip.append(contentsOf: [Float](repeating: 0, count: window - clip.count))
+        // One 1 s clip per detection, and none of them depends on another - the
+        // same shape as the detector's windows, and it was the same serial loop.
+        // It is worth spreading even though each clip is small: this pass was
+        // 0.19 s of a 0.63 s analyze on an M3 Ultra, more than the detector it
+        // labels. Bounded rather than unbounded because every clip in flight
+        // holds a SoundAnalysis analyzer and its feature extractor.
+        let lanes = min(4, max(1, detections.count))
+        let labelled = LabelResults(count: detections.count)
+        let box = Unchecked(value: (labeler, samples))
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            var issued = 0
+            var running = 0
+            while issued < detections.count || running > 0 {
+                while issued < detections.count, running < lanes {
+                    // Bail before issuing so cancellation lands promptly when the
+                    // caller flips away (e.g. a setting change invalidates these
+                    // fillers).
+                    try Task.checkCancellation()
+                    let index = issued
+                    let d = detections[index]
+                    group.addTask {
+                        let (labeler, samples) = box.value
+                        let center = Int((d.start + d.end) / 2 * Double(Self.sampleRate))
+                        let start = max(0, center - window / 2)
+                        let end = min(samples.count, start + window)
+                        var clip = Array(samples[start..<end])
+                        if clip.count < window {
+                            clip.append(contentsOf: [Float](repeating: 0, count: window - clip.count))
+                        }
+                        let label = try labeler.bestLabel(for: clip, sampleRate: Self.sampleRate)
+                        labelled.set(index, label.flatMap { FillerType(rawValue: $0) })
+                    }
+                    issued += 1
+                    running += 1
+                }
+                try await group.next()
+                running -= 1
             }
-            // SNAudioFileAnalyzer wants a file, so the 1 s clip round-trips
-            // through a temp WAV.
-            let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appendingPathComponent("uhm-label-\(UUID().uuidString).wav")
-            try Data(AudioIO.encodeWAV(clip, sampleRate: Self.sampleRate)).write(to: tmpURL)
-            defer { try? FileManager.default.removeItem(at: tmpURL) }
-            let labels = try labeler.detect(audioPath: tmpURL.path)
-            let bestLabel = labels.max(by: { $0.confidence < $1.confidence })
-            let type: FillerType? = bestLabel.flatMap { FillerType(rawValue: $0.label) }
-            out.append(Detection(start: d.start, end: d.end, confidence: d.confidence, type: type))
         }
-        return out
+        return detections.enumerated().map { index, d in
+            Detection(start: d.start, end: d.end, confidence: d.confidence,
+                      type: labelled.get(index))
+        }
     }
     #else
     private func labelDetections(_ detections: [Detection], samples: [Float], assets: ModelAssets) async throws -> [Detection] {
