@@ -122,7 +122,8 @@ public struct IngestBody: Codable, Sendable, Equatable {
 }
 
 /// Serialize a body to the exact JSON the ingest endpoint expects. The key rides
-/// the body (never a header) so hosts that POST it stay a CORS "simple" request.
+/// the body only where the send cannot set a header; elsewhere the transport
+/// sends it as `Authorization: Bearer` and leaves this field nil.
 public func buildBody(_ body: IngestBody) throws -> String {
     try JSONEncoder().encodeToString(body)
 }

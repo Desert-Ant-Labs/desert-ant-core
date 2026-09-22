@@ -20,6 +20,30 @@ import java.util.concurrent.ThreadFactory
 internal const val INGEST_ENDPOINT: String = "https://events.desertant.com/api/v1/ingest"
 
 /**
+ * The ingest endpoint for this process. Core lets a host override it for tests
+ * and local capture (`hostProvidedIngestEndpoint`), and this reads the same
+ * variable; the system property is the same override for a caller that cannot
+ * set the environment.
+ */
+internal fun ingestEndpoint(): String =
+    setting("DAL_INGEST_ENDPOINT") ?: INGEST_ENDPOINT
+
+/**
+ * The publishable API key for this process, or null. A key set in code
+ * (`DesertAnt.apiKey`) wins, matching core's `hostProvidedApiKey()`; otherwise
+ * it is read from the environment as core does, then from the same-named system
+ * property.
+ */
+internal fun apiKey(): String? =
+    ai.desertant.tongue.DesertAnt.apiKey?.takeIf { it.isNotEmpty() }
+        ?: setting("DAL_API_KEY")
+
+/** An environment variable, then the same-named system property, then null. */
+private fun setting(name: String): String? =
+    System.getenv(name)?.takeIf { it.isNotEmpty() }
+        ?: System.getProperty(name)?.takeIf { it.isNotEmpty() }
+
+/**
  * Format epoch milliseconds as `2024-01-02T03:04:05.678Z`.
  *
  * Hand-formatted from a UTC calendar rather than `java.time`: `Instant` and
@@ -55,6 +79,13 @@ private val sender = Executors.newSingleThreadExecutor(
 )
 
 /**
+ * The platform tag this build reports. The endpoint accepts exactly
+ * ios|android|web|server and rejects anything else with a 400, which drops the
+ * event silently: a JVM is a `server`, not a `jvm`.
+ */
+internal fun defaultPlatform(): String = if (isAndroid()) "android" else "server"
+
+/**
  * A send in flight. `await` blocks until the POST has finished, so a short-lived
  * caller can be sure the request left the process before it exits.
  */
@@ -62,8 +93,14 @@ internal fun interface SendHandle {
     fun await()
 }
 
-/** A `send` that POSTs the serialized body, fire and forget unless awaited. */
-internal fun makeSend(endpoint: String = INGEST_ENDPOINT): (IngestBody) -> SendHandle? = { body ->
+/**
+ * A `send` that POSTs the serialized body, fire and forget unless awaited.
+ *
+ * The key rides an `Authorization` header, not the body: every transport this
+ * port runs on sets request headers (Android's `HttpURLConnection` included,
+ * unlike core's Android host bridge), and the endpoint prefers the header.
+ */
+internal fun makeSend(endpoint: String = INGEST_ENDPOINT, bearerKey: String? = null): (IngestBody) -> SendHandle? = { body ->
     val json = runCatching { buildBody(body) }.getOrNull()
     if (json == null) {
         null
@@ -77,6 +114,9 @@ internal fun makeSend(endpoint: String = INGEST_ENDPOINT): (IngestBody) -> SendH
                     connection.connectTimeout = 5_000
                     connection.readTimeout = 5_000
                     connection.setRequestProperty("Content-Type", "application/json")
+                    if (bearerKey != null) {
+                        connection.setRequestProperty("Authorization", "Bearer $bearerKey")
+                    }
                     connection.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
                     connection.responseCode // the request is not sent until this is read
                     connection.disconnect()
@@ -127,27 +167,25 @@ internal fun makeClient(
     context: Any? = null,
     sdkVersion: String,
     storage: UsageStorage = defaultStorage(context),
-    send: (IngestBody) -> SendHandle? = makeSend(),
+    send: ((IngestBody) -> SendHandle?)? = null,
     now: () -> Long = System::currentTimeMillis,
 ): UsageClient {
     val appId = defaultAppIdentifier(context)
-    // A key set in code (DesertAnt.apiKey) wins over the environment, matching
-    // core's hostProvidedApiKey().
-    val key = ai.desertant.tongue.DesertAnt.apiKey?.takeIf { it.isNotEmpty() }
-        ?: System.getenv("DAL_API_KEY")?.takeIf { it.isNotEmpty() }
+    val key = apiKey()
     val namespace = key ?: appId
     val device = storage.persistentDeviceId()
     return UsageClient(
         ClientDeps(
             deviceId = device,
-            key = key,
             appId = appId,
-            platform = if (isAndroid()) "android" else "jvm",
+            platform = defaultPlatform(),
             sdkVersion = sdkVersion,
             now = now,
             loadState = { storage.loadState(namespace, device) },
             saveState = { storage.saveState(it, namespace, device) },
-            send = send,
+            // The key is only known here, so the real transport is built here too;
+            // a caller-supplied one still wins (tests).
+            send = send ?: makeSend(ingestEndpoint(), key),
         ),
     )
 }

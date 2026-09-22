@@ -26,6 +26,25 @@ the same way.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
 
+### Attribution
+
+The endpoint accepts four platform tags and rejects anything else with a 400, so
+each port reports the tag its platform actually is: `ios` or `android` on mobile,
+`web` in a browser, `server` for a Node process or a JVM. Any other tag drops the
+event on the server side without a visible error, which is why each port's default
+is pinned by a test against the accepted list rather than left to inspection.
+
+Where there is no browser `Origin` to attribute by, the app identity rides
+`app.id`: the bundle id or package name, or `DAL_APP_ID`
+(`globalThis.__dalAppId`) when a server wants to name itself. A registered API
+key belongs in `DAL_API_KEY` (`globalThis.__dalApiKey`), and where the runtime can
+set request headers it is sent as `Authorization: Bearer <key>` instead of in the
+body. Node and the JVM can, and so can the Swift core on Apple and Linux. Two
+keep it in the body instead: the Swift core built to wasm, which serves a browser
+and a Node process from one binary and so cannot know whether its unload flush
+will be a `sendBeacon` (which takes no headers), and Android, because core's host
+bridge there takes a body and a content type and nothing else.
+
 ### How often
 
 One device is *counted* at most once a day, but that is not the same as one
@@ -127,6 +146,10 @@ and assert what arrives:
 | Swift | core's `makeSend`, unmodified | verified manually against a local server; nothing here can regress it |
 | Kotlin | `HttpURLConnection` | `UsageVectorTest.transportActuallyPostsTheBodyOverHttp` |
 | JavaScript | `fetch(keepalive)` | "the transport actually posts the body over HTTP" |
+
+Both transport tests also assert where the key went: in the `Authorization`
+header where the client can set one, and out of the body. A state-machine test
+cannot see that, and the wrong answer there is a key the endpoint never reads.
 
 One difference worth knowing before anyone diffs packet captures: Swift serializes
 through Foundation's `JSONEncoder` and emits **alphabetical** key order, while the

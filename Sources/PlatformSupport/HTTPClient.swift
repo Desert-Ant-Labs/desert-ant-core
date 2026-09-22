@@ -55,26 +55,59 @@ public func httpGET(_ url: String) async throws -> HTTPResponse {
     try await performHTTPRequest(method: "GET", url: url, body: nil, contentType: nil)
 }
 
+/// Whether this build's transport can set request headers.
+///
+/// Android's host bridge (`CHostBridge`) takes a body and a content type and
+/// nothing else, so a caller with credentials to send has to put them in the
+/// body there. Every other build sets a header.
+public var httpSupportsRequestHeaders: Bool {
+    #if os(Android)
+    return false
+    #else
+    return true
+    #endif
+}
+
 /// Perform a `POST` with a raw request body (default `application/json`).
-public func httpPOST(_ url: String, body: [UInt8], contentType: String = "application/json") async throws -> HTTPResponse {
-    try await performHTTPRequest(method: "POST", url: url, body: body, contentType: contentType)
+///
+/// `headers` are sent only where `httpSupportsRequestHeaders` is true; an
+/// Android caller with a credential to send has to put it in the body.
+public func httpPOST(
+    _ url: String,
+    body: [UInt8],
+    contentType: String = "application/json",
+    headers: [String: String] = [:]
+) async throws -> HTTPResponse {
+    try await performHTTPRequest(method: "POST", url: url, body: body, contentType: contentType, headers: headers)
 }
 
 /// Perform an arbitrary request. A `nil` body sends no entity.
-public func httpRequest(method: String, url: String, body: [UInt8]? = nil, contentType: String? = nil) async throws -> HTTPResponse {
-    try await performHTTPRequest(method: method, url: url, body: body, contentType: contentType)
+///
+/// `headers` are sent only where `httpSupportsRequestHeaders` is true; an
+/// Android caller with a credential to send has to put it in the body.
+public func httpRequest(
+    method: String,
+    url: String,
+    body: [UInt8]? = nil,
+    contentType: String? = nil,
+    headers: [String: String] = [:]
+) async throws -> HTTPResponse {
+    try await performHTTPRequest(method: method, url: url, body: body, contentType: contentType, headers: headers)
 }
 
 // MARK: - Per-platform transport
 
 #if canImport(Foundation) && !os(WASI) && !os(Android)
 
-private func performHTTPRequest(method: String, url: String, body: [UInt8]?, contentType: String?) async throws -> HTTPResponse {
+private func performHTTPRequest(
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+) async throws -> HTTPResponse {
     guard let parsed = URL(string: url) else { throw HTTPClientError.invalidURL }
     var request = URLRequest(url: parsed)
     request.httpMethod = method
     if let body { request.httpBody = Data(body) }
     if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
+    for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
 
     let data: Data
     let response: URLResponse
@@ -106,16 +139,25 @@ private func httpDebugLog(_ message: @autoclosure () -> String) {
     _ = JSObject.global.console.object?.log?("[DAL HTTP] \(message())".jsValue)
 }
 
-private func performHTTPRequest(method: String, url: String, body: [UInt8]?, contentType: String?) async throws -> HTTPResponse {
+private func performHTTPRequest(
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+) async throws -> HTTPResponse {
     httpDebugLog("\(method) \(url) (body: \(body?.count ?? 0) bytes, content-type: \(contentType ?? "none"))")
     if let body { httpDebugLog("request body: \(String(decoding: body, as: UTF8.self))") }
     let options = JSObject.global.Object.function!.new()
     options.method = method.jsValue
+    var outgoing: JSObject?
     if let contentType {
-        let headers = JSObject.global.Object.function!.new()
-        headers["Content-Type"] = contentType.jsValue
-        options.headers = headers.jsValue
+        let object = JSObject.global.Object.function!.new()
+        object["Content-Type"] = contentType.jsValue
+        outgoing = object
     }
+    if !headers.isEmpty {
+        let object = outgoing ?? JSObject.global.Object.function!.new()
+        for (name, value) in headers { object[name] = value.jsValue }
+        outgoing = object
+    }
+    if let outgoing { options.headers = outgoing.jsValue }
     if let body { options.body = JSTypedArray<UInt8>(body).jsValue }
 
     // `this: JSObject.global` is required, not cosmetic: a browser's `fetch` is a
@@ -168,7 +210,11 @@ private func performHTTPRequest(method: String, url: String, body: [UInt8]?, con
 
 #elseif os(Android)
 
-private func performHTTPRequest(method: String, url: String, body: [UInt8]?, contentType: String?) async throws -> HTTPResponse {
+private func performHTTPRequest(
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+) async throws -> HTTPResponse {
+    // `headers` has nowhere to go: the host bridge takes a body and a content type
+    // only. Callers check `httpSupportsRequestHeaders`.
     // The host (java.net/OkHttp) performs the request via CHostBridge and returns
     // a malloc'd buffer: 4-byte BE status, 4-byte BE body length, then the body.
     let raw: UnsafeMutablePointer<CChar>? = method.withCString { m in
@@ -194,7 +240,9 @@ private func performHTTPRequest(method: String, url: String, body: [UInt8]?, con
 
 #else
 
-private func performHTTPRequest(method: String, url: String, body: [UInt8]?, contentType: String?) async throws -> HTTPResponse {
+private func performHTTPRequest(
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+) async throws -> HTTPResponse {
     throw HTTPClientError.unsupportedPlatform
 }
 

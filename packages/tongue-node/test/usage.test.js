@@ -4,8 +4,11 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
-import { UsageClient, makeSend } from "../dist/usage.js";
+import { UsageClient, UsageTurnstile, defaultPlatform, makeSend } from "../dist/usage.js";
 import { Tongue } from "../dist/index.js";
+
+/** The platform tags the ingest endpoint accepts; anything else is a 400. */
+const acceptedPlatforms = ["ios", "android", "web", "server"];
 
 // Replays the shared turnstile contract. The Kotlin port replays the identical
 // file against its own hand-ported client; the Swift SDK uses desert-ant-core's
@@ -60,13 +63,25 @@ test("detection still works with reporting switched off", async () => {
   assert.equal(tongue.detect("kann ich das haben").language, "de");
 });
 
+test("the platform tag is one the endpoint accepts", () => {
+  // A tag outside the enum is a 400, which drops the event: the turnstile still
+  // looks healthy and the device is simply never billed. This port sent "node"
+  // until it was checked against the live enum.
+  assert.ok(
+    acceptedPlatforms.includes(defaultPlatform()),
+    `the endpoint rejects platform ${defaultPlatform()}`,
+  );
+  assert.equal(defaultPlatform(), "server", "a Node process is a server");
+});
+
 test("the wire body matches core's field order and carries no text", () => {
   const sends = [];
   const client = new UsageClient({
     deviceId: "d",
     key: "k",
+    keyInBody: true,
     appId: "com.acme.app",
-    platform: "node",
+    platform: "server",
     version: "9.9.9",
     windowMs: vectors.windowMs,
     now: () => 1700000000000,
@@ -86,7 +101,7 @@ test("the wire body matches core's field order and carries no text", () => {
   // diverges from the Kotlin port.
   assert.equal(
     JSON.stringify(sends[0]),
-    '{"platform":"node","key":"k","app":{"id":"com.acme.app"},' +
+    '{"platform":"server","key":"k","app":{"id":"com.acme.app"},' +
       '"sdk":{"name":"tongue-js","version":"9.9.9"},' +
       '"sentAt":"2023-11-14T22:13:20.000Z",' +
       '"events":[{"name":"load","deviceId":"d","callCount":2}]}',
@@ -128,7 +143,8 @@ test("a forced load posts inside the window and resolves only once the send has"
   let release;
   const client = new UsageClient({
     deviceId: "d",
-    platform: "node",
+    platform: "server",
+    keyInBody: true,
     version: "0.0.0",
     windowMs: vectors.windowMs,
     now: () => now,
@@ -245,7 +261,12 @@ test("the transport actually posts the body over HTTP", async () => {
     let body = "";
     req.on("data", (chunk) => (body += chunk));
     req.on("end", () => {
-      received.push({ method: req.method, type: req.headers["content-type"], body });
+      received.push({
+        method: req.method,
+        type: req.headers["content-type"],
+        auth: req.headers["authorization"],
+        body,
+      });
       res.writeHead(204).end();
     });
   });
@@ -255,9 +276,9 @@ test("the transport actually posts the body over HTTP", async () => {
   try {
     // Awaiting the returned promise is the contract `flushTelemetry()` rests on:
     // it resolves once the server has answered, not when the request is queued.
-    await makeSend(`http://127.0.0.1:${port}/api/v1/ingest`)({
-      platform: "node",
-      key: "k",
+    // The key goes in the header, so the body built here must not carry one.
+    await makeSend(`http://127.0.0.1:${port}/api/v1/ingest`, "dal_test")({
+      platform: "server",
       app: { id: "com.acme.app" },
       sdk: { name: "tongue-js", version: "9.9.9" },
       sentAt: "2023-11-14T22:13:20.000Z",
@@ -267,14 +288,72 @@ test("the transport actually posts the body over HTTP", async () => {
     assert.equal(received.length, 1, "the transport never reached the server");
     assert.equal(received[0].method, "POST");
     assert.equal(received[0].type, "application/json");
+    assert.equal(received[0].auth, "Bearer dal_test", "the key did not ride the header");
     assert.equal(
       received[0].body,
-      '{"platform":"node","key":"k","app":{"id":"com.acme.app"},' +
+      '{"platform":"server","app":{"id":"com.acme.app"},' +
         '"sdk":{"name":"tongue-js","version":"9.9.9"},' +
         '"sentAt":"2023-11-14T22:13:20.000Z",' +
         '"events":[{"name":"load","deviceId":"d","callCount":2}]}',
     );
   } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("the turnstile a host builds puts the key in exactly one place", async () => {
+  // The layer that decides the platform tag and the key's placement had no test:
+  // every other case builds `UsageClient` literals with `send` already injected,
+  // so a wrong `keyInBody` or a hardcoded platform tag survived the whole suite.
+  // This constructs the turnstile the way a host does and reads what went on the
+  // wire, with the endpoint pointed at a local server.
+  const { createServer } = await import("node:http");
+  const received = [];
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      received.push({ auth: req.headers["authorization"], body });
+      res.writeHead(202).end();
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address();
+
+  const saved = {
+    DAL_USAGE_DISABLED: process.env.DAL_USAGE_DISABLED,
+    DAL_INGEST_ENDPOINT: process.env.DAL_INGEST_ENDPOINT,
+    DAL_API_KEY: process.env.DAL_API_KEY,
+    DAL_DEVICE_ID: process.env.DAL_DEVICE_ID,
+  };
+  // `mise run test:node` sets DAL_USAGE_DISABLED=1 for every task, and create()
+  // returns null when reporting is off.
+  delete process.env.DAL_USAGE_DISABLED;
+  process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${port}/api/v1/ingest`;
+  process.env.DAL_API_KEY = "dal_test";
+  process.env.DAL_DEVICE_ID = "e2e-host-device";
+
+  try {
+    const turnstile = UsageTurnstile.create("9.9.9");
+    assert.ok(turnstile, "create() returned null with reporting enabled");
+    turnstile.record();
+    assert.equal(await turnstile.flushTelemetry(), true);
+
+    assert.equal(received.length, 1, "the client never reached the server");
+    assert.equal(received[0].auth, "Bearer dal_test", "the key did not ride the header");
+    const sent = JSON.parse(received[0].body);
+    assert.equal(
+      acceptedPlatforms.includes(sent.platform),
+      true,
+      `the endpoint rejects platform ${sent.platform}`,
+    );
+    assert.equal(sent.platform, "server", "a Node process is a server");
+    assert.equal(sent.key, undefined, "the key rode the body as well as the header");
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
     await new Promise((resolve) => server.close(resolve));
   }
 });

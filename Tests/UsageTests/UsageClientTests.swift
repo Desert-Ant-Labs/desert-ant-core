@@ -9,13 +9,14 @@ private final class Harness {
     var sent: [(body: IngestBody, opts: SendOptions)] = []
     let client: UsageClient
 
-    init(_ initial: UsageState = UsageState(), callCount: (() -> Int)? = nil, windowMs: Int64 = dayMs, emitIntervalMs: Int64 = 0) {
+    init(_ initial: UsageState = UsageState(), callCount: (() -> Int)? = nil, windowMs: Int64 = dayMs, emitIntervalMs: Int64 = 0, keyInBody: Bool = true) {
         self.state = initial
         // Captured by reference through the closures below.
         var boxRef: Harness!
         self.client = UsageClient(ClientDeps(
             deviceId: "dev-1",
             key: "dal_test",
+            keyInBody: keyInBody,
             platform: "test",
             callCount: callCount,
             windowMs: windowMs,
@@ -45,6 +46,52 @@ struct UsageClientTests {
         #expect(h.sent[0].body.platform == "test")
         #expect(h.sent[0].body.key == "dal_test")
         #expect(h.state.lastActiveAt > 0)
+    }
+
+    /// Where the transport sets an `Authorization` header, the key must not also
+    /// ride the body: two copies of one secret in one request. The header itself is
+    /// proved on the wire in `HTTPTests`.
+    @Test func keyOmitsTheBodyWhereTheTransportSendsAHeader() {
+        let h = Harness(UsageState(lastActiveAt: 0), keyInBody: false)
+        h.client.start()
+        h.client.flush()
+
+        #expect(h.sent.count == 1)
+        #expect(h.sent[0].body.key == nil)
+        let json = try? buildBody(h.sent[0].body)
+        #expect(json?.contains("dal_test") == false)
+    }
+
+    /// The default client's own decision: the platform tag it reports and whether
+    /// the key rides the body. Every other test here builds `ClientDeps` by hand,
+    /// so a hardcoded platform tag or a wrong `keyInBody` inside `makeClient` went
+    /// unnoticed. The header half of the pairing is proved on the wire in
+    /// `HTTPTests`; what this pins is that the body half matches it.
+    @Test func theDefaultClientTagsThePlatformAndPlacesTheKeyOnce() {
+        var sent: [IngestBody] = []
+        let client = makeClient(
+            key: "dal_test",
+            deviceId: "host-device",
+            storage: InMemoryStorage(),
+            send: { body, _ in sent.append(body) }
+        )
+        client.start()
+        client.recordCall()
+        client.flush()
+
+        #expect(sent.count == 1)
+        let body = sent[0]
+        #expect(["ios", "android", "web", "server"].contains(body.platform))
+        #expect(body.platform == "server")
+        // Where the build cannot set an `Authorization` header, the key must ride
+        // the body instead, or the event arrives unattributed. The wasm build is
+        // that case here: its unload flush is a header-less `sendBeacon`. The
+        // header half of this pairing is proved on the wire in `HTTPTests`.
+        #if os(WASI)
+        #expect(body.key == "dal_test")
+        #else
+        #expect(body.key == nil)
+        #endif
     }
 
     @Test func startDoesNotEmitWithinWindow() {

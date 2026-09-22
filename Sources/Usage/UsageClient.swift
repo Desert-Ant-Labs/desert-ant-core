@@ -37,6 +37,12 @@ public struct SendOptions: Sendable {
 public struct ClientDeps {
     public var deviceId: String
     public var key: String?
+    /// Whether the key rides the body. False where the send carries it as an
+    /// `Authorization` header, so one request never holds the secret twice. A
+    /// host passing a `bearerKey` to `makeSend` must set this to false; a host
+    /// passing no key to `makeSend` must leave it true, or the event arrives
+    /// unattributed.
+    public var keyInBody: Bool
     /// App identity for keyless attribution (bundle id / package name), sent as
     /// `app.id`. Distinct from `key`, which is a publishable API key.
     public var appId: String?
@@ -60,6 +66,7 @@ public struct ClientDeps {
     public init(
         deviceId: String,
         key: String? = nil,
+        keyInBody: Bool = true,
         appId: String? = nil,
         sdk: SDKInfo = SDKInfo(),
         platform: String = defaultPlatform,
@@ -74,6 +81,7 @@ public struct ClientDeps {
     ) {
         self.deviceId = deviceId
         self.key = key
+        self.keyInBody = keyInBody
         self.appId = appId
         self.sdk = sdk
         self.platform = platform
@@ -208,6 +216,6 @@ public final class UsageClient {
     }
 
     private func makeBody(_ events: [IngestEvent]) -> IngestBody {
-        IngestBody(platform: deps.platform, key: deps.key, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk, sentAt: iso8601(epochMs: deps.now()), events: events)
+        IngestBody(platform: deps.platform, key: deps.keyInBody ? deps.key : nil, app: deps.appId.map(AppInfo.init(id:)), sdk: deps.sdk, sentAt: iso8601(epochMs: deps.now()), events: events)
     }
 }
