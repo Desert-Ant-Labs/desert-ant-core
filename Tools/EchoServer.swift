@@ -2,7 +2,8 @@
 // the given port (argv[1], default 8199) and relays each request straight back:
 // status 200, the request body as the response body, and the request headers
 // echoed as response headers (Content-Length recomputed; hop-by-hop headers
-// dropped).
+// dropped). A request carrying `X-Echo-Auth` answers with its own Authorization
+// value as the body; the HTTP client tests explain why.
 //
 // Two exceptions, for the redirect tests: `GET /redirect/<n>` answers 302 to
 // `/redirect/<n-1>`, and `/redirect/0` to `/bytes/1024`; `GET /bytes/<n>`
@@ -180,6 +181,14 @@ func handle(_ fd: SocketHandle) {
         body.append(contentsOf: chunk[0..<n])
     }
     if body.count > contentLength { body = Array(body[0..<contentLength]) }
+
+    // `X-Echo-Auth: 1` answers with the request's Authorization value as the body
+    // instead of the request body. The wasm client surfaces only Content-Type from a
+    // response, so this is how a test proves a request header reached the server on
+    // every platform, not just the ones that can read response headers back.
+    if headers.contains(where: { $0.name.lowercased() == "x-echo-auth" }) {
+        body = Array((headers.first { $0.name.lowercased() == "authorization" }?.value ?? "").utf8)
+    }
 
     let drop: Set<String> = ["content-length", "transfer-encoding", "connection", "host"]
     var head = "HTTP/1.1 200 OK\r\n"

@@ -27,7 +27,7 @@ internal data class UsageState(
 /** Everything the client needs from its host. Mirrors core's `ClientDeps`. */
 internal class ClientDeps(
     val deviceId: String,
-    val key: String? = null,
+    // No key: this port's transport always sets an `Authorization` header.
     val appId: String? = null,
     val platform: String,
     val sdkVersion: String,
@@ -132,7 +132,6 @@ internal class UsageClient(private val deps: ClientDeps) {
 
     private fun makeBody(events: List<IngestEvent>) = IngestBody(
         platform = deps.platform,
-        key = deps.key,
         app = deps.appId?.let(::AppInfo),
         sdk = SdkInfo(version = deps.sdkVersion),
         sentAt = iso8601(deps.now()),

@@ -79,6 +79,14 @@ await align.withCallGroup(async (group) => {
 });
 ```
 
+Attribution is automatic: this package reports the platform it runs on, and the endpoint counts distinct devices per month. A server that wants to name itself instead of reporting its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`, and a registered API key goes in `DAL_API_KEY` or `globalThis.__dalApiKey`, sent as an `Authorization: Bearer` header.
+
+A process that exits without flushing reports nothing, because the usage POST is debounced. `flushTelemetry()` forces it out and resolves once the endpoint has answered, so a worker calls it before it exits:
+
+```js
+await align.flushTelemetry();
+```
+
 ## Platforms
 
 The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. All three were verified by hand from the packed tarball in a clean project, refining real audio: `darwin-arm64` on macOS on the Core ML backend, and both Linux targets on LiteRT in a `node:22` container, the `linux-x64` run under emulation. No CI lane covers this path yet, so treat those as point-in-time checks rather than a standing guarantee. The Linux libraries are built against glibc 2.34, so they load on Ubuntu 22.04+, Debian 12+ and AWS Lambda's managed Node runtimes. On Lambda's arm64 runtime the CPU backend also needs `/sys/devices/system/cpu`, which Lambda does not mount, so preload the `libdalcpushim.so` that ships in `native/linux-arm64` first (the root README covers it under "AWS Lambda on arm64"). x86_64 needs none of that. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.

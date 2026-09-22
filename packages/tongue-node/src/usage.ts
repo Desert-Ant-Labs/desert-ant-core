@@ -136,9 +136,53 @@ function uuid(): string {
     .join("")}-${hex.slice(8, 10).join("")}-${hex.slice(10).join("")}`;
 }
 
-/** True in a browser-like runtime, which picks the session window and "web". */
-function isBrowser(): boolean {
-  return typeof (globalThis as { document?: unknown }).document !== "undefined";
+/** True in a browser-origin runtime: a page, or a worker a page spawned. */
+function isBrowserOrigin(): boolean {
+  const g = globalThis as {
+    document?: unknown;
+    importScripts?: unknown;
+    WorkerGlobalScope?: abstract new () => object;
+  };
+  if (typeof g.document !== "undefined") return true;
+  if (typeof g.importScripts === "function") return true;
+  const scope = g.WorkerGlobalScope;
+  return typeof scope === "function" && globalThis instanceof scope;
+}
+
+/**
+ * What one reading of the runtime implies for attribution: the platform tag and
+ * the window. Derived once per client so the tag, the window and the key's
+ * placement cannot disagree, and so a global appearing or disappearing mid-run
+ * cannot change the answer. The endpoint accepts exactly ios|android|web|server
+ * and rejects anything else with a 400, which drops the event silently: Node is
+ * a `server`, not a `node`.
+ */
+function attribution(browserOrigin: boolean): { platform: string; windowMs: number } {
+  return browserOrigin
+    ? { platform: "web", windowMs: WEB_SESSION_MS }
+    : { platform: "server", windowMs: DAY_MS };
+}
+
+/** The platform tag this process reports. */
+export function defaultPlatform(): string {
+  return attribution(isBrowserOrigin()).platform;
+}
+
+/** The ingest endpoint. A host may override it for tests and local capture. */
+function ingestEndpoint(): string {
+  return hostString("__dalIngestEndpoint", "DAL_INGEST_ENDPOINT") ?? INGEST_ENDPOINT;
+}
+
+/**
+ * Whether the key can ride an `Authorization` header on every send path here.
+ *
+ * A browser-origin runtime cannot: its unload flush goes through `sendBeacon`,
+ * which takes no headers, and a beacon without the key arrives unattributed. So
+ * it is the one runtime that keeps the key in the body. Read once per client, by
+ * `create`, which hands the answer to `makeSend`.
+ */
+function keyRidesInHeader(browserOrigin: boolean): boolean {
+  return !browserOrigin;
 }
 
 /**
@@ -175,7 +219,7 @@ export function usageDisabled(): boolean {
  * core, which sends the bundle id or package name.
  */
 function defaultAppId(): string | undefined {
-  if (isBrowser()) return undefined;
+  if (isBrowserOrigin()) return undefined;
   return (
     hostString("__dalAppId", "DAL_APP_ID") ??
     (globalThis as { process?: { title?: string } }).process?.title ??
@@ -201,6 +245,8 @@ export class UsageClient {
     private deps: {
       deviceId: string;
       key?: string;
+      /** False where the transport sends the key as an `Authorization` header. */
+      keyInBody: boolean;
       appId?: string;
       platform: string;
       version: string;
@@ -291,7 +337,7 @@ export class UsageClient {
     // sequences while Wire.kt claimed they were identical.
     return {
       platform: this.deps.platform,
-      ...(this.deps.key ? { key: this.deps.key } : {}),
+      ...(this.deps.keyInBody && this.deps.key ? { key: this.deps.key } : {}),
       ...(this.deps.appId ? { app: { id: this.deps.appId } } : {}),
       sdk: { name: SDK_NAME, version: this.deps.version },
       sentAt: new Date(this.deps.now()).toISOString(),
@@ -302,15 +348,27 @@ export class UsageClient {
 
 /**
  * Exported so a test can drive the real transport at a local endpoint. The
- * default is not overridable from outside: `UsageTurnstile` always uses
- * INGEST_ENDPOINT, matching core, which keeps the destination out of the public
- * API. Without this the HTTP path was never executed by any test — the state
- * machine was covered, the send was not.
+ * default endpoint is overridable only through `__dalIngestEndpoint` /
+ * `DAL_INGEST_ENDPOINT`, the same host override core offers, and `UsageTurnstile`
+ * always goes through it. Without this the HTTP path was never executed by any
+ * test: the state machine was covered, the send was not.
+ *
+ * A key rides an `Authorization` header rather than the body: every runtime this
+ * package supports sets request headers, and the endpoint prefers the header. A
+ * browser-origin runtime keeps it in the body, because its unload flush goes
+ * through `sendBeacon`, which cannot carry a header.
+ *
+ * `keyInHeader` is a parameter, not a re-reading of the runtime, so the
+ * placement cannot differ between the body and the header on one request.
  *
  * Returns the send's promise so `flushTelemetry()` can await the POST. The
  * debounced path ignores it, exactly as core's fire-and-forget send does.
  */
-export function makeSend(endpoint = INGEST_ENDPOINT): (body: IngestBody) => Promise<void> {
+export function makeSend(
+  endpoint = INGEST_ENDPOINT,
+  bearerKey?: string,
+  keyInHeader: boolean = keyRidesInHeader(isBrowserOrigin()),
+): (body: IngestBody) => Promise<void> {
   return (body) => {
     let json: string;
     try {
@@ -321,9 +379,11 @@ export function makeSend(endpoint = INGEST_ENDPOINT): (body: IngestBody) => Prom
     try {
       const beacon = (globalThis as { navigator?: { sendBeacon?: (u: string, d: string) => boolean } })
         .navigator?.sendBeacon;
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (bearerKey && keyInHeader) headers.Authorization = `Bearer ${bearerKey}`;
       return fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: json,
         keepalive: true,
       }).then(
@@ -367,13 +427,19 @@ export class UsageTurnstile {
       const appId = defaultAppId();
       const key = hostString("__dalApiKey", "DAL_API_KEY");
       const namespace = key ?? appId ?? "unknown";
+      // One reading of the runtime, feeding the platform tag, the window, the
+      // key's placement, the transport's header decision and the unload hook.
+      const browserOrigin = isBrowserOrigin();
+      const { platform, windowMs } = attribution(browserOrigin);
+      const keyInHeader = keyRidesInHeader(browserOrigin);
       const client = new UsageClient({
         deviceId: device,
         key,
+        keyInBody: !keyInHeader,
         appId,
-        platform: isBrowser() ? "web" : "node",
+        platform,
         version,
-        windowMs: isBrowser() ? WEB_SESSION_MS : DAY_MS,
+        windowMs,
         now: () => Date.now(),
         loadState: () => {
           const raw = store.get(stateKey(namespace, device!));
@@ -388,7 +454,7 @@ export class UsageTurnstile {
         },
         saveState: (state) =>
           store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`),
-        send: makeSend(),
+        send: makeSend(ingestEndpoint(), key, keyInHeader),
       });
       client.start();
       const turnstile = new UsageTurnstile(client);
@@ -396,7 +462,7 @@ export class UsageTurnstile {
       // or tab that ends inside the 3 s debounce sends nothing at all, while
       // `start()` has already stamped the window — so a short-lived Node script
       // would report zero every day, permanently.
-      if (isBrowser() && typeof addEventListener === "function") {
+      if (browserOrigin && typeof addEventListener === "function") {
         addEventListener("pagehide", () => turnstile.client.suspend());
       } else {
         const proc = (globalThis as { process?: { once?: (e: string, f: () => void) => void } }).process;

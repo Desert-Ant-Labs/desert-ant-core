@@ -19,6 +19,22 @@ import { readyModel } from "./sdk.js";
  * @param {string} o.coreName the package's native library base name (e.g. "EmoNode")
  */
 export function createNativeSdk({ here, packageName, modelId, coreName }) {
+  // The native core reads usage identity from the environment (DAL_APP_ID,
+  // DAL_API_KEY, DAL_DEVICE_ID); the browser entry reads the same values from
+  // `globalThis.__dal*`. Bridging them means a host sets one spelling on either
+  // runtime, and a server that sets the global is not silently unattributed. Each
+  // may be a string or a zero-arg function, the two forms the core's own JS host
+  // read accepts.
+  for (const [name, env] of [
+    ["__dalAppId", "DAL_APP_ID"],
+    ["__dalApiKey", "DAL_API_KEY"],
+    ["__dalDeviceId", "DAL_DEVICE_ID"],
+  ]) {
+    const raw = globalThis[name];
+    const value = typeof raw === "function" ? raw() : raw;
+    if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
+  }
+
   // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
   // the package's node.js (built by `mise run build:node-native`): the self-contained
   // model-specific Swift library plus the LiteRT runtime it links. The ABI is

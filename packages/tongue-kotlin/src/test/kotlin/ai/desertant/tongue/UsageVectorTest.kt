@@ -5,9 +5,12 @@ import ai.desertant.tongue.usage.ClientDeps
 import ai.desertant.tongue.usage.DAY_MS
 import ai.desertant.tongue.usage.IngestBody
 import ai.desertant.tongue.usage.IngestEvent
+import ai.desertant.tongue.usage.InMemoryStorage
 import ai.desertant.tongue.usage.SdkInfo
 import ai.desertant.tongue.usage.SendHandle
 import ai.desertant.tongue.usage.buildBody
+import ai.desertant.tongue.usage.defaultPlatform
+import ai.desertant.tongue.usage.makeClient
 import ai.desertant.tongue.usage.makeSend
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
@@ -18,6 +21,7 @@ import ai.desertant.tongue.usage.UsageState
 import ai.desertant.tongue.usage.UsageTurnstile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -95,6 +99,21 @@ class UsageVectorTest {
     }
 
     /**
+     * The platform tag has to be one the endpoint accepts. Anything else is a 400,
+     * which drops the event: the turnstile looks healthy and the device is simply
+     * never billed. This port sent "jvm" until it was checked against the live enum.
+     */
+    @Test
+    fun platformTagIsOneTheEndpointAccepts() {
+        val accepted = setOf("ios", "android", "web", "server")
+        assertTrue(
+            defaultPlatform() in accepted,
+            "the endpoint rejects platform ${defaultPlatform()}",
+        )
+        assertEquals("server", defaultPlatform(), "a JVM is a server")
+    }
+
+    /**
      * The bytes on the wire, pinned against the JavaScript port's identical
      * assertion in test/usage.test.js. Field order is part of the contract, and
      * nothing checked it before — Wire.kt claimed the two ports were
@@ -103,7 +122,7 @@ class UsageVectorTest {
     @Test
     fun wireBodyMatchesCoreFieldOrder() {
         val body = IngestBody(
-            platform = "node",
+            platform = "server",
             key = "k",
             app = AppInfo("com.acme.app"),
             sdk = SdkInfo(name = "tongue-js", version = "9.9.9"),
@@ -111,7 +130,7 @@ class UsageVectorTest {
             events = listOf(IngestEvent(deviceId = "d", callCount = 2)),
         )
         assertEquals(
-            """{"platform":"node","key":"k","app":{"id":"com.acme.app"},""" +
+            """{"platform":"server","key":"k","app":{"id":"com.acme.app"},""" +
                 """"sdk":{"name":"tongue-js","version":"9.9.9"},""" +
                 """"sentAt":"2023-11-14T22:13:20.000Z",""" +
                 """"events":[{"name":"load","deviceId":"d","callCount":2}]}""",
@@ -128,13 +147,13 @@ class UsageVectorTest {
     @Test
     fun keylessWireBodyIsExactlyTheseFields() {
         val body = IngestBody(
-            platform = "jvm",
+            platform = "server",
             sdk = SdkInfo(version = "9.9.9"),
             sentAt = "2023-11-14T22:13:20.000Z",
             events = listOf(IngestEvent(deviceId = "d", callCount = 7)),
         )
         assertEquals(
-            """{"platform":"jvm","sdk":{"name":"tongue-kotlin","version":"9.9.9"},""" +
+            """{"platform":"server","sdk":{"name":"tongue-kotlin","version":"9.9.9"},""" +
                 """"sentAt":"2023-11-14T22:13:20.000Z",""" +
                 """"events":[{"name":"load","deviceId":"d","callCount":7}]}""",
             buildBody(body),
@@ -154,11 +173,13 @@ class UsageVectorTest {
         val latch = CountDownLatch(1)
         var method: String? = null
         var contentType: String? = null
+        var authorization: String? = null
         var body: String? = null
 
         server.createContext("/api/v1/ingest") { exchange ->
             method = exchange.requestMethod
             contentType = exchange.requestHeaders.getFirst("Content-Type")
+            authorization = exchange.requestHeaders.getFirst("Authorization")
             body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
             exchange.sendResponseHeaders(204, -1)
             exchange.close()
@@ -167,10 +188,10 @@ class UsageVectorTest {
         server.start()
         try {
             val endpoint = "http://127.0.0.1:${server.address.port}/api/v1/ingest"
-            val handle = makeSend(endpoint)(
+            // The key goes in the header, so the body built here must not carry one.
+            val handle = makeSend(endpoint, "dal_test")(
                 IngestBody(
-                    platform = "jvm",
-                    key = "k",
+                    platform = "server",
                     app = AppInfo("com.acme.app"),
                     sdk = SdkInfo(name = "tongue-js", version = "9.9.9"),
                     sentAt = "2023-11-14T22:13:20.000Z",
@@ -183,14 +204,60 @@ class UsageVectorTest {
             check(latch.await(10, TimeUnit.SECONDS)) { "the transport never reached the server" }
             assertEquals("POST", method)
             assertEquals("application/json", contentType)
+            assertEquals("Bearer dal_test", authorization, "the key did not ride the header")
             assertEquals(
-                """{"platform":"jvm","key":"k","app":{"id":"com.acme.app"},""" +
+                """{"platform":"server","app":{"id":"com.acme.app"},""" +
                     """"sdk":{"name":"tongue-js","version":"9.9.9"},""" +
                     """"sentAt":"2023-11-14T22:13:20.000Z",""" +
                     """"events":[{"name":"load","deviceId":"d","callCount":2}]}""",
                 body,
             )
         } finally {
+            server.stop(0)
+        }
+    }
+
+    /**
+     * The layer that decides the platform tag and where the key goes had no test:
+     * every other case builds a `ClientDeps` literal with `send` already injected,
+     * so a wrong platform tag or a dropped key survived the whole suite. This
+     * builds the client the way a host does and reads what went on the wire.
+     */
+    @Test
+    fun theClientAHostBuildsPutsTheKeyInExactlyOnePlace() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val latch = CountDownLatch(1)
+        var authorization: String? = null
+        var body: String? = null
+        server.createContext("/api/v1/ingest") { exchange ->
+            authorization = exchange.requestHeaders.getFirst("Authorization")
+            body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+            latch.countDown()
+        }
+        server.start()
+        val previousEndpoint = System.getProperty("DAL_INGEST_ENDPOINT")
+        val previousKey = System.getProperty("DAL_API_KEY")
+        System.setProperty("DAL_INGEST_ENDPOINT", "http://127.0.0.1:${server.address.port}/api/v1/ingest")
+        System.setProperty("DAL_API_KEY", "dal_test")
+        try {
+            val client = makeClient(sdkVersion = "9.9.9", storage = InMemoryStorage())
+            client.recordCall()
+            client.load()
+            check(latch.await(10, TimeUnit.SECONDS)) { "the client never reached the server" }
+            assertEquals("Bearer dal_test", authorization, "the key did not ride the header")
+            val sent = body!!
+            assertTrue(
+                sent.contains("\"platform\":\"server\""),
+                "a JVM is a server, and the endpoint rejects anything off the enum: $sent",
+            )
+            assertFalse(sent.contains("\"key\""), "the key rode the body as well as the header: $sent")
+        } finally {
+            if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
+            else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
+            if (previousKey == null) System.clearProperty("DAL_API_KEY")
+            else System.setProperty("DAL_API_KEY", previousKey)
             server.stop(0)
         }
     }
@@ -209,7 +276,7 @@ class UsageVectorTest {
         val client = UsageClient(
             ClientDeps(
                 deviceId = "d",
-                platform = "jvm",
+                platform = "server",
                 sdkVersion = "0.0.0",
                 windowMs = DAY_MS,
                 now = { now },

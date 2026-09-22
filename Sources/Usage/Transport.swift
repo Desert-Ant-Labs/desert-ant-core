@@ -12,18 +12,37 @@ import JavaScriptKit
 private let defaultIngestEndpoint = "https://events.desertant.com/api/v1/ingest"
 private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
+/// Whether the key can ride an `Authorization` header on every path this
+/// transport uses.
+///
+/// False on Android, whose host bridge takes a body and a content type only, and
+/// on wasm, which serves a browser and a Node process from one binary: a browser's
+/// unload flush is a `sendBeacon`, which cannot carry a header, and a beacon
+/// without the key would arrive unattributed. Those two keep the key in the body,
+/// as every build did before.
+private var keyRidesInHeader: Bool {
+    if !httpSupportsRequestHeaders { return false }
+    #if os(WASI)
+    return false
+    #else
+    return true
+    #endif
+}
+
 /// A `send` transport that POSTs the serialized body to `endpoint`.
 ///
 /// The HTTP client is async, so every flush is dispatched fire-and-forget on a
 /// detached task. (The `beacon` flag is retained for API parity; there is no
 /// separate unload-safe path now that the client is fully async.)
-public func makeSend(endpoint: String) -> @Sendable (IngestBody, SendOptions) -> Void {
+public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
     { body, opts in
         // Best-effort: a body we cannot serialize is dropped rather than thrown
         // (the transport is fire-and-forget). These types always encode.
         guard let json = try? buildBody(body) else { return }
         let payload = Array(json.utf8)
         let debug = telemetryDebugEnabled()
+        var headers: [String: String] = [:]
+        if let bearerKey, keyRidesInHeader { headers["Authorization"] = "Bearer \(bearerKey)" }
         if debug { print("[usage] POST \(endpoint)\n[usage] body: \(json)") }
         #if os(WASI)
         // On the browser, an unload flush must use navigator.sendBeacon (a normal
@@ -33,7 +52,9 @@ public func makeSend(endpoint: String) -> @Sendable (IngestBody, SendOptions) ->
         #endif
         let task = Task.detached {
             do {
-                let response = try await httpPOST(endpoint, body: payload, contentType: "application/json")
+                let response = try await httpPOST(
+                    endpoint, body: payload, contentType: "application/json", headers: headers
+                )
                 if debug {
                     let text = String(decoding: response.body, as: UTF8.self)
                     print("[usage] response: \(response.status) \(text)")
@@ -81,10 +102,15 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///   - key: a publishable API key, if the host has one (usually nil; native
 ///     attributes by `app.id`, browsers by Origin). Falls back to the host
 ///     override (`globalThis.__dalApiKey` on WASI, `DAL_API_KEY` env var natively).
+///     Sent as `Authorization: Bearer` where the transport sets headers, and in
+///     the body where it cannot (`keyRidesInHeader`).
 ///   - deviceId: overrides the device id. Defaults to a host-provided id
 ///     (`globalThis.__dalDeviceId`, for server-side Node) or the generated,
 ///     persisted per-install UUID.
 ///   - storage: overrides the persistence backend (e.g. tests).
+///   - send: overrides the transport. Defaults to the real POST; a caller-supplied
+///     one wins (tests), which is how a test reads the platform tag and the key's
+///     placement that this function decides.
 public func makeClient(
     appId: String? = nil,
     key: String? = nil,
@@ -95,7 +121,8 @@ public func makeClient(
     emitIntervalMs: Int64? = nil,
     callCount: (() -> Int)? = nil,
     context: (() -> [String: String]?)? = nil,
-    storage: UsageStorage? = nil
+    storage: UsageStorage? = nil,
+    send: ((IngestBody, SendOptions) -> Void)? = nil
 ) -> UsageClient {
     let resolvedAppId = appId ?? hostProvidedAppId() ?? defaultAppIdentifier()
     let resolvedKey = key ?? hostProvidedApiKey()
@@ -107,6 +134,7 @@ public func makeClient(
     return UsageClient(ClientDeps(
         deviceId: device,
         key: resolvedKey,
+        keyInBody: !keyRidesInHeader,
         appId: resolvedAppId,
         sdk: sdk,
         platform: platform,
@@ -117,6 +145,8 @@ public func makeClient(
         now: systemNowMs,
         loadState: { store.loadState(namespace, device) },
         saveState: { store.saveState($0, namespace, device) },
-        send: makeSend(endpoint: ingestEndpoint)
+        // The key is only known here, so the real transport is built here too; a
+        // caller-supplied one still wins (tests).
+        send: send ?? makeSend(endpoint: ingestEndpoint, bearerKey: resolvedKey)
     ))
 }

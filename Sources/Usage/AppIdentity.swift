@@ -73,15 +73,17 @@ public func hostProvidedApiKey() -> String? {
 #endif
 }
 
-/// A device id supplied by the JS host, for cases where the auto-generated,
-/// persisted UUID doesn't fit — chiefly a server-side Node process (no per-device
-/// storage; the "device" is the host's own notion). `globalThis.__dalDeviceId`
-/// may be a string or a function returning one. `nil` off WASI or when unset.
+/// A device id supplied by the host, for cases where the auto-generated,
+/// persisted UUID doesn't fit, chiefly a server-side Node process (no per-device
+/// storage; the "device" is the host's own notion). On WASI reads
+/// `globalThis.__dalDeviceId` (string or function); elsewhere reads the
+/// `DAL_DEVICE_ID` environment variable. `nil` when unset.
 public func hostProvidedDeviceId() -> String? {
 #if os(WASI)
     return jsHostString("__dalDeviceId")
 #else
-    return nil
+    guard let value = environmentVariable("DAL_DEVICE_ID") else { return nil }
+    return value.isEmpty ? nil : value
 #endif
 }
 

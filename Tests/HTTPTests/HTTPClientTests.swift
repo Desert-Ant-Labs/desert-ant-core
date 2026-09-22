@@ -147,6 +147,41 @@ struct HTTPClientTests {
         #expect(response.header("Content-Type") == "application/json") // header relayed
     }
 
+    @Test func postSendsRequestHeaders() async throws {
+        // The usage transport carries the API key here on builds that can set one.
+        // Android cannot (its host bridge takes a body and a content type only),
+        // which is why this is a parameter and not baked into httpPOST.
+        //
+        // Asserted through the body rather than the echoed response header: the wasm
+        // client surfaces only Content-Type from a response, and Node's fetch does
+        // not enforce the browser's forbidden-header rules, so this runs everywhere.
+        let sent = Array(#"{"ping":true}"#.utf8)
+        let response = try await httpPOST(
+            "\(Self.base)/echo",
+            body: sent,
+            contentType: "application/json",
+            headers: ["Authorization": "Bearer dal_test", "X-Echo-Auth": "1"]
+        )
+        #expect(response.status == 200)
+        #expect(String(decoding: response.body, as: UTF8.self) == "Bearer dal_test")
+        #expect(response.header("Content-Type") == "application/json")
+    }
+
+    #if !os(WASI)
+    @Test func postEchoesRequestHeadersAsResponseHeaders() async throws {
+        // Apple and Linux read the whole response header list back, so the echo is
+        // asserted directly there too. Skipped on wasm, which surfaces Content-Type only.
+        let sent = Array(#"{"ping":true}"#.utf8)
+        let response = try await httpPOST(
+            "\(Self.base)/echo",
+            body: sent,
+            contentType: "application/json",
+            headers: ["X-Dal-Test": "1"]
+        )
+        #expect(response.header("X-Dal-Test") == "1")
+    }
+    #endif
+
     @Test func getReturnsOKWithEmptyBody() async throws {
         let response = try await httpGET("\(Self.base)/health")
         #expect(response.status == 200)
