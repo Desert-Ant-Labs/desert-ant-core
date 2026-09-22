@@ -20,7 +20,11 @@ if [ "${usage_model:-all}" != all ]; then
 fi
 
 dal_vendor_litert
-dal_start_echo_server 8199
+# Own port: the umbrella `test` runs this and test:wasi in parallel, and both
+# start an echo server. The suites read DAL_ECHO_PORT (8199 when unset).
+# DAL_SWIFT_ECHO_PORT moves it off a port something else on the host holds.
+export DAL_ECHO_PORT="${DAL_SWIFT_ECHO_PORT:-8199}"
+dal_start_echo_server "$DAL_ECHO_PORT"
 
 # Own scratch dir: the Xcode toolchain's artifacts are incompatible with the
 # swift.org toolchain the wasm tasks use, so they must never share one.

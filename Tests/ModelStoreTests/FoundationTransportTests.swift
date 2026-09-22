@@ -1,5 +1,6 @@
 // FoundationTransport against the local echo server (Tools/EchoServer.swift,
-// which `mise run test:swift` starts on 127.0.0.1:8199, as HTTPTests documents).
+// which `mise run test:swift` starts on 127.0.0.1:$DAL_ECHO_PORT, 8199 when
+// unset, as HTTPTests documents).
 // The store's own logic is covered with mock transports; what only a real
 // server can show is what the download delegate does with a redirect, which is
 // what every Hub weights URL answers with.
@@ -21,7 +22,9 @@ private let streamSocketType = Int32(SOCK_STREAM.rawValue)
 #endif
 @testable import ModelStore
 
-private let echoServer = "http://127.0.0.1:8199"
+private let echoPort: UInt16 =
+    ProcessInfo.processInfo.environment["DAL_ECHO_PORT"].flatMap { UInt16($0) } ?? 8199
+private let echoServer = "http://127.0.0.1:\(echoPort)"
 
 /// Whether the echo server is up. Xcode's test runner doesn't start one (only
 /// the mise tasks do), so the suite skips there instead of failing.
@@ -31,7 +34,7 @@ private let echoServerIsListening: Bool = {
     defer { close(fd) }
     var addr = sockaddr_in()
     addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = UInt16(8199).bigEndian
+    addr.sin_port = echoPort.bigEndian
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr)
     return withUnsafePointer(to: &addr) {
         $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
@@ -40,7 +43,7 @@ private let echoServerIsListening: Bool = {
     }
 }()
 
-@Suite(.enabled(if: echoServerIsListening, "no echo server on 127.0.0.1:8199"))
+@Suite(.enabled(if: echoServerIsListening, "no echo server on 127.0.0.1:\(echoPort)"))
 struct FoundationTransportTests {
     private func temporaryPath() -> String {
         NSTemporaryDirectory() + "dal-transport-\(UUID().uuidString)"
