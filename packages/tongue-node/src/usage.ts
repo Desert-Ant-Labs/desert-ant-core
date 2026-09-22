@@ -201,16 +201,24 @@ function keyRidesInHeader(browserOrigin: boolean): boolean {
  * Kotlin port document — got bodies with no `key` at all and no way to notice.
  */
 function hostString(name: string, envName: string): string | undefined {
-  // Trimmed: a value read from a secret file often ends in a newline, which an
-  // `Authorization` header rejects and the POST is lost with it.
   const value = (globalThis as Record<string, unknown>)[name];
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string" && value) return value;
   if (typeof value === "function") {
     const resolved = (value as () => unknown)();
-    if (typeof resolved === "string" && resolved.trim()) return resolved.trim();
+    if (typeof resolved === "string" && resolved) return resolved;
   }
   const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
-  return env?.[envName]?.trim() || undefined;
+  return env?.[envName] || undefined;
+}
+
+/**
+ * The API key, trimmed: a key read from a secret file often ends in a newline,
+ * which an `Authorization` header rejects, and the POST is lost with it. Only the
+ * key: the device and app ids ride the body, and core and the Kotlin port read
+ * them untrimmed, so trimming them here would split one device in two.
+ */
+function hostApiKey(): string | undefined {
+  return hostString("__dalApiKey", "DAL_API_KEY")?.trim() || undefined;
 }
 
 /** Whether usage reporting is switched off for this process. See docs/USAGE.md. */
@@ -463,7 +471,7 @@ export class UsageTurnstile {
         store.set(DEVICE_ID_KEY, device);
       }
       const appId = defaultAppId();
-      const key = hostString("__dalApiKey", "DAL_API_KEY");
+      const key = hostApiKey();
       const namespace = key ?? appId ?? "unknown";
       // One reading of the runtime, feeding the platform tag, the window, the
       // key's placement, the transport's header decision and the unload hook.

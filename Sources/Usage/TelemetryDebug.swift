@@ -216,21 +216,22 @@ public actor TelemetryDebug {
         // the live prefix cannot drop one that just started.
         let marked = flushHooks.count
         claimedDevices.removeAll()
-        // Each hook runs as a child task rather than in a sequential loop. On
-        // wasm's single-threaded executor the hop into a hook and back runs
-        // inline, so a loop nests a frame per hook, and a pass over a few hundred
-        // of them (dead ones count until pruned) overflows the shadow stack into
-        // the heap. A child task starts from the executor on a fresh stack.
+        // Each hook runs as a child task: on wasm's single-threaded executor the
+        // hop into a hook and back runs inline, so a plain loop nests a frame per
+        // hook, and a pass over a few hundred of them (dead ones count until
+        // pruned) overflows the shadow stack into the heap. A child task starts
+        // from the executor on a fresh stack. One at a time, though: sessions
+        // sharing a device read and write its stored state unlocked, so the
+        // claim winner's emit must finish before a loser carries its calls.
         let hooks = flushHooks
-        let alive = await withTaskGroup(of: (Int, Bool).self) { group in
-            for (index, hook) in hooks.enumerated() {
-                group.addTask { (index, await hook.flush()) }
+        let live = await withTaskGroup(of: Bool.self) { group in
+            var live: [FlushHook] = []
+            for hook in hooks {
+                group.addTask { await hook.flush() }
+                if await group.next() == true { live.append(hook) }
             }
-            var alive = [Bool](repeating: false, count: hooks.count)
-            for await (index, isAlive) in group { alive[index] = isAlive }
-            return alive
+            return live
         }
-        let live = zip(hooks, alive).filter { $0.1 }.map { $0.0 }
         flushHooks = live + flushHooks.dropFirst(marked)
         // Every hook has returned, and each registered its sends before its
         // `send` call returned, so this holds every send this pass started.
