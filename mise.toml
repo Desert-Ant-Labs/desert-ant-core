@@ -64,8 +64,6 @@ DAL_GPU = ""
 # process exits raced Node's teardown into a SIGSEGV. Honoured natively in
 # Usage's `usageDisabled()`; set here so every `mise run` task inherits it.
 DAL_USAGE_DISABLED = "1"
-# A suite that re-enables reporting to test it must never reach production.
-DAL_INGEST_ENDPOINT = "http://127.0.0.1:9/ingest"
 
 [tasks.build]
 description = "Build every artifact this host can build"
