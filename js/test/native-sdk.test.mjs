@@ -53,3 +53,25 @@ test("an environment variable already set wins over the host global", async () =
     fs.rmSync(here, { recursive: true, force: true });
   }
 });
+
+test("once a native model has started, the bridge no longer writes the environment", async () => {
+  // Core threads read the environment from then on, and a setenv racing their
+  // getenv is a use-after-free on glibc.
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  const started = Symbol.for("desert-ant-labs.native-started");
+  const saved = process.env.DAL_API_KEY;
+  delete process.env.DAL_API_KEY;
+  globalThis[started] = true;
+  try {
+    const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+    globalThis.__dalApiKey = "dal_late";
+    await assert.rejects(sdk.open());
+    assert.equal(process.env.DAL_API_KEY, undefined);
+  } finally {
+    delete globalThis[started];
+    delete globalThis.__dalApiKey;
+    if (saved !== undefined) process.env.DAL_API_KEY = saved;
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});

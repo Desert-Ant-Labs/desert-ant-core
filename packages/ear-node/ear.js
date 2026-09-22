@@ -75,6 +75,13 @@ export function makeEar(sdk) {
      */
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
+    /**
+     * Send the usage recorded so far and await the POST, so a short-lived process
+     * (a CLI, a Lambda) does not exit before it lands. Usage is reported on its own
+     * otherwise; such a process has no idle gap for the debounce to fire in.
+     */
+    flushTelemetry() { return this.#model.flushTelemetry(); }
+
     /** Release the model. The identifier is unusable afterwards. */
     dispose() { this.#model.dispose(); }
   };

@@ -121,6 +121,8 @@ export declare class Shapes {
    * settles.
    */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   /** Release the model. The recognizer is unusable afterwards. Both builds. */
   dispose(): void;
 }
