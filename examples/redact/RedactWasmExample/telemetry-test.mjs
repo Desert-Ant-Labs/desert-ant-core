@@ -8,8 +8,7 @@
 //   mise run build:node-native redact   # once, to build the native core
 //   node examples/redact/RedactWasmExample/telemetry-test.mjs
 
-// Must be set before the model loads: the Swift core reads it at session
-// creation to install the flush hooks, and the transport reads it to log.
+// Must be set before the model loads: the transport reads it to log each POST.
 process.env.DAL_HTTP_DEBUG = "1";
 
 const { Redact } = await import("../../../packages/redact-node/node.js");

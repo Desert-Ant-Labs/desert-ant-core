@@ -108,15 +108,15 @@ struct TrackedSessionTests {
         #expect(store.byDevice["ch-1"]?.carryCallCount ?? 0 == 0, "and nothing is left carried for the next load to add")
     }
 
-    /// The debug force-flush emits one load per device, not one per session: the align
+    /// The flush emits one load per device, not one per session: the align
     /// cascade is two sessions over one device, and forcing each of them posted that
     /// device's usage twice. It reports the calls made, never an invented one, and the
     /// session that loses the claim carries its call rather than losing it.
-    @Test func aDebugFlushForcesOneLoadPerDevice() async throws {
+    @Test func aTelemetryFlushForcesOneLoadPerDevice() async throws {
         let sink = Sink()
         let store = UsageStore()
-        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store), debugFlushHooks: true)
-        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store), debugFlushHooks: true)
+        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store))
+        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store))
 
         _ = try await coarse.run(inputs: [:], outputs: [], deviceId: "cascade")
         _ = try await fine.run(inputs: [:], outputs: [], deviceId: "cascade")

@@ -57,13 +57,21 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       }
     },
     destroy: (handle) => lib.destroy(handle),
-    flushTelemetry: () => callAsync(lib.flushTelemetry),
+    // The C symbol is `void`, so resolving it directly would hand a caller
+    // `undefined` where the wasm entry resolves `true` and both are declared
+    // `Promise<boolean>`. The flush cannot report a partial failure: it either
+    // returned or it threw.
+    async flushTelemetry() {
+      await callAsync(lib.flushTelemetry);
+      return true;
+    },
     withCallGroup,
   };
 
-  // Debug-only hook for forcing the usage POST out and awaiting it, mirroring
-  // the wasm entry (`createWasmSdk`). Gated on the same flag the Swift core
-  // reads natively, so it exists exactly when the flush hooks are installed.
+  // Global hook for forcing the usage POST out and awaiting it without a model
+  // reference, mirroring the wasm entry (`createWasmSdk`). Gated on the same flag
+  // the telemetry log itself needs; a host holding a model calls its
+  // `flushTelemetry()` instead.
   if (process.env.DAL_HTTP_DEBUG) {
     globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
   }

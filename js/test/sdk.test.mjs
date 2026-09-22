@@ -41,6 +41,10 @@ function fakeCore({ downloaded = false, failDownload = false } = {}) {
       calls.push(["destroy", handle]);
       live.delete(handle);
     },
+    async flushTelemetry() {
+      calls.push(["flushTelemetry"]);
+      return true;
+    },
     withCallGroup: async (body) => {
       const id = "group-1";
       calls.push(["groupStart", id]);
@@ -111,6 +115,19 @@ test("withCallGroup opens and releases a group around the body", async () => {
     core.calls.map((c) => c[0]).filter((n) => n.startsWith("group") || n === "run"),
     ["groupStart", "run", "groupEnd"],
   );
+});
+
+test("flushTelemetry reaches the core, and a core without the hook is not an error", async () => {
+  const core = fakeCore();
+  const model = await readyModel({ core, packageName: "@x/y", handle: core.create("/c", "") });
+  assert.equal(await model.flushTelemetry(), true);
+  assert.equal(core.calls.filter((c) => c[0] === "flushTelemetry").length, 1);
+
+  // Defensive only: both cores bind the hook. A host-supplied binary that lacks it
+  // must still not make the wrapper throw.
+  const older = { ...fakeCore(), flushTelemetry: undefined };
+  const other = await readyModel({ core: older, packageName: "@x/y", handle: older.create("/c", "") });
+  assert.equal(await other.flushTelemetry(), true);
 });
 
 test("wasmCore adapts the wasm ABI to the shared core shape", async () => {

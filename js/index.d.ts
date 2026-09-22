@@ -122,6 +122,8 @@ export class LoadedModel {
   run(input: Uint8Array, options: Uint8Array, call?: CallOptions): Promise<FfiReader>;
   isDownloaded(): boolean;
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Emit recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   dispose(): void;
 }
 
@@ -157,7 +159,7 @@ export interface NormalizedCore {
     deviceId: string | null,
   ): Promise<FfiReader>;
   destroy(handle: number): void;
-  /** wasm only: force the usage POST out and await it (debug). */
+  /** Emit recorded usage and await the POST, on either core. */
   flushTelemetry?(): Promise<boolean>;
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
 }

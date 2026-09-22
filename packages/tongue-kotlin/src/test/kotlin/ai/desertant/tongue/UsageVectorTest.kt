@@ -2,9 +2,11 @@ package ai.desertant.tongue
 
 import ai.desertant.tongue.usage.AppInfo
 import ai.desertant.tongue.usage.ClientDeps
+import ai.desertant.tongue.usage.DAY_MS
 import ai.desertant.tongue.usage.IngestBody
 import ai.desertant.tongue.usage.IngestEvent
 import ai.desertant.tongue.usage.SdkInfo
+import ai.desertant.tongue.usage.SendHandle
 import ai.desertant.tongue.usage.buildBody
 import ai.desertant.tongue.usage.makeSend
 import com.sun.net.httpserver.HttpServer
@@ -13,8 +15,10 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import ai.desertant.tongue.usage.UsageClient
 import ai.desertant.tongue.usage.UsageState
+import ai.desertant.tongue.usage.UsageTurnstile
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * Replays `usage_vectors.json` through this port's hand-written [UsageClient].
@@ -53,7 +57,10 @@ class UsageVectorTest {
                     now = { now },
                     loadState = { state },
                     saveState = { state = it },
-                    send = { sends.add(it) },
+                    send = {
+                        sends.add(it)
+                        null
+                    },
                 ),
             )
 
@@ -160,7 +167,7 @@ class UsageVectorTest {
         server.start()
         try {
             val endpoint = "http://127.0.0.1:${server.address.port}/api/v1/ingest"
-            makeSend(endpoint)(
+            val handle = makeSend(endpoint)(
                 IngestBody(
                     platform = "jvm",
                     key = "k",
@@ -170,6 +177,9 @@ class UsageVectorTest {
                     events = listOf(IngestEvent(deviceId = "d", callCount = 2)),
                 ),
             )
+            // The awaitable contract `flushTelemetry()` rests on: it returns once the
+            // server has answered, not when the request is queued.
+            handle?.await()
             check(latch.await(10, TimeUnit.SECONDS)) { "the transport never reached the server" }
             assertEquals("POST", method)
             assertEquals("application/json", contentType)
@@ -183,6 +193,97 @@ class UsageVectorTest {
         } finally {
             server.stop(0)
         }
+    }
+
+    /**
+     * `load()` is what `flushTelemetry()` calls before a short-lived JVM exits, so
+     * two things have to hold: it posts although the window has not elapsed, and it
+     * hands back a send the caller can wait on.
+     */
+    @Test
+    fun forcedLoadPostsInsideTheWindowAndReturnsTheSendInFlight() {
+        var state = UsageState()
+        val now = 1_700_000_000_000L
+        val sends = mutableListOf<IngestBody>()
+        var awaited = false
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "jvm",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { now },
+                loadState = { state },
+                saveState = { state = it },
+                send = {
+                    sends.add(it)
+                    SendHandle { awaited = true }
+                },
+            ),
+        )
+
+        client.start()
+        client.flush()
+        client.recordCall(3)
+
+        val handle = client.load()
+        assertEquals(2, sends.size, "the forced load did not post inside the window")
+        assertEquals(3, sends[1].events.first().callCount)
+        assertEquals(now, state.lastActiveAt, "the forced load stamps the window")
+
+        handle?.await()
+        assertEquals(true, awaited, "load() did not return the send in flight")
+    }
+
+    /**
+     * A forced flush takes the pending debounce's place: that timer must be gone,
+     * not merely harmless when it fires, and the turnstile must still flush a
+     * detection recorded afterwards. Both halves discriminate. Leaving the timer
+     * behind sends the next detection a debounce early; leaving the flag set means
+     * `record()` never schedules again and that detection is never sent at all.
+     *
+     * This is where the port drifted from the JavaScript twin, which cancels.
+     */
+    @Test
+    fun aForcedFlushTakesThePendingDebounceAndTheTurnstileStillFlushesLater() {
+        var state = UsageState()
+        val now = 1_700_000_000_000L
+        val sends = mutableListOf<IngestBody>()
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "server",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { now },
+                loadState = { state },
+                saveState = { state = it },
+                send = {
+                    sends.add(it)
+                    SendHandle { }
+                },
+            ),
+        )
+        val turnstile = UsageTurnstile(client, flushAfterMs = 500)
+        client.start()
+
+        turnstile.record()
+        assertEquals(0, sends.size, "the debounce sent before its delay")
+
+        Thread.sleep(300)
+        assertTrue(turnstile.flushTelemetry())
+        assertEquals(1, sends.size, "the forced flush did not send")
+
+        // Past the replaced timer's deadline, before the next one's: a timer left
+        // behind would have sent by now.
+        Thread.sleep(100)
+        turnstile.record()
+        Thread.sleep(300)
+        assertEquals(1, sends.size, "the debounce the flush replaced sent on its own")
+
+        // Past the new debounce: the detection recorded above must arrive.
+        Thread.sleep(600)
+        assertEquals(2, sends.size, "the turnstile stopped flushing after a forced flush")
     }
 
     // A reader for this document's shape only: flat objects inside "cases", whose

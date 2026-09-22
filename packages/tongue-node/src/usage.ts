@@ -208,12 +208,28 @@ export class UsageClient {
       now: () => number;
       loadState: () => UsageState;
       saveState: (state: UsageState) => void;
-      send: (body: IngestBody) => void;
+      send: (body: IngestBody) => Promise<void> | void;
     },
   ) {}
 
   recordCall(n = 1): void {
     if (n > 0) this.sessionCalls += n;
+  }
+
+  /** Whether there is usage to report, so a forced flush never invents a call. */
+  get hasUsage(): boolean {
+    return this.sessionCalls > 0 || this.deps.loadState().carryCallCount > 0;
+  }
+
+  /**
+   * Force a turnstile now, ignoring the window, and hand back the send's
+   * completion so a caller can await the POST. Port of core's `load()`.
+   */
+  load(): Promise<void> | void {
+    const st = this.deps.loadState();
+    this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
+    this.queue();
+    return this.flush();
   }
 
   start(): void {
@@ -229,7 +245,7 @@ export class UsageClient {
     this.flush();
   }
 
-  flush(): void {
+  flush(): Promise<void> | void {
     const st = this.deps.loadState();
 
     if (this.pending) {
@@ -239,8 +255,7 @@ export class UsageClient {
       if (count !== undefined) event.callCount = count;
       this.deps.saveState({ lastActiveAt: st.lastActiveAt, carryCallCount: 0 });
       this.sessionCalls = 0;
-      this.deps.send(this.makeBody([event]));
-      return;
+      return this.deps.send(this.makeBody([event]));
     }
 
     if (this.emitted && this.sessionCalls > 0) {
@@ -248,8 +263,7 @@ export class UsageClient {
       const event: IngestEvent = { name: "load", deviceId: this.deps.deviceId };
       if (count !== undefined) event.callCount = count;
       this.sessionCalls = 0;
-      this.deps.send(this.makeBody([event]));
-      return;
+      return this.deps.send(this.makeBody([event]));
     }
 
     if (!this.emitted && this.sessionCalls > 0) {
@@ -292,29 +306,36 @@ export class UsageClient {
  * INGEST_ENDPOINT, matching core, which keeps the destination out of the public
  * API. Without this the HTTP path was never executed by any test — the state
  * machine was covered, the send was not.
+ *
+ * Returns the send's promise so `flushTelemetry()` can await the POST. The
+ * debounced path ignores it, exactly as core's fire-and-forget send does.
  */
-export function makeSend(endpoint = INGEST_ENDPOINT): (body: IngestBody) => void {
+export function makeSend(endpoint = INGEST_ENDPOINT): (body: IngestBody) => Promise<void> {
   return (body) => {
     let json: string;
     try {
       json = buildBody(body);
     } catch {
-      return;
+      return Promise.resolve();
     }
     try {
       const beacon = (globalThis as { navigator?: { sendBeacon?: (u: string, d: string) => boolean } })
         .navigator?.sendBeacon;
-      void fetch(endpoint, {
+      return fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: json,
         keepalive: true,
-      }).catch(() => {
-        // Best effort. A blocked request must never surface to the caller.
-        if (beacon) try { beacon.call(globalThis.navigator, endpoint, json); } catch { /* ignore */ }
-      });
+      }).then(
+        () => undefined,
+        () => {
+          // Best effort. A blocked request must never surface to the caller.
+          if (beacon) try { beacon.call(globalThis.navigator, endpoint, json); } catch { /* ignore */ }
+        },
+      );
     } catch {
       /* no fetch in this runtime; reporting is best-effort */
+      return Promise.resolve();
     }
   };
 }
@@ -408,5 +429,30 @@ export class UsageTurnstile {
     }, FLUSH_AFTER_MS);
     // Never hold a Node process open for a pending flush.
     (this.flushTimer as { unref?: () => void }).unref?.();
+  }
+
+  /**
+   * Send what this turnstile has recorded and await the POST, so a process that
+   * ends right after a detection does not exit before it lands. One load per
+   * device per call, whatever the re-emit window says: the forced emit core's
+   * `flushTelemetry()` performs. A turnstile with nothing recorded sends
+   * nothing and reports true: an idle process must not invent a billable load.
+   */
+  async flushTelemetry(): Promise<boolean> {
+    this.cancelFlush();
+    if (!this.client.hasUsage) return true;
+    try {
+      await this.client.load();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Drop the pending debounce, so a forced flush is not followed by a second send. */
+  private cancelFlush(): void {
+    if (this.flushTimer === null) return;
+    clearTimeout(this.flushTimer);
+    this.flushTimer = null;
   }
 }

@@ -42,9 +42,11 @@ public func makeSend(endpoint: String) -> @Sendable (IngestBody, SendOptions) ->
                 if debug { print("[usage] send failed: \(error)") }
             }
         }
-        // When enabled, let a caller await this otherwise fire-and-forget send.
-        if telemetryDebugEnabled() {
-            Task { await TelemetryDebug.shared.trackSend(task) }
+        // Let a caller's `flushTelemetry()` await this fire-and-forget send.
+        Task {
+            let id = await TelemetryDebug.shared.trackSend(task)
+            await task.value
+            await TelemetryDebug.shared.untrackSend(id)
         }
     }
 }

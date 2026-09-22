@@ -38,7 +38,7 @@ internal class ClientDeps(
     val now: () -> Long,
     val loadState: () -> UsageState,
     val saveState: (UsageState) -> Unit,
-    val send: (IngestBody) -> Unit,
+    val send: (IngestBody) -> SendHandle?,
 )
 
 internal class UsageClient(private val deps: ClientDeps) {
@@ -50,6 +50,9 @@ internal class UsageClient(private val deps: ClientDeps) {
     fun recordCall(n: Int = 1) {
         if (n > 0) sessionCalls += n
     }
+
+    /** Whether there is usage to report, so a forced flush never invents a call. */
+    fun hasUsage(): Boolean = sessionCalls > 0 || deps.loadState().carryCallCount > 0
 
     /**
      * Evaluate the window and, if a new day is due, queue a turnstile.
@@ -70,16 +73,16 @@ internal class UsageClient(private val deps: ClientDeps) {
         flush()
     }
 
-    /** Force a turnstile now, ignoring the window. */
-    fun load(context: Map<String, String>? = null) {
+    /** Force a turnstile now, ignoring the window, and hand back the send in flight. */
+    fun load(context: Map<String, String>? = null): SendHandle? {
         val st = deps.loadState()
         deps.saveState(UsageState(deps.now(), st.carryCallCount))
         queue(context)
-        flush()
+        return flush()
     }
 
-    /** Flush any pending event. */
-    fun flush() {
+    /** Flush any pending event, returning the send it started. */
+    fun flush(): SendHandle? {
         val st = deps.loadState()
 
         val queued = pending
@@ -91,8 +94,7 @@ internal class UsageClient(private val deps: ClientDeps) {
                 deps.saveState(UsageState(st.lastActiveAt, 0))
             }
             sessionCalls = 0
-            deps.send(makeBody(listOf(event)))
-            return
+            return deps.send(makeBody(listOf(event)))
         }
 
         if (emitted && sessionCalls > 0) {
@@ -103,8 +105,7 @@ internal class UsageClient(private val deps: ClientDeps) {
                 context = currentContext(),
             )
             sessionCalls = 0
-            deps.send(makeBody(listOf(event)))
-            return
+            return deps.send(makeBody(listOf(event)))
         }
 
         if (!emitted && sessionCalls > 0 && deps.callCount == null) {
@@ -112,6 +113,7 @@ internal class UsageClient(private val deps: ClientDeps) {
             deps.saveState(UsageState(st.lastActiveAt, st.carryCallCount + sessionCalls))
             sessionCalls = 0
         }
+        return null
     }
 
     // Provider is authoritative when set, else the accumulated (carry + session)

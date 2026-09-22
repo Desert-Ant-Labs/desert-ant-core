@@ -16,30 +16,58 @@ import java.util.TimerTask
  * thread-safe, and the artifact takes no dependency on kotlinx-coroutines. The
  * critical section is a couple of integer comparisons.
  */
-internal class UsageTurnstile private constructor(private val client: UsageClient) {
+internal class UsageTurnstile internal constructor(
+    private val client: UsageClient,
+    /** The debounce. A parameter so a test can watch it fire without sleeping 3 s. */
+    private val flushAfterMs: Long = FLUSH_AFTER_MS,
+) {
 
     private val lock = Any()
     private var flushScheduled = false
+    private var scheduledFlush: TimerTask? = null
 
     /** One detection. */
     fun record() {
+        var task: TimerTask? = null
         synchronized(lock) {
             client.recordCall()
             if (flushScheduled) return
             flushScheduled = true
-        }
-        timer.schedule(
-            object : TimerTask() {
+            task = object : TimerTask() {
                 override fun run() {
                     synchronized(lock) {
                         flushScheduled = false
+                        scheduledFlush = null
                         runCatching { client.flush() }
                     }
                 }
-            },
-            FLUSH_AFTER_MS,
-        )
+            }
+            scheduledFlush = task
+        }
+        // Scheduled outside the lock: the timer thread takes its own queue lock,
+        // and a task of ours takes `lock` while running.
+        task?.let { timer.schedule(it, flushAfterMs) }
     }
+
+    /**
+     * Send what this turnstile has recorded and block until the POST has finished,
+     * so a JVM that exits right after a detection does not leave before it lands.
+     * One load per device per call, whatever the re-emit window says: the forced
+     * emit core's `flushTelemetry()` performs. Nothing recorded means nothing
+     * sent, so an idle process never invents a billable load.
+     */
+    fun flushTelemetry(): Boolean = runCatching {
+        val handle = synchronized(lock) {
+            // Cancel the debounce: this call is the flush, and a timer left behind
+            // would send again on its own.
+            scheduledFlush?.cancel()
+            scheduledFlush = null
+            flushScheduled = false
+            if (client.hasUsage()) client.load() else null
+        }
+        handle?.await()
+        true
+    }.getOrDefault(false)
 
     internal companion object {
         /** Debounce before flushing, matching core's `TrackedSession`. */

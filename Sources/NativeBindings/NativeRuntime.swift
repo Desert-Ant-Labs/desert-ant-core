@@ -69,10 +69,9 @@ public func nativeRun(
     return payload.flatMap(ffiEmit)
 }
 
-/// Debug-only: force every tracked session to emit usage now (bypassing the
-/// debounce and the re-emit window) and block until the sends complete. Only
-/// does anything when `DAL_HTTP_DEBUG` is set (otherwise no hooks are installed
-/// and this returns immediately).
+/// Force every tracked session to emit usage now (bypassing the debounce and the
+/// re-emit window) and block until the sends complete. The C ABI's
+/// `dal_flush_telemetry`, behind the SDKs' `flushTelemetry()`.
 public func nativeFlushTelemetry() {
     blockingValue { await TelemetryDebug.shared.flushAndWait() }
 }

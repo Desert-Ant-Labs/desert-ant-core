@@ -37,5 +37,7 @@ export declare class Align {
                          options: RefineOptions): Promise<(W & { refined: boolean })[]>;
   isDownloaded(): boolean;
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   dispose(): void;
 }

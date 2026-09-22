@@ -1,18 +1,23 @@
-// Opt-in support to force telemetry to send immediately and await it.
+// On-demand telemetry flush: send the usage recorded so far and await the POST.
 //
 // The usage transport is deliberately fire-and-forget and debounced, so a POST
 // does not go out right after an inference call. This lets a caller force every
 // tracked session to emit now, bypassing the debounce and the re-emit window,
-// and then await the in-flight send so a short-lived process/example does not
-// exit before it completes. Useful for tests, tools, and diagnostics.
+// and then await the in-flight send so a short-lived process does not exit
+// before it completes.
+//
+// It is the SDK's public `flushTelemetry()`: the wasm `@JS` export and the
+// native `dal_flush_telemetry` symbol both land on `flushAndWait`. Every tracked
+// session installs its hook on the first run, so the flush works with or without
+// the debug flag below.
 //
 // One emit per device, not one per session: a model that runs a cascade over
 // several sessions (align is coarse + fine) would otherwise report the same
 // device's usage once per session.
 //
-// Enabled from JS by setting `globalThis.__dalHttpDebug = true`; off native,
-// set the `DAL_HTTP_DEBUG` environment variable. When disabled, the hooks are
-// not installed and there is no overhead.
+// The debug log and the `__dalFlushTelemetry` global stay opt-in: enabled from JS
+// by setting `globalThis.__dalHttpDebug = true`, off native with the
+// `DAL_HTTP_DEBUG` environment variable.
 
 #if os(WASI)
 import JavaScriptKit
@@ -20,7 +25,7 @@ import JavaScriptKit
 import PlatformSupport
 #endif
 
-/// Whether the telemetry force-flush hooks are enabled.
+/// Whether the debug telemetry log and the JS force-flush global are enabled.
 public func telemetryDebugEnabled() -> Bool {
     #if os(WASI)
     return JSObject.global.__dalHttpDebug.boolean ?? false
@@ -29,21 +34,55 @@ public func telemetryDebugEnabled() -> Bool {
     #endif
 }
 
-/// Tracks active tracked-session flush hooks and in-flight telemetry sends so a
+/// One tracked session's flush hook.
+///
+/// Two closures rather than one: `flush` forces an emit, and a prune must be able
+/// to ask whether a session is still there without sending anything on its behalf.
+public struct FlushHook: Sendable {
+    public let isAlive: @Sendable () -> Bool
+    public let flush: @Sendable () async -> Bool
+
+    public init(isAlive: @escaping @Sendable () -> Bool, flush: @escaping @Sendable () async -> Bool) {
+        self.isAlive = isAlive
+        self.flush = flush
+    }
+}
+
+/// Tracks live tracked-session flush hooks and in-flight telemetry sends, so a
 /// caller can force a send and wait for it to finish.
 public actor TelemetryDebug {
     public static let shared = TelemetryDebug()
 
-    private var flushHooks: [@Sendable () async -> Bool] = []
-    private var inflight: [Task<Void, Never>] = []
+    /// Past this many hooks, the dead ones are dropped before another is added.
+    /// A host that loads a model per request and never flushes would otherwise
+    /// hold a closure for every session it has ever opened. Live hooks are never
+    /// dropped: losing one is silent metering loss, since nothing else forces
+    /// that session's usage out.
+    private let maxHooks = 256
+
+    private var flushHooks: [FlushHook] = []
+    private var inflight: [Int: Task<Void, Never>] = [:]
+    private var nextSendId = 0
     private var claimedDevices: Set<String> = []
     private var flushing = false
     private var parked: [CheckedContinuation<Void, Never>] = []
 
-    /// Register a closure that forces a tracked session to emit immediately. The
-    /// hook returns false once its session is gone, which drops it.
-    public func registerFlushHook(_ hook: @escaping @Sendable () async -> Bool) {
+    /// Register a hook that forces a tracked session to emit immediately. The
+    /// hook's `flush` returns false once its session is gone, which drops it.
+    public func registerFlushHook(_ hook: FlushHook) {
+        pruneHooksIfNeeded()
         flushHooks.append(hook)
+    }
+
+    /// The one-closure form, kept so 3.3.0 callers still compile. Such a hook is
+    /// never pruned, since it cannot say whether it is still live.
+    public func registerFlushHook(_ hook: @escaping @Sendable () async -> Bool) {
+        registerFlushHook(FlushHook(isAlive: { true }, flush: hook))
+    }
+
+    private func pruneHooksIfNeeded() {
+        guard flushHooks.count > maxHooks else { return }
+        flushHooks.removeAll { !$0.isAlive() }
     }
 
     /// Claim this flush pass for one device, so a model that runs a cascade over
@@ -53,9 +92,22 @@ public actor TelemetryDebug {
         claimedDevices.insert(device).inserted
     }
 
-    /// Record an in-flight telemetry send so `flushAndWait` can await it.
-    public func trackSend(_ task: Task<Void, Never>) {
-        inflight.append(task)
+    /// Record an in-flight telemetry send so `flushAndWait` can await it. Returns
+    /// the id to hand back to `untrackSend` once it finishes, so the list holds
+    /// live sends only. Dropping one by cap or by age would be worse than the
+    /// memory: a send still running when its entry goes is a send the next flush
+    /// returns without waiting for, which is the exit-before-it-lands failure this
+    /// exists to prevent.
+    @discardableResult
+    public func trackSend(_ task: Task<Void, Never>) -> Int {
+        nextSendId += 1
+        inflight[nextSendId] = task
+        return nextSendId
+    }
+
+    /// Forget a send that has finished.
+    public func untrackSend(_ id: Int) {
+        inflight[id] = nil
     }
 
     /// Force every tracked session to emit now (bypassing the debounce and the
@@ -69,15 +121,15 @@ public actor TelemetryDebug {
         // the live prefix cannot drop one that just started.
         let marked = flushHooks.count
         claimedDevices.removeAll()
-        var live: [@Sendable () async -> Bool] = []
+        var live: [FlushHook] = []
         for hook in flushHooks {
-            if await hook() { live.append(hook) }
+            if await hook.flush() { live.append(hook) }
         }
         flushHooks = live + flushHooks.dropFirst(marked)
         // Let the freshly dispatched detached sends register themselves.
         for _ in 0..<5 { await Task.yield() }
-        let pending = inflight
-        inflight = []
+        let pending = Array(inflight.values)
+        inflight.removeAll()
         for task in pending { await task.value }
         flushing = false
         let waiting = parked

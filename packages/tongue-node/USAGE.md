@@ -43,6 +43,23 @@ Extra events cannot over-bill: the server counts `COUNT(DISTINCT deviceId)` per
 month and sums `callCount`, so the number of requests changes nothing about what
 is charged. It does mean a busy browser tab can post more than once an hour.
 
+### Ending before the debounce fires
+
+A script, a worker or a serverless invocation can detect once and exit inside the
+3-second debounce. The `beforeExit` hook covers an orderly Node exit, but not a
+container that is torn down. `flushTelemetry()` does it explicitly:
+
+```ts
+const tongue = await Tongue.load();
+tongue.detect(text);
+await tongue.flushTelemetry();   // the POST has landed before this resolves
+```
+
+It emits one `load` per device whatever the window says, so it is safe to call
+after every detection, and it sends nothing at all when nothing was recorded: an
+idle process is not a billable device. The Kotlin and JavaScript surfaces expose
+the same method, and it is what a short-lived caller should await before exiting.
+
 This is billing metering, not product analytics: the licence is free below a
 threshold and commercial above it, and monthly active devices is the measure.
 
