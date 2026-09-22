@@ -6,7 +6,8 @@
 // buffers, and exposes a tiny name/run/read surface that `LiteRTSession` (in the
 // Inference module) marshals `Tensor`s through. All of LiteRT's intricate
 // lifecycle (environment, model, options, compiled model, tensor buffer
-// requirements, lock/unlock) stays here in C.
+// requirements, lock/unlock) stays here in C. The environment is one per
+// process, shared by every session (see shim.c for why).
 //
 // Element type codes match LiteRtElementType: 1 = float32, 2 = int32, 4 = int64.
 #ifndef DAL_CLITERT_H_
