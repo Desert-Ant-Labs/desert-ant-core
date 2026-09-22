@@ -11,7 +11,7 @@ public enum AlignModel: ModelDeclaration {
     /// Pinned tag, never a branch: a branch would swap weights under every installed copy.
     public static let revision = "v1.1.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
-    public static let sdkVersion = "3.3.0"
+    public static let sdkVersion = "3.3.1"
     public static let summary = "Word-timestamp refinement for any transcript, on device."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).
