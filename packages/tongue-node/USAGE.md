@@ -20,7 +20,9 @@ the same way.
 
 - **`deviceId`** is a v4 UUID generated on the device on first use and persisted.
   It is not a hardware identifier, not an advertising id, and not derived from
-  anything about the user or the machine.
+  anything about the user or the machine. A server that knows its own device
+  identity sets `DAL_DEVICE_ID` (`globalThis.__dalDeviceId` in JavaScript, or the
+  same-named JVM system property on Kotlin), which replaces the generated id.
 - **`app.id`** is the bundle id or package name — the app, not the person.
 - **`callCount`** is how many detections happened, summed server-side.
 - **No text is ever sent.** Nothing that was detected, no language results, no

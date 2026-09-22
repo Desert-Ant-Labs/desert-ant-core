@@ -39,6 +39,14 @@ internal fun apiKey(): String? =
         ?: setting("DAL_API_KEY")
 
 /**
+ * A host-provided device id, or null. Core's `hostProvidedDeviceId()` reads the
+ * same variable, and when set it replaces the persisted per-install id: a server
+ * that knows its own device identity names it rather than being counted anew
+ * per process.
+ */
+internal fun hostProvidedDeviceId(): String? = setting("DAL_DEVICE_ID")
+
+/**
  * How this port reads the process environment. A seam for tests only: the Gradle
  * test task sets `DAL_USAGE_DISABLED` in the environment, and the environment
  * wins, so without it the system property path could never be exercised.
@@ -180,7 +188,7 @@ internal fun makeClient(
     val appId = defaultAppIdentifier(context)
     val key = apiKey()
     val namespace = key ?: appId
-    val device = storage.persistentDeviceId()
+    val device = hostProvidedDeviceId() ?: storage.persistentDeviceId()
     return UsageClient(
         ClientDeps(
             deviceId = device,
