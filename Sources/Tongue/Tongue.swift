@@ -58,7 +58,7 @@ public struct Tongue: Sendable {
         if let usage {
             // Fire-and-forget: the turnstile must never sit between a keystroke
             // and its answer.
-            Task { await usage.record() }
+            usage.recordInBackground()
         }
         let normalized = Normalizer.normalize(text)
         let route = Router.route(normalized)

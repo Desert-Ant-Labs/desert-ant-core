@@ -205,10 +205,12 @@ public actor Voz {
         await acquirePipeline()
         defer { releasePipeline() }
         // Every public entry point funnels through here, so this is the one
-        // place a transcription is counted. Fire-and-forget: the turnstile
-        // must never sit between the caller and their transcript.
+        // place a transcription is counted. Awaited rather than left to a task
+        // of its own, so a flush after the transcript returns always sees the
+        // call. The hop only records and schedules the send; it never waits on
+        // the network.
         #if canImport(CoreML)
-        if let usage { Task { await usage.record() } }
+        if let usage { await usage.record() }
         #endif
         let started = Date()
         let (text, words) = try await pipeline.run(stream: &stream) {
