@@ -149,6 +149,10 @@ export class Tongue {
    * that ends right after a detection does not exit before it lands. Useful in a
    * short-lived script or worker, which has no idle gap for the debounce to fire
    * in. Usage is reported on its own; this is not required.
+   *
+   * Resolves true once the POST has finished, false only when the flush itself
+   * threw. The endpoint's answer is not reported, as in core: reporting is best
+   * effort.
    */
   async flushTelemetry(): Promise<boolean> {
     if (!this.usage) return true;

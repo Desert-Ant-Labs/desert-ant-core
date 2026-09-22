@@ -305,6 +305,34 @@ class UsageVectorTest {
     }
 
     /**
+     * What `Tongue.flushTelemetry()` documents: a POST the endpoint refuses still
+     * returns true, as core and the Node port do. Reporting is best effort.
+     */
+    @Test
+    fun aRefusedPostStillReportsAFinishedFlush() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val arrived = CountDownLatch(1)
+        server.createContext("/api/v1/ingest") { exchange ->
+            exchange.requestBody.readBytes()
+            exchange.sendResponseHeaders(500, -1)
+            exchange.close()
+            arrived.countDown()
+        }
+        server.start()
+        try {
+            val endpoint = "http://127.0.0.1:${server.address.port}/api/v1/ingest"
+            val client = makeClient(sdkVersion = "9.9.9", storage = InMemoryStorage(), send = makeSend(endpoint))
+            val turnstile = UsageTurnstile(client)
+            client.start()
+            turnstile.record()
+            assertTrue(turnstile.flushTelemetry())
+            assertEquals(0L, arrived.count, "the flush never reached the server")
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    /**
      * `DAL_DEVICE_ID` names the device, as it does in core and the Node port, and
      * wins over the persisted id. The environment first, then the system property.
      */
