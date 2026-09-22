@@ -15,9 +15,15 @@ const NATIVE_STARTED = Symbol.for("desert-ant-labs.native-started");
 
 /** `globalThis.__dalDeviceId`, as a string or a zero-arg function, or null. */
 function hostDeviceId() {
-  const raw = globalThis.__dalDeviceId;
-  const value = typeof raw === "function" ? raw() : raw;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  try {
+    const raw = globalThis.__dalDeviceId;
+    const value = typeof raw === "function" ? raw() : raw;
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  } catch {
+    // A getter that throws (say, outside a request context) means no host id,
+    // not a failed inference.
+    return null;
+  }
 }
 
 /**
@@ -42,8 +48,13 @@ function bridgeHostIdentity() {
     ["__dalApiKey", "DAL_API_KEY"],
     ["__dalDeviceId", "DAL_DEVICE_ID"],
   ]) {
-    const raw = globalThis[name];
-    const value = typeof raw === "function" ? raw() : raw;
+    let value;
+    try {
+      const raw = globalThis[name];
+      value = typeof raw === "function" ? raw() : raw;
+    } catch {
+      continue;
+    }
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
   }
 }
@@ -85,8 +96,9 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
       // Per call rather than through the environment, which is no longer written
-      // once a native model has started (see bridgeHostIdentity).
-      const device = deviceId ?? hostDeviceId();
+      // once a native model has started (see bridgeHostIdentity). The
+      // environment still wins, as it does in the bridge.
+      const device = deviceId ?? (process.env.DAL_DEVICE_ID ? null : hostDeviceId());
       const ptr = await callAsync(
         lib.run, handle, input, input.length, payload, payload.length, group, device);
       if (!ptr) throw new Error(`${packageName}: the model failed to run`);

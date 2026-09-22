@@ -27,12 +27,13 @@ internal class UsageTurnstile internal constructor(
     private var scheduledFlush: TimerTask? = null
 
     /**
-     * The newest send the debounce started. `flushTelemetry` awaits it: the timer
-     * may have fired just before, leaving nothing recorded for the forced flush to
-     * send while the POST it started is still in flight. Only the newest is kept:
-     * the real sender is one thread, so it finishing means every earlier one has.
+     * The newest send this turnstile started, from the debounce or a flush. The
+     * next flush awaits it: the timer may have fired just before, or an earlier
+     * flush may have given up at its deadline, leaving a POST in flight with
+     * nothing left to send. Only the newest is kept: the real sender is one
+     * thread, so it finishing means every earlier one has.
      */
-    private var debouncedSend: SendHandle? = null
+    private var lastSend: SendHandle? = null
 
     /** One detection. */
     fun record() {
@@ -44,7 +45,7 @@ internal class UsageTurnstile internal constructor(
                     synchronized(lock) {
                         flushScheduled = false
                         scheduledFlush = null
-                        runCatching { client.flush() }.getOrNull()?.let { debouncedSend = it }
+                        runCatching { client.flush() }.getOrNull()?.let { lastSend = it }
                     }
                 }
             }
@@ -74,9 +75,8 @@ internal class UsageTurnstile internal constructor(
             scheduledFlush?.cancel()
             scheduledFlush = null
             flushScheduled = false
-            val earlier = debouncedSend
-            debouncedSend = null
-            listOfNotNull(earlier, if (client.hasUsage()) client.load() else null)
+            val forced = if (client.hasUsage()) client.load() else null
+            listOfNotNull(lastSend, forced).also { lastSend = forced ?: lastSend }
         }
         handles.awaitAll()
         true
@@ -94,9 +94,8 @@ internal class UsageTurnstile internal constructor(
                 scheduledFlush?.cancel()
                 scheduledFlush = null
                 flushScheduled = false
-                val earlier = debouncedSend
-                debouncedSend = null
-                listOfNotNull(earlier, runCatching { client.flush() }.getOrNull())
+                val flushed = runCatching { client.flush() }.getOrNull()
+                listOfNotNull(lastSend, flushed).also { lastSend = flushed ?: lastSend }
             }
             handles.awaitAll()
         }

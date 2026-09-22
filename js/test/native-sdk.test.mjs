@@ -75,3 +75,19 @@ test("once a native model has started, the bridge no longer writes the environme
     fs.rmSync(here, { recursive: true, force: true });
   }
 });
+
+test("a host getter that throws does not fail the load", async () => {
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  globalThis.__dalDeviceId = () => {
+    throw new Error("no request context");
+  };
+  try {
+    const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+    // It still rejects, but at the missing native library, not at the getter.
+    await assert.rejects(sdk.open(), (error) => !String(error?.message).includes("no request context"));
+  } finally {
+    delete globalThis.__dalDeviceId;
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});
