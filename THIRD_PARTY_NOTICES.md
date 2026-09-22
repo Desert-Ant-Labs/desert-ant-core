@@ -33,27 +33,15 @@ No non-commercial or unlicensed data is used.
 
 ## Align
 
-The Align models were trained from speech and machine-generated alignment references.
-The source datasets and reference systems are not redistributed here.
-
-### Training audio
-
-- **FLEURS** - Google - **CC BY 4.0**. Multilingual speech used for the production model.
-  Dataset: https://huggingface.co/datasets/google/fleurs
-
-### Reference generation (not redistributed here)
-
-- **Qwen3-ForcedAligner-0.6B** - Alibaba Qwen team - **Apache-2.0**. Primary word-boundary
-  reference for all nine languages. The aligner is not included here.
-- **OWSM-CTC v4 1B** - ESPnet/WavLab contributors - **CC BY 4.0**. Used on the validation
-  split to estimate CTC timing offsets and as a gross alignment-outlier detector where stable.
-  OWSM timestamps are not averaged into the final references. The model is not included here.
-- **ESPnet** - ESPnet contributors - **Apache-2.0**. CTC inference and alignment tooling used
-  by the training pipeline.
-
-Align links only Apple system frameworks (Core ML, Accelerate, AVFoundation, Speech); no
-third-party runtime library is used. The compiled Align weights, calibration policy, and
-Swift implementation are distributed under [`LICENSE.md`](LICENSE.md).
+On Apple, Align links only system frameworks (Core ML, AVFoundation, Speech, and Accelerate
+through the shared AudioDSP module). On Linux and Windows it runs the LiteRT export through
+LiteRT (Google, Apache-2.0), the package's `CLiteRt` dependency. Training-time data sources
+and reference systems (LibriSpeech, AMI Meeting Corpus, FLEURS, Qwen3-ForcedAligner,
+wav2vec 2.0, OWSM-CTC, the proposal engines) are attributed in the model repo's
+`THIRD_PARTY_NOTICES.md` at
+https://huggingface.co/desert-ant-labs/align/blob/main/THIRD_PARTY_NOTICES.md. The compiled
+Align weights, calibration policy and Swift implementation are distributed under
+[`LICENSE.md`](LICENSE.md).
 
 ---
 
@@ -74,27 +62,27 @@ by policy, and the corpus build enforces the exclusion and records a provenance
 manifest of every file kept and dropped.
 
 ### Training data
-- **Tatoeba** sentence and link exports — [tatoeba.org](https://tatoeba.org) —
+- **Tatoeba** sentence and link exports - [tatoeba.org](https://tatoeba.org) -
   **CC BY 2.0 FR**, © Tatoeba contributors. The primary corpus.
-- **Common Voice** sentence collections —
+- **Common Voice** sentence collections -
   [common-voice/common-voice](https://github.com/common-voice/common-voice)
-  (`server/data`) — **CC0 1.0**. Files derived from Wikipedia or Europarl are
+  (`server/data`) - **CC0 1.0**. Files derived from Wikipedia or Europarl are
   excluded (share-alike upstreams).
-- **Wikidata Lexemes** — [wikidata.org](https://www.wikidata.org) lexeme dumps —
+- **Wikidata Lexemes** - [wikidata.org](https://www.wikidata.org) lexeme dumps -
   **CC0 1.0**.
-- **Hunspell dictionaries** —
-  [wooorm/dictionaries](https://github.com/wooorm/dictionaries) — per-dictionary
+- **Hunspell dictionaries** -
+  [wooorm/dictionaries](https://github.com/wooorm/dictionaries) - per-dictionary
   permissive terms (MIT / BSD / Apache-2.0).
-- **Universal Dependencies treebanks** —
-  [universaldependencies.org](https://universaldependencies.org) — **CC BY 4.0**,
+- **Universal Dependencies treebanks** -
+  [universaldependencies.org](https://universaldependencies.org) - **CC BY 4.0**,
   verified per treebank; share-alike and non-commercial treebanks excluded.
 
-### Evaluation only — never used for training
-- **FLORES-200** — NLLB Team et al. — CC BY-SA 4.0 — held out.
-- **WiLI-2018** — ODC-BY 1.0 — held out.
-- **eld benchmark** —
+### Evaluation only, never used for training
+- **FLORES-200** - NLLB Team et al. - CC BY-SA 4.0 - held out.
+- **WiLI-2018** - ODC-BY 1.0 - held out.
+- **eld benchmark** -
   [nitotm/efficient-language-detector](https://github.com/nitotm/efficient-language-detector)
-  — Apache-2.0 — held out. Leipzig / Wortschatz corpora are excluded from
+  - Apache-2.0 - held out. Leipzig / Wortschatz corpora are excluded from
   training in every form, because another detector's published test set is drawn
   from that collection.
 

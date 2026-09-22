@@ -9,6 +9,7 @@ import DesertAnt
 @testable import Tongue
 @testable import Clips
 @testable import Shapes
+@testable import Align
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -23,6 +24,7 @@ let catalog: [any ModelDeclaration.Type] = [
     TongueModel.self,
     ClipModel.self,
     ShapesModel.self,
+    AlignModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
@@ -118,6 +120,10 @@ struct ModelCatalogTests {
         #expect(EmoModel.supports(.web))
         #expect(ShapesModel.artifact(for: .apple) == ShapesModel.coreML)
         #expect(ShapesModel.files[.linux] == [ShapesModel.tflite, ShapesModel.meta])
+        #expect(AlignModel.files[.apple] == ["align-coarse.mlmodelc/", "align-fine.mlmodelc/"] + AlignModel.sidecars)
+        #expect(AlignModel.files[.linux] == [AlignModel.coarseTFLite, AlignModel.fineTFLite] + AlignModel.sidecars)
+        #expect(!AlignModel.supports(.web))
+        #expect(!AlignModel.supports(.android))
     }
 }
 
@@ -184,7 +190,7 @@ struct ModelOSFloorTests {
 
     /// A Core ML package states its own availability. Read it and compare.
     ///
-    /// Skips loudly rather than passing when the artifact is absent — the packages are ~284 MB
+    /// Skips loudly rather than passing when the artifact is absent: the packages are ~284 MB
     /// and are not in the repository, so a green tick here with nothing checked would be worse
     /// than no test.
     @Test("A model's declared floor matches its compiled artifact")
@@ -192,7 +198,7 @@ struct ModelOSFloorTests {
         let root = ProcessInfo.processInfo.environment["DAL_CLIP_REAL_MODEL_DIR"]
         guard let root else {
             print("SKIP: set DAL_CLIP_REAL_MODEL_DIR to check the floor against the artifact. "
-                  + "NOT PASSING — nothing was compared.")
+                  + "NOT PASSING: nothing was compared.")
             return
         }
         let metadata = URL(fileURLWithPath: root)

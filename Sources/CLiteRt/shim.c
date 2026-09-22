@@ -3,11 +3,43 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#define NOGDI
+#include <windows.h>
+static SRWLOCK g_env_lock = SRWLOCK_INIT;
+#define ENV_LOCK() AcquireSRWLockExclusive(&g_env_lock)
+#define ENV_UNLOCK() ReleaseSRWLockExclusive(&g_env_lock)
+#else
+#include <pthread.h>
+static pthread_mutex_t g_env_lock = PTHREAD_MUTEX_INITIALIZER;
+#define ENV_LOCK() pthread_mutex_lock(&g_env_lock)
+#define ENV_UNLOCK() pthread_mutex_unlock(&g_env_lock)
+#endif
+
+// One LiteRT environment per process, created on first use and kept for the
+// life of the process. Creating one runs the accelerator registry, which tries
+// to load the GPU and NPU accelerator libraries and logs every step to stderr
+// at INFO and WARNING (eight lines on a machine without them). The vendored
+// runtime exports no logger control, so the only way to stop that repeating
+// for every session is to not repeat the environment. A failed creation is not
+// cached: the next session tries again.
+static LiteRtEnvironment g_env = NULL;
+
+static LiteRtEnvironment shared_environment(void) {
+  ENV_LOCK();
+  if (!g_env && LiteRtCreateEnvironment(0, NULL, &g_env) != kLiteRtStatusOk) g_env = NULL;
+  LiteRtEnvironment env = g_env;
+  ENV_UNLOCK();
+  return env;
+}
+
 // One compiled model with its fixed-shape input/output host buffers, created
 // once and reused: each run writes inputs, invokes, and copies outputs out.
 
 struct DalLrtSession {
-  LiteRtEnvironment env;
+  LiteRtEnvironment env;  // the process-wide one above, not owned
   LiteRtModel model;
   LiteRtOptions options;
   LiteRtCompiledModel compiled;
@@ -36,8 +68,10 @@ struct DalLrtSession {
 
 static void set_err(char* errbuf, int len, const char* msg) {
   if (errbuf && len > 0) {
-    strncpy(errbuf, msg, (size_t)(len - 1));
-    errbuf[len - 1] = '\0';
+    size_t n = strlen(msg);
+    if (n > (size_t)(len - 1)) n = (size_t)(len - 1);
+    memcpy(errbuf, msg, n);
+    errbuf[n] = '\0';
   }
 }
 
@@ -88,7 +122,6 @@ void dal_lrt_free(DalLrtSession* s) {
   if (s->compiled) LiteRtDestroyCompiledModel(s->compiled);
   if (s->options) LiteRtDestroyOptions(s->options);
   if (s->model) LiteRtDestroyModel(s->model);
-  if (s->env) LiteRtDestroyEnvironment(s->env);
   // Freed only after the model that references it is destroyed.
   free(s->model_data);
   free(s);
@@ -106,7 +139,8 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
   DalLrtSession* s = (DalLrtSession*)calloc(1, sizeof(DalLrtSession));
   if (!s) { set_err(errbuf, errbuf_len, "out of memory"); return NULL; }
 
-  if (LiteRtCreateEnvironment(0, NULL, &s->env) != kLiteRtStatusOk) {
+  s->env = shared_environment();
+  if (!s->env) {
     set_err(errbuf, errbuf_len, "LiteRtCreateEnvironment failed"); goto fail;
   }
   if (path) {

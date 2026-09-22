@@ -4,4 +4,6 @@
 import Foundation
 
 func nfkcNormalize(_ s: String) -> String { s.precomposedStringWithCompatibilityMapping }
+
+func nfcNormalize(_ s: String) -> String { s.precomposedStringWithCanonicalMapping }
 #endif

@@ -4,6 +4,12 @@
 // echoed as response headers (Content-Length recomputed; hop-by-hop headers
 // dropped).
 //
+// Two exceptions, for the redirect tests: `GET /redirect/<n>` answers 302 to
+// `/redirect/<n-1>`, and `/redirect/0` to `/bytes/1024`; `GET /bytes/<n>`
+// serves that many 'A's. So a client can be pointed at a chain of any length --
+// including one longer than any sane limit -- and checked for what came out the
+// far end.
+//
 // Standalone (compiled ad-hoc with `swiftc`, not a SwiftPM target) so it stays
 // out of the library/iOS/wasm build graph. It runs as a separate host process;
 // the tests reach it over localhost — including the wasm run, where Node's
@@ -134,6 +140,27 @@ func handle(_ fd: SocketHandle) {
     let headerEnd = split!
     let lines = splitCRLFLines(Array(data[0..<headerEnd]))
 
+    // "GET /path HTTP/1.1" -> "/path"
+    let requestLine = String(decoding: lines.first ?? [], as: UTF8.self).split(separator: " ")
+    let target = requestLine.count > 1 ? String(requestLine[1]) : "/"
+    if let hops = countInTarget(target, after: "/redirect/") {
+        // 1024 rather than a global: top-level code here runs the accept
+        // loop before any declaration below it is initialised.
+        let next = hops > 0 ? "/redirect/\(hops - 1)" : "/bytes/1024"
+        let head = "HTTP/1.1 302 Found\r\nLocation: \(next)\r\n"
+            + "Content-Length: 0\r\nConnection: close\r\n\r\n"
+        sendAll(fd, Array(head.utf8))
+        return
+    }
+    if let count = countInTarget(target, after: "/bytes/") {
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+            + "Content-Length: \(count)\r\nConnection: close\r\n\r\n"
+        var out = Array(head.utf8)
+        out.append(contentsOf: [UInt8](repeating: 0x41, count: count))
+        sendAll(fd, out)
+        return
+    }
+
     var headers: [(name: String, value: String)] = []
     var contentLength = 0
     for line in lines.dropFirst() {  // drop the request line
@@ -177,6 +204,14 @@ func sendAll(_ fd: SocketHandle, _ bytes: [UInt8]) {
             sent += n
         }
     }
+}
+
+/// The count in a `<prefix><n>` target, or nil when the target isn't one.
+func countInTarget(_ target: String, after prefix: String) -> Int? {
+    guard target.hasPrefix(prefix), let n = Int(target.dropFirst(prefix.count)), n >= 0 else {
+        return nil
+    }
+    return n
 }
 
 func indexOfCRLFCRLF(_ b: [UInt8]) -> Int? {

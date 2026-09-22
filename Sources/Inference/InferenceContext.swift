@@ -57,7 +57,7 @@ public enum InferenceContext {
     ) async rethrows -> T {
         // Already inside a group: reuse it so nested wraps still bill as one.
         if callGroup != nil { return try await body() }
-        return try await $callGroup.withValue(InferenceCallGroup(), operation: body)
+        return try await $callGroup.withValue(InferenceCallGroup()) { try await body() }
     }
 
     /// Bind the process-global call group named `id` for `body` (created on first
@@ -78,7 +78,7 @@ public enum InferenceContext {
         _ body: () async throws -> T
     ) async rethrows -> T {
         guard let id else { return try await body() }
-        return try await $callGroup.withValue(CallGroupRegistry.shared.group(id), operation: body)
+        return try await $callGroup.withValue(CallGroupRegistry.shared.group(id)) { try await body() }
     }
 
     /// Release the process-global call group named `id`. Safe to call for an

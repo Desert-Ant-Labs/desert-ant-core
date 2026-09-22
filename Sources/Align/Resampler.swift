@@ -1,5 +1,3 @@
-import Foundation
-
 enum Resampler {
     /// Linear resample mono float samples. Adequate for a log-mel frontend; for best fidelity
     /// feed 16 kHz audio directly (SpeechAnalyzer's best format is usually already suitable).

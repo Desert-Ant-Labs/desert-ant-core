@@ -34,7 +34,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 <!-- models:start -->
 | Model | What it does | Platform | Docs |
 | --- | --- | --- | --- |
-| **Align** | Word-timestamp refinement for Apple's SpeechAnalyzer pipeline. | Apple | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) [Model](https://huggingface.co/desert-ant-labs/align) |
+| **Align** | Word-timestamp refinement for any transcript, on device. | Apple · Linux · Windows · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md) [Model](https://huggingface.co/desert-ant-labs/align) |
 | **Clear** | On-device speech enhancement: denoise, dereverb, and loudness-normalize. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clear.md) [Model](https://huggingface.co/desert-ant-labs/clear) |
 | **Clips** | Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device. | Apple · Linux · Windows | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/clips.md) [Model](https://huggingface.co/desert-ant-labs/clips) |
 | **Ear** | On-device spoken language identification across 99 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/ear.md) [Model](https://huggingface.co/desert-ant-labs/ear) |
@@ -80,7 +80,7 @@ deployment target, and an older OS refuses to load them.
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.2.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.0")
 ```
 
 Then add a product per model you want, named as in the table above. You only pay
@@ -103,10 +103,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:3.2.0")
-    implementation("ai.desertant:redact:3.2.0")
-    implementation("ai.desertant:clear:3.2.0")
-    implementation("ai.desertant:tongue:3.2.0")
+    implementation("ai.desertant:emo:3.3.0")
+    implementation("ai.desertant:redact:3.3.0")
+    implementation("ai.desertant:clear:3.3.0")
+    implementation("ai.desertant:tongue:3.3.0")
 }
 ```
 
@@ -134,6 +134,11 @@ bundles cleanly for every target of a multi-target bundler such as Next.js,
 Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
 frameworks run in Node. For inference in plain Node, import the `/native`
 subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
+
+A Node-only package is the exception, and `@desert-ant-labs/align` is one today.
+Its default entry still imports cleanly everywhere, including the SSR pass, but
+`load()` refuses and points at `/native`. See that model's page for why the
+browser build cannot exist.
 
 ## Command line
 
@@ -182,7 +187,7 @@ chunks fetched in parallel rather than one stream. Swift consumers can opt into
 it with a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.2.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.0",
         traits: ["Xet"])
 ```
 
@@ -257,4 +262,5 @@ rather than sysfs.
 
 [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0).
 Free for most apps; a commercial license is required at scale. Full terms are at
-the link. Licensing: <licensing@desertant.com>.
+the link. Licensing: <licensing@desertant.com>. Third-party components are listed
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

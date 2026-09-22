@@ -12,15 +12,22 @@ import DesertAnt
 public enum UhmModel: ModelDeclaration {
     public static let id = "uhm"
     public static let product = "Uhm"
-    // The Hub repo has no `v`-tag yet (the standalone uhm-swift SDK tracked its
-    // default branch), so pin the exact commit this SDK is built against;
-    // becomes a `v`-tag once one is published.
-    public static let revision = "612592c10ad7b2a51f3237725448a1aad212480b"
+    // The Hub tag this SDK is built against. `v1.1.0` is the re-export whose
+    // every operation runs on the Neural Engine (uhm-training
+    // research/PROGRESS_ane_residency.md): the same weights as `v1.0.0`, in a
+    // graph that takes a pre-tiled window and returns BC1S probabilities -
+    // which is why `FillerDetector` reads its layout off the artifact rather
+    // than assuming one.
+    //
+    // A pin is exact and a published tag does not move, so SDKs released before
+    // this keep resolving `v1.0.0` and keep working: a model release and an SDK
+    // release never have to happen together.
+    public static let revision = "v1.1.0"
     /// The standalone uhm-swift release this port matches. No published
     /// npm/Maven package yet, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with
     /// packages/uhm-* when they land.
-    public static let sdkVersion = "3.2.0"
+    public static let sdkVersion = "3.3.0"
     public static let summary = "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans."
 
     /// The tier this declaration describes: the SDK default's resolution.

@@ -10,4 +10,9 @@ private nonisolated(unsafe) let jsNormalize: JSObject =
     JSObject.global.Function.function!.new("s", "return s.normalize('NFKC')")
 
 func nfkcNormalize(_ s: String) -> String { jsNormalize(s).string ?? s }
+
+private nonisolated(unsafe) let jsNormalizeNFC: JSObject =
+    JSObject.global.Function.function!.new("s", "return s.normalize('NFC')")
+
+func nfcNormalize(_ s: String) -> String { jsNormalizeNFC(s).string ?? s }
 #endif

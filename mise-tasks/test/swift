@@ -46,9 +46,12 @@ elif [ "$(dal_host_os)" = windows ]; then
     #
     # Debug, not release, and this is the one host where that is true: release
     # runs nothing here at all (the guard below explains why), so the choice is
-    # not "fast or slow" but "slow or nothing". It does cost real time, because
-    # the DSP frontends are bounds-checked triple loops that run ~170x slower
-    # unoptimized, which is what naming a single model is for.
+    # not "fast or slow" but "slow or nothing". What breaks the test link is
+    # the release configuration, not the optimizer, so -Xswiftc -O rides on
+    # top: swiftc takes the last -O flag, the build stays debug and links its
+    # tests, and the DSP frontends (bounds-checked triple loops, ~170x slower
+    # unoptimized; Ear's suite is 38 s vs 1.8 s) run optimized. The Windows CI
+    # job passes the same flag.
     # DAL_SWIFT_TEST_CONFIG=release re-checks whether a newer toolchain has
     # fixed the release path; the guard below still catches it if not.
     config="${DAL_SWIFT_TEST_CONFIG:-debug}"
@@ -56,7 +59,7 @@ elif [ "$(dal_host_os)" = windows ]; then
     log=$(mktemp)
     status=0
     PATH="$PWD/$(dal_litert_dir):$PATH" \
-        swift test --scratch-path .build-host -c "$config" --disable-xctest \
+        swift test --scratch-path .build-host -c "$config" -Xswiftc -O --disable-xctest \
         ${filter[@]+"${filter[@]}"} ${litert_flags[@]+"${litert_flags[@]}"} \
         2>&1 | tee "$log" || status=$?
 

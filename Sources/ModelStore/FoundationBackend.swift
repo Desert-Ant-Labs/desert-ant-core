@@ -23,14 +23,40 @@ public struct FoundationTransport: ModelTransport {
         return items.compactMap { $0.type == "file" ? RemoteEntry(path: $0.path, size: $0.size, sha256: $0.lfs?.oid) : nil }
     }
 
+    /// One delegate and one session for the whole process, shared by every
+    /// download.
+    ///
+    /// Not a session per download closed with `finishTasksAndInvalidate()`:
+    /// on corelibs-foundation (Linux and Windows) URLSession is libcurl-backed,
+    /// and invalidating a session as its last task completes races the shared
+    /// multi handle into "deallocated with non-zero retain count", which the
+    /// runtime turns into an abort. It killed the process at the *end* of a
+    /// successful download, having already written the file. A session that
+    /// lives as long as the process is never torn down, so the race has no
+    /// window -- and one connection pool serves every file instead of one per
+    /// file. The cost is that the delegate is shared too, so a download's
+    /// state hangs off its task rather than off the delegate.
+    private static let downloadDelegate = DownloadDelegate()
+    private static let downloadSession = URLSession(
+        configuration: .default,
+        delegate: FoundationTransport.downloadDelegate,
+        delegateQueue: nil
+    )
+
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
-        let delegate = DownloadDelegate(destination: URL(fileURLWithPath: destinationPath), onBytes: onBytes)
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
-        defer { session.finishTasksAndInvalidate() }
         let http = try await withCheckedThrowingContinuation { (c: CheckedContinuation<HTTPURLResponse?, Error>) in
-            delegate.continuation = c
-            session.downloadTask(with: u).resume()
+            let task = FoundationTransport.downloadSession.downloadTask(with: u)
+            // Registered before `resume()`: the first callback can land as
+            // soon as the task starts running.
+            FoundationTransport.downloadDelegate.begin(
+                task,
+                url: url,
+                destination: URL(fileURLWithPath: destinationPath),
+                onBytes: onBytes,
+                continuation: c
+            )
+            task.resume()
         }
         if let http, !(200..<300).contains(http.statusCode) {
             throw ModelStoreError.io("GET \(url): HTTP \(http.statusCode)")
@@ -58,17 +84,101 @@ public struct FoundationTransport: ModelTransport {
         struct LFS: Decodable { let oid: String }
     }
 
-    /// Streams a download to `destination`, reporting cumulative bytes via
-    /// `onBytes`. Resumes the continuation once, in `didCompleteWithError`.
+    /// Streams downloads to their destinations, reporting cumulative bytes via
+    /// each one's `onBytes`. Resumes every continuation exactly once, in
+    /// `didCompleteWithError` -- or, for a download that never gets that far,
+    /// where it is abandoned (`willPerformHTTPRedirection`).
+    ///
+    /// One instance serves the shared session (see `downloadSession`), so the
+    /// per-download state lives in a table keyed by `taskIdentifier` rather
+    /// than in stored properties, and each callback looks its download up.
     private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-        let destination: URL
-        let onBytes: @Sendable (Int64) -> Void
-        var continuation: CheckedContinuation<HTTPURLResponse?, Error>?
-        private var moveError: Error?
-        private var lastReportedBytes: Int64 = 0
+        /// What one in-flight download needs to finish and report itself.
+        ///
+        /// It outlives the task it started on: a redirect carries the same
+        /// `Pending` over to the task that follows it (see
+        /// `willPerformHTTPRedirection`).
+        private struct Pending {
+            let url: String
+            let destination: URL
+            let onBytes: @Sendable (Int64) -> Void
+            let continuation: CheckedContinuation<HTTPURLResponse?, Error>
+            var moveError: Error?
+            var lastReportedBytes: Int64 = 0
+            var redirects: Int = 0
+        }
 
-        init(destination: URL, onBytes: @escaping @Sendable (Int64) -> Void) {
-            self.destination = destination; self.onBytes = onBytes
+        /// Hops one download may follow. The Hub answers a resolve URL with a
+        /// 302 to its CDN, so a real download spends one; the limit is only
+        /// here to end a loop.
+        private static let redirectLimit = 10
+
+        // URLSession calls the delegate on one serial queue, but `begin` runs
+        // on whichever thread started the download, so the table needs a lock.
+        private let lock = NSLock()
+        private var pending: [Int: Pending] = [:]
+
+        /// Registers a download. Call before `resume()`.
+        func begin(_ task: URLSessionTask, url: String, destination: URL,
+                   onBytes: @escaping @Sendable (Int64) -> Void,
+                   continuation: CheckedContinuation<HTTPURLResponse?, Error>) {
+            lock.lock()
+            pending[task.taskIdentifier] = Pending(
+                url: url, destination: destination, onBytes: onBytes, continuation: continuation
+            )
+            lock.unlock()
+        }
+
+        /// Follows a redirect on a new task instead of letting URLSession
+        /// re-run the old one.
+        ///
+        /// corelibs-foundation follows a redirect by reconfiguring the easy
+        /// handle the finished transfer used, and one of the options it re-sets
+        /// is CURLOPT_BUFFERSIZE -- which libcurl before 8.x refuses with
+        /// CURLE_BAD_FUNCTION_ARGUMENT while that handle still owns its receive
+        /// buffer. The buffer is freed at the end of curl's `multi_done()`,
+        /// which returns early, before the free, when another transfer is still
+        /// attached to the same connection. The shared session is what makes
+        /// that reachable: one multi handle for the process, and multiplexing
+        /// always on (corelibs sets CURLMOPT_PIPELINING to CURLPIPE_MULTIPLEX
+        /// whatever `httpShouldUsePipelining` says), so two concurrent
+        /// downloads from one host share an HTTP/2 connection and whichever of
+        /// them redirects walks into a `try!` inside Foundation, which aborts
+        /// the process. A session per download never shared a connection, so
+        /// this only appeared once they did. Ubuntu 22.04 carries libcurl
+        /// 7.81, which is where CI hit it.
+        ///
+        /// Answering `nil` makes the 3xx this task's own response, so no easy
+        /// handle is ever reconfigured; the download carries on as a fresh task
+        /// that inherits the destination, the progress closure and the
+        /// continuation.
+        func urlSession(_ session: URLSession, task: URLSessionTask,
+                        willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest,
+                        completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+            lock.lock()
+            guard var entry = pending.removeValue(forKey: task.taskIdentifier) else {
+                lock.unlock()
+                completionHandler(nil)
+                return
+            }
+            guard entry.redirects < Self.redirectLimit else {
+                lock.unlock()
+                // Resumed here: the old task is out of the table, so its
+                // completion resumes nothing, and without this the download
+                // would hang instead of failing.
+                entry.continuation.resume(throwing: ModelStoreError.io(
+                    "GET \(entry.url): more than \(Self.redirectLimit) redirects"))
+                completionHandler(nil)
+                return
+            }
+            entry.redirects += 1
+            // Registered before `resume()`, for the reason `begin` gives.
+            let next = session.downloadTask(with: request)
+            pending[next.taskIdentifier] = entry
+            lock.unlock()
+            completionHandler(nil)
+            next.resume()
         }
 
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
@@ -82,26 +192,48 @@ public struct FoundationTransport: ModelTransport {
             // ~50 MB at a few hundred callbacks per file. The final bytes of a
             // file always report (completion also reports via the store's
             // per-file accounting), so nothing is lost for small files.
-            // Serial: URLSession calls the delegate on one queue.
-            guard totalBytesWritten - lastReportedBytes >= 512 * 1024
-                || totalBytesWritten == totalBytesExpectedToWrite else { return }
-            lastReportedBytes = totalBytesWritten
+            lock.lock()
+            guard var entry = pending[downloadTask.taskIdentifier],
+                  totalBytesWritten - entry.lastReportedBytes >= 512 * 1024
+                    || totalBytesWritten == totalBytesExpectedToWrite
+            else { lock.unlock(); return }
+            entry.lastReportedBytes = totalBytesWritten
+            pending[downloadTask.taskIdentifier] = entry
+            let onBytes = entry.onBytes
+            lock.unlock()
+            // Outside the lock: this fans out through an actor hop downstream,
+            // and no delegate callback should wait on that.
             onBytes(totalBytesWritten)
         }
 
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                         didFinishDownloadingTo location: URL) {
+            lock.lock()
+            let destination = pending[downloadTask.taskIdentifier]?.destination
+            lock.unlock()
+            guard let destination else { return }
+            // The move happens here, not in didCompleteWithError: URLSession
+            // deletes the temporary file as soon as this returns.
             do {
                 try? FileManager.default.removeItem(at: destination)
                 try FileManager.default.moveItem(at: location, to: destination)
-            } catch { moveError = error }
+            } catch {
+                lock.lock()
+                pending[downloadTask.taskIdentifier]?.moveError = error
+                lock.unlock()
+            }
         }
 
         func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-            if let error { continuation?.resume(throwing: error) }
-            else if let moveError { continuation?.resume(throwing: moveError) }
-            else { continuation?.resume(returning: task.response as? HTTPURLResponse) }
-            continuation = nil
+            lock.lock()
+            let entry = pending.removeValue(forKey: task.taskIdentifier)
+            lock.unlock()
+            // Removed, so the continuation is resumed exactly once even if the
+            // session reports a task twice.
+            guard let entry else { return }
+            if let error { entry.continuation.resume(throwing: error) }
+            else if let moveError = entry.moveError { entry.continuation.resume(throwing: moveError) }
+            else { entry.continuation.resume(returning: task.response as? HTTPURLResponse) }
         }
     }
 }

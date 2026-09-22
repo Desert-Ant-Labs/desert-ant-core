@@ -103,6 +103,23 @@ public final class UsageClient {
         if n > 0 { sessionCalls += n }
     }
 
+    /// Whether there is usage to report. Skips a client with nothing to say, so
+    /// the debug path never invents a call.
+    public var hasUsage: Bool {
+        sessionCalls > 0 || deps.loadState().carryCallCount > 0
+    }
+
+    /// Move this session's unposted calls into the persisted carry, without
+    /// posting. A forced flush that skipped this client because another session
+    /// holds the device would otherwise strand them in memory, where they vanish
+    /// with the session; the carry rides the device's next emit instead.
+    public func carryUnsent() {
+        guard deps.callCount == nil, sessionCalls > 0 else { return }
+        let st = deps.loadState()
+        deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
+        sessionCalls = 0
+    }
+
     /// Evaluate the window and, if a new session/day is due, queue a turnstile.
     /// Call on init and again on reactivation.
     public func start() {

@@ -25,14 +25,14 @@ let wasmBuild = ProcessInfo.processInfo.environment["DAL_WASM_BUILD"] != nil
 let noJavaScriptKit = !wasmBuild
     || ProcessInfo.processInfo.environment["SWIFT_ANDROID_STATIC_BUILD"] != nil
 
-// MLX is opt-in for the same reason, and the reason is the same MACRO problem — but unlike
+// MLX is opt-in for the same reason, and the reason is the same MACRO problem, but unlike
 // JavaScriptKit it is gated by a package TRAIT rather than an environment variable.
 //
 // `Title` is the one model here that does not run through `InferenceSession`: writing a title
 // is short autoregressive decode, which measured 5.7-8.3x faster on MLX/GPU than on the ANE,
 // and `8e97532` removed MLState when the Core ML path lost. So Title needs mlx-swift-lm.
 //
-// `MLXHuggingFace` exposes `#huggingFaceLoadModelContainer`, a MACRO — so it pulls swift-syntax
+// `MLXHuggingFace` exposes `#huggingFaceLoadModelContainer`, a MACRO, so it pulls swift-syntax
 // and host macro plugins exactly as JavaScriptKit does, and a package dependency cannot carry a
 // platform condition. Declaring its target edges unconditionally would make every Linux and
 // Android consumer clone and build it for a target MLX cannot run on at all, and would risk the
@@ -40,7 +40,7 @@ let noJavaScriptKit = !wasmBuild
 //
 // So: the `MLX` trait (SE-0450). SwiftPM PRUNES the mlx-swift-lm and swift-transformers
 // package dependencies whenever no enabled trait references them, so a consumer without the
-// trait never clones them — the same graph the old `DAL_MLX_BUILD` env var produced, but
+// trait never clones them: the same graph the old `DAL_MLX_BUILD` env var produced, but
 // declared in the consumer's manifest instead of ambient process environment (which Xcode's
 // resolver could only see via `launchctl setenv`).
 //
@@ -122,6 +122,9 @@ struct ModelPackage {
     /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
     /// platform, and a product promising an artifact that cannot load is worse than its absence.
     var appleOnly: Bool = false
+    /// Whether this model gets an `Android` dynamic library. `Align` has no `.android` artifact:
+    /// the host bridge has no NFC, so the lexical bytes could not match training.
+    var androidLibrary: Bool = true
 }
 
 let models: [ModelPackage] = [
@@ -161,6 +164,15 @@ let models: [ModelPackage] = [
         name: "Shapes",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")]
     ),
+    .init(
+        name: "Align",
+        dependencies: ["AudioDSP", .product(name: "RealModule", package: "swift-numerics"), "TextNormalization"],
+        testResources: [
+            .copy("Resources/golden.json"),
+            .copy("Resources/calibration_golden.json"),
+        ],
+        androidLibrary: false
+    ),
 ] + [
     // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
     // without the `MLX` trait its MLX dependencies are pruned and the target compiles as a
@@ -171,36 +183,9 @@ let models: [ModelPackage] = [
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
-// Align is Apple-only (Core ML, Speech, AVFoundation), so it lives outside the
-// `models` list: it gets no Android/Node/Web products and no NativeBindings.
-// Like every model here it bundles nothing; its Core ML models and sidecars are
-// downloaded on demand via its catalog declaration (Sources/Align/Catalog.swift).
-// The targets are declared unconditionally so the resolved graph is identical on
-// every platform (check:isolation reads it on Linux); the Apple-framework
-// sources gate themselves with `#if canImport(...)`, so a non-Apple build
-// compiles only the portable declaration and helpers.
-let alignProducts: [Product] = [
-    .library(name: "Align", targets: ["Align"]),
-]
-
-let alignTargets: [Target] = [
-    .target(
-        name: "Align",
-        dependencies: [.byName(name: "DesertAnt")]
-    ),
-    .testTarget(
-        name: "AlignTests",
-        dependencies: ["Align", "TestSupport"],
-        resources: [
-            .copy("Resources/golden.json"),
-            .copy("Resources/calibration_golden.json"),
-        ]
-    ),
-]
-
 // Tongue is a pure model: a 2 MB int8 head plus a frozen normalizer/router
-// specification, no inference runtime and no model download — the weights ship
-// as target resources. Like Align it lives outside the `models` list (no
+// specification, no inference runtime and no model download; the weights ship
+// as target resources. It lives outside the `models` list (no
 // NativeBindings, no Web product, no Node/Android dynamic products); unlike
 // every other model its Kotlin and JavaScript SDKs are direct ports of the same
 // frozen spec (packages/tongue-kotlin, packages/tongue-node), locked to this
@@ -271,14 +256,14 @@ let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.ap
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
-let modelProducts: [Product] = models.flatMap { model in
+let modelProducts: [Product] = models.flatMap { model -> [Product] in
     model.appleOnly || !noJavaScriptKit
         ? [.library(name: model.name, targets: [model.name])]
-        : [
-            .library(name: model.name, targets: [model.name]),
-            .library(name: "\(model.name)Android", type: .dynamic, targets: [model.name]),
-            .library(name: "\(model.name)Node", type: .dynamic, targets: [model.name]),
-        ]
+        : [.library(name: model.name, targets: [model.name])]
+            + (model.androidLibrary
+                ? [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
+                : [])
+            + [.library(name: "\(model.name)Node", type: .dynamic, targets: [model.name])]
 } + modelWasmProducts
 
 let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
@@ -498,7 +483,7 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz is Apple-only (Core ML, AVFoundation) and, like Align, gets no
+// Voz is Apple-only (Core ML, AVFoundation) and gets no
 // Android/Node/Web products and no NativeBindings. It bundles nothing: its
 // Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
 // drives Core ML directly rather than going through `InferenceSession`, because
@@ -524,7 +509,7 @@ let vozTargets: [Target] = [
 ]
 
 let coreTargets: [Target] =
-    libraryTargets + testTargets + modelTargets + modelTestTargets + alignTargets
+    libraryTargets + testTargets + modelTargets + modelTestTargets
     + tongueTargets + vozTargets
 
 let package = Package(
@@ -553,11 +538,11 @@ let package = Package(
     // SwiftPM refuses to resolve `MLXLLM` (macOS 14) into a macOS 13 package. The floor used
     // to rise only behind `DAL_MLX_BUILD`; `platforms` cannot vary by trait, so with the `MLX`
     // trait the iOS 17 / macOS 14 floor is now unconditional. That costs iOS 16 / macOS 13 for
-    // Apple consumers that never enable MLX — accepted deliberately: no known Apple consumer
+    // Apple consumers that never enable MLX, accepted deliberately: no known Apple consumer
     // sits below iOS 17, and Linux/Android/wasm ignore Apple floors entirely. If such a
     // consumer appears, this is the line to argue about.
     platforms: [.iOS(.v17), .macOS(.v14), .tvOS(.v16), .visionOS(.v1)],
-    products: products + modelProducts + alignProducts + tongueProducts + vozProducts,
+    products: products + modelProducts + tongueProducts + vozProducts,
     traits: [
         .trait(
             name: "MLX",
