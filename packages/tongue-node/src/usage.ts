@@ -406,6 +406,12 @@ export function makeSend(
  */
 export class UsageTurnstile {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The newest send the debounce started. `flushTelemetry()` awaits it: the timer
+   * may have fired just before, leaving nothing recorded for the forced flush to
+   * send while the POST it started is still in flight.
+   */
+  private debouncedSend: Promise<void> | null = null;
 
   private constructor(private client: UsageClient) {}
 
@@ -488,7 +494,8 @@ export class UsageTurnstile {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       try {
-        this.client.flush();
+        const sent = this.client.flush();
+        if (sent) this.debouncedSend = Promise.resolve(sent).catch(() => undefined);
       } catch {
         /* best effort */
       }
@@ -506,9 +513,11 @@ export class UsageTurnstile {
    */
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
-    if (!this.client.hasUsage) return true;
+    const earlier = this.debouncedSend;
+    this.debouncedSend = null;
     try {
-      await this.client.load();
+      const forced = this.client.hasUsage ? this.client.load() : undefined;
+      await Promise.all([earlier, forced]);
       return true;
     } catch {
       return false;

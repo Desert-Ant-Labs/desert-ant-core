@@ -250,6 +250,47 @@ test("a forced flush takes the pending debounce, and the turnstile still flushes
   }
 });
 
+test("a forced flush awaits the send the debounce started", async (t) => {
+  // A flush right after the debounce fired has nothing left to send, but the POST
+  // the debounce started may still be in flight. `flushTelemetry()` must wait for
+  // it too, or a process that exits next drops the event.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let answer;
+  let posts = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    posts += 1;
+    return new Promise((resolve) => (answer = () => resolve({ ok: true })));
+  };
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    turnstile.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts, 1, "the debounce did not post");
+
+    let settled = false;
+    const flushed = turnstile.flushTelemetry().then((ok) => {
+      settled = true;
+      return ok;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "flushTelemetry resolved before the debounced POST was answered");
+    answer();
+    assert.equal(await flushed, true);
+    assert.equal(posts, 1, "the forced flush posted a second load");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
 test("the transport actually posts the body over HTTP", async () => {
   // Everything else about the turnstile is tested with an injected `send`, so the
   // HTTP path itself had never run: no test proved a body ever left the process.

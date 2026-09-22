@@ -26,6 +26,14 @@ internal class UsageTurnstile internal constructor(
     private var flushScheduled = false
     private var scheduledFlush: TimerTask? = null
 
+    /**
+     * The newest send the debounce started. `flushTelemetry` awaits it: the timer
+     * may have fired just before, leaving nothing recorded for the forced flush to
+     * send while the POST it started is still in flight. Only the newest is kept:
+     * the real sender is one thread, so it finishing means every earlier one has.
+     */
+    private var debouncedSend: SendHandle? = null
+
     /** One detection. */
     fun record() {
         var task: TimerTask? = null
@@ -38,7 +46,7 @@ internal class UsageTurnstile internal constructor(
                     synchronized(lock) {
                         flushScheduled = false
                         scheduledFlush = null
-                        runCatching { client.flush() }
+                        runCatching { client.flush() }.getOrNull()?.let { debouncedSend = it }
                     }
                 }
             }
@@ -57,15 +65,17 @@ internal class UsageTurnstile internal constructor(
      * sent, so an idle process never invents a billable load.
      */
     fun flushTelemetry(): Boolean = runCatching {
-        val handle = synchronized(lock) {
+        val handles = synchronized(lock) {
             // Cancel the debounce: this call is the flush, and a timer left behind
             // would send again on its own.
             scheduledFlush?.cancel()
             scheduledFlush = null
             flushScheduled = false
-            if (client.hasUsage()) client.load() else null
+            val earlier = debouncedSend
+            debouncedSend = null
+            listOfNotNull(earlier, if (client.hasUsage()) client.load() else null)
         }
-        handle?.await()
+        handles.forEach { it.await() }
         true
     }.getOrDefault(false)
 
