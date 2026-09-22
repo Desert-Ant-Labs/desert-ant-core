@@ -291,6 +291,75 @@ test("a forced flush awaits the send the debounce started", async (t) => {
   }
 });
 
+test("a forced flush awaits every debounced send still in flight, not only the newest", async (t) => {
+  // Fetches run concurrently, so on a slow endpoint the first debounce's POST can
+  // still be pending when the second debounce fires. Keeping only the newest let
+  // flushTelemetry() resolve with the first one, often the day's load, unsent.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const answers = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => new Promise((resolve) => answers.push(() => resolve({ ok: true })));
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    turnstile.record();
+    t.mock.timers.tick(3_000);
+    turnstile.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(answers.length, 2, "both debounces should have posted");
+
+    let settled = false;
+    const flushed = turnstile.flushTelemetry().then((ok) => {
+      settled = true;
+      return ok;
+    });
+    answers[1]();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "flushTelemetry resolved while the first POST was still pending");
+    answers[0]();
+    assert.equal(await flushed, true);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
+test("a send is bounded, and a timed-out one is not sent again by beacon", async () => {
+  // An endpoint that accepts and never answers must not hold flushTelemetry(),
+  // and a process's exit, for minutes. A timeout may already have landed, so the
+  // beacon fallback must not post it a second time.
+  const { makeSend } = await import("../dist/usage.js");
+  const realFetch = globalThis.fetch;
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  let signal;
+  let beacons = 0;
+  globalThis.fetch = (_url, init) => {
+    signal = init.signal;
+    const error = new Error("timed out");
+    error.name = "TimeoutError";
+    return Promise.reject(error);
+  };
+  Object.defineProperty(globalThis, "navigator", {
+    value: { sendBeacon: () => (beacons += 1, true) },
+    configurable: true,
+  });
+  try {
+    await makeSend("http://127.0.0.1:9/ingest")({ events: [] });
+    assert.ok(signal instanceof AbortSignal, "the POST carried no timeout signal");
+    assert.equal(beacons, 0, "a timed-out POST was sent again by beacon");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (navigator) Object.defineProperty(globalThis, "navigator", navigator);
+    else delete globalThis.navigator;
+  }
+});
+
 test("the transport actually posts the body over HTTP", async () => {
   // Everything else about the turnstile is tested with an injected `send`, so the
   // HTTP path itself had never run: no test proved a body ever left the process.
