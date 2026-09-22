@@ -32,11 +32,12 @@ internal fun ingestEndpoint(): String =
  * The publishable API key for this process, or null. A key set in code
  * (`DesertAnt.apiKey`) wins, matching core's `hostProvidedApiKey()`; otherwise
  * it is read from the environment as core does, then from the same-named system
- * property.
+ * property. Trimmed: a key read from a secret file often ends in a newline, which
+ * the body tolerated but `setRequestProperty` rejects, dropping the POST.
  */
 internal fun apiKey(): String? =
-    ai.desertant.tongue.DesertAnt.apiKey?.takeIf { it.isNotEmpty() }
-        ?: setting("DAL_API_KEY")
+    ai.desertant.tongue.DesertAnt.apiKey?.trim()?.takeIf { it.isNotEmpty() }
+        ?: setting("DAL_API_KEY")?.trim()?.takeIf { it.isNotEmpty() }
 
 /**
  * A host-provided device id, or null. Core's `hostProvidedDeviceId()` reads the
@@ -101,11 +102,29 @@ private val sender = Executors.newSingleThreadExecutor(
 internal fun defaultPlatform(): String = if (isAndroid()) "android" else "server"
 
 /**
- * A send in flight. `await` blocks until the POST has finished, so a short-lived
- * caller can be sure the request left the process before it exits.
+ * A send in flight. `await` blocks until the POST has finished or `deadlineNanos`
+ * (a `System.nanoTime()` value) passes, so a short-lived caller can be sure the
+ * request left the process before it exits. A send still running at the deadline
+ * is left to finish on the sender: it may yet land.
  */
 internal fun interface SendHandle {
-    fun await()
+    fun await(deadlineNanos: Long)
+}
+
+/**
+ * How long a flush waits for its sends, all of them together. The connection's
+ * own timeouts bound one send to about 10 s, and a flush may await two, which on
+ * Android's main thread is an ANR; the Node port bounds each send to 5 s too.
+ */
+internal const val FLUSH_WAIT_MS: Long = 5_000L
+
+/** Await with a deadline `FLUSH_WAIT_MS` from now. */
+internal fun SendHandle.await() = await(System.nanoTime() + FLUSH_WAIT_MS * 1_000_000L)
+
+/** Await every handle against one shared deadline, so two sends cannot wait 2x. */
+internal fun List<SendHandle>.awaitAll() {
+    val deadline = System.nanoTime() + FLUSH_WAIT_MS * 1_000_000L
+    forEach { it.await(deadline) }
 }
 
 /**
@@ -137,14 +156,16 @@ internal fun makeSend(endpoint: String = INGEST_ENDPOINT, bearerKey: String? = n
                     connection.disconnect()
                 }
             }
-        }.getOrNull()?.let { future -> SendHandle { awaitFuture(future) } }
+        }.getOrNull()?.let { future -> SendHandle { deadline -> awaitFuture(future, deadline) } }
     }
 }
 
-/** Wait for the POST. A cancellation request is re-flagged rather than swallowed. */
-private fun awaitFuture(future: java.util.concurrent.Future<*>) {
+/** Wait for the POST until the deadline. A cancellation request is re-flagged rather than swallowed. */
+private fun awaitFuture(future: java.util.concurrent.Future<*>, deadlineNanos: Long) {
     try {
-        future.get()
+        future.get(maxOf(0L, deadlineNanos - System.nanoTime()), java.util.concurrent.TimeUnit.NANOSECONDS)
+    } catch (_: java.util.concurrent.TimeoutException) {
+        // Not cancelled: the POST keeps running on the sender and may still land.
     } catch (interrupted: InterruptedException) {
         Thread.currentThread().interrupt()
     } catch (_: java.util.concurrent.ExecutionException) {
