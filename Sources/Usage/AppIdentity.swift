@@ -17,17 +17,7 @@ import CHostBridge
 import JavaScriptKit
 #endif
 
-#if os(Android)
-import Android          // on Android the Android module *is* libc (getenv et al)
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#elseif canImport(Musl)
-import Musl
-#elseif os(Windows)
-import CRT
-#endif
+import PlatformSupport
 
 /// Read a host-provided string from a JS global that may be a string or a
 /// zero-arg function returning one. `nil` when unset/empty or off WASI.
@@ -47,8 +37,7 @@ public func hostProvidedAppId() -> String? {
 #if os(WASI)
     return jsHostString("__dalAppId")
 #else
-    guard let raw = getenv("DAL_APP_ID") else { return nil }
-    let value = decodeCString(raw)
+    guard let value = environmentVariable("DAL_APP_ID") else { return nil }
     return value.isEmpty ? nil : value
 #endif
 }
@@ -66,8 +55,7 @@ public func usageDisabled() -> Bool {
 #if os(WASI)
     return false
 #else
-    guard let raw = getenv("DAL_USAGE_DISABLED") else { return false }
-    let value = decodeCString(raw)
+    guard let value = environmentVariable("DAL_USAGE_DISABLED") else { return false }
     return !value.isEmpty && value != "0"
 #endif
 }
@@ -79,8 +67,7 @@ public func hostProvidedApiKey() -> String? {
 #if os(WASI)
     return jsHostString("__dalApiKey")
 #else
-    guard let raw = getenv("DAL_API_KEY") else { return nil }
-    let value = decodeCString(raw)
+    guard let value = environmentVariable("DAL_API_KEY") else { return nil }
     return value.isEmpty ? nil : value
 #endif
 }
@@ -105,8 +92,7 @@ public func hostProvidedIngestEndpoint() -> String? {
 #if os(WASI)
     return jsHostString("__dalIngestEndpoint")
 #else
-    guard let raw = getenv("DAL_INGEST_ENDPOINT") else { return nil }
-    let value = decodeCString(raw)
+    guard let value = environmentVariable("DAL_INGEST_ENDPOINT") else { return nil }
     return value.isEmpty ? nil : value
 #endif
 }

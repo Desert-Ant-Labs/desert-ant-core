@@ -7,7 +7,7 @@ import Foundation
 @Suite struct DigestTests {
     private func tmp(_ bytes: [UInt8]) -> String {
         let p = NSTemporaryDirectory() + "/dig-\(UUID().uuidString)"
-        FileManager.default.createFile(atPath: p, contents: Data(bytes))
+        _ = FileManager.default.createFile(atPath: p, contents: Data(bytes))
         return p
     }
 

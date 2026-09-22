@@ -16,14 +16,8 @@
 
 #if os(WASI)
 import JavaScriptKit
-#elseif os(Android)
-import Android          // on Android the Android module *is* libc (getenv et al)
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Darwin)
-import Darwin
-#elseif os(Windows)
-import CRT
+#else
+import PlatformSupport
 #endif
 
 /// Whether the telemetry force-flush hooks are enabled.
@@ -31,7 +25,7 @@ public func telemetryDebugEnabled() -> Bool {
     #if os(WASI)
     return JSObject.global.__dalHttpDebug.boolean ?? false
     #else
-    return getenv("DAL_HTTP_DEBUG") != nil
+    return environmentVariable("DAL_HTTP_DEBUG") != nil
     #endif
 }
 
