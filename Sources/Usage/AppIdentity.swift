@@ -60,10 +60,11 @@ public func usageDisabled() -> Bool {
 #endif
 }
 
-/// A host-provided publishable API key. On WASI reads `globalThis.__dalApiKey`
-/// (string or function); elsewhere reads the `DAL_API_KEY` environment
-/// variable. `nil` when unset.
+/// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins;
+/// otherwise on WASI reads `globalThis.__dalApiKey` (string or function), and
+/// elsewhere reads the `DAL_API_KEY` environment variable. `nil` when unset.
 public func hostProvidedApiKey() -> String? {
+    if let key = DesertAnt.apiKey, !key.isEmpty { return key }
 #if os(WASI)
     return jsHostString("__dalApiKey")
 #else
