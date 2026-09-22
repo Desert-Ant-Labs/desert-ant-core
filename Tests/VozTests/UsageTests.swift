@@ -3,6 +3,7 @@ import DesertAnt
 import Foundation
 import Testing
 
+@testable import Usage
 @testable import Voz
 
 // The turnstile, tested without the model: it is the piece that would otherwise
@@ -56,6 +57,21 @@ struct VozUsage {
         }
         #expect(sink.sent.count == 1)
         #expect(sink.calls == 5)
+    }
+
+    /// A flush pass must reach this turnstile, which has no `TrackedSession` to
+    /// register for it. Without the hook the transcription waits out the three
+    /// second debounce, so nothing has been sent when the pass returns.
+    @Test func aFlushPassForcesTheDebouncedTranscriptionOut() async {
+        let sink = Sink()
+        let telemetry = TelemetryDebug(sends: InflightSends())
+        let turnstile = UsageTurnstile(client: testClient(sink), telemetry: telemetry)
+        await turnstile.record()
+        #expect(sink.sent.isEmpty, "the debounce sent before its delay")
+
+        await telemetry.flushAndWait()
+        #expect(sink.sent.count == 1, "the flush pass did not reach the turnstile")
+        #expect(sink.calls == 1)
     }
 
     @Test func reportsThisModelsIdentityRatherThanThePackages() {

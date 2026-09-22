@@ -32,19 +32,25 @@ import DesertAnt
 actor UsageTurnstile {
     private let client: UsageClient
     private var flushScheduled = false
+    private var registeredFlushHook = false
+    /// Where the flush hook registers. A test passes its own, so its flush pass
+    /// does not force every other suite's live sessions to emit mid-test.
+    private let telemetry: TelemetryDebug
 
     /// Debounce before flushing, matching core's `TrackedSession`.
     private static let flushAfterSeconds: UInt64 = 3
 
-    init(client: UsageClient) {
+    init(client: UsageClient, telemetry: TelemetryDebug = .shared) {
         self.client = client
+        self.telemetry = telemetry
         client.start()
     }
 
     /// One transcription. Records the call and arranges a single flush for the
     /// burst, so a caller transcribing a folder sends once rather than per file.
-    func record() {
+    func record() async {
         client.recordCall()
+        await registerFlushHookIfNeeded()
         guard !flushScheduled else { return }
         flushScheduled = true
         Task { [weak self] in
@@ -56,6 +62,36 @@ actor UsageTurnstile {
     private func flushNow() {
         flushScheduled = false
         client.flush()
+    }
+
+    /// Emit now, ignoring the debounce and the re-emit window: this turnstile's
+    /// part of `flushAndWait()`. Claims the device the way core's
+    /// `TrackedSession` does, so a device shared with another session posts once.
+    func forceFlush() async {
+        guard client.hasUsage else { return }
+        guard await telemetry.claimForcedEmit(device: client.deviceId) else {
+            client.carryUnsent()
+            return
+        }
+        client.load()
+    }
+
+    /// Install the force-flush hook on the first recorded call, as core's
+    /// `TrackedSession` does on its first run. Without it `flushAndWait()` never
+    /// reaches this turnstile, and its usage waits out the debounce instead.
+    private func registerFlushHookIfNeeded() async {
+        guard !registeredFlushHook else { return }
+        registeredFlushHook = true
+        await telemetry.registerFlushHook(
+            FlushHook(
+                isAlive: { [weak self] in self != nil },
+                flush: { [weak self] in
+                    guard let self else { return false }
+                    await self.forceFlush()
+                    return true
+                }
+            )
+        )
     }
 }
 

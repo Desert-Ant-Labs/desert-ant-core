@@ -106,6 +106,9 @@ public final class UsageClient {
 
     public init(_ deps: ClientDeps) { self.deps = deps }
 
+    /// The device this client reports for, which a forced flush claims per pass.
+    public var deviceId: String { deps.deviceId }
+
     /// Host calls this once per inference/call to attribute to the turnstile.
     public func recordCall(_ n: Int = 1) {
         if n > 0 { sessionCalls += n }
