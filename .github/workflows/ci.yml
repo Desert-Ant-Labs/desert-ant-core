@@ -513,9 +513,10 @@ jobs:
             # Debug to share artifacts with the test build below, which has to
             # be debug (see that step); the closure check itself is
             # configuration-independent. The flags must match that step exactly
-            # or the build plan forks into a second full compile, and debug
-            # already enables testability, so neither passes -enable-testing.
-            swift build --target $p -c debug -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            # (including -Xswiftc -O, see there) or the build plan forks into a
+            # second full compile, and debug already enables testability, so
+            # neither passes -enable-testing.
+            swift build --target $p -c debug -Xswiftc -O -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -542,11 +543,12 @@ jobs:
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
 
-      # Separate build step so a frontend crash names its exact invocation
-      # (-v) instead of swift-driver's bare "error: fatalError", and -j 2
-      # bounds peak memory: the full test build is the largest compile this
-      # runner does, and a parallel spike is the usual suspect for a
-      # no-diagnostic crash on windows-latest.
+      # Separate build step so a frontend failure names its exact invocation
+      # (-v) instead of swift-driver's bare "error: fatalError". That line is
+      # not a crash: on Windows the driver prints it after an ordinary compile
+      # error (a7ef4b2 read it as a memory spike and added -j 2; the run before
+      # that commit shows the real diagnostic right above it). Job count is
+      # left to SwiftPM, one per core.
       # Debug, and only on this runner. Release is the faster configuration
       # everywhere else (the DSP frontends are bounds-checked triple loops that
       # run ~170x slower at -Onone: Ear's identify is 12-17 s per call in debug
@@ -554,13 +556,21 @@ jobs:
       # at all. SwiftPM does not link a test target into its runner there: the
       # runner .exe imports no <Target>Tests.dll, swift-testing scans a process
       # holding no test records, and every binary reports "0 tests in 0 suites"
-      # and exits 0. So the choice here is not fast or slow, it is slow or
-      # nothing. This job ran debug until 707ceef moved it to release on the
-      # belief that it already tested release; it did not, and the step that
-      # follows now proves a real test count either way.
+      # and exits 0. This job ran debug until 707ceef moved it to release on
+      # the belief that it already tested release; it did not, and the step
+      # that follows now proves a real test count either way.
+      #
+      # -Xswiftc -O on top of that: what breaks the test link is the release
+      # *configuration* (SwiftPM's build plan), not the optimizer, and swiftc
+      # takes the last -O flag given, so this stays a debug build that links
+      # its tests while the code runs optimized. Measured locally on Swift 6.4
+      # in this same debug configuration: Ear's suite took 38 s at -Onone and
+      # 1.8 s with -O, Clear's 7.5 s with -O against 155 s at -Onone on this
+      # runner, and both still reported their full test count. Before this the
+      # test step was 17 minutes, 10 of them Ear.
       - name: Build tests
         shell: pwsh
-        run: swift build --build-tests -c debug -v -j 2 -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: swift build --build-tests -c debug -Xswiftc -O -v -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
       # One invocation per model, timed, so a slow target is named in the log
       # instead of hiding in one 17-minute lump (which is how Ear's 992s went
@@ -576,7 +586,7 @@ jobs:
             Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $log = "test-$p.log"
-            swift test --skip-build -c debug --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
+            swift test --skip-build -c debug -Xswiftc -O --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
             if ($LASTEXITCODE -ne 0) { $failed = $true }
             # A suite that discovers nothing still exits 0, and prints "Test run
             # with 0 tests in 0 suites". SwiftPM does not always link a test
