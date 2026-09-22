@@ -16,6 +16,17 @@ import CRT
 /// platform C module in model code.
 public func environmentVariable(_ name: String) -> String? {
     name.withCString { key in
-        getenv(key).map { decodeCString($0) }
+#if os(Windows)
+        // The MSVC CRT deprecates getenv (every call site warns), and its
+        // replacement returns a heap copy the caller owns. A missing variable
+        // is a zero return with a nil buffer, not an error.
+        var buffer: UnsafeMutablePointer<CChar>? = nil
+        var length = 0
+        guard _dupenv_s(&buffer, &length, key) == 0, let buffer else { return nil }
+        defer { free(buffer) }
+        return decodeCString(buffer)
+#else
+        return getenv(key).map { decodeCString($0) }
+#endif
     }
 }

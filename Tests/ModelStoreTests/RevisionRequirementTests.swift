@@ -40,7 +40,3 @@ struct RevisionRequirementTests {
         #expect(SemanticVersion(tag: "v1") == SemanticVersion(tag: "1.0.0"))
     }
 }
-
-extension SemanticVersion: Equatable {
-    static func == (a: SemanticVersion, b: SemanticVersion) -> Bool { !(a < b) && !(b < a) }
-}
