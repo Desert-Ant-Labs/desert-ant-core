@@ -53,6 +53,12 @@ actor UsageTurnstile {
         }
     }
 
+    /// `record()` for a caller that cannot await it. The pending call is
+    /// registered before this returns, so a flush right after still counts it.
+    nonisolated func recordInBackground() {
+        telemetry.recordInBackground { await self.record() }
+    }
+
     private func flushNow() {
         flushScheduled = false
         client.flush()

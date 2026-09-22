@@ -135,6 +135,9 @@ public actor TelemetryDebug {
 
     private var flushHooks: [FlushHook] = []
     private let sends: InflightSends
+    /// Calls recorded from a synchronous entry point, which cannot await the
+    /// recording, so a pass awaits them before it looks for hooks.
+    private let records = InflightSends()
     private var claimedDevices: Set<String> = []
     private var flushing = false
     private var parked: [CheckedContinuation<Void, Never>] = []
@@ -189,6 +192,15 @@ public actor TelemetryDebug {
         sends.remove(id)
     }
 
+    /// Run `record` in the background and make the next `flushAndWait` await it
+    /// first. For a synchronous entry point such as `Tongue.detect`, which can
+    /// only record from a task of its own: a flush started right after it would
+    /// otherwise run before the call was counted, and on a first call before
+    /// the turnstile had registered its hook, so it would send nothing.
+    public nonisolated func recordInBackground(_ record: @escaping @Sendable () async -> Void) {
+        dispatchTrackedSend(into: records, record)
+    }
+
     /// Force every tracked session to emit now (bypassing the debounce and the
     /// re-emit window), then await all in-flight telemetry sends. One pass runs
     /// at a time: overlapping passes each start by clearing the claims, so a
@@ -196,6 +208,7 @@ public actor TelemetryDebug {
     public func flushAndWait() async {
         while flushing { await withCheckedContinuation { parked.append($0) } }
         flushing = true
+        for task in records.drain() { await task.value }
         // Sessions that register while this pass runs append past the mark, so
         // the live prefix cannot drop one that just started.
         let marked = flushHooks.count
