@@ -82,12 +82,22 @@ struct UsageClientTests {
         #expect(sent.count == 1)
         let body = sent[0]
         #expect(["ios", "android", "web", "server"].contains(body.platform))
+        #if os(Android)
+        #expect(body.platform == "android")
+        #elseif os(iOS) || os(tvOS) || os(visionOS) || os(watchOS)
+        #expect(body.platform == "ios")
+        #elseif os(WASI)
+        // test:wasi runs this binary under Node; a page would report "web".
         #expect(body.platform == "server")
+        #else
+        #expect(body.platform == "server")
+        #endif
         // Where the build cannot set an `Authorization` header, the key must ride
-        // the body instead, or the event arrives unattributed. The wasm build is
-        // that case here: its unload flush is a header-less `sendBeacon`. The
-        // header half of this pairing is proved on the wire in `HTTPTests`.
-        #if os(WASI)
+        // the body instead, or the event arrives unattributed. The wasm build (its
+        // unload flush is a header-less `sendBeacon`) and the Android host bridge
+        // (which passes no headers) are those cases. The header half of this
+        // pairing is proved on the wire in `HTTPTests`.
+        #if os(WASI) || os(Android)
         #expect(body.key == "dal_test")
         #else
         #expect(body.key == nil)
