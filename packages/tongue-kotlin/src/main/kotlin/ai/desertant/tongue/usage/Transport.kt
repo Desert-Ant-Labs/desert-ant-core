@@ -110,7 +110,10 @@ internal fun makeClient(
     now: () -> Long = System::currentTimeMillis,
 ): UsageClient {
     val appId = defaultAppIdentifier(context)
-    val key = System.getenv("DAL_API_KEY")?.takeIf { it.isNotEmpty() }
+    // A key set in code (DesertAnt.apiKey) wins over the environment, matching
+    // core's hostProvidedApiKey().
+    val key = ai.desertant.tongue.DesertAnt.apiKey?.takeIf { it.isNotEmpty() }
+        ?: System.getenv("DAL_API_KEY")?.takeIf { it.isNotEmpty() }
     val namespace = key ?: appId
     val device = storage.persistentDeviceId()
     return UsageClient(
