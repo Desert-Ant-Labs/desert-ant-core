@@ -320,15 +320,25 @@ dal_start_echo_server() {
     else
         swiftc -O Tools/EchoServer.swift -o "$bin"
     fi
+    # Any answer here is another process: the tests would talk to it instead,
+    # and fail far from the cause.
+    if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port/"; then
+        echo "error: port $port is already in use; DAL_SWIFT_ECHO_PORT or DAL_WASI_ECHO_PORT moves the task off it" >&2
+        return 1
+    fi
     "$bin" "$port" &
     DAL_ECHO_PID=$!
     # shellcheck disable=SC2064
     trap "kill $DAL_ECHO_PID 2>/dev/null; wait $DAL_ECHO_PID 2>/dev/null || true" EXIT
-    local _
+    # Ready only when the reply is our own probe echoed back, so a listener
+    # that took the port in the meantime is not mistaken for this server.
+    local _ probe="dal-echo-$$"
     for _ in $(seq 1 50); do
-        curl -sf -o /dev/null "http://127.0.0.1:$port/" && break
+        [ "$(curl -sf --max-time 2 -X POST --data "$probe" "http://127.0.0.1:$port/echo" 2> /dev/null)" = "$probe" ] \
+            && return 0
+        kill -0 "$DAL_ECHO_PID" 2> /dev/null || break
         sleep 0.2
     done
-    kill -0 "$DAL_ECHO_PID" 2> /dev/null \
-        || { echo "error: the echo server did not start (is port $port already in use?)" >&2; return 1; }
+    echo "error: the echo server did not start on port $port (is it already in use?)" >&2
+    return 1
 }

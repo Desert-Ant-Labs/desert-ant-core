@@ -52,8 +52,16 @@ final class EchoServerFixture: @unchecked Sendable {
 
     private func start() {
         // A server may already be listening (a previous run, or one that mise
-        // started). Reuse it rather than binding again and crashing on EADDRINUSE.
-        if canConnect(host: "127.0.0.1", port: echoPort) { return }
+        // started). Reuse it rather than binding again and crashing on EADDRINUSE,
+        // but only if it is ours: any other listener would fail the suites far
+        // from the cause.
+        if canConnect(host: "127.0.0.1", port: echoPort) {
+            guard answersEcho() else {
+                fatalError("Port \(echoPort) is held by something other than the echo server; "
+                    + "set DAL_ECHO_PORT to a free port")
+            }
+            return
+        }
         do {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("echo-server-\(UUID().uuidString)")
@@ -106,13 +114,32 @@ final class EchoServerFixture: @unchecked Sendable {
                     fatalError("EchoServer exited early (status \(server.terminationStatus)); "
                         + "is port \(echoPort) already in use?")
                 }
-                if canConnect(host: "127.0.0.1", port: echoPort) { ready = true; break }
+                if answersEcho() { ready = true; break }
                 Thread.sleep(forTimeInterval: 0.2)
             }
             guard ready else { fatalError("EchoServer did not become reachable on 127.0.0.1:\(echoPort)") }
         } catch {
             fatalError("Failed to start EchoServer for Xcode run: \(error)")
         }
+    }
+
+    /// True when the listener on `echoPort` echoes a POST body back, which is
+    /// what the echo server does and what an unrelated server will not.
+    private func answersEcho() -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(echoPort)/echo") else { return false }
+        let probe = "dal-echo-\(UUID().uuidString)"
+        var request = URLRequest(url: url, timeoutInterval: 2)
+        request.httpMethod = "POST"
+        request.httpBody = Data(probe.utf8)
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var echoed = false
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            echoed = (response as? HTTPURLResponse)?.statusCode == 200
+                && data.map { String(decoding: $0, as: UTF8.self) } == probe
+            done.signal()
+        }.resume()
+        done.wait()
+        return echoed
     }
 
     private func canConnect(host: String, port: UInt16) -> Bool {
