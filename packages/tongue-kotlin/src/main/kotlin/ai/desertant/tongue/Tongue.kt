@@ -74,7 +74,8 @@ public class Tongue internal constructor(
      * the debounce to fire in. Usage is reported on its own; this is not required.
      *
      * Returns true when the send completed, false when it failed. Nothing recorded
-     * means nothing sent.
+     * means nothing sent. With `DAL_USAGE_DISABLED` set there is no client at all,
+     * so this sends and stores nothing and returns true.
      */
     public fun flushTelemetry(): Boolean = usage?.flushTelemetry() ?: true
 

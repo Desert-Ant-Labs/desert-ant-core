@@ -81,11 +81,16 @@ internal class UsageTurnstile internal constructor(
          *
          * Never throws: a model must still load if the store is unwritable or the
          * platform is unusual. A failure here means no reporting, not no detection.
+         * `storage` replaces the platform store (tests).
          */
-        fun create(context: Any?): UsageTurnstile? {
+        fun create(context: Any?, storage: UsageStorage? = null): UsageTurnstile? {
             if (usageDisabled()) return null
             return runCatching {
-                val client = makeClient(context = context, sdkVersion = SDK_VERSION)
+                val client = makeClient(
+                    context = context,
+                    sdkVersion = SDK_VERSION,
+                    storage = storage ?: defaultStorage(context),
+                )
                 client.start()
                 val turnstile = UsageTurnstile(client)
                 // A process that exits inside the 3 s debounce would otherwise send

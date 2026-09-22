@@ -38,9 +38,16 @@ internal fun apiKey(): String? =
     ai.desertant.tongue.DesertAnt.apiKey?.takeIf { it.isNotEmpty() }
         ?: setting("DAL_API_KEY")
 
+/**
+ * How this port reads the process environment. A seam for tests only: the Gradle
+ * test task sets `DAL_USAGE_DISABLED` in the environment, and the environment
+ * wins, so without it the system property path could never be exercised.
+ */
+internal var readEnvironment: (String) -> String? = System::getenv
+
 /** An environment variable, then the same-named system property, then null. */
 private fun setting(name: String): String? =
-    System.getenv(name)?.takeIf { it.isNotEmpty() }
+    readEnvironment(name)?.takeIf { it.isNotEmpty() }
         ?: System.getProperty(name)?.takeIf { it.isNotEmpty() }
 
 /**
@@ -155,7 +162,7 @@ internal fun defaultAppIdentifier(context: Any? = null): String {
 
 /** Whether usage reporting is switched off for this process. See docs/USAGE.md. */
 internal fun usageDisabled(): Boolean {
-    val value = System.getenv("DAL_USAGE_DISABLED") ?: System.getProperty("DAL_USAGE_DISABLED")
+    val value = readEnvironment("DAL_USAGE_DISABLED") ?: System.getProperty("DAL_USAGE_DISABLED")
     return !value.isNullOrEmpty() && value != "0"
 }
 
