@@ -23,6 +23,7 @@ const WEB_SESSION_MS = 30 * 60 * 1000;
 
 /** Debounce before flushing, matching core's `TrackedSession`. */
 const FLUSH_AFTER_MS = 3000;
+const SEND_TIMEOUT_MS = 5000;
 
 const DEVICE_ID_KEY = "ai.desertant.usage.deviceId";
 const stateKey = (appKey: string, deviceId: string) =>
@@ -381,15 +382,25 @@ export function makeSend(
         .navigator?.sendBeacon;
       const headers: Record<string, string> = { "Content-Type": "application/json" };
       if (bearerKey && keyInHeader) headers.Authorization = `Bearer ${bearerKey}`;
+      // Bounded as the Kotlin port's connection is, so an endpoint that accepts
+      // and never answers cannot hold `flushTelemetry()`, and with it a
+      // process's exit, for undici's five minute default.
+      const signal =
+        typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+          ? AbortSignal.timeout(SEND_TIMEOUT_MS)
+          : undefined;
       return fetch(endpoint, {
         method: "POST",
         headers,
         body: json,
         keepalive: true,
+        signal,
       }).then(
         () => undefined,
-        () => {
+        (error: unknown) => {
           // Best effort. A blocked request must never surface to the caller.
+          // A timed-out one may already have landed, so it is not sent again.
+          if ((error as { name?: string } | null)?.name === "TimeoutError") return;
           if (beacon) try { beacon.call(globalThis.navigator, endpoint, json); } catch { /* ignore */ }
         },
       );
@@ -407,11 +418,13 @@ export function makeSend(
 export class UsageTurnstile {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * The newest send the debounce started. `flushTelemetry()` awaits it: the timer
-   * may have fired just before, leaving nothing recorded for the forced flush to
-   * send while the POST it started is still in flight.
+   * Sends the debounce started that have not finished. `flushTelemetry()` awaits
+   * them: the timer may have fired just before, leaving nothing recorded for the
+   * forced flush to send while the POST it started is still in flight. Every one,
+   * not the newest: fetches run concurrently, so on a slow endpoint an older POST
+   * can outlive a newer one.
    */
-  private debouncedSend: Promise<void> | null = null;
+  private debouncedSends = new Set<Promise<void>>();
 
   private constructor(private client: UsageClient) {}
 
@@ -495,7 +508,14 @@ export class UsageTurnstile {
       this.flushTimer = null;
       try {
         const sent = this.client.flush();
-        if (sent) this.debouncedSend = Promise.resolve(sent).catch(() => undefined);
+        if (sent) {
+          const pending: Promise<void> = Promise.resolve(sent)
+            .catch(() => undefined)
+            .then(() => {
+              this.debouncedSends.delete(pending);
+            });
+          this.debouncedSends.add(pending);
+        }
       } catch {
         /* best effort */
       }
@@ -513,11 +533,10 @@ export class UsageTurnstile {
    */
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
-    const earlier = this.debouncedSend;
-    this.debouncedSend = null;
+    const earlier = [...this.debouncedSends];
     try {
       const forced = this.client.hasUsage ? this.client.load() : undefined;
-      await Promise.all([earlier, forced]);
+      await Promise.all([...earlier, forced]);
       return true;
     } catch {
       return false;
