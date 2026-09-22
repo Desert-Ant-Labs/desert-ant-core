@@ -50,7 +50,8 @@ public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (I
         // "simple" request (the server parses the body as JSON regardless).
         if opts.beacon, jsSendBeacon(endpoint, payload) { return }
         #endif
-        let task = Task.detached {
+        // Registered before this returns, so a caller's `flushTelemetry()` awaits it.
+        dispatchTrackedSend { [headers] in
             do {
                 let response = try await httpPOST(
                     endpoint, body: payload, contentType: "application/json", headers: headers
@@ -62,12 +63,6 @@ public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (I
             } catch {
                 if debug { print("[usage] send failed: \(error)") }
             }
-        }
-        // Let a caller's `flushTelemetry()` await this fire-and-forget send.
-        Task {
-            let id = await TelemetryDebug.shared.trackSend(task)
-            await task.value
-            await TelemetryDebug.shared.untrackSend(id)
         }
     }
 }

@@ -22,6 +22,7 @@
 #if os(WASI)
 import JavaScriptKit
 #else
+import Dispatch
 import PlatformSupport
 #endif
 
@@ -48,6 +49,74 @@ public struct FlushHook: Sendable {
     }
 }
 
+/// In-flight telemetry sends, registered synchronously by the transport before
+/// its `send` returns.
+///
+/// Not the actor: registering through it needed an `await`, so the transport did
+/// it from a separate unstructured task, and a flush could drain the list before
+/// that task had run and return without waiting for the send it had just started.
+/// A hook's flush calls `send` synchronously, so a send registered here is always
+/// visible to the flush that caused it.
+final class InflightSends: @unchecked Sendable {
+    static let shared = InflightSends()
+
+    private var tasks: [Int: Task<Void, Never>] = [:]
+    private var nextId = 0
+
+    /// Record a send and return the id `remove` takes once it finishes.
+    func add(_ task: Task<Void, Never>) -> Int {
+        withLock {
+            nextId += 1
+            tasks[nextId] = task
+            return nextId
+        }
+    }
+
+    func remove(_ id: Int) {
+        withLock { tasks[id] = nil }
+    }
+
+    /// Take every send registered so far.
+    func drain() -> [Task<Void, Never>] {
+        withLock {
+            let pending = Array(tasks.values)
+            tasks.removeAll()
+            return pending
+        }
+    }
+
+    var count: Int { withLock { tasks.count } }
+
+#if os(WASI)
+    // Single-threaded host, nothing to lock.
+    private func withLock<T>(_ body: () -> T) -> T { body() }
+#else
+    private let lock = DispatchSemaphore(value: 1)
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.wait()
+        defer { lock.signal() }
+        return body()
+    }
+#endif
+}
+
+/// Start a tracked send: `work` runs detached, fire and forget, and is
+/// registered before this returns, so a flush that triggered it awaits it.
+func dispatchTrackedSend(
+    into registry: InflightSends = .shared,
+    _ work: @escaping @Sendable () async -> Void
+) {
+    let task = Task.detached { await work() }
+    let id = registry.add(task)
+    // Only keeps the list to live sends; a flush that drains first has already
+    // taken the task, and removing a missing id is a no-op.
+    Task {
+        await task.value
+        registry.remove(id)
+    }
+}
+
 /// Tracks live tracked-session flush hooks and in-flight telemetry sends, so a
 /// caller can force a send and wait for it to finish.
 public actor TelemetryDebug {
@@ -61,11 +130,16 @@ public actor TelemetryDebug {
     private let maxHooks = 256
 
     private var flushHooks: [FlushHook] = []
-    private var inflight: [Int: Task<Void, Never>] = [:]
-    private var nextSendId = 0
+    private let sends: InflightSends
     private var claimedDevices: Set<String> = []
     private var flushing = false
     private var parked: [CheckedContinuation<Void, Never>] = []
+
+    /// `sends` is the registry the transport writes to; a test passes its own so
+    /// its flush passes stay out of every other suite's.
+    init(sends: InflightSends = .shared) {
+        self.sends = sends
+    }
 
     /// Register a hook that forces a tracked session to emit immediately. The
     /// hook's `flush` returns false once its session is gone, which drops it.
@@ -98,16 +172,17 @@ public actor TelemetryDebug {
     /// memory: a send still running when its entry goes is a send the next flush
     /// returns without waiting for, which is the exit-before-it-lands failure this
     /// exists to prevent.
+    ///
+    /// The transport no longer calls this (it registers synchronously, see
+    /// `InflightSends`); it stays for callers of the public API.
     @discardableResult
     public func trackSend(_ task: Task<Void, Never>) -> Int {
-        nextSendId += 1
-        inflight[nextSendId] = task
-        return nextSendId
+        sends.add(task)
     }
 
     /// Forget a send that has finished.
     public func untrackSend(_ id: Int) {
-        inflight[id] = nil
+        sends.remove(id)
     }
 
     /// Force every tracked session to emit now (bypassing the debounce and the
@@ -126,11 +201,9 @@ public actor TelemetryDebug {
             if await hook.flush() { live.append(hook) }
         }
         flushHooks = live + flushHooks.dropFirst(marked)
-        // Let the freshly dispatched detached sends register themselves.
-        for _ in 0..<5 { await Task.yield() }
-        let pending = Array(inflight.values)
-        inflight.removeAll()
-        for task in pending { await task.value }
+        // Every hook has returned, and each registered its sends before its
+        // `send` call returned, so this holds every send this pass started.
+        for task in sends.drain() { await task.value }
         flushing = false
         let waiting = parked
         parked = []
