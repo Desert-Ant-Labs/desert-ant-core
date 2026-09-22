@@ -73,6 +73,8 @@ export declare class Emo {
    * settles.
    */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   /** Release the model. The suggester is unusable afterwards. Both builds. */
   dispose(): void;
 }

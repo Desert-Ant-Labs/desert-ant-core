@@ -84,6 +84,8 @@ export declare class Clear {
   isDownloaded(): boolean;
   /** Bill every call made inside `body` as one usage call. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   /** Release the model. */
   dispose(): void;
 }

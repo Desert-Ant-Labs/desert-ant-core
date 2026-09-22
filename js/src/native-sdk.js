@@ -11,6 +11,15 @@
 import { loadNative } from "./native.js";
 import { readyModel } from "./sdk.js";
 
+const NATIVE_STARTED = Symbol.for("desert-ant-labs.native-started");
+
+/** `globalThis.__dalDeviceId`, as a string or a zero-arg function, or null. */
+function hostDeviceId() {
+  const raw = globalThis.__dalDeviceId;
+  const value = typeof raw === "function" ? raw() : raw;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
 /**
  * The native core reads usage identity from the environment (DAL_APP_ID,
  * DAL_API_KEY, DAL_DEVICE_ID); the browser entry reads the same values from
@@ -19,11 +28,15 @@ import { readyModel } from "./sdk.js";
  * may be a string or a zero-arg function, the two forms the core's own JS host
  * read accepts. An environment variable already set wins.
  *
- * Run at each load rather than once at import: the core reads these when a model
- * loads and runs, and a host that imports the package before setting the global
- * would otherwise go unattributed.
+ * Run at each load rather than once at import, so a host that imports the package
+ * before setting the global is still attributed, but only until a native model
+ * first loads in this process: from then on core threads read the environment,
+ * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
+ * later still counts, since `run` passes it per call; a key or app id set after
+ * the first load has to be in the environment already.
  */
 function bridgeHostIdentity() {
+  if (globalThis[NATIVE_STARTED]) return;
   for (const [name, env] of [
     ["__dalAppId", "DAL_APP_ID"],
     ["__dalApiKey", "DAL_API_KEY"],
@@ -71,8 +84,11 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     },
     async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
+      // Per call rather than through the environment, which is no longer written
+      // once a native model has started (see bridgeHostIdentity).
+      const device = deviceId ?? hostDeviceId();
       const ptr = await callAsync(
-        lib.run, handle, input, input.length, payload, payload.length, group, deviceId);
+        lib.run, handle, input, input.length, payload, payload.length, group, device);
       if (!ptr) throw new Error(`${packageName}: the model failed to run`);
       try {
         return decodeResult(ptr);
@@ -110,6 +126,7 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       // core anyway; now that the core honours what it is given, sending one
       // would relocate every existing cache.
       const handle = core.create(options.cacheRoot ?? null, options.directory ?? null);
+      globalThis[NATIVE_STARTED] = true;
       return readyModel({ core, packageName, handle, onProgress });
     },
   };

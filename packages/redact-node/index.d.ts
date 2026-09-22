@@ -102,6 +102,8 @@ export declare class Redact {
    * it bills as a single usage call. The group is released when `body` settles.
    */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   /** Release the model. The redactor is unusable afterwards. Both builds. */
   dispose(): void;
 }

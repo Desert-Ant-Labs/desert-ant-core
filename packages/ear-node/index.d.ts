@@ -64,6 +64,8 @@ export declare class Ear {
   isDownloaded(): boolean;
   /** Bill several calls as one. */
   withCallGroup<T>(body: (group: number) => Promise<T> | T): Promise<T>;
+  /** Send recorded usage and await the POST. One load per device per call. */
+  flushTelemetry(): Promise<boolean>;
   /** Release the model. */
   dispose(): void;
 }
