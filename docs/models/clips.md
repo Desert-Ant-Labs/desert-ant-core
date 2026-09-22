@@ -15,7 +15,7 @@ Short clips and highlights from talking video and audio: podcasts, interviews, m
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.1")
 ```
 
 Then add the `Clips` product to your target.
