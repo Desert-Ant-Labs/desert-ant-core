@@ -73,7 +73,10 @@ public class Tongue internal constructor(
      * it lands. Useful in a short-lived CLI or worker, which has no idle gap for
      * the debounce to fire in. Usage is reported on its own; this is not required.
      *
-     * Returns true when the send completed, false when it failed. Nothing recorded
+     * Returns true once the flush has run and its POST has finished, false only
+     * when the flush itself threw. The endpoint's answer is not reported: a
+     * refused or failed POST still returns true, as core's and the Node port's
+     * `flushTelemetry()` do, because reporting is best effort. Nothing recorded
      * means nothing sent. With `DAL_USAGE_DISABLED` set there is no client at all,
      * so this sends and stores nothing and returns true.
      */
