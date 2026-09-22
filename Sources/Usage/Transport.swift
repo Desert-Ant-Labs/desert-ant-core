@@ -16,10 +16,10 @@ private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultInge
 /// transport uses.
 ///
 /// False on Android, whose host bridge takes a body and a content type only, and
-/// on wasm, which serves a browser and a Node process from one binary: a browser's
-/// unload flush is a `sendBeacon`, which cannot carry a header, and a beacon
-/// without the key would arrive unattributed. Those two keep the key in the body,
-/// as every build did before.
+/// on wasm, where a browser's unload flush is a `sendBeacon` and cannot carry a
+/// header; one wasm binary is the same code for a page and for a Node process, so
+/// it keeps one answer for both rather than branching on the host. Those two keep
+/// the key in the body, as every build did before.
 private var keyRidesInHeader: Bool {
     if !httpSupportsRequestHeaders { return false }
     #if os(WASI)
