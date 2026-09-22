@@ -10,6 +10,10 @@ import { Tongue } from "../dist/index.js";
 /** The platform tags the ingest endpoint accepts; anything else is a 400. */
 const acceptedPlatforms = ["ios", "android", "web", "server"];
 
+// A test that builds a real turnstile and leaves a call unsent would otherwise
+// post it to production on exit. Tests that need a server set their own.
+process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
+
 // Replays the shared turnstile contract. The Kotlin port replays the identical
 // file against its own hand-ported client; the Swift SDK uses desert-ant-core's
 // client directly, which is where this behaviour comes from. See docs/USAGE.md.
@@ -465,5 +469,77 @@ test("the turnstile a host builds puts the key in exactly one place", async () =
       else process.env[name] = value;
     }
     await new Promise((resolve) => server.close(resolve));
+  }
+});
+
+test("a flush awaits a send an earlier, unawaited flush started", async () => {
+  // `void t.flushTelemetry(); await t.flushTelemetry()` used to resolve at once:
+  // the second flush had nothing to send and did not know about the first POST.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  let answer;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => new Promise((resolve) => (answer = () => resolve({ ok: true })));
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    turnstile.record();
+    void turnstile.flushTelemetry();
+    let settled = false;
+    const second = turnstile.flushTelemetry().then((ok) => {
+      settled = true;
+      return ok;
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(settled, false, "the second flush resolved before the first flush's POST was answered");
+    answer();
+    assert.equal(await second, true);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
+test("a worker in a server runtime is a server, not a page", () => {
+  // Deno, Bun and Node workers expose worker globals too, but have no Origin: as
+  // `web` with no key and no app id the endpoint answers 400.
+  const had = "importScripts" in globalThis;
+  globalThis.importScripts = () => {};
+  try {
+    assert.equal(defaultPlatform(), "server");
+  } finally {
+    if (!had) delete globalThis.importScripts;
+  }
+});
+
+test("a key with surrounding whitespace is trimmed before it reaches the header", async () => {
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const saved = { disabled: process.env.DAL_USAGE_DISABLED, key: process.env.DAL_API_KEY };
+  delete process.env.DAL_USAGE_DISABLED;
+  process.env.DAL_API_KEY = "dal_test\n";
+  const seen = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    seen.push(init.headers.Authorization);
+    return Promise.resolve({ ok: true });
+  };
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    turnstile.record();
+    await turnstile.flushTelemetry();
+    assert.deepEqual(seen, ["Bearer dal_test"]);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (saved.disabled !== undefined) process.env.DAL_USAGE_DISABLED = saved.disabled;
+    if (saved.key === undefined) delete process.env.DAL_API_KEY;
+    else process.env.DAL_API_KEY = saved.key;
   }
 });

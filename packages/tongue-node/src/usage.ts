@@ -145,6 +145,12 @@ function isBrowserOrigin(): boolean {
     WorkerGlobalScope?: abstract new () => object;
   };
   if (typeof g.document !== "undefined") return true;
+  // A worker in a server runtime (Deno, Bun, Node) has WorkerGlobalScope too, but
+  // no Origin: tagged `web` without one it has no identity and gets a 400.
+  const server = globalThis as { Deno?: unknown; process?: { versions?: { node?: string; bun?: string } } };
+  if (typeof server.Deno !== "undefined" || server.process?.versions?.node || server.process?.versions?.bun) {
+    return false;
+  }
   if (typeof g.importScripts === "function") return true;
   const scope = g.WorkerGlobalScope;
   return typeof scope === "function" && globalThis instanceof scope;
@@ -195,14 +201,16 @@ function keyRidesInHeader(browserOrigin: boolean): boolean {
  * Kotlin port document — got bodies with no `key` at all and no way to notice.
  */
 function hostString(name: string, envName: string): string | undefined {
+  // Trimmed: a value read from a secret file often ends in a newline, which an
+  // `Authorization` header rejects and the POST is lost with it.
   const value = (globalThis as Record<string, unknown>)[name];
-  if (typeof value === "string" && value) return value;
+  if (typeof value === "string" && value.trim()) return value.trim();
   if (typeof value === "function") {
     const resolved = (value as () => unknown)();
-    if (typeof resolved === "string" && resolved) return resolved;
+    if (typeof resolved === "string" && resolved.trim()) return resolved.trim();
   }
   const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
-  return env?.[envName] || undefined;
+  return env?.[envName]?.trim() || undefined;
 }
 
 /** Whether usage reporting is switched off for this process. See docs/USAGE.md. */
@@ -418,13 +426,24 @@ export function makeSend(
 export class UsageTurnstile {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   /**
-   * Sends the debounce started that have not finished. `flushTelemetry()` awaits
-   * them: the timer may have fired just before, leaving nothing recorded for the
-   * forced flush to send while the POST it started is still in flight. Every one,
-   * not the newest: fetches run concurrently, so on a slow endpoint an older POST
-   * can outlive a newer one.
+   * Every send this turnstile started that has not finished: the debounce's, the
+   * exit hook's and earlier forced flushes'. `flushTelemetry()` awaits them all:
+   * the one it starts itself may be nothing, because the POST carrying its calls
+   * is already in flight. Every one, not the newest: fetches run concurrently, so
+   * on a slow endpoint an older POST can outlive a newer one.
    */
-  private debouncedSends = new Set<Promise<void>>();
+  private inflight = new Set<Promise<void>>();
+
+  /** Keep `sent` in `inflight` until it settles. */
+  private track(sent: Promise<void> | void): void {
+    if (!sent) return;
+    const pending: Promise<void> = Promise.resolve(sent)
+      .catch(() => undefined)
+      .then(() => {
+        this.inflight.delete(pending);
+      });
+    this.inflight.add(pending);
+  }
 
   private constructor(private client: UsageClient) {}
 
@@ -488,7 +507,7 @@ export class UsageTurnstile {
         // `beforeExit` still allows work to be scheduled, unlike `exit`.
         proc?.once?.("beforeExit", () => {
           try {
-            turnstile.client.flush();
+            turnstile.track(turnstile.client.flush());
           } catch {
             /* best effort */
           }
@@ -507,15 +526,7 @@ export class UsageTurnstile {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       try {
-        const sent = this.client.flush();
-        if (sent) {
-          const pending: Promise<void> = Promise.resolve(sent)
-            .catch(() => undefined)
-            .then(() => {
-              this.debouncedSends.delete(pending);
-            });
-          this.debouncedSends.add(pending);
-        }
+        this.track(this.client.flush());
       } catch {
         /* best effort */
       }
@@ -533,10 +544,9 @@ export class UsageTurnstile {
    */
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
-    const earlier = [...this.debouncedSends];
     try {
-      const forced = this.client.hasUsage ? this.client.load() : undefined;
-      await Promise.all([...earlier, forced]);
+      if (this.client.hasUsage) this.track(this.client.load());
+      await Promise.all([...this.inflight]);
       return true;
     } catch {
       return false;
