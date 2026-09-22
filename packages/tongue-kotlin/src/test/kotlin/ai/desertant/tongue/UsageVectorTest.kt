@@ -314,9 +314,11 @@ class UsageVectorTest {
         val arrived = CountDownLatch(1)
         server.createContext("/api/v1/ingest") { exchange ->
             exchange.requestBody.readBytes()
+            // Before the response: once it is sent the client can return and
+            // assert before this thread gets here.
+            arrived.countDown()
             exchange.sendResponseHeaders(500, -1)
             exchange.close()
-            arrived.countDown()
         }
         server.start()
         try {
@@ -472,9 +474,12 @@ class UsageVectorTest {
             exchange.requestBody.readBytes()
             arrived.countDown()
             Thread.sleep(800)
+            // Before the response, for the reason the refused-POST test gives.
+            // A flush cannot finish until the response is sent, so this still
+            // proves it waited.
+            answered.countDown()
             exchange.sendResponseHeaders(202, -1)
             exchange.close()
-            answered.countDown()
         }
         server.start()
         try {
