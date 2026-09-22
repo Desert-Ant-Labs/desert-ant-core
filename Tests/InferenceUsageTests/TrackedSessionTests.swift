@@ -108,6 +108,31 @@ struct TrackedSessionTests {
         #expect(store.byDevice["ch-1"]?.carryCallCount ?? 0 == 0, "and nothing is left carried for the next load to add")
     }
 
+    /// The debug force-flush emits one load per device, not one per session: the align
+    /// cascade is two sessions over one device, and forcing each of them posted that
+    /// device's usage twice. It reports the calls made, never an invented one, and the
+    /// session that loses the claim carries its call rather than losing it.
+    @Test func aDebugFlushForcesOneLoadPerDevice() async throws {
+        let sink = Sink()
+        let store = UsageStore()
+        let coarse = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store), debugFlushHooks: true)
+        let fine = TrackedSession(wrapping: CountingSession(), flushAfter: 60, clientFactory: testClientFactory(sink, store), debugFlushHooks: true)
+
+        _ = try await coarse.run(inputs: [:], outputs: [], deviceId: "cascade")
+        _ = try await fine.run(inputs: [:], outputs: [], deviceId: "cascade")
+        await TelemetryDebug.shared.flushAndWait()
+
+        let loads = sink.events.filter { $0.name == "load" }
+        #expect(loads.count == 1, "a forced flush emits one load per device, however many sessions ran")
+        #expect(loads.compactMap { $0.callCount }.reduce(0, +) == 1, "and it reports the call that was made, not an invented one")
+        #expect(loads.first?.deviceId == "cascade", "and it reports the device the session served")
+
+        await TelemetryDebug.shared.flushAndWait()
+        let after = sink.events.filter { $0.name == "load" }
+        #expect(after.count == 2, "the other session's call is carried, so the next pass reports it rather than dropping it")
+        #expect(after.compactMap { $0.callCount }.reduce(0, +) == 2, "and two passes report each recorded call exactly once")
+    }
+
     /// Per device, so a group spanning two end users still counts each of them.
     @Test func aCallGroupCountsEachDeviceOnce() async throws {
         let sink = Sink()
