@@ -161,8 +161,11 @@ public actor TelemetryDebug {
         registerFlushHook(FlushHook(isAlive: { true }, flush: hook))
     }
 
+    /// Not during a pass: the pass rebuilds the list as its live prefix plus
+    /// everything past `marked`, so shrinking it mid-pass would drop hooks that
+    /// registered meanwhile. The pass drops dead hooks itself.
     private func pruneHooksIfNeeded() {
-        guard flushHooks.count > maxHooks else { return }
+        guard !flushing, flushHooks.count > maxHooks else { return }
         flushHooks.removeAll { !$0.isAlive() }
     }
 
@@ -213,10 +216,21 @@ public actor TelemetryDebug {
         // the live prefix cannot drop one that just started.
         let marked = flushHooks.count
         claimedDevices.removeAll()
-        var live: [FlushHook] = []
-        for hook in flushHooks {
-            if await hook.flush() { live.append(hook) }
+        // Each hook runs as a child task rather than in a sequential loop. On
+        // wasm's single-threaded executor the hop into a hook and back runs
+        // inline, so a loop nests a frame per hook, and a pass over a few hundred
+        // of them (dead ones count until pruned) overflows the shadow stack into
+        // the heap. A child task starts from the executor on a fresh stack.
+        let hooks = flushHooks
+        let alive = await withTaskGroup(of: (Int, Bool).self) { group in
+            for (index, hook) in hooks.enumerated() {
+                group.addTask { (index, await hook.flush()) }
+            }
+            var alive = [Bool](repeating: false, count: hooks.count)
+            for await (index, isAlive) in group { alive[index] = isAlive }
+            return alive
         }
+        let live = zip(hooks, alive).filter { $0.1 }.map { $0.0 }
         flushHooks = live + flushHooks.dropFirst(marked)
         // Every hook has returned, and each registered its sends before its
         // `send` call returned, so this holds every send this pass started.
