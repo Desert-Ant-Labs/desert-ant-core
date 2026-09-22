@@ -29,6 +29,9 @@ private actor WindowGate {
         }
     }
 
+    /// Whether the window at `index` has been encoded, without waiting for it.
+    func isReady(_ index: Int) -> Bool { ready > index }
+
     /// Releases every waiter, for when encoding has failed and the windows it
     /// promised are never coming. The decode then reads zeroed projections,
     /// which is harmless because the caller throws the encoding error and
@@ -121,26 +124,21 @@ final class Pipeline: @unchecked Sendable {
     /// Whether the decode runs on a thread of its own while the encoder feeds
     /// it, rather than the two taking turns.
     ///
-    /// Worth it only where the two land on different processors, which is the
-    /// same question the decode step's placement answers: M-series silicon
-    /// puts it on the CPU, everything else leaves it on the engine. So this
-    /// follows that and nothing else - an M-series iPad overlaps exactly as a
-    /// Mac does, and a phone does not, where it would only be the engine
-    /// waiting for itself and the measured 1% would cost a core a device on
-    /// battery would rather leave idle.
+    /// Worth it only where the two land on different processors, which the
+    /// engine knows because it placed them: Core ML's decode step leaves the
+    /// Neural Engine only on M-series silicon, Core AI's is on the CPU
+    /// everywhere. On a phone with both on the engine it would only be the
+    /// engine waiting for itself, and would cost a core a device on battery
+    /// would rather leave idle. `VOZ_OVERLAP` overrides it either way.
     ///
     /// Never in a browser. The page has one thread, and the two halves are on
     /// the same device anyway: the encoder holds WebGPU while the decode step
     /// runs on WebNN, and ONNX Runtime Web rejects concurrent runs across
     /// sessions with "Session already started".
-    #if canImport(CoreML)
-    private static let overlapsByDefault = Silicon.isMSeries
-    #else
-    private static let overlapsByDefault = false
-    #endif
-    private static let overlapsDecode =
+    private var overlapsDecode: Bool {
         ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
-            ?? overlapsByDefault
+            ?? engine.decodeRunsBesideEncoder
+    }
 
     #if canImport(Darwin)
     /// The decode's own thread. See ``DecodeWorker``.
@@ -262,6 +260,7 @@ final class Pipeline: @unchecked Sendable {
     private func decodeGroup(projections: Projections, valids: [Int],
                              count: Int, into result: DecodeResult,
                              awaitWindow: @escaping @Sendable (Int) async -> Void,
+                             isReady: @escaping @Sendable (Int) async -> Bool = { _ in true },
                              isolation: isolated (any Actor)? = #isolation) async {
         var tokens = [[Int]](repeating: [], count: count)
         var emitFrames = [[Int]](repeating: [], count: count)
@@ -269,7 +268,7 @@ final class Pipeline: @unchecked Sendable {
         do {
             try await decode(projections: projections.base, valids: valids,
                              ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
-                             awaitWindow: awaitWindow)
+                             awaitWindow: awaitWindow, isReady: isReady)
         } catch {
             result.error = error
         }
@@ -298,6 +297,7 @@ final class Pipeline: @unchecked Sendable {
                         ends: inout [[Int]], tokens: inout [[Int]],
                         frames: inout [[Int]],
                         awaitWindow: (Int) async -> Void = { _ in },
+                        isReady: (Int) async -> Bool = { _ in true },
                         isolation: isolated (any Actor)? = #isolation) async throws {
         let c = configuration
         let width = c.decodeWidth
@@ -318,6 +318,14 @@ final class Pipeline: @unchecked Sendable {
         var limit = [Int](repeating: 0, count: lanes)
         hIn.zero(); cIn.zero(); embed.zero(); encStep.zero()
 
+        // With `eagerAdmission`, a lane takes the next window only once it has
+        // been encoded and an empty lane never holds up the others: the decode
+        // steps the windows it has and fills lanes as windows land, waiting
+        // only when it has nothing to do. Without it, a free lane waits for its
+        // next window, which keeps lanes full but ties the decode to the
+        // encoder's pace and leaves up to sixteen part-decoded windows for
+        // after the last encode (123 ms of a 915 ms 10-minute clip on an M5,
+        // with the Neural Engine idle).
         func admit(_ lane: Int) async {
             guard pending < valids.count else { slot[lane] = -1; return }
             await awaitWindow(pending)
@@ -330,7 +338,19 @@ final class Pipeline: @unchecked Sendable {
             (cIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             pending += 1
         }
-        for lane in 0..<lanes { await admit(lane) }
+        func fill() async {
+            for lane in 0..<lanes where slot[lane] < 0 && pending < valids.count {
+                let eager = Self.eagerAdmission || valids.count - pending <= Self.eagerLast
+                guard eager else { await admit(lane); continue }
+                guard await isReady(pending) else { break }
+                await admit(lane)
+            }
+            if !slot.contains(where: { $0 >= 0 }), pending < valids.count,
+               let lane = slot.firstIndex(of: -1) {
+                await admit(lane)
+            }
+        }
+        await fill()
 
         while slot.contains(where: { $0 >= 0 }) {
             assets.withEmbedding { table in
@@ -352,7 +372,8 @@ final class Pipeline: @unchecked Sendable {
             }
             try await engine.runDecodeStep(
                 embed: embed, hIn: hIn, cIn: cIn, encStep: encStep,
-                logits: logitsOut, hOut: hOut, cOut: cOut, isolation: isolation)
+                logits: logitsOut, hOut: hOut, cOut: cOut,
+                activeLanes: (0..<lanes).filter { slot[$0] >= 0 }, isolation: isolation)
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -408,10 +429,44 @@ final class Pipeline: @unchecked Sendable {
                     offset += duration > 0 ? duration : 1
                 }
                 if !didEmit { position[lane] += max(offset, 1) }
-                if position[lane] >= limit[lane] { await admit(lane) }
+                if position[lane] >= limit[lane] { slot[lane] = -1 }
             }
+            await fill()
         }
     }
+
+    /// Whether an empty lane waits for the next window or is left empty while
+    /// the others keep stepping.
+    ///
+    /// Leaving it empty keeps the decode level with the encoder, so the last
+    /// window is nearly decoded by the time it is encoded; waiting keeps every
+    /// lane full, which is the most windows per step. Which wins depends on
+    /// whether the decode has time to spare. On an M5 it does (~540 ms of
+    /// decode against ~760 of encode per 10 minutes) and leaving lanes empty is
+    /// 11% faster with a decode step that has narrow variants (720-732x against
+    /// 677x); on an iPhone 16 Pro the two are level (~725 against ~745) and
+    /// waiting is 4% faster (516-555x against 491-533x). `VOZ_EAGER_ADMIT`
+    /// overrides it.
+    static let eagerAdmission: Bool = {
+        if let value = ProcessInfo.processInfo.environment["VOZ_EAGER_ADMIT"] { return value != "0" }
+        #if canImport(CoreML)
+        return Silicon.isMSeries
+        #else
+        return false
+        #endif
+    }()
+
+    /// Where admission is not eager throughout, it becomes eager for the last
+    /// this many windows of a group, so the decode catches up while the encoder
+    /// is still busy and the tail after the last encode is a lane or two on the
+    /// narrow decode steps rather than a dozen on the full one. Measured on an
+    /// iPhone 16 Pro over a 10-minute clip: 515-570x at 8 against 505-539x
+    /// waiting throughout, 499-556x at 4, 484-552x at 24 - eager for longer
+    /// puts the decode beside more encodes, and each one it overlaps runs ~16%
+    /// slower (20.5 ms alone, 23.9 with the CPU decoding; the two share the
+    /// SoC's power and memory, and a lower QoS for the decode did not help).
+    /// `VOZ_EAGER_LAST` overrides it.
+    static let eagerLast = Int(ProcessInfo.processInfo.environment["VOZ_EAGER_LAST"] ?? "") ?? 8
 
     /// The longest stretch of a window that produced no words, as frames.
     ///
@@ -640,18 +695,20 @@ final class Pipeline: @unchecked Sendable {
             // encStep, logits and the recurrent state, ordered by the gate.
             let shared = Projections(base: projections)
             let count = group.count
-            let decodeTask: Task<Void, Never>? = !Self.overlapsDecode ? nil : Task.detached {
+            let decodeTask: Task<Void, Never>? = !overlapsDecode ? nil : Task.detached {
                 #if canImport(Darwin)
                 await self.decodeWorker.run { worker in
                     await self.decodeGroup(projections: shared, valids: valids,
                                            count: count, into: decoded,
                                            awaitWindow: { await gate.wait(for: $0) },
+                                           isReady: { await gate.isReady($0) },
                                            isolation: worker)
                 }
                 #else
                 await self.decodeGroup(projections: shared, valids: valids,
                                        count: count, into: decoded,
-                                       awaitWindow: { await gate.wait(for: $0) })
+                                       awaitWindow: { await gate.wait(for: $0) },
+                                       isReady: { await gate.isReady($0) })
                 #endif
             }
 

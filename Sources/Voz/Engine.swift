@@ -29,6 +29,11 @@ protocol Engine: AnyObject {
     /// than one here and gets windows handed to it before the last has landed.
     var encodeDepth: Int { get }
 
+    /// Whether the decode step runs on a different processor from the encoder,
+    /// so the pipeline should run the two at once rather than taking turns.
+    /// A question for the engine, because it is the engine that places them.
+    var decodeRunsBesideEncoder: Bool { get }
+
     /// One window, from the staged audio rows of `slot` to that slot's encoder
     /// projections. Slots do not share buffers, so calls on different slots may
     /// overlap.
@@ -37,8 +42,11 @@ protocol Engine: AnyObject {
 
     /// Run one lane-batched decode step, writing `logits` and the new recurrent
     /// state.
+    ///
+    /// `activeLanes` are the lanes that hold a window; the rest are ignored by
+    /// the caller, so an engine may skip computing them.
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws
 }
 #endif

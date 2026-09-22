@@ -500,7 +500,12 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
-        ]
+        ],
+        // Core AI's `MutableViews` borrows the arrays bound into it, and the
+        // borrow may not cross the `await` on `run`. Detaching it needs
+        // `@_lifetime`, which is behind this feature. `coreai-models` enables it
+        // for the same helper.
+        swiftSettings: [.enableExperimentalFeature("Lifetimes")]
     ),
     .testTarget(
         name: "VozTests",

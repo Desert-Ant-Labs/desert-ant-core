@@ -173,6 +173,39 @@ public actor Voz {
     /// The seam a runtime that is not Core ML enters by: it has fetched the
     /// files and compiled the models itself, so there is no directory to read
     /// and nothing here to load.
+    ///
+    /// A directory holding `encoder.aimodel` is a Core AI bundle and loads
+    /// through this seam; one holding `encoder.mlmodelc` is a Core ML bundle
+    /// and loads through `init(modelDirectory:computeUnits:)` above. The two
+    /// share everything below the engine, which is what makes a comparison
+    /// between them a comparison of runtimes.
+    ///
+    /// `async` because Core AI's load is: specializing a model for the device
+    /// is work, and the API does not pretend otherwise.
+    public static func coreAI(modelDirectory: URL) async throws -> Voz {
+        #if canImport(CoreAI)
+        guard #available(macOS 27.0, iOS 27.0, *) else {
+            throw VozError.unsupportedPlatform
+        }
+        func read(_ name: String) throws -> Data {
+            try Data(contentsOf: modelDirectory.appendingPathComponent(name))
+        }
+        let assets = try Assets(meta: try read("meta.json"), vocab: try read("vocab.json"),
+                                embeddingBytes: try Data(
+                                    contentsOf: modelDirectory
+                                        .appendingPathComponent("embedding.f16"),
+                                    options: .mappedIfSafe))
+        let lanes = try await CoreAIEngine.declaredLanes(directory: modelDirectory)
+        let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
+                                          depth: CoreAIEngine.encodeDepthForLoad,
+                                          storage: .coreAI)
+        let engine = try await CoreAIEngine(directory: modelDirectory, buffers: buffers)
+        return Voz(assets: assets, engine: engine, buffers: buffers)
+        #else
+        throw VozError.unsupportedPlatform
+        #endif
+    }
+
     init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)

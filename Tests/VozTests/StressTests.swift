@@ -50,6 +50,24 @@ var benchmarkIsConfigured: Bool {
 }
 
 
+/// Load whichever bundle `VOZ_MODEL_DIR` points at.
+///
+/// A directory holding `encoder.aimodel` is a Core AI bundle and a directory
+/// holding `encoder.mlmodelc` is a Core ML one. Choosing here rather than at
+/// each call site is what makes the two comparable: every test below runs the
+/// same windowing, the same decode loop and the same corpus, and the only thing
+/// that changes between an A and a B run is this directory.
+func loadVoz(_ directory: URL) async throws -> Voz {
+    #if canImport(CoreAI)
+    if #available(macOS 27.0, iOS 27.0, *),
+       FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent("encoder.aimodel").path) {
+        return try await Voz.coreAI(modelDirectory: directory)
+    }
+    #endif
+    return try Voz(modelDirectory: directory)
+}
+
 /// The widest stretch between two words, as absolute times.
 private func largestHole(_ words: [Word]) -> (Double, Double)? {
     var best: (Double, Double)?
@@ -84,7 +102,7 @@ struct VozStress {
 
     @Test func realWorldFiles() async throws {
         let corpus = try #require(Corpus())
-        let voz = try Voz(modelDirectory: corpus.model)
+        let voz = try await loadVoz(corpus.model)
         print("\n  \(pad("file", 22)) \(pad("audio", 9)) \(pad("proc", 8)) "
               + "\(pad("RTFx", 7)) \(pad("words", 7)) \(pad("covered", 7)) "
               + "\(pad("lead", 8)) \(pad("hole", 9)) trail")
@@ -171,7 +189,7 @@ struct VozStress {
     @Test func repeatedRunsAreIdentical() async throws {
         let corpus = try #require(Corpus())
         let file = try #require(corpus.files.first)
-        let voz = try Voz(modelDirectory: corpus.model)
+        let voz = try await loadVoz(corpus.model)
         let a = try await voz.transcribe(file)
         let b = try await voz.transcribe(file)
         #expect(a.text == b.text, "transcription is not deterministic")
@@ -189,7 +207,7 @@ struct VozStress {
             let samples = try await AudioIO.decode(path: candidate.path, sampleRate: 16000)
             if samples.count > full.count { full = samples; file = candidate }
         }
-        let voz = try Voz(modelDirectory: corpus.model)
+        let voz = try await loadVoz(corpus.model)
         print("\n  length sweep on \(file.lastPathComponent)")
         for seconds in [0.5, 1.0, 5.0, 14.9, 15.0, 15.1, 20.0, 30.0, 45.1, 60.0] {
             let count = Int(seconds * 16000)
@@ -208,7 +226,7 @@ struct VozStress {
     /// What must not happen is a flood of invented words.
     @Test func nonSpeechDoesNotHallucinate() async throws {
         let corpus = try #require(Corpus())
-        let voz = try Voz(modelDirectory: corpus.model)
+        let voz = try await loadVoz(corpus.model)
         let cases: [(String, [Float])] = [
             ("silence 30s", [Float](repeating: 0, count: 16000 * 30)),
             ("quiet noise 30s", (0..<(16000 * 30)).map { _ in Float.random(in: -1e-4...1e-4) }),
@@ -228,7 +246,7 @@ struct VozStress {
     /// Rates and channel counts the SDK is expected to normalize.
     @Test func acceptsOtherRates() async throws {
         let corpus = try #require(Corpus())
-        let voz = try Voz(modelDirectory: corpus.model)
+        let voz = try await loadVoz(corpus.model)
         let file = try #require(corpus.files.first)
         let base = try await AudioIO.decode(path: file.path, sampleRate: 16000)
         let native = try await voz.transcribe(samples: base)
@@ -262,7 +280,7 @@ struct VozStress {
             .contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
             .filter { ["wav", "flac", "m4a", "mp3"].contains($0.pathExtension) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-        let voz = try Voz(modelDirectory: URL(fileURLWithPath: models))
+        let voz = try await loadVoz(URL(fileURLWithPath: models))
         for file in files {
             // Deliberately does not decode the file here. Doing so to work out
             // the duration would hold the whole recording in memory and hide

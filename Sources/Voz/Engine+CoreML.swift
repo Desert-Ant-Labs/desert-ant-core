@@ -12,6 +12,10 @@ import Foundation
 final class CoreMLEngine: Engine, @unchecked Sendable {
     let decodeLanes: Int
 
+    /// The decode step leaves the Neural Engine only where `decodeUnits` puts
+    /// it on the CPU, which is M-series silicon.
+    var decodeRunsBesideEncoder: Bool { Self.decodeOnCPU }
+
     /// The models are `nonisolated(unsafe)` for the same reason `Slot` is
     /// unchecked: Core ML's types carry no concurrency annotations, and an
     /// `MLModel` is documented to take concurrent predictions - which is the
@@ -35,6 +39,23 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     private let slots: [Slot]
     private let stepProvider: MLDictionaryFeatureProvider
     private let stepOptions = MLPredictionOptions()
+
+    /// Where the time goes, when `VOZ_COREAI_PROFILE` asks.
+    ///
+    /// Shared with `CoreAIEngine` and read by the same flag, because the point
+    /// of the number is the comparison: a mel/encoder/decode split from one
+    /// runtime is only worth having beside the same split from the other.
+    #if canImport(CoreAI)
+    @available(macOS 27.0, iOS 27.0, *)
+    private var profile: CoreAIEngine.Profile { Self.sharedProfile }
+    @available(macOS 27.0, iOS 27.0, *)
+    private static let sharedProfile = CoreAIEngine.Profile()
+    private static let profiling =
+        ProcessInfo.processInfo.environment["VOZ_COREAI_PROFILE"] != nil
+    deinit {
+        if Self.profiling, #available(macOS 27.0, iOS 27.0, *) { Self.sharedProfile.report() }
+    }
+    #endif
 
     /// Four in flight.
     ///
@@ -63,8 +84,14 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     /// Asked for in both places the decode step is loaded, so the two share one
     /// specialization rather than compiling the model twice.
     static func decodeUnits(_ asked: MLComputeUnits) -> MLComputeUnits {
-        Silicon.isMSeries ? .cpuOnly : asked
+        decodeOnCPU ? .cpuOnly : asked
     }
+
+    /// `VOZ_COREML_DECODE_CPU` pins the decode step to the CPU (1) or not (0),
+    /// for measuring the choice on a part it was not made for.
+    static let decodeOnCPU: Bool =
+        ProcessInfo.processInfo.environment["VOZ_COREML_DECODE_CPU"].map { $0 != "0" }
+            ?? Silicon.isMSeries
 
     /// Lanes the decode step declares, needed before the buffers exist.
     static func declaredLanes(directory: URL, computeUnits: MLComputeUnits) throws -> Int {
@@ -151,17 +178,40 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     func encode(slot index: Int, buffers: PipelineBuffers,
                 isolation: isolated (any Actor)?) async throws {
         let slot = slots[index]
+        #if canImport(CoreAI)
+        var start = Self.profiling ? DispatchTime.now().uptimeNanoseconds : 0
+        #endif
         // `async` on the model itself, unlike the decode step below: this is
         // the call that is meant to overlap, and Core ML's own async prediction
         // is what puts several of them in its queue at once.
         _ = try await mel.prediction(from: slot.mel, options: slot.melOptions)
+        #if canImport(CoreAI)
+        if Self.profiling, #available(macOS 27.0, iOS 27.0, *) {
+            let now = DispatchTime.now().uptimeNanoseconds
+            profile.add(mel: Int(now - start))
+            start = now
+        }
+        #endif
         _ = try await encoder.prediction(from: slot.encoder, options: slot.encoderOptions)
+        #if canImport(CoreAI)
+        if Self.profiling, #available(macOS 27.0, iOS 27.0, *) {
+            profile.add(encode: Int(DispatchTime.now().uptimeNanoseconds - start))
+        }
+        #endif
     }
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
+        #if canImport(CoreAI)
+        let start = Self.profiling ? DispatchTime.now().uptimeNanoseconds : 0
         try predict(decodeStep, stepProvider, stepOptions)
+        if Self.profiling, #available(macOS 27.0, iOS 27.0, *) {
+            profile.add(decode: Int(DispatchTime.now().uptimeNanoseconds - start))
+        }
+        #else
+        try predict(decodeStep, stepProvider, stepOptions)
+        #endif
     }
 }
 #endif
