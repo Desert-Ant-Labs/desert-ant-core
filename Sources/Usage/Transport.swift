@@ -35,6 +35,16 @@ private var keyRidesInHeader: Bool {
 /// detached task. (The `beacon` flag is retained for API parity; there is no
 /// separate unload-safe path now that the client is fully async.)
 public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
+    makeSend(endpoint: endpoint, bearerKey: bearerKey, registry: .shared)
+}
+
+/// `registry` is a seam for tests: a send must be in it by the time the
+/// returned closure returns, which only a private registry lets a test observe.
+func makeSend(
+    endpoint: String,
+    bearerKey: String? = nil,
+    registry: InflightSends
+) -> @Sendable (IngestBody, SendOptions) -> Void {
     { body, opts in
         // Best-effort: a body we cannot serialize is dropped rather than thrown
         // (the transport is fire-and-forget). These types always encode.
@@ -51,7 +61,7 @@ public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (I
         if opts.beacon, jsSendBeacon(endpoint, payload) { return }
         #endif
         // Registered before this returns, so a caller's `flushTelemetry()` awaits it.
-        dispatchTrackedSend { [headers] in
+        dispatchTrackedSend(into: registry) { [headers] in
             do {
                 let response = try await httpPOST(
                     endpoint, body: payload, contentType: "application/json", headers: headers

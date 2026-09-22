@@ -1,5 +1,10 @@
 import Testing
 @testable import Usage
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 private actor Flag {
     private(set) var isSet = false
@@ -73,4 +78,63 @@ struct FlushTelemetryTests {
         #expect(await fired.isSet)
         #expect(await done.isSet, "flushAndWait returned before the send it started finished")
     }
+
+    /// The same handshake through the real transport, which is where the old
+    /// code registered from a separate task. On a threaded host the request is
+    /// held open by a listener that never accepts, so the send cannot finish,
+    /// and drop out of the registry, before the count is read. WASI runs one
+    /// thread, so nothing can run in between there.
+    @Test func makeSendRegistersItsSendBeforeReturning() async {
+        let registry = InflightSends()
+        let sends = 32
+        #if canImport(Darwin) || canImport(Glibc)
+        guard let (fd, port) = silentListener() else {
+            Issue.record("could not open a local listener")
+            return
+        }
+        let endpoint = "http://127.0.0.1:\(port)/ingest"
+        #else
+        let endpoint = "http://127.0.0.1:1/ingest"
+        #endif
+        let send = makeSend(endpoint: endpoint, registry: registry)
+        // Repeated because a registration from another task can still win the
+        // race now and then; across this many sends, one of them loses it.
+        for sent in 1...sends {
+            send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())
+            #expect(registry.count == sent, "makeSend returned before its send was registered")
+        }
+
+        let pending = registry.drain()
+        #if canImport(Darwin) || canImport(Glibc)
+        // Closing the listener resets the queued connection, so the send fails
+        // now rather than at the client's timeout.
+        close(fd)
+        for task in pending { await task.value }
+        #endif
+    }
 }
+
+#if canImport(Darwin) || canImport(Glibc)
+/// A 127.0.0.1 listener on a free port that never accepts: a client connects
+/// through the kernel backlog and then waits for a reply that never comes.
+private func silentListener() -> (Int32, UInt16)? {
+    #if canImport(Glibc)
+    let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+    #else
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    #endif
+    guard fd >= 0 else { return nil }
+    var addr = sockaddr_in()
+    addr.sin_family = sa_family_t(AF_INET)
+    addr.sin_port = 0
+    addr.sin_addr.s_addr = in_addr_t(0x7f00_0001).bigEndian
+    var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let ok = withUnsafeMutablePointer(to: &addr) { p in
+        p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            bind(fd, $0, len) == 0 && listen(fd, 64) == 0 && getsockname(fd, $0, &len) == 0
+        }
+    }
+    guard ok else { close(fd); return nil }
+    return (fd, UInt16(bigEndian: addr.sin_port))
+}
+#endif
