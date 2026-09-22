@@ -40,10 +40,11 @@ Where there is no browser `Origin` to attribute by, the app identity rides
 key belongs in `DAL_API_KEY` (`globalThis.__dalApiKey`), and where the runtime can
 set request headers it is sent as `Authorization: Bearer <key>` instead of in the
 body. Node and the JVM can, and so can the Swift core on Apple and Linux. Two
-keep it in the body instead: the Swift core built to wasm, which serves a browser
-and a Node process from one binary and so cannot know whether its unload flush
-will be a `sendBeacon` (which takes no headers), and Android, because core's host
-bridge there takes a body and a content type and nothing else.
+keep it in the body instead: the Swift core built to wasm, where a browser's
+unload flush is a `sendBeacon` that takes no headers and one binary is the same
+code for a page and for a Node process, so it keeps one answer for both; and
+Android, because core's host bridge there takes a body and a content type and
+nothing else.
 
 ### How often
 
