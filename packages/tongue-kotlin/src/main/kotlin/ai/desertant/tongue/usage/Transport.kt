@@ -17,7 +17,7 @@ import java.util.concurrent.ThreadFactory
  */
 
 /** The shared ingest endpoint. Every SDK reports to the same place. */
-internal const val INGEST_ENDPOINT: String = "https://platform.desertant.ai/api/v1/ingest"
+internal const val INGEST_ENDPOINT: String = "https://events.desertant.com/api/v1/ingest"
 
 /**
  * Format epoch milliseconds as `2024-01-02T03:04:05.678Z`.

@@ -13,7 +13,7 @@
  */
 
 /** The shared ingest endpoint. Every SDK reports to the same place. */
-const INGEST_ENDPOINT = "https://platform.desertant.ai/api/v1/ingest";
+const INGEST_ENDPOINT = "https://events.desertant.com/api/v1/ingest";
 
 /** A persistent install re-emits at most once a day. */
 const DAY_MS = 24 * 60 * 60 * 1000;

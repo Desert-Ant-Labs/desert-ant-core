@@ -6,7 +6,7 @@ the same way.
 
 ## What is reported
 
-`load` events, POSTed to `https://platform.desertant.ai/api/v1/ingest`:
+`load` events, POSTed to `https://events.desertant.com/api/v1/ingest`:
 
 ```json
 {
