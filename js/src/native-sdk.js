@@ -12,19 +12,18 @@ import { loadNative } from "./native.js";
 import { readyModel } from "./sdk.js";
 
 /**
- * @param {object} o
- * @param {string} o.here directory of the package's node.js (import.meta dir)
- * @param {string} o.packageName consumer package (for error messages)
- * @param {string} o.modelId catalog id, e.g. "emo"
- * @param {string} o.coreName the package's native library base name (e.g. "EmoNode")
+ * The native core reads usage identity from the environment (DAL_APP_ID,
+ * DAL_API_KEY, DAL_DEVICE_ID); the browser entry reads the same values from
+ * `globalThis.__dal*`. Bridging them means a host sets one spelling on either
+ * runtime, and a server that sets the global is not silently unattributed. Each
+ * may be a string or a zero-arg function, the two forms the core's own JS host
+ * read accepts. An environment variable already set wins.
+ *
+ * Run at each load rather than once at import: the core reads these when a model
+ * loads and runs, and a host that imports the package before setting the global
+ * would otherwise go unattributed.
  */
-export function createNativeSdk({ here, packageName, modelId, coreName }) {
-  // The native core reads usage identity from the environment (DAL_APP_ID,
-  // DAL_API_KEY, DAL_DEVICE_ID); the browser entry reads the same values from
-  // `globalThis.__dal*`. Bridging them means a host sets one spelling on either
-  // runtime, and a server that sets the global is not silently unattributed. Each
-  // may be a string or a zero-arg function, the two forms the core's own JS host
-  // read accepts.
+function bridgeHostIdentity() {
   for (const [name, env] of [
     ["__dalAppId", "DAL_APP_ID"],
     ["__dalApiKey", "DAL_API_KEY"],
@@ -34,7 +33,16 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     const value = typeof raw === "function" ? raw() : raw;
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
   }
+}
 
+/**
+ * @param {object} o
+ * @param {string} o.here directory of the package's node.js (import.meta dir)
+ * @param {string} o.packageName consumer package (for error messages)
+ * @param {string} o.modelId catalog id, e.g. "emo"
+ * @param {string} o.coreName the package's native library base name (e.g. "EmoNode")
+ */
+export function createNativeSdk({ here, packageName, modelId, coreName }) {
   // The prebuilt native for this host lives in native/<platform>-<arch>/ next to
   // the package's node.js (built by `mise run build:node-native`): the self-contained
   // model-specific Swift library plus the LiteRT runtime it links. The ABI is
@@ -95,6 +103,7 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
   return {
     core,
     async open(options = {}) {
+      bridgeHostIdentity();
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
       // Only an explicit cacheRoot goes down. Apple and Linux resolve their own
       // caches directory, so the default fabricated here was discarded by the
