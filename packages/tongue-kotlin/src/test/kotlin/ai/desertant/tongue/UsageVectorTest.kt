@@ -353,6 +353,41 @@ class UsageVectorTest {
         assertEquals(2, sends.size, "the turnstile stopped flushing after a forced flush")
     }
 
+    /**
+     * A flush right after the debounce fired has nothing left to send, but the
+     * POST the debounce started may still be in flight. `flushTelemetry` must
+     * wait for it too, or a JVM that exits next drops the event on its daemon
+     * sender thread. The server answers slowly so the window is wide open.
+     */
+    @Test
+    fun aForcedFlushAwaitsTheSendTheDebounceStarted() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val arrived = CountDownLatch(1)
+        val answered = CountDownLatch(1)
+        server.createContext("/api/v1/ingest") { exchange ->
+            exchange.requestBody.readBytes()
+            arrived.countDown()
+            Thread.sleep(800)
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+            answered.countDown()
+        }
+        server.start()
+        try {
+            val endpoint = "http://127.0.0.1:${server.address.port}/api/v1/ingest"
+            val client = makeClient(sdkVersion = "9.9.9", storage = InMemoryStorage(), send = makeSend(endpoint))
+            val turnstile = UsageTurnstile(client, flushAfterMs = 50)
+            client.start()
+
+            turnstile.record()
+            check(arrived.await(10, TimeUnit.SECONDS)) { "the debounce never posted" }
+            assertTrue(turnstile.flushTelemetry())
+            assertEquals(0L, answered.count, "flushTelemetry returned before the debounced POST finished")
+        } finally {
+            server.stop(0)
+        }
+    }
+
     // A reader for this document's shape only: flat objects inside "cases", whose
     // values are numbers, strings, or arrays of those. Same reason the model
     // vectors have one — the artifact takes no JSON dependency, so neither do its
