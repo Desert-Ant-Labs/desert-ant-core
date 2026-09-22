@@ -12,6 +12,7 @@ import ai.desertant.tongue.usage.buildBody
 import ai.desertant.tongue.usage.defaultPlatform
 import ai.desertant.tongue.usage.makeClient
 import ai.desertant.tongue.usage.makeSend
+import ai.desertant.tongue.usage.readEnvironment
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
@@ -259,6 +260,81 @@ class UsageVectorTest {
             if (previousKey == null) System.clearProperty("DAL_API_KEY")
             else System.setProperty("DAL_API_KEY", previousKey)
             server.stop(0)
+        }
+    }
+
+    /**
+     * A key set in code must reach the wire the same way an environment key does,
+     * and must win over one: the property set alongside it would otherwise be sent.
+     */
+    @Test
+    fun aKeySetInCodeRidesTheHeaderOverTheEnvironment() {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val latch = CountDownLatch(1)
+        var authorization: String? = null
+        var body: String? = null
+        server.createContext("/api/v1/ingest") { exchange ->
+            authorization = exchange.requestHeaders.getFirst("Authorization")
+            body = exchange.requestBody.readBytes().toString(Charsets.UTF_8)
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+            latch.countDown()
+        }
+        server.start()
+        val previousEndpoint = System.getProperty("DAL_INGEST_ENDPOINT")
+        val previousKey = System.getProperty("DAL_API_KEY")
+        val previousCodeKey = DesertAnt.apiKey
+        System.setProperty("DAL_INGEST_ENDPOINT", "http://127.0.0.1:${server.address.port}/api/v1/ingest")
+        System.setProperty("DAL_API_KEY", "dal_from_property")
+        DesertAnt.apiKey = "dal_from_code"
+        try {
+            val client = makeClient(sdkVersion = "9.9.9", storage = InMemoryStorage())
+            client.recordCall()
+            client.load()?.await()
+            check(latch.await(10, TimeUnit.SECONDS)) { "the client never reached the server" }
+            assertEquals("Bearer dal_from_code", authorization, "the key set in code did not win the header")
+            assertFalse(body!!.contains("\"key\""), "the key rode the body as well as the header: $body")
+        } finally {
+            DesertAnt.apiKey = previousCodeKey
+            if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
+            else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
+            if (previousKey == null) System.clearProperty("DAL_API_KEY")
+            else System.setProperty("DAL_API_KEY", previousKey)
+            server.stop(0)
+        }
+    }
+
+    /**
+     * `DAL_DEVICE_ID` names the device, as it does in core and the Node port, and
+     * wins over the persisted id. The environment first, then the system property.
+     */
+    @Test
+    fun aHostProvidedDeviceIdReplacesThePersistedOne() {
+        val previousEnvironment = readEnvironment
+        val previousProperty = System.getProperty("DAL_DEVICE_ID")
+        try {
+            val sent = mutableListOf<IngestBody>()
+            fun deviceSent(): String {
+                sent.clear()
+                val client = makeClient(sdkVersion = "9.9.9", storage = InMemoryStorage(), send = { sent.add(it); null })
+                client.recordCall()
+                client.load()
+                return sent.single().events.single().deviceId
+            }
+
+            readEnvironment = { name -> if (name == "DAL_DEVICE_ID") "from-environment" else null }
+            System.setProperty("DAL_DEVICE_ID", "from-property")
+            assertEquals("from-environment", deviceSent())
+
+            readEnvironment = { null }
+            assertEquals("from-property", deviceSent())
+
+            System.clearProperty("DAL_DEVICE_ID")
+            assertTrue(deviceSent() !in setOf("from-environment", "from-property"))
+        } finally {
+            readEnvironment = previousEnvironment
+            if (previousProperty == null) System.clearProperty("DAL_DEVICE_ID")
+            else System.setProperty("DAL_DEVICE_ID", previousProperty)
         }
     }
 
