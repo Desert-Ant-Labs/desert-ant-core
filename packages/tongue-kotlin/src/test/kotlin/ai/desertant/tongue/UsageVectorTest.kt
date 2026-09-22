@@ -12,6 +12,8 @@ import ai.desertant.tongue.usage.buildBody
 import ai.desertant.tongue.usage.defaultPlatform
 import ai.desertant.tongue.usage.makeClient
 import ai.desertant.tongue.usage.makeSend
+import ai.desertant.tongue.usage.apiKey
+import ai.desertant.tongue.usage.await
 import ai.desertant.tongue.usage.readEnvironment
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
@@ -550,4 +552,86 @@ class UsageVectorTest {
             ?.map { it.trim().removeSurrounding("\"") }
             ?.filter { it.isNotEmpty() }
             ?: emptyList()
+
+    /**
+     * `detect` on one thread and `flushTelemetry` on another. The flush used to be
+     * able to cancel the debounce task between `record` publishing it and
+     * scheduling it, and `Timer.schedule` then threw out of `detect`.
+     */
+    @Test
+    fun recordNeverThrowsWhileAnotherThreadFlushes() {
+        var state = UsageState()
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "server",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { 1_700_000_000_000L },
+                loadState = { state },
+                saveState = { state = it },
+                send = { SendHandle { } },
+            ),
+        )
+        val turnstile = UsageTurnstile(client, flushAfterMs = 60_000)
+        client.start()
+        val failures = java.util.concurrent.atomic.AtomicInteger()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val flusher = Thread { while (!stop.get()) turnstile.flushTelemetry() }
+        flusher.start()
+        try {
+            repeat(50_000) { runCatching { turnstile.record() }.onFailure { failures.incrementAndGet() } }
+        } finally {
+            stop.set(true)
+            flusher.join()
+        }
+        assertEquals(0, failures.get(), "record() threw while another thread flushed")
+    }
+
+    /**
+     * The shutdown hook's flush must wait for its send, and for a debounced one
+     * already in flight: the sender is a daemon thread, and the JVM halts as soon
+     * as the hooks return.
+     */
+    @Test
+    fun theExitFlushAwaitsItsSendAndTheDebouncedOne() {
+        var state = UsageState()
+        val awaited = mutableListOf<String>()
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "server",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { 1_700_000_000_000L },
+                loadState = { state },
+                saveState = { state = it },
+                send = { SendHandle { synchronized(awaited) { awaited.add("send") } } },
+            ),
+        )
+        val turnstile = UsageTurnstile(client, flushAfterMs = 50)
+        client.start()
+        turnstile.record()
+        Thread.sleep(300) // the debounce fires and sends the day's load
+        turnstile.record()
+        turnstile.flushOnExit()
+        assertEquals(2, awaited.size, "the exit flush did not await both the debounced send and its own")
+    }
+
+    /**
+     * A key read from a secret file often ends in a newline. The body tolerated it
+     * (the endpoint trims), but `setRequestProperty` rejects it and the POST is lost.
+     */
+    @Test
+    fun theApiKeyIsTrimmedBeforeItReachesTheHeader() {
+        val previousEnvironment = readEnvironment
+        try {
+            readEnvironment = { name -> if (name == "DAL_API_KEY") "pk_live_x\n" else null }
+            assertEquals("pk_live_x", apiKey())
+            readEnvironment = { name -> if (name == "DAL_API_KEY") " \n" else null }
+            assertEquals(null, apiKey())
+        } finally {
+            readEnvironment = previousEnvironment
+        }
+    }
 }

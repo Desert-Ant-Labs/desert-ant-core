@@ -73,6 +73,10 @@ public class Tongue internal constructor(
      * it lands. Useful in a short-lived CLI or worker, which has no idle gap for
      * the debounce to fire in. Usage is reported on its own; this is not required.
      *
+     * Blocks for at most about 5 s; a POST still running then is left to finish
+     * in the background. It does network I/O, so on Android call it off the main
+     * thread.
+     *
      * Returns true once the flush has run and its POST has finished, false only
      * when the flush itself threw. The endpoint's answer is not reported: a
      * refused or failed POST still returns true, as core's and the Node port's

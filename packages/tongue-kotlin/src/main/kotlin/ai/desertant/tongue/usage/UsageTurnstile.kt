@@ -36,12 +36,10 @@ internal class UsageTurnstile internal constructor(
 
     /** One detection. */
     fun record() {
-        var task: TimerTask? = null
         synchronized(lock) {
             client.recordCall()
             if (flushScheduled) return
-            flushScheduled = true
-            task = object : TimerTask() {
+            val task = object : TimerTask() {
                 override fun run() {
                     synchronized(lock) {
                         flushScheduled = false
@@ -50,11 +48,16 @@ internal class UsageTurnstile internal constructor(
                     }
                 }
             }
-            scheduledFlush = task
+            // Scheduled under the lock, so `flushTelemetry` cannot cancel the task
+            // before it is scheduled, which makes `schedule` throw out of `detect`.
+            // No deadlock: the timer runs a task outside its own queue lock.
+            // `runCatching` covers a timer that has died; the call stays recorded
+            // and the next flush sends it.
+            if (runCatching { timer.schedule(task, flushAfterMs) }.isSuccess) {
+                flushScheduled = true
+                scheduledFlush = task
+            }
         }
-        // Scheduled outside the lock: the timer thread takes its own queue lock,
-        // and a task of ours takes `lock` while running.
-        task?.let { timer.schedule(it, flushAfterMs) }
     }
 
     /**
@@ -75,9 +78,29 @@ internal class UsageTurnstile internal constructor(
             debouncedSend = null
             listOfNotNull(earlier, if (client.hasUsage()) client.load() else null)
         }
-        handles.forEach { it.await() }
+        handles.awaitAll()
         true
     }.getOrDefault(false)
+
+    /**
+     * The shutdown hook's flush. Unlike `flushTelemetry` it keeps the re-emit
+     * window (`flush`, not `load`), but it too awaits the POST: the sender is a
+     * daemon thread, and the JVM halts as soon as the hooks return, so a send
+     * only started here would never leave the process.
+     */
+    internal fun flushOnExit() {
+        runCatching {
+            val handles = synchronized(lock) {
+                scheduledFlush?.cancel()
+                scheduledFlush = null
+                flushScheduled = false
+                val earlier = debouncedSend
+                debouncedSend = null
+                listOfNotNull(earlier, runCatching { client.flush() }.getOrNull())
+            }
+            handles.awaitAll()
+        }
+    }
 
     internal companion object {
         /** Debounce before flushing, matching core's `TrackedSession`. */
@@ -108,9 +131,7 @@ internal class UsageTurnstile internal constructor(
                 // so a short-lived JVM would report zero every day, permanently.
                 // The hook flushes what it can on the way out.
                 runCatching {
-                    Runtime.getRuntime().addShutdownHook(
-                        Thread { runCatching { synchronized(turnstile.lock) { client.flush() } } },
-                    )
+                    Runtime.getRuntime().addShutdownHook(Thread { turnstile.flushOnExit() })
                 }
                 turnstile
             }.getOrNull()
