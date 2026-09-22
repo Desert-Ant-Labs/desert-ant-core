@@ -29,7 +29,9 @@ test("turnstile matches the shared contract", () => {
       saveState: (next) => {
         state = next;
       },
-      send: (body) => sends.push(body),
+      send: (body) => {
+        sends.push(body);
+      },
     });
 
     c.stepKinds.forEach((kind, i) => {
@@ -70,7 +72,9 @@ test("the wire body matches core's field order and carries no text", () => {
     now: () => 1700000000000,
     loadState: () => ({ lastActiveAt: 0, carryCallCount: 0 }),
     saveState: () => {},
-    send: (body) => sends.push(body),
+    send: (body) => {
+      sends.push(body);
+    },
   });
   client.start();
   client.recordCall(2);
@@ -113,6 +117,123 @@ test("DAL_USAGE_DISABLED suppresses every send and every store write", async () 
   }
 });
 
+test("a forced load posts inside the window and resolves only once the send has", async () => {
+  // `flushTelemetry()` is what a short-lived worker calls before it exits. Two
+  // things have to hold for it to be worth calling: it posts although the window
+  // has not elapsed, and it does not resolve before the POST does. An injected send
+  // whose completion the test controls settles both.
+  let state = { lastActiveAt: 0, carryCallCount: 0 };
+  const now = 1700000000000;
+  const sends = [];
+  let release;
+  const client = new UsageClient({
+    deviceId: "d",
+    platform: "node",
+    version: "0.0.0",
+    windowMs: vectors.windowMs,
+    now: () => now,
+    loadState: () => state,
+    saveState: (next) => {
+      state = next;
+    },
+    send: (body) => {
+      sends.push(body);
+      return new Promise((resolve) => {
+        release = resolve;
+      });
+    },
+  });
+
+  client.start();
+  client.flush();
+  client.recordCall(3);
+
+  const forced = client.load(); // ignores the window, unlike flush()
+  assert.equal(sends.length, 2, "the forced load did not post inside the window");
+
+  let settled = false;
+  void Promise.resolve(forced).then(() => {
+    settled = true;
+  });
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(settled, false, "load() resolved before the send did");
+  release();
+  await forced;
+  assert.equal(sends[1].events[0].callCount, 3);
+  assert.equal(state.lastActiveAt, now, "the forced load stamps the window");
+});
+
+test("a flush with nothing recorded reports success and sends nothing", async () => {
+  // The suite runs with the kill switch on, so the turnstile is built by hand
+  // here. A process that started but never detected must not be billed: core's
+  // flush skips a client with no usage, and an idle process is the common case.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  let fetched = false;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => {
+    fetched = true;
+    return Promise.resolve({ ok: true });
+  };
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    assert.ok(turnstile, "the turnstile builds once the switch is off");
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(fetched, false, "an idle turnstile posted a load");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
+test("a forced flush takes the pending debounce, and the turnstile still flushes later", async (t) => {
+  // A forced flush and the debounce occupy the same slot: the flush must take the
+  // timer's place rather than race it, and a detection recorded afterwards must
+  // still be delivered. Both halves discriminate, and timers are mocked so the
+  // deadlines are exact: a timer left behind sends the next detection a debounce
+  // early, and a flag left set means `record()` never schedules again, so that
+  // detection is never sent at all. The Kotlin twin is pinned to the same two.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  try {
+    const values = new Map();
+    const turnstile = UsageTurnstile.create("9.9.9", {
+      get: (k) => values.get(k) ?? null,
+      set: (k, v) => values.set(k, v),
+    });
+    turnstile.record(); // debounce A due at 3000
+    assert.equal(posts.length, 0, "the debounce posted before its delay");
+
+    t.mock.timers.tick(300);
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(posts.length, 1, "the forced flush did not post");
+
+    t.mock.timers.tick(100);
+    turnstile.record(); // debounce B due at 3400
+    t.mock.timers.tick(2_700); // 3100: past A's deadline, before B's
+    assert.equal(posts.length, 1, "the debounce the flush replaced posted on its own");
+
+    t.mock.timers.tick(400); // 3500: past B
+    assert.equal(posts.length, 2, "the turnstile stopped flushing after a forced flush");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
 test("the transport actually posts the body over HTTP", async () => {
   // Everything else about the turnstile is tested with an injected `send`, so the
   // HTTP path itself had never run: no test proved a body ever left the process.
@@ -132,7 +253,9 @@ test("the transport actually posts the body over HTTP", async () => {
   const { port } = server.address();
 
   try {
-    makeSend(`http://127.0.0.1:${port}/api/v1/ingest`)({
+    // Awaiting the returned promise is the contract `flushTelemetry()` rests on:
+    // it resolves once the server has answered, not when the request is queued.
+    await makeSend(`http://127.0.0.1:${port}/api/v1/ingest`)({
       platform: "node",
       key: "k",
       app: { id: "com.acme.app" },
@@ -141,10 +264,6 @@ test("the transport actually posts the body over HTTP", async () => {
       events: [{ name: "load", deviceId: "d", callCount: 2 }],
     });
 
-    const deadline = Date.now() + 5000;
-    while (received.length === 0 && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 25));
-    }
     assert.equal(received.length, 1, "the transport never reached the server");
     assert.equal(received[0].method, "POST");
     assert.equal(received[0].type, "application/json");

@@ -54,12 +54,22 @@ private val sender = Executors.newSingleThreadExecutor(
     },
 )
 
-/** A `send` that POSTs the serialized body, fire and forget. */
-internal fun makeSend(endpoint: String = INGEST_ENDPOINT): (IngestBody) -> Unit = { body ->
+/**
+ * A send in flight. `await` blocks until the POST has finished, so a short-lived
+ * caller can be sure the request left the process before it exits.
+ */
+internal fun interface SendHandle {
+    fun await()
+}
+
+/** A `send` that POSTs the serialized body, fire and forget unless awaited. */
+internal fun makeSend(endpoint: String = INGEST_ENDPOINT): (IngestBody) -> SendHandle? = { body ->
     val json = runCatching { buildBody(body) }.getOrNull()
-    if (json != null) {
+    if (json == null) {
+        null
+    } else {
         runCatching {
-            sender.execute {
+            sender.submit {
                 runCatching {
                     val connection = URL(endpoint).openConnection() as HttpURLConnection
                     connection.requestMethod = "POST"
@@ -72,7 +82,18 @@ internal fun makeSend(endpoint: String = INGEST_ENDPOINT): (IngestBody) -> Unit 
                     connection.disconnect()
                 }
             }
-        }
+        }.getOrNull()?.let { future -> SendHandle { awaitFuture(future) } }
+    }
+}
+
+/** Wait for the POST. A cancellation request is re-flagged rather than swallowed. */
+private fun awaitFuture(future: java.util.concurrent.Future<*>) {
+    try {
+        future.get()
+    } catch (interrupted: InterruptedException) {
+        Thread.currentThread().interrupt()
+    } catch (_: java.util.concurrent.ExecutionException) {
+        // The body already swallows its own failures; this cannot surface one.
     }
 }
 
@@ -106,7 +127,7 @@ internal fun makeClient(
     context: Any? = null,
     sdkVersion: String,
     storage: UsageStorage = defaultStorage(context),
-    send: (IngestBody) -> Unit = makeSend(),
+    send: (IngestBody) -> SendHandle? = makeSend(),
     now: () -> Long = System::currentTimeMillis,
 ): UsageClient {
     val appId = defaultAppIdentifier(context)

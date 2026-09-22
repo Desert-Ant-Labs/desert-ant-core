@@ -67,6 +67,17 @@ public class Tongue internal constructor(
         }
     }
 
+    /**
+     * Send the usage this instance has recorded and block until the POST has
+     * finished, so a JVM that exits right after a detection does not leave before
+     * it lands. Useful in a short-lived CLI or worker, which has no idle gap for
+     * the debounce to fire in. Usage is reported on its own; this is not required.
+     *
+     * Returns true when the send completed, false when it failed. Nothing recorded
+     * means nothing sent.
+     */
+    public fun flushTelemetry(): Boolean = usage?.flushTelemetry() ?: true
+
     /** Identify the language of a short string. */
     @JvmOverloads
     public fun detect(text: String, topK: Int = 3): Detection {

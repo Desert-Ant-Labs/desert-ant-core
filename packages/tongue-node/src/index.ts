@@ -144,6 +144,17 @@ export class Tongue {
     return finish(candidates, this.reliability(normalized, ranked), ranked);
   }
 
+  /**
+   * Send the usage this instance has recorded and await the POST, so a process
+   * that ends right after a detection does not exit before it lands. Useful in a
+   * short-lived script or worker, which has no idle gap for the debounce to fire
+   * in. Usage is reported on its own; this is not required.
+   */
+  async flushTelemetry(): Promise<boolean> {
+    if (!this.usage) return true;
+    return this.usage.flushTelemetry();
+  }
+
   private reliability(text: string, ranked: readonly Prediction[]): Reliability {
     const characters = [...text].length;
     const margin =

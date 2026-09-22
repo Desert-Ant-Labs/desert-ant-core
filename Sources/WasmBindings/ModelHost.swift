@@ -179,9 +179,9 @@ public final class ModelHost {
         models[handle] = nil
     }
 
-    /// Force any tracked session to emit now (bypassing the debounce + re-emit
-    /// window) and await the send, so the usage POST goes out before the caller
-    /// continues. Requires `globalThis.__dalHttpDebug`.
+    /// Emit recorded usage now (bypassing the debounce + re-emit window) and await
+    /// the send, so the usage POST goes out before the caller continues. The
+    /// `flushTelemetry()` a browser or Node host calls.
     func flushTelemetry() async -> Bool {
         await TelemetryDebug.shared.flushAndWait()
         return true

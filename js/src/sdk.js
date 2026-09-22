@@ -70,6 +70,17 @@ export class LoadedModel {
     return this.#core.withCallGroup(body);
   }
 
+  /**
+   * Emit the usage this runtime has recorded and await the POST, so a process
+   * that ends immediately after an inference does not exit before it lands. One
+   * load per device per call, whatever the re-emit window says.
+   */
+  flushTelemetry() {
+    // Every core built from this source binds the hook; this covers one that does
+    // not, e.g. a host supplying its own binary.
+    return this.#core.flushTelemetry?.() ?? Promise.resolve(true);
+  }
+
   /** Release the model. Calls afterwards throw. */
   dispose() {
     if (this.#handle == null) return;

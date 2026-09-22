@@ -64,8 +64,7 @@ actor TrackedSession: InferenceSession {
     private var cachedDefaultDevice: String?
     private var pendingFlush: Task<Void, Never>?
     private var started = false
-    private var registeredDebugHook = false
-    private let debugFlushHooks: Bool
+    private var registeredFlushHook = false
     private var lifecycle: LifecycleObserver?
 
     init(
@@ -75,8 +74,7 @@ actor TrackedSession: InferenceSession {
         storage: UsageStorage? = nil,
         windowMs: Int64 = dayMs,
         flushAfter: Double = 3,
-        clientFactory: ((String) -> UsageClient)? = nil,
-        debugFlushHooks: Bool = telemetryDebugEnabled()
+        clientFactory: ((String) -> UsageClient)? = nil
     ) {
         let resolvedAppId = appId
         let resolvedStorage = storage ?? defaultStorage()
@@ -86,8 +84,6 @@ actor TrackedSession: InferenceSession {
         self.makeDeviceClient = clientFactory ?? { deviceId in
             makeClient(appId: resolvedAppId, sdk: sdk, deviceId: deviceId, windowMs: windowMs, storage: resolvedStorage)
         }
-        // Whether to install the force-flush hook; `run` installs it.
-        self.debugFlushHooks = debugFlushHooks
     }
 
     /// Force an emit per device now, ignoring the debounce and the re-emit window,
@@ -95,7 +91,7 @@ actor TrackedSession: InferenceSession {
     /// cascade running several sessions over it posts that device's usage once
     /// rather than once per session. The session that loses the claim carries its
     /// calls to storage instead of posting, so they ride the next emit.
-    func debugForceFlush() async {
+    func forceFlush() async {
         for (deviceId, client) in clients where client.hasUsage {
             guard await TelemetryDebug.shared.claimForcedEmit(device: deviceId) else {
                 client.carryUnsent()
@@ -107,7 +103,7 @@ actor TrackedSession: InferenceSession {
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         startIfNeeded()
-        if debugFlushHooks { await registerDebugHookIfNeeded() }
+        await registerFlushHookIfNeeded()
         let resolvedDevice = device(deviceId)
         let client = clientFor(resolvedDevice)
         client.start()
@@ -182,14 +178,19 @@ actor TrackedSession: InferenceSession {
     /// immediate `flushTelemetry()` after an inference could find no hook at all
     /// and send nothing. Awaiting it here means a flush after any awaited run
     /// always sees the session. A session that never ran has nothing to send.
-    private func registerDebugHookIfNeeded() async {
-        guard !registeredDebugHook else { return }
-        registeredDebugHook = true
-        await TelemetryDebug.shared.registerFlushHook { [weak self] in
-            guard let self else { return false }
-            await self.debugForceFlush()
-            return true
-        }
+    private func registerFlushHookIfNeeded() async {
+        guard !registeredFlushHook else { return }
+        registeredFlushHook = true
+        await TelemetryDebug.shared.registerFlushHook(
+            FlushHook(
+                isAlive: { [weak self] in self != nil },
+                flush: { [weak self] in
+                    guard let self else { return false }
+                    await self.forceFlush()
+                    return true
+                }
+            )
+        )
     }
 
     private func scheduleFlush() {

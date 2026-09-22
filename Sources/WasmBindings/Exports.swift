@@ -108,8 +108,8 @@ import JavaScriptKit
     installedModelHost?.destroy(handle: handle)
 }
 
-/// Force any tracked session's usage POST out now and await it, so it lands
-/// before the caller continues. Requires `globalThis.__dalHttpDebug`.
+/// Emit any usage the tracked sessions have recorded and await the POST, so it
+/// lands before the caller continues.
 @JS public func flushTelemetry() async -> Bool {
     await installedModelHost?.flushTelemetry() ?? false
 }
