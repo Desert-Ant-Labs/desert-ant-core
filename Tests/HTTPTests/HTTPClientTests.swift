@@ -1,11 +1,29 @@
 // Runs where cleartext localhost works and there's a running echo server:
 // macOS/Linux (URLSession) and WASI (Node `fetch`). The tasks (mise run
-// test:swift / test:wasi) build Tools/EchoServer.swift and serve 127.0.0.1:8199.
+// test:swift / test:wasi) build Tools/EchoServer.swift and serve it on
+// 127.0.0.1:$DAL_ECHO_PORT (8199 when unset; see echoPort).
 // iOS/tvOS block cleartext HTTP (ATS); Android's client is exercised via the
 // instrumented JNI harness instead.
 #if os(macOS) || os(Linux) || os(WASI)
 import Testing
 import PlatformSupport
+#if os(WASI)
+import JavaScriptKit
+#endif
+
+/// The echo server's port. Each mise task exports its own DAL_ECHO_PORT: the
+/// umbrella `test` runs test:swift and test:wasi in parallel and both start a
+/// server, so a shared port lost the bind race. 8199 when unset, as before.
+let echoPort: UInt16 = {
+#if os(WASI)
+    // The harness hands the WASI module an empty environment, so the task's
+    // variable is only visible through Node's process.env.
+    let value = JSObject.global.process.object?.env.object?["DAL_ECHO_PORT"].string
+#else
+    let value = environmentVariable("DAL_ECHO_PORT")
+#endif
+    return value.flatMap { UInt16($0) } ?? 8199
+}()
 
 #if os(macOS)
 import Foundation
@@ -35,7 +53,7 @@ final class EchoServerFixture: @unchecked Sendable {
     private func start() {
         // A server may already be listening (a previous run, or one that mise
         // started). Reuse it rather than binding again and crashing on EADDRINUSE.
-        if canConnect(host: "127.0.0.1", port: 8199) { return }
+        if canConnect(host: "127.0.0.1", port: echoPort) { return }
         do {
             let dir = FileManager.default.temporaryDirectory
                 .appendingPathComponent("echo-server-\(UUID().uuidString)")
@@ -71,13 +89,13 @@ final class EchoServerFixture: @unchecked Sendable {
 
             let server = Process()
             server.executableURL = bin
-            server.arguments = ["8199"]
+            server.arguments = [String(echoPort)]
             server.environment = env
             try server.run()
             process = server
 
             // `deinit` is not guaranteed to run at process exit, which would leak
-            // the server and hold port 8199 (breaking the next test run). Register
+            // the server and hold the port (breaking the next test run). Register
             // an atexit handler so the child is always reaped.
             EchoServerFixture.registerCleanup(pid: server.processIdentifier)
 
@@ -86,12 +104,12 @@ final class EchoServerFixture: @unchecked Sendable {
             for _ in 0..<50 {
                 guard server.isRunning else {
                     fatalError("EchoServer exited early (status \(server.terminationStatus)); "
-                        + "is port 8199 already in use?")
+                        + "is port \(echoPort) already in use?")
                 }
-                if canConnect(host: "127.0.0.1", port: 8199) { ready = true; break }
+                if canConnect(host: "127.0.0.1", port: echoPort) { ready = true; break }
                 Thread.sleep(forTimeInterval: 0.2)
             }
-            guard ready else { fatalError("EchoServer did not become reachable on 127.0.0.1:8199") }
+            guard ready else { fatalError("EchoServer did not become reachable on 127.0.0.1:\(echoPort)") }
         } catch {
             fatalError("Failed to start EchoServer for Xcode run: \(error)")
         }
@@ -131,7 +149,7 @@ final class EchoServerFixture: @unchecked Sendable {
 #endif
 
 struct HTTPClientTests {
-    static let base = "http://127.0.0.1:8199"
+    static let base = "http://127.0.0.1:\(echoPort)"
 
     #if os(macOS)
     // Touching `.shared` starts the fixture once (no-op outside Xcode).

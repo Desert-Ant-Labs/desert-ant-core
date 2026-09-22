@@ -25,7 +25,11 @@ fi
 sdk=$(dal_wasm_sdk)
 
 # Native host binary; the wasm run's fetch reaches it over localhost.
-dal_start_echo_server 8199
+# Own port: the umbrella `test` runs this and test:swift in parallel, and both
+# start an echo server. The suites read DAL_ECHO_PORT (8199 when unset).
+# DAL_WASI_ECHO_PORT moves it off a port something else on the host holds.
+export DAL_ECHO_PORT="${DAL_WASI_ECHO_PORT:-8198}"
+dal_start_echo_server "$DAL_ECHO_PORT"
 
 #   --disable-sandbox: the js plugin's test harness runs `npm install` to fetch
 #     the WASI shim, and SwiftPM's plugin sandbox (macOS) blocks its network.
