@@ -18,6 +18,10 @@ import kotlin.test.assertTrue
  * for every test, and the environment wins, so this blanks the environment for
  * its duration; otherwise the switch would be on before the test touched it and
  * the property would prove nothing.
+ *
+ * That is process-wide state, as are the system properties `UsageVectorTest`
+ * sets. Both are safe only because Gradle runs this module's test classes one
+ * at a time in one JVM; parallel test execution would let them race.
  */
 class UsageKillSwitchTest {
     private class CountingStorage : UsageStorage {

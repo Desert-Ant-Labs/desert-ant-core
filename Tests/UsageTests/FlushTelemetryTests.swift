@@ -80,10 +80,11 @@ struct FlushTelemetryTests {
     }
 
     /// The same handshake through the real transport, which is where the old
-    /// code registered from a separate task. On a threaded host the request is
-    /// held open by a listener that never accepts, so the send cannot finish,
-    /// and drop out of the registry, before the count is read. WASI runs one
-    /// thread, so nothing can run in between there.
+    /// code registered from a separate task. It counts registrations rather than
+    /// live sends, so a send that has already failed and left the registry still
+    /// counts: a threaded host with no silent listener (Windows, Android) points
+    /// at a closed port, where the send fails at once. Where the listener exists
+    /// it holds the requests open, so none fail while the test runs.
     @Test func makeSendRegistersItsSendBeforeReturning() async {
         let registry = InflightSends()
         let sends = 32
@@ -101,7 +102,7 @@ struct FlushTelemetryTests {
         // race now and then; across this many sends, one of them loses it.
         for sent in 1...sends {
             send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())
-            #expect(registry.count == sent, "makeSend returned before its send was registered")
+            #expect(registry.registeredTotal == sent, "makeSend returned before its send was registered")
         }
 
         let pending = registry.drain()

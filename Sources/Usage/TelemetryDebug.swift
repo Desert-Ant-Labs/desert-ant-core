@@ -72,6 +72,10 @@ final class InflightSends: @unchecked Sendable {
         }
     }
 
+    /// How many sends were ever registered, finished ones included, so a test
+    /// can check a registration without racing the send's completion.
+    var registeredTotal: Int { withLock { nextId } }
+
     func remove(_ id: Int) {
         withLock { tasks[id] = nil }
     }
