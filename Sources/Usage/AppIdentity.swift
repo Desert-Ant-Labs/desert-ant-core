@@ -64,13 +64,22 @@ public func usageDisabled() -> Bool {
 /// otherwise on WASI reads `globalThis.__dalApiKey` (string or function), and
 /// elsewhere reads the `DAL_API_KEY` environment variable. `nil` when unset.
 public func hostProvidedApiKey() -> String? {
-    if let key = DesertAnt.apiKey, !key.isEmpty { return key }
+    if let key = trimmedKey(DesertAnt.apiKey) { return key }
 #if os(WASI)
-    return jsHostString("__dalApiKey")
+    return trimmedKey(jsHostString("__dalApiKey"))
 #else
-    guard let value = environmentVariable("DAL_API_KEY") else { return nil }
-    return value.isEmpty ? nil : value
+    return trimmedKey(environmentVariable("DAL_API_KEY"))
 #endif
+}
+
+/// `key` without surrounding whitespace, or nil when nothing is left. A key
+/// read from a secret file often ends in a newline: the body tolerated it (the
+/// endpoint trims), but an `Authorization` header with one is dropped or refused.
+func trimmedKey(_ key: String?) -> String? {
+    guard let key else { return nil }
+    // `Character.isWhitespace`, not a list: "\r\n" is one Character in Swift.
+    let trimmed = key.drop(while: \.isWhitespace).reversed().drop(while: \.isWhitespace).reversed()
+    return trimmed.isEmpty ? nil : String(trimmed)
 }
 
 /// A device id supplied by the host, for cases where the auto-generated,

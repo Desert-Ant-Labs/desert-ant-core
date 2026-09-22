@@ -72,13 +72,18 @@ public var httpSupportsRequestHeaders: Bool {
 ///
 /// `headers` are sent only where `httpSupportsRequestHeaders` is true; an
 /// Android caller with a credential to send has to put it in the body.
+/// `timeout` (seconds) replaces the platform default, which is 60 s on
+/// Foundation and none at all under `fetch`; the Android host bridge sets its own.
 public func httpPOST(
     _ url: String,
     body: [UInt8],
     contentType: String = "application/json",
-    headers: [String: String] = [:]
+    headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
-    try await performHTTPRequest(method: "POST", url: url, body: body, contentType: contentType, headers: headers)
+    try await performHTTPRequest(
+        method: "POST", url: url, body: body, contentType: contentType, headers: headers, timeout: timeout
+    )
 }
 
 /// Perform an arbitrary request. A `nil` body sends no entity.
@@ -90,9 +95,12 @@ public func httpRequest(
     url: String,
     body: [UInt8]? = nil,
     contentType: String? = nil,
-    headers: [String: String] = [:]
+    headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
-    try await performHTTPRequest(method: method, url: url, body: body, contentType: contentType, headers: headers)
+    try await performHTTPRequest(
+        method: method, url: url, body: body, contentType: contentType, headers: headers, timeout: timeout
+    )
 }
 
 // MARK: - Per-platform transport
@@ -100,7 +108,8 @@ public func httpRequest(
 #if canImport(Foundation) && !os(WASI) && !os(Android)
 
 private func performHTTPRequest(
-    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
     guard let parsed = URL(string: url) else { throw HTTPClientError.invalidURL }
     var request = URLRequest(url: parsed)
@@ -108,6 +117,7 @@ private func performHTTPRequest(
     if let body { request.httpBody = Data(body) }
     if let contentType { request.setValue(contentType, forHTTPHeaderField: "Content-Type") }
     for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+    if let timeout { request.timeoutInterval = timeout }
 
     let data: Data
     let response: URLResponse
@@ -140,7 +150,8 @@ private func httpDebugLog(_ message: @autoclosure () -> String) {
 }
 
 private func performHTTPRequest(
-    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
     httpDebugLog("\(method) \(url) (body: \(body?.count ?? 0) bytes, content-type: \(contentType ?? "none"))")
     if let body { httpDebugLog("request body: \(String(decoding: body, as: UTF8.self))") }
@@ -159,6 +170,10 @@ private func performHTTPRequest(
     }
     if let outgoing { options.headers = outgoing.jsValue }
     if let body { options.body = JSTypedArray<UInt8>(body).jsValue }
+    if let timeout, let abortSignal = JSObject.global.AbortSignal.object,
+       let makeTimeout = abortSignal.timeout.function {
+        options.signal = makeTimeout(this: abortSignal, Int(timeout * 1000).jsValue)
+    }
 
     // `this: JSObject.global` is required, not cosmetic: a browser's `fetch` is a
     // Window method and throws "Illegal invocation" when called detached. Node
@@ -211,7 +226,8 @@ private func performHTTPRequest(
 #elseif os(Android)
 
 private func performHTTPRequest(
-    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
     // `headers` has nowhere to go: the host bridge takes a body and a content type
     // only. Callers check `httpSupportsRequestHeaders`.
@@ -241,7 +257,8 @@ private func performHTTPRequest(
 #else
 
 private func performHTTPRequest(
-    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:]
+    method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:],
+    timeout: Double? = nil
 ) async throws -> HTTPResponse {
     throw HTTPClientError.unsupportedPlatform
 }

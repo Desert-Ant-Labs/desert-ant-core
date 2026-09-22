@@ -6,6 +6,18 @@ import Darwin
 import Glibc
 #endif
 
+/// Flipped once, read synchronously from a hook's `isAlive`. No lock: it is set
+/// before the `flushAndWait` that reads it, and the actor hop orders the two.
+private final class Doomed: @unchecked Sendable {
+    private(set) var isSet = false
+    func set() { isSet = true }
+}
+
+private actor Counter {
+    private(set) var value = 0
+    func increment() { value += 1 }
+}
+
 private actor Flag {
     private(set) var isSet = false
     func set() { isSet = true }
@@ -113,6 +125,83 @@ struct FlushTelemetryTests {
         for task in pending { await task.value }
         #endif
     }
+
+    /// A registration that prunes while a pass runs used to shrink the list under
+    /// the pass, whose merge (`live + dropFirst(marked)`) then dropped the hook
+    /// that had just registered: that session's usage was never forced out again.
+
+    /// A pass over many hooks must not nest a stack frame per hook. wasm has no
+    /// guaranteed tail calls, so a sequential `await` per hook on its
+    /// single-threaded executor grew the stack until it overflowed (the JS stack,
+    /// or the shadow stack into the heap) at a few hundred hooks. The registration
+    /// loop yields for the same reason, so only the pass is under test.
+    @Test func aPassOverAThousandHooksCompletes() async {
+        let telemetry = TelemetryDebug(sends: InflightSends())
+        let flushed = Counter()
+        for _ in 0..<1000 {
+            await Task.yield()
+            await telemetry.registerFlushHook(FlushHook(isAlive: { true }, flush: { await flushed.increment(); return true }))
+        }
+        await telemetry.flushAndWait()
+        #expect(await flushed.value == 1000)
+    }
+
+    @Test func aHookRegisteredDuringAPassSurvivesThePrune() async {
+        let telemetry = TelemetryDebug(sends: InflightSends())
+        let lateFlushed = Flag()
+        let late = FlushHook(isAlive: { true }, flush: { await lateFlushed.set(); return true })
+        // Past the prune threshold, all live while they register (so none is
+        // pruned yet), a third of them dead by the time the pass runs.
+        let doomed = Doomed()
+        for index in 0..<300 {
+            await Task.yield() // see aPassOverAThousandHooksCompletes
+            let dies = index % 3 == 0
+            await telemetry.registerFlushHook(FlushHook(
+                isAlive: { !(dies && doomed.isSet) },
+                flush: { !(dies && doomed.isSet) }
+            ))
+        }
+        let registered = Flag()
+        await telemetry.registerFlushHook(FlushHook(isAlive: { true }, flush: {
+            if await !registered.isSet {
+                await registered.set()
+                await telemetry.registerFlushHook(late)
+            }
+            return true
+        }))
+        doomed.set()
+        await telemetry.flushAndWait()
+        #expect(await !lateFlushed.isSet, "a hook registered mid-pass ran in that pass")
+        await telemetry.flushAndWait()
+        #expect(await lateFlushed.isSet, "the hook registered during the first pass was dropped")
+    }
+
+    @Test func aKeyIsTrimmedAndABlankOneIsNone() {
+        #expect(trimmedKey("dal_live_x\n") == "dal_live_x")
+        #expect(trimmedKey("  dal_live_x \r\n") == "dal_live_x")
+        #expect(trimmedKey(" \n") == nil)
+        #expect(trimmedKey(nil) == nil)
+    }
+
+    #if canImport(Darwin) || canImport(Glibc)
+    /// A usage POST to an endpoint that accepts and never answers gives up after
+    /// the send timeout, not URLSession's 60 s default: `flushTelemetry()` awaits
+    /// it, and a worker's exit waits on that.
+    @Test func aSendToASilentEndpointGivesUpAtTheSendTimeout() async {
+        guard let (fd, port) = silentListener() else {
+            Issue.record("could not open a listener")
+            return
+        }
+        defer { close(fd) }
+        let registry = InflightSends()
+        let send = makeSend(endpoint: "http://127.0.0.1:\(port)/ingest", registry: registry)
+        let clock = ContinuousClock()
+        let started = clock.now
+        send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())
+        for task in registry.drain() { await task.value }
+        #expect(clock.now - started < .seconds(20), "the send waited out the platform default timeout")
+    }
+    #endif
 }
 
 #if canImport(Darwin) || canImport(Glibc)

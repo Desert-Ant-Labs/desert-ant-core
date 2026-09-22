@@ -12,6 +12,8 @@ import JavaScriptKit
 private let defaultIngestEndpoint = "https://events.desertant.com/api/v1/ingest"
 private var ingestEndpoint: String { hostProvidedIngestEndpoint() ?? defaultIngestEndpoint }
 
+private let sendTimeoutSeconds = 5.0
+
 /// Whether the key can ride an `Authorization` header on every path this
 /// transport uses.
 ///
@@ -63,8 +65,12 @@ func makeSend(
         // Registered before this returns, so a caller's `flushTelemetry()` awaits it.
         dispatchTrackedSend(into: registry) { [headers] in
             do {
+                // Bounded like the Node and Kotlin ports' sends: `flushTelemetry()`
+                // awaits this, and a blackholed endpoint would otherwise hold the
+                // caller for URLSession's 60 s default.
                 let response = try await httpPOST(
-                    endpoint, body: payload, contentType: "application/json", headers: headers
+                    endpoint, body: payload, contentType: "application/json", headers: headers,
+                    timeout: sendTimeoutSeconds
                 )
                 if debug {
                     let text = String(decoding: response.body, as: UTF8.self)
@@ -130,7 +136,7 @@ public func makeClient(
     send: ((IngestBody, SendOptions) -> Void)? = nil
 ) -> UsageClient {
     let resolvedAppId = appId ?? hostProvidedAppId() ?? defaultAppIdentifier()
-    let resolvedKey = key ?? hostProvidedApiKey()
+    let resolvedKey = trimmedKey(key) ?? hostProvidedApiKey()
     let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
