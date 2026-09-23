@@ -19,7 +19,7 @@ private val SAMPLES = listOf(
 )
 
 fun main(args: Array<String>) {
-    val tongue = Tongue.bundled()
+    val tongue = Tongue.bundled(null)
     for (text in if (args.isNotEmpty()) args.toList() else SAMPLES) {
         val detection = tongue.detect(text)
         val headline = if (detection.isTooCloseToCall && detection.candidates.size > 1) {

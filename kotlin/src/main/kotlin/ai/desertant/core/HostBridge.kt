@@ -1,5 +1,6 @@
 package ai.desertant.core
 
+import android.content.Context
 import android.content.SharedPreferences
 import android.media.MediaCodec
 import android.media.MediaExtractor
@@ -129,12 +130,55 @@ object HostBridge {
     }
 
     /**
-     * Small key/value persistence for desert-ant-core's `Usage` state, backed by
-     * SharedPreferences. The host app sets [preferences] once (e.g.
-     * `HostBridge.preferences = context.getSharedPreferences("desert-ant", MODE_PRIVATE)`);
-     * until then get returns empty and set is a no-op (state simply doesn't persist).
+     * Fill in the app identity and the usage store from [context], so usage is
+     * keyed by the real package and the device id survives the process. Every
+     * [LoadedModel] built from a Context calls this before creating its native
+     * handle, so a host app does not have to.
+     *
+     * Only unset values are filled: a host that assigned [applicationId] or
+     * [preferences] itself keeps them. The store is the "desert-ant"
+     * SharedPreferences file, the same one ai.desertant:tongue uses, so an app
+     * embedding both and giving them the same kind of Context keeps one device
+     * id rather than counting as two devices.
+     *
+     * The store comes from [context] as passed, not its application context, so
+     * a direct-boot-aware app that passes a device-protected Context keeps usage
+     * persisting before the first unlock. With a credential-protected Context
+     * before unlock, SharedPreferences throw; the store is then left unset
+     * (usage just does not persist yet) rather than failing the model's
+     * constructor, and the next model built after unlock fills it.
      */
     @JvmStatic
+    fun attach(context: Context) {
+        attach(context.packageName) {
+            context.getSharedPreferences(PREFERENCES_FILE, Context.MODE_PRIVATE)
+        }
+    }
+
+    /**
+     * [attach] without a Context, so its rules are testable on the JVM. [store]
+     * is only opened when no store is set yet, and a RuntimeException from it
+     * (the pre-unlock IllegalStateException) leaves the store unset.
+     */
+    @Synchronized
+    internal fun attach(packageName: String, store: () -> SharedPreferences) {
+        if (applicationId == null) applicationId = packageName
+        if (preferences == null) {
+            preferences = try { store() } catch (_: RuntimeException) { null }
+        }
+    }
+
+    private const val PREFERENCES_FILE = "desert-ant"
+
+    /**
+     * Small key/value persistence for desert-ant-core's `Usage` state, backed by
+     * SharedPreferences. [attach] sets it to the "desert-ant" file when a model is
+     * created; a host that wants a different store assigns it before that. While
+     * it is null get returns empty and set is a no-op (state simply doesn't
+     * persist, so every load looks like a new device).
+     */
+    @JvmStatic
+    @Volatile
     var preferences: SharedPreferences? = null
 
     @JvmStatic
@@ -151,10 +195,13 @@ object HostBridge {
     }
 
     /**
-     * The application identity used as the usage turnstile key. The host app sets
-     * this once (e.g. `HostBridge.applicationId = context.packageName`).
+     * The application identity used as the usage turnstile key. [attach] sets it
+     * to the package name when a model is created; a host that wants a different
+     * key assigns it before that. While it is null the native side reports
+     * "unknown".
      */
     @JvmStatic
+    @Volatile
     var applicationId: String? = null
 
     @JvmStatic

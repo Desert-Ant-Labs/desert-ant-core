@@ -62,7 +62,7 @@ libraries, so it also runs on a bare JVM (17+).
 ```kotlin
 import ai.desertant.tongue.Tongue
 
-// Android: pass the Context. On a bare JVM call Tongue.bundled().
+// Android: pass the Context. On a bare JVM pass null: Tongue.bundled(null).
 val tongue = Tongue.bundled(context)
 val detection = tongue.detect("kann ich das haben")
 detection.language                               // "de"

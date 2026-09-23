@@ -6,7 +6,7 @@ import ai.desertant.tongue.usage.UsageTurnstile
  * On-device language identification for short text, across 84 languages.
  *
  * ```kotlin
- * val tongue = Tongue.bundled()
+ * val tongue = Tongue.bundled(context)   // null on a bare JVM
  * tongue.detect("kann ich das haben").language   // "de"
  * ```
  *
@@ -30,13 +30,20 @@ public class Tongue internal constructor(
     private val usage: UsageTurnstile? = null,
 ) {
     public companion object {
+        private const val NO_CONTEXT =
+            "On Android, without a Context the usage device id is not persisted, so every process " +
+                "counts as a new device and inflates monthly active devices. Pass the " +
+                "Context; on a bare JVM, pass null explicitly."
+
         /**
          * Load the model bundled in this artifact's resources.
          *
-         * On Android, pass the `Context` overload instead: without one there is
-         * nowhere durable to keep the usage device id, so every process looks like
-         * a new device. See docs/USAGE.md.
+         * Deprecated because a no-argument call gives Android no `Context`, so
+         * there is nowhere durable to keep the usage device id and every process
+         * looks like a new device. Call `bundled(context)`, or
+         * `bundled(null)` on a bare JVM. See packages/tongue-node/USAGE.md.
          */
+        @Deprecated(NO_CONTEXT)
         @JvmStatic
         public fun bundled(): Tongue = bundled(null)
 
@@ -58,9 +65,22 @@ public class Tongue internal constructor(
             return of(metadataJson, weightBytes, context)
         }
 
-        /** Load from raw bytes, for an on-demand download or a custom build. */
+        /**
+         * [of] without a `Context`, deprecated for the reason [bundled] is. An
+         * explicit overload rather than the old `@JvmOverloads` one, so the Java
+         * signature stays and only the no-context call warns.
+         */
+        @Deprecated(NO_CONTEXT)
         @JvmStatic
-        @JvmOverloads
+        public fun of(metadataJson: String, weightBytes: ByteArray): Tongue = of(metadataJson, weightBytes, null)
+
+        /**
+         * Load from raw bytes, for an on-demand download or a custom build.
+         * `context` is as in `bundled(context)`. Its default is kept only so Kotlin code
+         * compiled against the earlier release still links; a two-argument call
+         * now resolves to the deprecated overload above.
+         */
+        @JvmStatic
         public fun of(metadataJson: String, weightBytes: ByteArray, context: Any? = null): Tongue {
             val metadata = Metadata.parse(metadataJson)
             return Tongue(metadata, Weights(weightBytes, metadata), UsageTurnstile.create(context))

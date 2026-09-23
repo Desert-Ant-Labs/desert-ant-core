@@ -156,7 +156,7 @@ private fun testRouter() {
 }
 
 private fun testDetection() {
-    val tongue = Tongue.bundled()
+    val tongue = Tongue.bundled(null)
     val expectations = listOf(
         "je voudrais un café au lait" to "fr",
         "kann ich das haben" to "de",
@@ -178,6 +178,7 @@ private fun testDetection() {
     val controlled = Tongue.of(
         """{"labels":["en","fr"],"num_buckets":1,"dim":1,"ngram_orders":[1],"embed_scale":1,"latin_labels":["en","fr"]}""",
         ByteArray(17),
+        null,
     )
     val topOne = controlled.detect("this input is long enough", topK = 1)
     check(topOne.candidates.size == 1) { "topK 1 should return one candidate" }
