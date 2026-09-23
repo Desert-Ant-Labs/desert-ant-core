@@ -46,8 +46,7 @@ public final class StreamingRefiner: @unchecked Sendable {
     /// Feed audio as it arrives (the same audio you give SpeechAnalyzer).
     public func appendAudio(_ samples: [Float], sampleRate: Double = 16000) async throws {
         let rate = try await align.model.value().assets.config.sample_rate
-        let audio = sampleRate == Double(rate) ? samples
-            : Resampler.toRate(samples, from: sampleRate, to: Double(rate))
+        let audio = try Align.resampled(samples, from: sampleRate, to: rate)
         lock.withLock {
             completeAudio = nil
             buffer.append(contentsOf: audio)
@@ -61,7 +60,9 @@ public final class StreamingRefiner: @unchecked Sendable {
     }
 
     /// Correct finalized `words` using buffered audio.
+    /// The same input rules as ``Align/refine(_:audio:sampleRate:languageCode:)`` apply to `words`.
     public func refine(_ words: [WordTiming]) async throws -> [WordTiming] {
+        try Align.validate(words)
         guard !words.isEmpty else { return words }
         let rt = try await align.model.value()
         guard let langId = rt.assets.config.languages[Align.key(languageCode)].map(Int32.init) else {
@@ -78,8 +79,7 @@ public final class StreamingRefiner: @unchecked Sendable {
     /// Refine against a whole recording instead of the ring buffer: no boundary then lacks context.
     public func useCompleteAudio(_ samples: [Float], sampleRate: Double) async throws {
         let rate = try await align.model.value().assets.config.sample_rate
-        let audio = sampleRate == Double(rate) ? samples
-            : Resampler.toRate(samples, from: sampleRate, to: Double(rate))
+        let audio = try Align.resampled(samples, from: sampleRate, to: rate)
         lock.withLock {
             completeAudio = audio
             buffer.removeAll(keepingCapacity: false)

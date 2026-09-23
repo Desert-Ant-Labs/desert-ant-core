@@ -4,8 +4,9 @@ import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { FfiReader, FfiWriter } from "@desert-ant-labs/core";
+import { createNativeSdk } from "@desert-ant-labs/core/node";
 import { Align } from "../node.js";
-import { MODEL_ID, LANGUAGES, encodeInput, encodeOptions, decodeResult } from "../codec.js";
+import { MODEL_ID, PACKAGE_NAME, LANGUAGES, encodeInput, encodeOptions, decodeResult } from "../codec.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE_DIR = path.join(here, "fixtures", "model");
@@ -84,6 +85,55 @@ test("unusable after dispose", modelOpts, async () => {
   const one = await Align.load({ directory: FIXTURE_DIR });
   one.dispose();
   await assert.rejects(() => one.refine(tone(), 16000, words, { language: "es" }));
+});
+
+// Each of these once reached the native core and killed the process with SIGTRAP.
+const hostileTimes = [NaN, Infinity, -Infinity, 1e17, 1e19, 1e100, -1e20, -5, undefined];
+
+test("an invalid word time rejects with a RangeError before the core runs", async () => {
+  const model = { run() { throw new Error("the core must not be reached"); } };
+  const unloaded = new Align(model);
+  for (const t of hostileTimes) {
+    await assert.rejects(() => unloaded.refine(tone(1), 16000, [{ text: "a", start: t, end: 0.5 }], { language: "en" }),
+                         RangeError, `start ${t}`);
+    await assert.rejects(() => unloaded.refine(tone(1), 16000, [{ text: "a", start: 0.1, end: t }], { language: "en" }),
+                         RangeError, `end ${t}`);
+  }
+  for (const rate of [NaN, Infinity, 0, -16000]) {
+    await assert.rejects(() => unloaded.refine(tone(1), rate, words, { language: "en" }), RangeError, `rate ${rate}`);
+  }
+});
+
+test("times at the bounds and past the audio still reach the core", async () => {
+  let calls = 0;
+  const model = { run() { calls++; return new FfiReader(new FfiWriter().u32(1).f64(0).f64(1).u32(0).done()); } };
+  const accepting = new Align(model);
+  for (const [start, end] of [[-1, 0], [100, 1e7], ["0.4", "0.7"]]) {
+    await accepting.refine(tone(1), 16000, [{ text: "a", start, end }], { language: "en" });
+  }
+  assert.equal(calls, 3);
+});
+
+// Past the JS check, straight at the native core: the Swift side must refuse the same input as a
+// failed call, not trap.
+test("the native core fails the call on invalid times instead of trapping", modelOpts, async () => {
+  const sdk = createNativeSdk({ here: path.join(here, ".."), packageName: PACKAGE_NAME, modelId: MODEL_ID, coreName: "AlignNode" });
+  const raw = await sdk.open({ directory: FIXTURE_DIR });
+  try {
+    for (const t of hostileTimes) {
+      for (const language of ["en", "xx"]) {
+        const input = encodeInput(tone(1), 16000, [{ text: "a", start: t, end: 0.5 }]);
+        await assert.rejects(() => raw.run(input, encodeOptions({ language })), /failed to run/, `start ${t} ${language}`);
+      }
+    }
+    const tiny = encodeInput(tone(1), 1e-300, words);
+    await assert.rejects(() => raw.run(tiny, encodeOptions({ language: "en" })), /failed to run/);
+    // Past the audio is still accepted, as before; what the refiner makes of it is not pinned here.
+    const out = await align.refine(tone(), 16000, [{ text: "late", start: 100, end: 101 }], { language: "en" });
+    assert.equal(out.length, 1);
+  } finally {
+    raw.dispose();
+  }
 });
 
 test.after(() => align?.dispose());

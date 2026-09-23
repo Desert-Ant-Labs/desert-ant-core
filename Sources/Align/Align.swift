@@ -1,5 +1,16 @@
 import DesertAnt
 
+/// Errors thrown for input `refine` cannot use.
+public enum AlignError: MessageError, Sendable {
+    case invalidInput(String)
+
+    public var message: String {
+        switch self {
+        case .invalidInput(let detail): "Invalid Align input: \(detail)."
+        }
+    }
+}
+
 /// Word-timestamp refinement for any transcript: audio and proposed times in, corrected times out.
 public final class Align: Sendable {
     // Resolving the files, loading once, sharing that load, and reporting
@@ -69,19 +80,56 @@ public final class Align: Sendable {
 
     /// A word keeps its input times when its correction hits the search edge, would end before it
     /// starts, or, when streaming, has no forward context buffered yet.
+    ///
+    /// Every `start` and `end` must be finite and within `-1...10_000_000` seconds, and
+    /// `sampleRate` must be finite and positive; anything else throws
+    /// ``AlignError/invalidInput(_:)``, even for an unsupported language. Empty audio throws too.
+    /// Times past the end of the audio are accepted and searched against the mirrored edge, so
+    /// the result there is not meaningful; a word whose `start` is after its `end` is accepted.
     public func refine(_ words: [WordTiming], audio samples: [Float], sampleRate: Double = 16000,
                        languageCode: String) async throws -> [WordTiming] {
+        try Self.validate(words)
         guard !words.isEmpty else { return words }
         let rt = try await model.value()
         guard let langId = rt.assets.config.languages[Self.key(languageCode)].map(Int32.init) else {
             return words
         }
-        let cfg = rt.assets.config
-        let audio = sampleRate == Double(cfg.sample_rate) ? samples
-            : Resampler.toRate(samples, from: sampleRate, to: Double(cfg.sample_rate))
+        let audio = try Self.resampled(samples, from: sampleRate, to: rt.assets.config.sample_rate)
         let (logmel, nFrames) = rt.frontend.logMel(audio)
         return try await Self.runCascade(rt, words, logmel: logmel, nFrames: nFrames, langId: langId,
                                          sampleOffset: 0, streaming: false)
+    }
+
+    /// The latest time a word may carry, in seconds (about 115 days). Times become frame indices
+    /// as `Int`, so an unbounded time traps the process instead of failing the call.
+    static let maxSeconds = 10_000_000.0
+    /// How far before zero a time may be. A small negative (offset arithmetic upstream) still
+    /// refines against the reflect-padded edge, so it is not rejected.
+    static let negativeTolerance = 1.0
+
+    static func validate(_ words: [WordTiming]) throws {
+        for (i, w) in words.enumerated() {
+            for (name, t) in [("start", w.start), ("end", w.end)]
+            where !(t.isFinite && t >= -negativeTolerance && t <= maxSeconds) {
+                throw AlignError.invalidInput(
+                    "word \(i) \(name) is \(t), expected a time from \(-negativeTolerance) to \(maxSeconds) seconds")
+            }
+        }
+    }
+
+    /// The largest resampled buffer accepted, about 37 hours at 16 kHz. A tiny `sampleRate`
+    /// would otherwise ask the resampler for an unrepresentable length.
+    static let maxResampledCount = Double(Int32.max)
+
+    static func resampled(_ samples: [Float], from sampleRate: Double, to rate: Int) throws -> [Float] {
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            throw AlignError.invalidInput("sampleRate is \(sampleRate), expected a finite positive rate")
+        }
+        if sampleRate == Double(rate) { return samples }
+        guard Double(samples.count) * Double(rate) / sampleRate <= maxResampledCount else {
+            throw AlignError.invalidInput("\(samples.count) samples at \(sampleRate) Hz is too long to resample")
+        }
+        return Resampler.toRate(samples, from: sampleRate, to: Double(rate))
     }
 
     struct Boundary { let frame: Int; let bytes: [Int32]; let kind: Int32 }
@@ -89,6 +137,12 @@ public final class Align: Sendable {
     static func runCascade(_ rt: Runtime, _ words: [WordTiming], logmel: [Float], nFrames: Int,
                            langId: Int32, sampleOffset: Int, streaming: Bool) async throws -> [WordTiming] {
         guard !words.isEmpty else { return words }
+        // Cropping indexes the log-mel, so it needs at least one frame. Streaming with
+        // nothing buffered yet is the documented "no context" fallback, not an error.
+        guard nFrames > 0 else {
+            if streaming { return words }
+            throw AlignError.invalidInput("the audio is empty")
+        }
         let cfg = rt.assets.config
         let hop = cfg.hop_seconds
         let coarseCenter = cfg.coarse_frames / 2, fineCenter = cfg.fine_frames / 2
@@ -108,7 +162,10 @@ public final class Align: Sendable {
                                            langId: langId, centers: bounds.map { $0.frame }, model: rt.coarse)
         var fineCenters = [Int](repeating: 0, count: bounds.count)
         for i in 0..<bounds.count {
-            fineCenters[i] = bounds[i].frame + Int((coarsePred[i].position - Double(coarseCenter)).rounded())
+            // Non-finite audio (NaN, or values whose power overflows) makes the position NaN,
+            // and Int(NaN) traps. Such a boundary is marked not ok below.
+            let position = coarsePred[i].position.isFinite ? coarsePred[i].position : Double(coarseCenter)
+            fineCenters[i] = bounds[i].frame + Int((position - Double(coarseCenter)).rounded())
         }
         let finePred = try await batched(rt, bounds, width: cfg.fine_frames, logmel: logmel, nFrames: nFrames,
                                          langId: langId, centers: fineCenters, model: rt.fine)
@@ -125,7 +182,8 @@ public final class Align: Sendable {
             // forward context is not buffered yet.
             let futureMissing = streaming && bounds[i].frame + coarseCenter >= nFrames
             let pastMissing = streaming && bounds[i].frame < 0
-            if abs(cOff) >= Double(coarseCenter - 2) || futureMissing || pastMissing {
+            if !cOff.isFinite || !fOff.isFinite || abs(cOff) >= Double(coarseCenter - 2)
+                || futureMissing || pastMissing {
                 ok[i] = false
             }
         }

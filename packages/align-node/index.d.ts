@@ -33,6 +33,10 @@ export declare class Align {
   readonly languages: readonly string[];
   isSupported(language: string): boolean;
   readonly sdkVersion: string;
+  /**
+   * Every word's `start` and `end` must be a finite number from -1 to 10,000,000 seconds, and `sampleRate` finite
+   * and positive; otherwise this rejects with a `RangeError`. Times past the end of the audio are accepted.
+   */
   refine<W extends Word>(samples: Float32Array | number[], sampleRate: number, words: W[],
                          options: RefineOptions): Promise<(W & { refined: boolean })[]>;
   isDownloaded(): boolean;
