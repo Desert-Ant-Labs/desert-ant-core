@@ -133,9 +133,17 @@ for model in $(dal_select "${usage_model:-all}" node); do
                 fi
             done
         done
-        if objdump -p "$dest/lib${product}Node.so" | grep -q 'NEEDED.*libcurl' \
-            || objdump -T "$dest/lib${product}Node.so" | grep -q 'UND.* curl_'; then
+        if grep -q 'NEEDED.*libcurl' <<< "$(objdump -p "$dest/lib${product}Node.so")" \
+            || grep -q 'UND.* curl_' <<< "$(objdump -T "$dest/lib${product}Node.so")"; then
             echo "error: lib${product}Node.so links libcurl directly; add the missing calls to Tools/curlcompat" >&2
+            exit 1
+        fi
+        # js/src/native.js asks this before anything else to turn a missing
+        # libcurl into an error from load() instead of an abort.
+        # Not `objdump | grep -q`: grep exiting at the first match leaves
+        # objdump to die of SIGPIPE, which pipefail reports as a miss.
+        if ! grep -q '\.text.* dal_curl_available$' <<< "$(objdump -T "$dest/lib${product}Node.so")"; then
+            echo "error: lib${product}Node.so does not export dal_curl_available" >&2
             exit 1
         fi
     fi

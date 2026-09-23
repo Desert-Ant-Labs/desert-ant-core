@@ -1,8 +1,9 @@
 // Linked into every Linux Node native in place of a link against libcurl. Each
 // libcurl call the static FoundationNetworking makes lands here, and is
 // forwarded to the host's libcurl.so.4, which this opens itself on first use.
-// A definition in an object file wins over a shared library's, and the link
-// passes --as-needed, so the .so records no DT_NEEDED on libcurl at all.
+// A definition in an object file wins over a shared library's, and the build
+// hands the linker an empty script in place of libcurl, so the .so records no
+// DT_NEEDED on it at all.
 //
 // It exists for two reasons.
 //
@@ -39,22 +40,34 @@ enum { CURLINFO_STRING = 0x100000, CURLINFO_CAINFO = CURLINFO_STRING + 61 };
 typedef int64_t curl_off_t;
 
 static void *libcurl;
+// dlerror() is per thread and cleared by reading, so the reason is kept here
+// for whichever thread reports it.
+static char libcurl_error[256];
 static pthread_once_t libcurl_once = PTHREAD_ONCE_INIT;
 
 static void open_libcurl(void) {
   libcurl = dlopen("libcurl.so.4", RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
+  if (!libcurl) {
+    const char *why = dlerror();
+    snprintf(libcurl_error, sizeof libcurl_error, "%s", why ? why : "unknown");
+  }
 }
 
-// A model already in the cache never reaches this, so a host without libcurl
-// only fails when it has to download, and says what to install.
-static void *curl_sym(const char *name, int required) {
+// The Node loader calls this before binding anything else and throws a
+// catchable error when it returns 0, so the abort in curl_sym is only a
+// backstop for a caller that skipped the check.
+__attribute__((visibility("default"))) int dal_curl_available(void) {
   pthread_once(&libcurl_once, open_libcurl);
-  if (!libcurl) {
+  return libcurl != NULL;
+}
+
+static void *curl_sym(const char *name, int required) {
+  if (!dal_curl_available()) {
     fprintf(stderr,
-            "desert-ant: cannot load libcurl.so.4 (%s). Downloading models on "
-            "Linux needs the system libcurl: apt install libcurl4, or dnf "
-            "install libcurl.\n",
-            dlerror());
+            "desert-ant: cannot load libcurl.so.4 (%s). libcurl is required "
+            "(downloads and usage reporting); install libcurl4, or libcurl on "
+            "Fedora and Amazon Linux.\n",
+            libcurl_error);
     abort();
   }
   void *fn = dlsym(libcurl, name);
