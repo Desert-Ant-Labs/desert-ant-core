@@ -219,6 +219,10 @@ internal fun detectDeviceFacts(context: Any?): DeviceFacts =
 private fun reflectedAndroidFacts(context: Any?): DeviceFacts {
     val contextClass = runCatching { Class.forName("android.content.Context") }.getOrNull()
     val appContext = context?.takeIf { contextClass?.isInstance(it) == true }
+    // The application's configuration, not an Activity's: a tablet Activity in
+    // split screen can report under 600dp, and the facts last the client.
+    val application = appContext?.let { runCatching { contextClass!!.getMethod("getApplicationContext").invoke(it) }.getOrNull() }
+        ?: appContext
     return androidFacts(
         appVersion = {
             appContext?.let {
@@ -234,7 +238,7 @@ private fun reflectedAndroidFacts(context: Any?): DeviceFacts {
         model = { Class.forName("android.os.Build").getField("MODEL").get(null) as String? },
         smallestWidthDp = {
             val resourcesClass = Class.forName("android.content.res.Resources")
-            val resources = appContext?.let { contextClass!!.getMethod("getResources").invoke(it) }
+            val resources = application?.let { contextClass!!.getMethod("getResources").invoke(it) }
                 ?: resourcesClass.getMethod("getSystem").invoke(null)
             val configuration = resourcesClass.getMethod("getConfiguration").invoke(resources)
             Class.forName("android.content.res.Configuration").getField("smallestScreenWidthDp").getInt(configuration)
