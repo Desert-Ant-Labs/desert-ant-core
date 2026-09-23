@@ -37,9 +37,9 @@ private var keyRidesInHeader: Bool {
 /// detached task. (The `beacon` flag is retained for API parity; there is no
 /// separate unload-safe path now that the client is fully async.)
 ///
-/// Sends nothing while `usageDisabled()` is on, read per send. The session and
-/// turnstiles already hold their flushes while it is on; this is the backstop
-/// for a client a host built itself.
+/// Sends nothing while `usageDisabled()` is on, read per send: the last guard
+/// behind the client's own (`ClientDeps.disabled`), for a host that pairs this
+/// transport with a client of its own.
 public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
     makeSend(endpoint: endpoint, bearerKey: bearerKey, registry: .shared)
 }
@@ -135,6 +135,9 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///   - send: overrides the transport. Defaults to the real POST; a caller-supplied
 ///     one wins (tests), which is how a test reads the platform tag and the key's
 ///     placement that this function decides.
+///   - disabled: the usage opt-out the client reads before every step. Defaults
+///     to `usageDisabled`; a test passes its own, since the suites run with the
+///     switch on.
 public func makeClient(
     appId: String? = nil,
     key: String? = nil,
@@ -146,7 +149,8 @@ public func makeClient(
     callCount: (() -> Int)? = nil,
     context: (() -> [String: String]?)? = nil,
     storage: UsageStorage? = nil,
-    send: ((IngestBody, SendOptions) -> Void)? = nil
+    send: ((IngestBody, SendOptions) -> Void)? = nil,
+    disabled: @escaping () -> Bool = usageDisabled
 ) -> UsageClient {
     let resolvedAppId = appId ?? hostProvidedAppId() ?? defaultAppIdentifier()
     let resolvedKey = trimmedKey(key) ?? hostProvidedApiKey()
@@ -176,6 +180,7 @@ public func makeClient(
         saveState: { store.saveState($0, namespace, device) },
         // The key is only known here, so the real transport is built here too; a
         // caller-supplied one still wins (tests).
-        send: send ?? makeSend(endpoint: ingestEndpoint, bearerKey: resolvedKey)
+        send: send ?? makeSend(endpoint: ingestEndpoint, bearerKey: resolvedKey),
+        disabled: disabled
     ))
 }

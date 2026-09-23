@@ -74,7 +74,8 @@ struct UsageClientTests {
             deviceId: "host-device",
             context: { nil },
             storage: InMemoryStorage(),
-            send: { body, _ in sent.append(body) }
+            send: { body, _ in sent.append(body) },
+            disabled: { false }
         )
         client.start()
         client.recordCall()

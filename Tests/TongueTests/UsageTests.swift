@@ -122,7 +122,8 @@ struct TongueUsage {
         let sink = Sink()
         let client = makeTongueClient(
             storage: InMemoryStorage(),
-            send: { body, _ in sink.sent.append(body) }
+            send: { body, _ in sink.sent.append(body) },
+            disabled: { false }
         )
         client.recordCall()
         client.load()

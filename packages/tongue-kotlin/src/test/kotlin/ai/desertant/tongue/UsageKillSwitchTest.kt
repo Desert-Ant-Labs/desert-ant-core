@@ -1,5 +1,11 @@
 package ai.desertant.tongue
 
+import ai.desertant.tongue.usage.ClientDeps
+import ai.desertant.tongue.usage.DAY_MS
+import ai.desertant.tongue.usage.IngestBody
+import ai.desertant.tongue.usage.SendHandle
+import ai.desertant.tongue.usage.UsageClient
+import ai.desertant.tongue.usage.UsageState
 import ai.desertant.tongue.usage.UsageStorage
 import ai.desertant.tongue.usage.UsageTurnstile
 import ai.desertant.tongue.usage.flagIsSet
@@ -93,6 +99,48 @@ class UsageKillSwitchTest {
             else System.setProperty("DAL_USAGE_DISABLED", previousSwitch)
             server.stop(0)
         }
+    }
+
+    /**
+     * A call recorded with consent and still waiting when the switch is set is
+     * held: neither the debounce nor a forced flush stores or sends it, and it
+     * goes out once the switch is cleared.
+     */
+    @Test
+    fun aCallRecordedBeforeTheOptOutIsHeld() {
+        val off = java.util.concurrent.atomic.AtomicBoolean(false)
+        var state = UsageState()
+        val saves = AtomicInteger()
+        val sends = mutableListOf<IngestBody>()
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "server",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { 1_700_000_000_000L },
+                loadState = { state },
+                saveState = { state = it; saves.incrementAndGet() },
+                send = {
+                    sends.add(it)
+                    SendHandle { }
+                },
+            ),
+        )
+        val turnstile = UsageTurnstile(client, flushAfterMs = 10, disabled = { off.get() })
+        turnstile.record()
+        off.set(true)
+        val before = saves.get()
+        Thread.sleep(100) // past the debounce
+        assertTrue(turnstile.flushTelemetry())
+        turnstile.flushOnExit()
+        assertEquals(0, sends.size, "a call recorded before the opt-out was sent after it")
+        assertEquals(before, saves.get(), "a flush after the opt-out wrote the store")
+
+        off.set(false)
+        assertTrue(turnstile.flushTelemetry())
+        assertEquals(1, sends.size, "the held call was lost when consent returned")
+        assertEquals(1, sends[0].events[0].callCount)
     }
 
     @Test
