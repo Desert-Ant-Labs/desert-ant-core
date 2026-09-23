@@ -252,7 +252,9 @@ object HostBridge {
         appVersion = { context.packageManager.getPackageInfo(context.packageName, 0).versionName },
         osRelease = { Build.VERSION.RELEASE },
         model = { Build.MODEL },
-        smallestWidthDp = { context.resources.configuration.smallestScreenWidthDp },
+        // The application's configuration, not an Activity's: a tablet Activity in
+        // split screen can report under 600dp, and the facts last the process.
+        smallestWidthDp = { (context.applicationContext ?: context).resources.configuration.smallestScreenWidthDp },
         locale = { LocaleList.getDefault().get(0) },
     )
 

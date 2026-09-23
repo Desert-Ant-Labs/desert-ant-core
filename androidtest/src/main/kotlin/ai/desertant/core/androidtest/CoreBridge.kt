@@ -9,7 +9,8 @@ object CoreBridge {
 
     /**
      * Installs the CHostBridge callbacks against [host] (pass
-     * `HostBridge::class.java`) and runs the host-backed integration checks
+     * `DesertAntNative::class.java`: HostBridge's opt-out is a property, so it
+     * has no `sendsDeviceContext()` for JNI to find) and runs the host-backed integration checks
      * (Regex, JSON decode, NFKC). Returns "" when all pass, or a ` | `-separated
      * summary of the failures.
      */

@@ -73,7 +73,8 @@ public func usageDisabled() -> Bool {
 /// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function),
 /// then under Node `process.env.DAL_APP_VERSION`; elsewhere reads the
 /// `DAL_APP_VERSION` environment variable. `nil` when unset.
-/// The only appVersion a Linux, Android or wasm host sends.
+/// The only appVersion a Linux or wasm host sends; on Android it overrides the
+/// package's versionName.
 func hostProvidedAppVersion() -> String? {
 #if os(WASI)
     if let value = jsHostString("__dalAppVersion") { return value }
