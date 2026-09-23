@@ -166,6 +166,8 @@ public final class UsageClient {
             // First flush of this session's turnstile: attach carry + session calls.
             pending = nil
             ev.callCount = resolveCount(st.carryCallCount + sessionCalls)
+            // An opt-out set while the event waited out the debounce still applies.
+            if deviceContextDisabled() { ev.context = nil }
             if deps.callCount == nil {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
