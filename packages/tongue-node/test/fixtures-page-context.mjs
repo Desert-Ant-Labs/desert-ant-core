@@ -27,9 +27,11 @@ for (const id of ["none", "persisted", "tenant"]) {
   if (id === "none") delete globalThis.__dalDeviceId;
   else globalThis.__dalDeviceId = id;
   for (const key of [...values.keys()]) if (key.endsWith(".state")) values.delete(key);
+  const before = sent.length;
   const turnstile = UsageTurnstile.create("9.9.9", store);
   turnstile.record();
   await turnstile.flushTelemetry();
+  if (sent.length !== before + 1) throw new Error(`${id}: expected one send, got ${sent.length - before}`);
   results[id] = sent.at(-1).events[0].context;
 }
 console.log(JSON.stringify(results));
