@@ -21,6 +21,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
     let encodeBatch = 3
     let encodeDepth: Int
     let reducesInGraph = true
+    let decodeRunsBesideEncoder = false
     var active = 0
     var peak = 0
     var failNext = false
@@ -42,7 +43,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
     }
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
-                       hOut: Buffer, cOut: Buffer,
+                       hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
         tok = [1, 1]
         dur = [0, 0]
@@ -80,6 +81,7 @@ private final class ShuffledEngine: Engine, @unchecked Sendable {
     let encodeBatch = 1
     let encodeDepth = 4
     let reducesInGraph = true
+    let decodeRunsBesideEncoder = false
     private let lock = NSLock()
     private var _order: [Int] = []
     var order: [Int] { lock.lock(); defer { lock.unlock() }; return _order }
@@ -96,7 +98,7 @@ private final class ShuffledEngine: Engine, @unchecked Sendable {
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
-                       hOut: Buffer, cOut: Buffer,
+                       hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
         // Blank everywhere, so the decode ends the window rather than emitting.
         tok = [1, 1]

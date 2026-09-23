@@ -663,7 +663,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/voz",
         "url": "https://huggingface.co/desert-ant-labs/voz",
-        "revision": "v0.1.0",
+        "revision": "v0.3.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": [

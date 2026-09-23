@@ -46,6 +46,10 @@ protocol Engine: AnyObject {
     /// integers, so the wasm export reduces in the graph instead.
     var reducesInGraph: Bool { get }
 
+    /// Whether the decode step runs on another processor than the encoder, so
+    /// the two can overlap.
+    var decodeRunsBesideEncoder: Bool { get }
+
     /// One batch of windows, from the staged audio rows of `slot` to that
     /// slot's encoder projections.
     ///
@@ -68,8 +72,9 @@ protocol Engine: AnyObject {
     ///
     /// Writes either `logits` (Core ML) or `tok`/`dur` (wasm), per
     /// ``reducesInGraph``, along with the new recurrent state.
+    /// `activeLanes` hold a window; an engine may skip the rest.
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
-                       hOut: Buffer, cOut: Buffer,
+                       hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws
 }

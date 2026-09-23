@@ -16,6 +16,8 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     /// nothing, and reducing in the graph would only add operations.
     let reducesInGraph = false
 
+    let decodeRunsBesideEncoder = true
+
     /// The models are `nonisolated(unsafe)` for the same reason `Slot` is
     /// unchecked: Core ML's types carry no concurrency annotations, and an
     /// `MLModel` is documented to take concurrent predictions - which is the
@@ -40,6 +42,17 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     private let stepProvider: MLDictionaryFeatureProvider
     private let stepOptions = MLPredictionOptions()
 
+    /// The decode step at fewer lanes (`decoder_1` ... `decoder_8`), smallest
+    /// first, where the decoder is a multifunction model that carries them.
+    private struct Narrow {
+        let lanes: Int
+        let model: MLModel
+        let provider: MLDictionaryFeatureProvider
+        let options: MLPredictionOptions
+        let embed, hIn, cIn, encStep, logits, hOut, cOut: Buffer
+    }
+    private let narrow: [Narrow]
+
     /// Four in flight.
     ///
     /// Core ML spreads concurrent requests over the hardware, so this is what
@@ -61,19 +74,17 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     /// than after it, so on the Neural Engine it queues behind engine work
     /// while a performance core sits idle. Measured over ten minutes of speech:
     /// an M3 Ultra goes from 181 to 310 RTFx, an M5 from 405 to 443, an M1 from
-    /// 242 to 251. A phone measures the other way (309 against 280) and keeps
-    /// the engine.
+    /// 242 to 251. A phone wins too with the narrow steps, which the pipeline
+    /// then overlaps with the encoder.
     ///
-    /// Asked for in both places the decode step is loaded, so the two share one
+    /// Asked for in every place the decode step is loaded, so they share one
     /// specialization rather than compiling the model twice.
-    static func decodeUnits(_ asked: MLComputeUnits) -> MLComputeUnits {
-        Silicon.isMSeries ? .cpuOnly : asked
-    }
+    static let decodeUnits = MLComputeUnits.cpuOnly
 
     /// Lanes the decode step declares, needed before the buffers exist.
-    static func declaredLanes(directory: URL, computeUnits: MLComputeUnits) throws -> Int {
+    static func declaredLanes(directory: URL) throws -> Int {
         let configuration = MLModelConfiguration()
-        configuration.computeUnits = decodeUnits(computeUnits)
+        configuration.computeUnits = decodeUnits
         let model = try MLModel(
             contentsOf: directory.appendingPathComponent(VozModel.decodeStep),
             configuration: configuration)
@@ -100,7 +111,7 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
         let asked = options(computeUnits)
         mel = try load(VozModel.mel, asked)
         encoder = try load(VozModel.encoder, asked)
-        decodeStep = try load(VozModel.decodeStep, options(Self.decodeUnits(computeUnits)))
+        decodeStep = try load(VozModel.decodeStep, options(Self.decodeUnits))
 
         guard let embed = decodeStep.modelDescription.inputDescriptionsByName["embed"],
               let constraint = embed.multiArrayConstraint else {
@@ -136,6 +147,64 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
         stepOptions.outputBackings = [
             "logits": buffers.logitsOut.array, "h_out": buffers.hOut.array,
             "c_out": buffers.cOut.array]
+
+        var narrow: [Narrow] = []
+        if #available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, *) {
+            let full = decodeLanes
+            for lanes in [1, 2, 4, 8] where lanes < full {
+                let configuration = options(Self.decodeUnits)
+                configuration.functionName = "decoder_\(lanes)"
+                guard let model = try? MLModel(
+                    contentsOf: directory.appendingPathComponent(VozModel.decodeStep),
+                    configuration: configuration) else { continue }
+                func make(_ like: Buffer) throws -> Buffer {
+                    try Buffer([lanes] + like.shape.dropFirst())
+                }
+                let embed = try make(buffers.embed), hIn = try make(buffers.hIn)
+                let cIn = try make(buffers.cIn), encStep = try make(buffers.encStep)
+                let logits = try make(buffers.logitsOut), hOut = try make(buffers.hOut)
+                let cOut = try make(buffers.cOut)
+                let options = MLPredictionOptions()
+                options.outputBackings = ["logits": logits.array, "h_out": hOut.array,
+                                          "c_out": cOut.array]
+                narrow.append(Narrow(
+                    lanes: lanes, model: model,
+                    provider: try MLDictionaryFeatureProvider(dictionary: [
+                        "embed": MLFeatureValue(multiArray: embed.array),
+                        "h_in": MLFeatureValue(multiArray: hIn.array),
+                        "c_in": MLFeatureValue(multiArray: cIn.array),
+                        "enc_step": MLFeatureValue(multiArray: encStep.array)]),
+                    options: options, embed: embed, hIn: hIn, cIn: cIn, encStep: encStep,
+                    logits: logits, hOut: hOut, cOut: cOut))
+            }
+        }
+        self.narrow = narrow
+    }
+
+    /// Runs the smallest narrow step that holds `activeLanes`, if there is one.
+    private func runNarrow(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
+                           logits: Buffer, hOut: Buffer, cOut: Buffer,
+                           activeLanes: [Int]) throws -> Bool {
+        guard let small = narrow.first(where: { $0.lanes >= activeLanes.count }) else {
+            return false
+        }
+        func gather(_ from: Buffer, _ into: Buffer) {
+            let per = from.count / decodeLanes
+            for (i, lane) in activeLanes.enumerated() {
+                (into.ptr + i * per).update(from: from.ptr + lane * per, count: per)
+            }
+        }
+        func scatter(_ from: Buffer, _ into: Buffer) {
+            let per = into.count / decodeLanes
+            for (i, lane) in activeLanes.enumerated() {
+                (into.ptr + lane * per).update(from: from.ptr + i * per, count: per)
+            }
+        }
+        gather(embed, small.embed); gather(hIn, small.hIn)
+        gather(cIn, small.cIn); gather(encStep, small.encStep)
+        try predict(small.model, small.provider, small.options)
+        scatter(small.logits, logits); scatter(small.hOut, hOut); scatter(small.cOut, cOut)
+        return true
     }
 
     // The buffers are already bound into the providers and backings, so these
@@ -165,9 +234,12 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
-                       hOut: Buffer, cOut: Buffer,
+                       hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
-        try predict(decodeStep, stepProvider, stepOptions)
+        if try !runNarrow(embed: embed, hIn: hIn, cIn: cIn, encStep: encStep, logits: logits,
+                          hOut: hOut, cOut: cOut, activeLanes: activeLanes) {
+            try predict(decodeStep, stepProvider, stepOptions)
+        }
     }
 }
 #endif

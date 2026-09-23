@@ -19,7 +19,7 @@ import DesertAnt
 public enum VozModel: ModelDeclaration {
     public static let id = "voz"
     public static let product = "Voz"
-    public static let revision = "v0.1.0"
+    public static let revision = "v0.3.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.5.0"
     public static let summary =

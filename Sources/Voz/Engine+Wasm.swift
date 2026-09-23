@@ -38,6 +38,11 @@ final class WasmEngine: Engine {
     /// The wasm export reduces in the graph: reading logits back would be a
     /// quarter of a megabyte per call to extract two integers.
     let reducesInGraph = true
+    /// The page has one thread, and the two halves are on the same device
+    /// anyway: the encoder holds WebGPU while the decode step runs on WebNN,
+    /// and ONNX Runtime Web rejects concurrent runs across sessions with
+    /// "Session already started".
+    let decodeRunsBesideEncoder = false
 
     private let host: JSObject
     private let configuration: Configuration
@@ -185,7 +190,7 @@ final class WasmEngine: Engine {
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
                        logits: Buffer, tok: inout [Int32], dur: inout [Int32],
-                       hOut: Buffer, cOut: Buffer,
+                       hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
         let outputs = try await run("decoder", isolation: isolation, [
             "embed": tensor(embed),
