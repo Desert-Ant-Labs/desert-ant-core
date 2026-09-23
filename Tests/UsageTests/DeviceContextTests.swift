@@ -478,6 +478,11 @@ struct BrowserVocabularyTests {
         #expect(!deviceContextDisabled())
         JSObject.global.__dalAppVersion = .object(throwing)
         #expect(hostProvidedAppVersion() == nil)
+        // An accessor property whose getter throws, as a request-scoped host may define.
+        _ = JSObject.global.Function.function!.new("""
+            Object.defineProperty(globalThis, "__dalAppVersion", { configurable: true, get() { throw new Error("no request") } })
+            """)()
+        #expect(hostProvidedAppVersion() == nil)
         // A number is not a flag: 1 does not opt out.
         JSObject.global.__dalUsageContextDisabled = .number(1)
         #expect(!deviceContextDisabled())
