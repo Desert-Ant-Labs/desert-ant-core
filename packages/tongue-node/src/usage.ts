@@ -270,16 +270,29 @@ const utf8Length = (value: string) => new TextEncoder().encode(value).length;
 /** Control and invisible formatting characters, which never belong in a value. */
 function isPrintable(code: number): boolean {
   if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return false;
+  // A lone surrogate serializes to an escape a strict JSON reader rejects.
+  if (code >= 0xd800 && code <= 0xdfff) return false;
+  if (code === 0xad || code === 0x180e || (code >= 0xfe00 && code <= 0xfe0f) || (code >= 0xe0000 && code <= 0xe007f)) return false;
   if ((code >= 0x200b && code <= 0x200f) || (code >= 0x2028 && code <= 0x202e)) return false;
   if ((code >= 0x2060 && code <= 0x206f) || code === 0xfeff || (code >= 0xfff9 && code <= 0xfffb)) return false;
   return true;
 }
 
-/** `raw` printable, trimmed, and cut to `MAX_CONTEXT_VALUE_BYTES` on a code point. */
+/** Grapheme clusters where the runtime can segment, code points where it cannot. */
+function characters(value: string): string[] {
+  const Segmenter = (Intl as { Segmenter?: new (l?: string, o?: { granularity: string }) => { segment(s: string): Iterable<{ segment: string }> } }).Segmenter;
+  if (typeof Segmenter !== "function") return [...value];
+  return Array.from(new Segmenter(undefined, { granularity: "grapheme" }).segment(value), (s) => s.segment);
+}
+
+/**
+ * `raw` printable, trimmed, and cut to `MAX_CONTEXT_VALUE_BYTES` without
+ * splitting a character, as core cuts it.
+ */
 export function printableValue(raw: string): string {
   let out = "";
   let bytes = 0;
-  for (const char of [...raw].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim()) {
+  for (const char of characters([...raw].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim())) {
     bytes += utf8Length(char);
     if (bytes > MAX_CONTEXT_VALUE_BYTES) break;
     out += char;
@@ -320,7 +333,9 @@ export function browserIdentity(
   userAgent: string,
 ): { name: string; version?: string } {
   if (brands.length > 0) {
-    const named = brands.filter((b) => !b.brand.includes("Brand") && b.brand !== "Chromium");
+    const named = brands
+      .map((b) => ({ brand: typeof b?.brand === "string" ? b.brand : "", version: typeof b?.version === "string" ? b.version : "" }))
+      .filter((b) => !b.brand.includes("Brand") && b.brand !== "Chromium");
     for (const [prefix, name] of [
       ["Microsoft Edge", "Edge"], ["Opera", "Opera"],
       ["Samsung Internet", "Samsung Internet"], ["Google Chrome", "Chrome"],
@@ -480,8 +495,9 @@ export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
 }
 
 /**
- * The one truthiness rule for a string opt-out flag, core's: set, and not "",
- * "0" or "false". A boolean `true` counts too, as it does in a page.
+ * The truthiness rule for the context opt-outs, core's: set, and not "", "0"
+ * or "false". A boolean `true` counts too, as it does in a page.
+ * `usageDisabled()` keeps its older rule, as core's does.
  */
 export function flagIsSet(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -515,20 +531,27 @@ export function deviceContextDisabled(): boolean {
 export function defaultContextProvider(
   platform: string,
   deviceIdSupplied: boolean,
+  facts: () => DeviceFacts = deviceFacts,
 ): () => Record<string, string> | undefined {
   const minimal = platform === "server" || deviceIdSupplied;
   return () => {
     if (deviceContextDisabled()) return undefined;
-    const facts = deviceFacts();
+    const host = facts();
+    let appVersion: string | undefined;
+    try {
+      appVersion = hostString("__dalAppVersion", "DAL_APP_VERSION");
+    } catch {
+      appVersion = undefined;
+    }
     const context: Record<string, string | undefined> = {
-      appVersion: hostString("__dalAppVersion", "DAL_APP_VERSION"),
-      osName: facts.osName,
+      appVersion,
+      osName: host.osName,
     };
     if (!minimal) {
-      context.browserName = facts.browserName;
-      context.browserVersion = facts.browserVersion;
-      context.formFactor = facts.formFactor;
-      context.locale = facts.locale;
+      context.browserName = host.browserName;
+      context.browserVersion = host.browserVersion;
+      context.formFactor = host.formFactor;
+      context.locale = host.locale;
     }
     return Object.fromEntries(
       Object.entries(context).filter((entry): entry is [string, string] => entry[1] !== undefined),
