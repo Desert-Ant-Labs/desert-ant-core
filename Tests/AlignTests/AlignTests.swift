@@ -369,8 +369,15 @@ import Speech
     }
 
     #if canImport(Speech)
+    // Nothing buffered is the "no context yet" fallback: it used to trap cropping an empty log-mel.
+    @Test func streamingWithNothingBufferedKeepsTheWords() async throws {
+        let streaming = StreamingRefiner(align: try await makeRefiner(), languageCode: "en")
+        let words = [WordTiming(text: "one", start: 0.3, end: 0.55)]
+        #expect(try await streaming.refine(words) == words)
+    }
+
     // Infinity means unbounded; Int() of it used to trap.
-    @Test func unboundedBufferKeepsEverySample() async throws {
+    @Test func infiniteBufferDoesNotTrap() async throws {
         let streaming = StreamingRefiner(align: try await makeRefiner(), languageCode: "en",
                                          maxBufferedSeconds: .infinity)
         try await streaming.appendAudio(synthAudio(16000, 16000))
