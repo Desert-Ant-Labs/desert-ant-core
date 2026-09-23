@@ -5,10 +5,11 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <linux/memfd.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/mman.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 static const char kPossible[] = "/sys/devices/system/cpu/possible";
@@ -29,7 +30,9 @@ static int cpu_range_fd(void) {
   char buf[32];
   int len = (n == 1) ? snprintf(buf, sizeof buf, "0\n")
                      : snprintf(buf, sizeof buf, "0-%ld\n", n - 1);
-  int fd = memfd_create("dal-cpu-range", MFD_CLOEXEC);
+  // The raw syscall rather than memfd_create(3): that wrapper arrived in glibc
+  // 2.27, and the release builds this on Amazon Linux 2 (2.26).
+  int fd = (int)syscall(SYS_memfd_create, "dal-cpu-range", MFD_CLOEXEC);
   if (fd < 0) return -1;
   if (write(fd, buf, len) != len || lseek(fd, 0, SEEK_SET) != 0) {
     close(fd);
