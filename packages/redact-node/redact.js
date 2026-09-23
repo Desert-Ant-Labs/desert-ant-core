@@ -1,8 +1,6 @@
-// Redact's public API, over whichever core the entry point bound: the browser's
-// WebAssembly + LiteRT.js core (browser.js) or the prebuilt native core
-// (node.js). Both expose the same ABI, and @desert-ant-labs/core turns either
-// one into the same `LoadedModel`, so the API is written once here instead of
-// once per runtime.
+// Redact's public API, written once over whichever core the entry point bound
+// (browser.js's WebAssembly core or node.js's native core); @desert-ant-labs/core
+// turns either into the same `LoadedModel`.
 import { decodeRedaction, encodeInput, encodeOptions } from "./codec.js";
 
 /** Every label the model can emit, including `ORG`. */
@@ -22,7 +20,7 @@ export const DEFAULT_LABELS = Object.freeze(ALL_LABELS.filter((l) => l !== "ORG"
 
 /**
  * Build the `Redact` class over a bound SDK (`createWasmSdk` /
- * `createNativeSdk`). The entry points do nothing but call this.
+ * `createNativeSdk`).
  */
 export function makeRedact(sdk) {
   /**

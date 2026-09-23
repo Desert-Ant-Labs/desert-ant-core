@@ -116,7 +116,7 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     },
     async run(handle, input, options, group, deviceId) {
       const payload = options ?? new Uint8Array();
-      // Per call rather than through the environment, which is no longer written
+      // Per call rather than through the environment, which is not written
       // once a native model has started (see bridgeHostIdentity). The
       // environment still wins, as it does in the bridge.
       const device = deviceId ?? (process.env.DAL_DEVICE_ID ? null : hostDeviceId());
@@ -154,10 +154,9 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     async open(options = {}) {
       bridgeHostIdentity();
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
-      // Only an explicit cacheRoot goes down. Apple and Linux resolve their own
-      // caches directory, so the default fabricated here was discarded by the
-      // core anyway; now that the core honours what it is given, sending one
-      // would relocate every existing cache.
+      // Only an explicit cacheRoot goes down: Apple and Linux resolve their own
+      // caches directory, and the core honours what it is given, so sending a
+      // default would relocate every existing cache.
       const handle = core.create(options.cacheRoot ?? null, options.directory ?? null);
       globalThis[NATIVE_STARTED] = true;
       return readyModel({ core, packageName, handle, onProgress });

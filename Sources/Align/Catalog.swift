@@ -1,16 +1,10 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behavior (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// Word-timestamp refinement for any transcript: Core ML on Apple, LiteRT elsewhere; no web, the cascade is two graphs.
 public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
-    /// Pinned tag, never a branch: a branch would swap weights under every installed copy.
     public static let revision = "v1.1.0"
-    /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.5.0"
     public static let summary = "Word-timestamp refinement for any transcript, on device."
 

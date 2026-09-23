@@ -1,8 +1,7 @@
 // Ear's FFI payload schemas: what a run takes and what it returns.
 //
-// These are the only model-specific part of talking to the core, and both cores
-// speak the same payloads - the native `dal_run` (node.js) and the WebAssembly
-// `run` (browser.js) - so they live here once instead of in each entry point.
+// Both cores (the native `dal_run` and the WebAssembly `run`) speak the same
+// payloads, so they live here once.
 // Mirrors the reader/writer in Sources/Ear/Binding.swift.
 import { FfiWriter } from "@desert-ant-labs/core";
 
@@ -30,8 +29,7 @@ export function encodeOptions({ windows } = {}) {
  *  most-likely first, then `f64 windows` and `f64 reliable`.
  *
  *  Takes the reader the core hands back, not raw bytes: both cores return one
- *  already positioned, and constructing a second over the same buffer is how
- *  this first went wrong. */
+ *  already positioned, and a second reader over the same buffer would misread it. */
 export function decodeResult(r) {
   const count = r.u32();
   const candidates = [];
@@ -39,9 +37,8 @@ export function decodeResult(r) {
     candidates.push({ language: r.str(), probability: r.f64() });
   }
   const windows = r.f64();
-  // `reliable` is decided in Swift rather than recomputed here: the rule is
-  // measured, not obvious, and three hosts reimplementing it is three chances
-  // to get it wrong.
+  // `reliable` is decided in Swift rather than recomputed here; see
+  // Sources/Ear/Binding.swift.
   const isReliable = r.f64() === 1;
   const top = candidates[0];
   return {

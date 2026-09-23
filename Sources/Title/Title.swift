@@ -3,12 +3,11 @@ import Foundation
 import Transcript
 
 // Everything MLX-backed is behind `#if MLX`, the compilation condition SwiftPM defines for the
-// `MLX` package trait (see Package.swift). Without the trait this module still compiles —
-// `Card`, the prompt, and `parse` are portable and tested everywhere — but generation is
-// absent: `Titles` has no public initializer, so a consumer that forgot the trait fails at
-// compile time instead of mis-building.
+// `MLX` package trait (see Package.swift). Without the trait this module still compiles
+// (`Card`, the prompt, and `parse` are portable and tested everywhere) but `Titles` has no
+// public initializer, so a consumer that forgot the trait fails at compile time.
 #if MLX
-// `HuggingFace` and `Tokenizers` are imported for the MACRO, not for this file's own code:
+// `HuggingFace` and `Tokenizers` are imported for the macro, not for this file's own code:
 // `#huggingFaceLoadModelContainer` expands into references to `HubClient` and `Tokenizers`.
 // Removing them as "unused" breaks the build inside a macro expansion, where the error names
 // symbols that appear nowhere in this source.
@@ -22,11 +21,9 @@ import Tokenizers
 
 /// A title and a description for a passage of text.
 ///
-/// Owned by `Title`, deliberately, and NOT a field on ``Transcript/Clip``. Selection and card
-/// writing are separate stages on separate silicon, and a `card` property hanging off every
-/// `Clip` would be permanently nil for the many consumers that never call this module — the
-/// same reasoning that keeps `Title` a separate product. Pair them with ``Titles/cards(for:)``
-/// when you want both.
+/// Not a field on ``Transcript/Clip``: selection and card writing are separate stages on
+/// separate silicon, and a `card` property would be permanently nil for consumers that never
+/// call this module. Pair them with ``Titles/cards(for:)`` when you want both.
 public struct Card: Sendable, Codable, Equatable {
     public let title: String
     public let description: String
@@ -36,7 +33,7 @@ public struct Card: Sendable, Codable, Equatable {
         self.description = description
     }
 
-    /// True when the model returned neither a title nor a description. Parsing is deliberately
+    /// True when the model returned neither a title nor a description. Parsing is
     /// tolerant (see ``Titles/parse(_:)``), so an empty card is the only failure signal a
     /// caller gets, and it should be treated as "no card" rather than as an error.
     public var isEmpty: Bool { title.isEmpty && description.isEmpty }
@@ -45,11 +42,10 @@ public struct Card: Sendable, Codable, Equatable {
 /// Writes titles and descriptions on device.
 ///
 /// **Not clip-specific.** The model was fine-tuned on transcript clips, but the task it learned
-/// is general. Measured Aug 2026 on the 6-bit Granite against a transcript clip, a news
-/// paragraph, a product description and an internal email: all four produced accurate,
-/// specific, correctly-registered cards. One slip in four — an email saying "moving the review
-/// from Tuesday to Thursday" was described as running "from Tuesday to Thursday" — so treat it
-/// as capable on general prose, not infallible on it.
+/// is general: a transcript clip, a news paragraph, a product description and an internal email
+/// all produced accurate, specific cards on the 6-bit Granite. One slip in four (an email
+/// "moving the review from Tuesday to Thursday" was described as running "from Tuesday to
+/// Thursday"), so treat it as capable on general prose, not infallible on it.
 ///
 /// Loading is expensive and generation is cheap: build one and reuse it. An `actor` because MLX
 /// state is not safe to drive from several tasks at once.
@@ -62,21 +58,11 @@ public actor Titles {
     ///
     /// The single definition is `title-training/python/student_prompt.py`, which `train.py`
     /// imports to build every training example and which `tests/test_prompt_parity.py` compares
-    /// against THIS string. If they drift, that test fails.
+    /// against this string. If they drift, that test fails.
     ///
-    /// **The previous version of this property was a different string from the one training
-    /// used**, and the divergence was invisible from either side. Training used a short
-    /// instruction; this sent a long RULES block whose docstring sourced it to a
-    /// `gen_factual_batch.py` that does not exist. So the shipped model was served an unseen
-    /// prompt on every call, and the rule this block spent four lines on —
-    /// `NEVER begin with "The video", "This clip", "The speaker"` — had never appeared in a
-    /// training example and could not have been learned. The model went on producing those
-    /// openers at roughly the rate its TARGETS contained them, which is where the fix belongs.
+    /// It says "passage" rather than "video clip" because the model is not clip-specific.
     ///
-    /// It says "passage" rather than "video clip" because the model is not clip-specific and
-    /// the old wording made every non-video caller send instructions about a video.
-    ///
-    /// No RULES block. Rules shape the TEACHER's output and therefore the targets; a student
+    /// No rules block. Rules shape the teacher's output and therefore the targets; a student
     /// that has learned the mapping does not need them recited, and reciting them costs prompt
     /// tokens on every call. The teacher's prompt lives in `title-training/python/gen_cards.py`.
     static let prompt = """
@@ -93,7 +79,7 @@ public actor Titles {
     private let maxTokens: Int
 
     /// GPU gate. iOS revokes GPU submission rights when an app is backgrounded, and MLX
-    /// surfaces that as an uncatchable C++ `runtime_error` from a Metal completion handler —
+    /// surfaces that as an uncatchable C++ `runtime_error` from a Metal completion handler:
     /// a crash, not an error a caller can handle. `suspend()` before entering the background
     /// and `resume()` on return. See the note on ``suspend()`` for why this cancels rather
     /// than pauses.
@@ -106,7 +92,7 @@ public actor Titles {
     /// Cancels the in-flight generation rather than pausing it: the token stream's producer
     /// decodes at full speed independent of its consumer (the `AsyncStream` is unbounded), so
     /// gating on the consumer side would not stop the GPU. Cancellation propagates through
-    /// the stream's `onTermination` into the decode loop, which checks it on every token —
+    /// the stream's `onTermination` into the decode loop, which checks it on every token, so
     /// GPU work stops within about one token. The interrupted call does not fail: it retries
     /// from scratch after ``resume()``, which is cheap because generation is bounded at
     /// `maxTokens` and prompt processing is a fraction of decode.
@@ -132,7 +118,7 @@ public actor Titles {
     }
 
     /// - Parameters:
-    ///   - directory: an MLX model folder — the files ``TitleModel/files`` declares. Nothing is
+    ///   - directory: an MLX model folder with the files ``TitleModel/files`` declares. Nothing is
     ///     bundled with this package and nothing is downloaded here; point this at a folder you
     ///     populated.
     ///   - maxTokens: two short lines. The cap stops a degenerate run decoding forever, which
@@ -190,7 +176,7 @@ public actor Titles {
                 }
             } catch is CancellationError {
                 // Suspension cancelled it: wait out the background stint and retry.
-                // Anything else means the CALLER was cancelled — honor that.
+                // Anything else means the caller was cancelled.
                 guard suspended else { throw CancellationError() }
             }
         }
@@ -200,9 +186,8 @@ public actor Titles {
         try await model.perform { context in
             let input = try await context.processor.prepare(
                 input: UserInput(messages: [["role": "user", "content": prompt]]))
-            // The AsyncStream `generate` — the callback variants are deprecated. The token cap
-            // moved into `GenerateParameters.maxTokens`, which stops the iterator itself; the
-            // old visitor returned `.stop` at the same count.
+            // The AsyncStream `generate`: the callback variants are deprecated.
+            // `GenerateParameters.maxTokens` stops the iterator itself.
             var text = ""
             let stream = try MLXLMCommon.generate(
                 input: input,
@@ -228,7 +213,7 @@ public actor Titles {
     ///
     /// Tolerant by design: a card model that drifts off format should degrade to a usable title
     /// rather than throw, because the clip itself is still good and selection is what ships.
-    /// `DESC` and `DESCRIPTION` are both accepted — the training data uses `DESC`, but
+    /// `DESC` and `DESCRIPTION` are both accepted: the training data uses `DESC`, but
     /// base-model habits leak the longer spelling through.
     static func parse(_ raw: String) -> Card {
         var title = "", description = ""

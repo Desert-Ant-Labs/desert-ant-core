@@ -5,7 +5,7 @@
 #USAGE flag "--dry-run" help="Print what would change and upload nothing"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# Renders against what the Hub serves RIGHT NOW. The Hub is where a card is
+# Renders against what the Hub serves right now. The Hub is where a card is
 # written, so a sync reads the live card, replaces the identity block inside its
 # markers, and leaves the documentation below it untouched.
 #
@@ -84,10 +84,9 @@ const unmarked = [];
 let changed = 0;
 let skipped = 0;
 
-//: A sync writes the identity block. It can never be the reason a card loses its
-//: documentation, and on 2026-08-21 and 2026-08-24 it was exactly that, on every
-//: card at once, printing a byte count nobody read. `renderCard` now refuses an
-//: unmarked card, so this is the second lock rather than the first.
+//: A sync writes the identity block and must never be the reason a card loses
+//: its documentation. `renderCard` refuses an unmarked card; this floor is the
+//: second lock.
 const SHRINK_FLOOR = 0.7;
 
 for (const model of models) {

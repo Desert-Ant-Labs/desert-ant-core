@@ -39,7 +39,7 @@ public struct RollupOptions: Sendable {
 }
 
 /// Aggregate a channel's per-post topic scores into a ranked list of channel-level
-/// topics. Pure and deterministic — no model. Probability-weighted with optional
+/// topics. Pure and deterministic, no model. Probability-weighted with optional
 /// recency decay; a share floor and a minimum post count keep one-off posts from
 /// characterizing a channel.
 public func channelTopics(_ posts: [PostTopics], options: RollupOptions = .init()) -> [ChannelTopic] {

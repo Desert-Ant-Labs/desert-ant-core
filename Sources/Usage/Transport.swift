@@ -21,7 +21,7 @@ private let sendTimeoutSeconds = 5.0
 /// on wasm, where a browser's unload flush is a `sendBeacon` and cannot carry a
 /// header; one wasm binary is the same code for a page and for a Node process, so
 /// it keeps one answer for both rather than branching on the host. Those two keep
-/// the key in the body, as every build did before.
+/// the key in the body.
 private var keyRidesInHeader: Bool {
     if !httpSupportsRequestHeaders { return false }
     #if os(WASI)
@@ -34,8 +34,8 @@ private var keyRidesInHeader: Bool {
 /// A `send` transport that POSTs the serialized body to `endpoint`.
 ///
 /// The HTTP client is async, so every flush is dispatched fire-and-forget on a
-/// detached task. (The `beacon` flag is retained for API parity; there is no
-/// separate unload-safe path now that the client is fully async.)
+/// detached task. `beacon` only changes the path on wasm, where it uses
+/// `navigator.sendBeacon`.
 ///
 /// Sends nothing while `usageDisabled()` is on, read per send: the last guard
 /// behind the client's own (`ClientDeps.disabled`), for a host that pairs this
@@ -110,7 +110,7 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 /// Build a client wired to the shared endpoint, the system clock, a POST
 /// transport, and platform-native storage. Everything is derived and persisted
 /// internally: attribution is the app's platform identity (bundle id on Apple,
-/// package name on Android, hostname on web — see `defaultAppIdentifier`), sent
+/// package name on Android, hostname on web; see `defaultAppIdentifier`), sent
 /// as `app.id`; the device id + re-emit state live in the platform store.
 ///
 /// - Parameters:

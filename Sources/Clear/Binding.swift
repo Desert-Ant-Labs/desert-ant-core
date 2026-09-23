@@ -1,14 +1,6 @@
-// Clear's side of the cross-language binding: construction, plus the two payload
-// schemas that are genuinely model-specific (the options a run takes, and what a
-// result looks like). The generic handle lifecycle and the exported symbols live
-// in NativeBindings and ClearNative, so this file is only the model's adapter.
-
 import DesertAnt
 
 extension Clear: BoundModel {
-    // `isDownloaded()` and `download(progress:)` are Clear's own public API and
-    // witness the protocol as they stand.
-
     /// Input payload: `f32Array` (the first channel), then `f64 sampleRate`,
     /// then optionally `u32 extraChannelCount` and that many more `f32Array`s.
     /// A mono host sends the first two fields and nothing else.
@@ -16,13 +8,11 @@ extension Clear: BoundModel {
     /// Options payload: `f64 strength` (0...1), then the mastering chain as
     /// `f64 integratedLUFS` (NaN bypasses mastering), `f64 truePeakDBTP`,
     /// `f64 maxLoudnessGainDB`, then optionally `f64 outputSampleRate`,
-    /// `f64 monoDownmix` (1 downmixes, 0 preserves the layout; absent means 1,
-    /// which is what every release so far did) and `f64 balanceChannelsLUFS`
-    /// (NaN for none).
+    /// `f64 monoDownmix` (1 downmixes, 0 preserves the layout; absent means 1)
+    /// and `f64 balanceChannelsLUFS` (NaN for none).
     /// An empty payload means the SDK defaults (full strength, Apple Podcasts).
-    /// A host that wants a preset sends that preset's numbers - the presets
-    /// themselves are Swift-side, so no id crosses the boundary and adding one
-    /// breaks no host.
+    /// A host that wants a preset sends that preset's numbers: presets are
+    /// Swift-side, so no id crosses the boundary and adding one breaks no host.
     ///
     /// Result payload: `f32Array` (the first channel), then `f64 sampleRate`,
     /// `f64 durationSec`, `f64 processingSec`, `f64 measuredLUFS` (NaN when
@@ -30,8 +20,8 @@ extension Clear: BoundModel {
     /// `u32 extraChannelCount` and that many more `f32Array`s.
     ///
     /// Every group is appended, never reordered, so a host built against an
-    /// earlier schema keeps reading the prefix it knows - and since such a host
-    /// cannot send extra channels, the mono result it reads is the whole one.
+    /// earlier schema keeps reading the prefix it knows. Such a host cannot send
+    /// extra channels, so the mono result it reads is the whole one.
     public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
         var input = input
         var options = options

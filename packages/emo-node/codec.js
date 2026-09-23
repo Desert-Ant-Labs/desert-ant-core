@@ -1,8 +1,7 @@
 // Emo's FFI payload schemas: the options a run takes and the result it returns.
 //
-// These are the only model-specific part of talking to the core, and both cores
-// speak the same payloads - the native `dal_run` (node.js) and the WebAssembly
-// `run` (browser.js) - so they live here once instead of in each entry point.
+// Both cores (the native `dal_run` and the WebAssembly `run`) speak the same
+// payloads, so they live here once.
 // Mirrors the reader/writer in Sources/Emo/Binding.swift.
 import { FfiWriter } from "@desert-ant-labs/core";
 

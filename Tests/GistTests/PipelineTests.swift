@@ -10,14 +10,14 @@ import TestSupport
 #if !os(WASI)
 
 /// The semantic (embedding pool) and lexical (hashed n-gram) streams must match
-/// the Python/gist-js reference exactly — they are the head's input. (The head
+/// the Python/gist-js reference exactly - they are the head's input. (The head
 /// itself is validated separately: the LiteRT .tflite is bit-identical to ONNX.)
 @Suite(.modelBacked)
 struct PipelineTests {
     struct Case: Decodable { let text: String; let emb: [Float]; let ngram_nz: [String: Float] }
 
     // The tokenizer and the 67 MB embedding table come from the Hub rather than
-    // from committed fixtures — the same files a user gets, and the reason this
+    // from committed fixtures - the same files a user gets, and the reason this
     // suite is model-backed. Only the 53 KB oracle is a test resource. Resolved
     // through `GistFixture` so the whole target verifies those files once.
     @Test func semanticAndLexicalStreams() async throws {

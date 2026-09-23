@@ -36,8 +36,8 @@ struct TongueUsage {
     }
 
     /// `detect` is synchronous, so it records from a task of its own, and a
-    /// flush started right after it used to run before that task: almost every
-    /// pass returned having sent nothing. Many fresh turnstiles, because a
+    /// flush started right after it must still wait for that task, or the pass
+    /// returns having sent nothing. Many fresh turnstiles, because a
     /// single one can win the race by luck.
     @Test func aFlushRightAfterABackgroundRecordStillSendsIt() async {
         var missed = 0

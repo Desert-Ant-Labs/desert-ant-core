@@ -1,9 +1,8 @@
 import DesertAnt
 
 /// Runs the two-stream pipeline: tokenize -> semantic pool + hashed n-grams ->
-/// concat -> the MLP head through the shared `InferenceSession` (LiteRT / Core ML
-/// / JS host) -> per-topic probabilities. The head is the only part that touches
-/// the model artifact; everything else is pure Swift.
+/// concat -> the MLP head -> per-topic probabilities. Only the head is in the
+/// model artifact.
 final class Model: @unchecked Sendable {
     let slugs: [String]
     let names: [String: String]

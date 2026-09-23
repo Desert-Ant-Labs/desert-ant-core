@@ -1,9 +1,9 @@
 // Usage call-group tests for the native (server-side) Node core. They show the
 // two ways usage attributes to billed calls:
 //
-//   1. Default  — each suggestions() is its own billed call.
-//   2. Grouped  — emo.withCallGroup(async (group) => { ...({ group }) }) bills
-//                 every suggestion inside as a single call.
+//   1. Default: each suggestions() is its own billed call.
+//   2. Grouped: emo.withCallGroup(async (group) => { ...({ group }) }) bills
+//      every suggestion inside as a single call.
 //
 // The usage transport POSTs a `load` body fire-and-forget on a short debounce.
 // We redirect it to a local capture server (DAL_INGEST_ENDPOINT) and read back

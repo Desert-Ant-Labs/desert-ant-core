@@ -52,9 +52,9 @@ public struct FlushHook: Sendable {
 /// In-flight telemetry sends, registered synchronously by the transport before
 /// its `send` returns.
 ///
-/// Not the actor: registering through it needed an `await`, so the transport did
-/// it from a separate unstructured task, and a flush could drain the list before
-/// that task had run and return without waiting for the send it had just started.
+/// Not the actor: registering through it needs an `await`, so the transport
+/// would do it from a separate task, and a flush could drain the list before
+/// that task ran and return without waiting for the send it had just started.
 /// A hook's flush calls `send` synchronously, so a send registered here is always
 /// visible to the flush that caused it.
 final class InflightSends: @unchecked Sendable {
@@ -183,8 +183,8 @@ public actor TelemetryDebug {
     /// returns without waiting for, which is the exit-before-it-lands failure this
     /// exists to prevent.
     ///
-    /// The transport no longer calls this (it registers synchronously, see
-    /// `InflightSends`); it stays for callers of the public API.
+    /// The transport registers synchronously instead (see `InflightSends`);
+    /// this is for callers of the public API.
     @discardableResult
     public func trackSend(_ task: Task<Void, Never>) -> Int {
         sends.add(task)

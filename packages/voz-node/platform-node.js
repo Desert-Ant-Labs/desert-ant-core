@@ -1,14 +1,12 @@
-// Node half of the platform seam for the universal entry (browser.js) when it
-// runs server-side: the Client-Component SSR pass a framework renders in Node,
-// and a server that transcribes with a Node runtime. Bundlers resolve this file
-// only through the non-browser ("default") condition of `#platform`, so the
-// browser bundle never sees `node:*`.
+// Node half of the `#platform` seam, for browser.js running server-side (an SSR
+// pass, or a server that transcribes). Resolved only through the non-browser
+// condition, so the browser bundle never sees `node:*`.
 //
-// Voz has no native core: unlike Clear or Emo there is no `dal_*` C ABI for it
-// (see the Voz comment in Package.swift), so Node runs the same WebAssembly
-// core the browser does. What differs is the runtime underneath it - a Node
-// caller passes `onnxruntime-node`, which exposes the same InferenceSession and
-// Tensor API - and where the bundle is cached.
+// Voz has no native core (no `dal_*` C ABI; see the Voz comment in
+// Package.swift), so Node runs the same WebAssembly core the browser does. What
+// differs is the runtime underneath it (a Node caller passes `onnxruntime-node`,
+// which exposes the same InferenceSession and Tensor API) and where the bundle
+// is cached.
 import { installAudioHost } from "@desert-ant-labs/core/audio/node";
 
 export async function setupCore() {

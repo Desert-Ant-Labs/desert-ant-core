@@ -5,11 +5,10 @@ import JavaScriptKit
 
 // The `@JS` surface: load once, then transcribe a Float32Array. Everything else
 // a browser needs (fetching the bundle, compiling the models, choosing an
-// execution provider) is the JS host's business and it is better at it.
+// execution provider) is the JS host's business.
 //
 // Its own file rather than `main.swift`, because BridgeJS does not scan the
-// executable's main file and an `@JS` declaration there generates nothing:
-// `Exports` comes out empty and the package sees no entry points.
+// executable's main file: an `@JS` declaration there generates nothing.
 
 
 /// What this module's model is, for the JS package that wraps it.
@@ -116,14 +115,14 @@ nonisolated(unsafe) private var voz: Voz?
 /// `pull(count)` returns a promise of up to `count` more mono 16 kHz samples as
 /// a `Float32Array`, or of an empty one when the audio is finished. A promise
 /// because reading a slice of a file is asynchronous everywhere it matters: the
-/// point of this entry point is that the host has NOT read the file yet.
+/// point of this entry point is that the host has not read the file yet.
 ///
 /// It is called when the pipeline needs audio, and the pipeline frees what is
 /// behind the window it is working on, so what stays resident is a window and a
 /// chunk rather than the recording.
 ///
-/// The whole-array entry point below still exists, because samples a caller
-/// already has in hand should not have to be handed back a slice at a time.
+/// The whole-array entry point below is for samples a caller already has in
+/// hand.
 @JS public func transcribeStream(
     seconds: Double, totalSamples: Int,
     pull: @escaping (Int) -> JSObject?,

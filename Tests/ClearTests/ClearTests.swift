@@ -141,8 +141,8 @@ struct ClearTests {
         #expect(empty.channelCount == 0)
     }
 
-    /// The new options have to default to exactly the old behaviour, or every
-    /// existing caller silently changes.
+    /// The channel options default to the mono path, or every existing caller
+    /// silently changes.
     @Test func channelOptionsDefaultToTheMonoPath() {
         #expect(Clear.Options.default.channelMode == .mono)
         #expect(Clear.Options.default.sampleRate == 48_000)
@@ -291,7 +291,7 @@ struct ClearTests {
     }
 
     /// The default collapses a pair before inference, so the result is one
-    /// channel and one inference pass - what every release so far did.
+    /// channel and one inference pass.
     @Test func defaultCollapsesThePairBeforeInference() async throws {
         let clear = try await enhancer()
         let left = noisyTone()
@@ -440,8 +440,8 @@ struct ClearTests {
         let clear = try await enhancer()
         let x = noisyTone()
         // The first enhance pays the Core ML compile and a cold session, which
-        // lands in whichever measurement runs first - on CI that made mono look
-        // slower than stereo and failed this backwards.
+        // lands in whichever measurement runs first and can make mono look
+        // slower than stereo.
         _ = try await clear.enhance(channels: [x], sampleRate: 48_000)
 
         // Single wall-clock samples are noisy on shared CI runners - one
@@ -681,8 +681,8 @@ struct ClearTests {
         #expect(rate == 24_000)
     }
 
-    /// A host built before the channel and rate fields sends the old, shorter
-    /// payloads. Those must still run, as mono at 48 kHz.
+    /// A host built against the schema without the channel and rate fields sends
+    /// shorter payloads. Those must still run, as mono at 48 kHz.
     @Test func theOlderSchemaStillRuns() async throws {
         let clear = try await enhancer()
         let x = Array(noisyTone().prefix(48_000))

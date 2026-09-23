@@ -82,9 +82,8 @@ jobs:
         run: |
           # These three are already on the ubuntu-22.04 runner image, so the
           # common path installs nothing and never touches the network. That
-          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
-          # job's 6 h timeout rather than failing - one hung runner blocked two
-          # PRs at once. Bound each attempt and retry, so a bad mirror costs
+          # matters: apt can wedge on a bad mirror, sitting on `update` until the
+          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
@@ -175,15 +174,14 @@ jobs:
           - { target: linux-x64, runner: ubuntu-24.04, image: "swift:6.3.3-amazonlinux2" }
           - { target: linux-arm64, runner: ubuntu-24.04-arm, image: "swift:6.3.3-amazonlinux2" }
           # CI's `darwin-native` job uses the same runner, so the toolchain that
-          # ships is the one CI proves. macos-14 is no longer usable because its
-          # Swift 5.10 predates the package's 6.2 requirement.
+          # ships is the one CI proves. macos-14's Swift 5.10 predates the
+          # package's 6.2 requirement.
           #
           # The runner does not set the Apple floor either way: that comes from the
           # Core ML models, built for macOS 15 / iOS 18. macOS 14 refuses to load
           # them ("compiler major version for compiled model is 9.0.0 and is more
           # recent than this framework major version 8.0.0"), macOS 15 and 26 both
-          # accept them. There is no `platforms` clause in Package.swift, so
-          # nothing enforces this at resolve time; the README states it.
+          # accept them.
           - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     steps:

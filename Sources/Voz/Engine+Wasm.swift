@@ -14,15 +14,9 @@ import JavaScriptKit
 /// Not the shared `dalModelHost` contract from `Sources/JSHost`, which carries
 /// one compiled session per module: Voz runs three models and would need a
 /// session name on every call, and adding one to the shared contract would
-/// change the generated `Imports` for every other model's core. A separate
-/// object costs nothing and breaks nothing.
+/// change the generated `Imports` for every other model's core.
 ///
-/// What the shapes cost is the thing to keep in mind here. Core ML is handed
-/// pointers; this copies. So the decode step takes an `enc_step` the host has
-/// already gathered (16 lanes x 640 x 8 floats, 327 KB) rather than the whole
-/// projection buffer, and returns two argmaxes rather than 8198 logits per
-/// frame. That is the same division of labour `Pipeline` already had, which is
-/// why it ports without changing.
+/// Every tensor is copied across the boundary, so shapes matter; see `Engine`.
 final class WasmEngine: Engine {
     let decodeLanes: Int
     /// Windows encoded per dispatch. One by default: the graph is a fixed size,
@@ -108,9 +102,8 @@ final class WasmEngine: Engine {
     /// A JS value that has crossed a continuation.
     ///
     /// WebAssembly here is single threaded and every one of these stays on the
-    /// one JavaScript thread that made it, so the concurrency checker's concern
-    /// - that a non-Sendable value moves between isolation domains - cannot
-    /// arise. Saying so explicitly is cheaper than making `JSValue` Sendable.
+    /// JavaScript thread that made it, so a non-Sendable value never actually
+    /// moves between isolation domains.
     private struct Crossing: @unchecked Sendable {
         let value: JSValue
     }

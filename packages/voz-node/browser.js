@@ -4,10 +4,9 @@
 // server-side in Node on the same core.
 //
 // The public API is `voz.js`; `#platform` is the only thing that differs
-// between the two, and bundlers resolve it at build time by condition (browser
-// -> platform-browser.js, otherwise platform-node.js), so this file never
-// references `node:*` and one import builds cleanly for every target of a
-// multi-target bundler.
+// between the two, and bundlers resolve it by condition (browser ->
+// platform-browser.js, otherwise platform-node.js), so this file never
+// references `node:*`.
 //
 // Nothing instantiates at import time, unlike the LiteRT models' entries: this
 // core is a large module and its weights are 1.19 GB resident, so a page that

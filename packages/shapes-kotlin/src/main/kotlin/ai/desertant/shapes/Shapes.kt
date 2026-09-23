@@ -36,10 +36,6 @@ class ShapesException(message: String) : Exception(message)
  * shapes.close()
  * ```
  *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Shapes' API and
- * its payload schemas.
- *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),
  *   otherwise the model is downloaded into it. Omit to use the app cache.

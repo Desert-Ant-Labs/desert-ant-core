@@ -94,11 +94,11 @@ struct VozStress {
             let result = try await voz.transcribe(file)
             check(result, label: file.lastPathComponent, duration: duration)
 
-            // Four numbers, not one. The old single `gap` folded the lead-in
-            // together with the holes and never looked past the last word, which
-            // hid both a legitimate music intro (reported as an 11.9 s hole) and
-            // a French recording that stopped after 70 s of 547 and reported the
-            // rest as silence. Every one of its other numbers looked healthy.
+            // Four numbers, not one. A single `gap` would fold the lead-in
+            // together with the holes and never look past the last word, hiding
+            // both a legitimate music intro (reported as an 11.9 s hole) and a
+            // recording that stops after 70 s of 547 and reports the rest as
+            // silence.
             let lead = result.words.first?.start ?? duration
             let trail = duration - (result.words.last?.end ?? 0)
             let covered = duration > 0 ? (result.words.last?.end ?? 0) / duration : 0
@@ -158,9 +158,9 @@ struct VozStress {
 
             // Speech runs at a few words a second, so anything under one word
             // per two seconds means audio went missing rather than that the
-            // speaker was terse. Without this, a bug that dropped everything
-            // past the first batch of windows halved a half-hour transcript and
-            // the suite stayed green, because what remained read perfectly.
+            // speaker was terse. Without this, a transcript missing everything
+            // past the first batch of windows would pass, because what remains
+            // reads perfectly.
             if !result.words.isEmpty {
                 #expect(Double(result.words.count) / duration > 0.5,
                         "\(file.lastPathComponent): \(result.words.count) words in \(duration) s is too few to be the whole file")

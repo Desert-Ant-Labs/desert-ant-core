@@ -1,9 +1,8 @@
 // Clear's FFI payload schemas: the options a run takes and the result it
 // returns.
 //
-// These are the only model-specific part of talking to the core, and both cores
-// speak the same payloads - the native `dal_run` (node.js) and the WebAssembly
-// `run` (browser.js) - so they live here once instead of in each entry point.
+// Both cores (the native `dal_run` and the WebAssembly `run`) speak the same
+// payloads, so they live here once.
 // Mirrors the reader/writer in Sources/Clear/Binding.swift.
 import { FfiWriter } from "@desert-ant-labs/core";
 
@@ -65,8 +64,8 @@ export function decodeResult(r) {
   const durationSec = r.f64();
   const processingSec = r.f64();
   const measuredLUFS = r.f64();
-  // Appended after the first release: a core built before it leaves nothing to
-  // read, and the field reads as absent rather than as a decode failure.
+  // Appended to the schema later: an older core leaves nothing to read, and the
+  // field reads as absent rather than as a decode failure.
   const measuredTruePeakDBFS = r.remaining >= 8 ? r.f64() : NaN;
   const channels = [first];
   if (r.remaining >= 4) {

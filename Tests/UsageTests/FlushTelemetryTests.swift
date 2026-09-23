@@ -42,10 +42,9 @@ private actor Gate {
 }
 
 struct FlushTelemetryTests {
-    /// The handshake the flush rests on. The old transport registered its send
-    /// from a separate task and the flush yielded a few times hoping that task
-    /// had run, so the send was invisible for an unbounded moment after `send`
-    /// returned. Checked synchronously, with the work held open, so nothing can
+    /// The handshake the flush rests on: a send registered from a separate task
+    /// would be invisible for an unbounded moment after `send` returned.
+    /// Checked synchronously, with the work held open, so nothing can
     /// have run in between: only a registration made before return passes.
     @Test func aSendIsRegisteredBeforeDispatchReturns() async {
         let registry = InflightSends()
@@ -91,8 +90,7 @@ struct FlushTelemetryTests {
         #expect(await done.isSet, "flushAndWait returned before the send it started finished")
     }
 
-    /// The same handshake through the real transport, which is where the old
-    /// code registered from a separate task. It counts registrations rather than
+    /// The same handshake through the real transport. It counts registrations rather than
     /// live sends, so a send that has already failed and left the registry still
     /// counts: a threaded host with no silent listener (Windows, Android) points
     /// at a closed port, where the send fails at once. Where the listener exists
@@ -126,13 +124,13 @@ struct FlushTelemetryTests {
         #endif
     }
 
-    /// A registration that prunes while a pass runs used to shrink the list under
-    /// the pass, whose merge (`live + dropFirst(marked)`) then dropped the hook
-    /// that had just registered: that session's usage was never forced out again.
+    /// A registration that prunes while a pass runs must not shrink the list under
+    /// the pass, whose merge (`live + dropFirst(marked)`) would then drop the hook
+    /// that had just registered, so that session's usage is never forced out again.
 
     /// A pass over many hooks must not nest a stack frame per hook. wasm has no
     /// guaranteed tail calls, so a sequential `await` per hook on its
-    /// single-threaded executor grew the stack until it overflowed (the JS stack,
+    /// single-threaded executor grows the stack until it overflows (the JS stack,
     /// or the shadow stack into the heap) at a few hundred hooks. The registration
     /// loop yields for the same reason, so only the pass is under test.
     @Test func aPassOverAThousandHooksCompletes() async {

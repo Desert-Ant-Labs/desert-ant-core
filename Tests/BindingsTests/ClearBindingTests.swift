@@ -17,7 +17,7 @@ import Shapes
 struct ClearBindingTests {
     /// The enhancer, or nil where no runtime can load the artifact. Swift
     /// Testing has no runtime skip, so a host without a runtime returns early
-    /// from the test rather than failing (the XCTest version threw `XCTSkip`).
+    /// from the test rather than failing.
     private func enhancer() async throws -> Clear? {
         let files = try await ModelFixture.files(ClearModel.self)
         return try? Clear(modelPath: files.path(ClearModel.artifact))

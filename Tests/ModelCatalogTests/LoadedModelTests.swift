@@ -1,6 +1,5 @@
 // The shell every model SDK is built on. The download path needs the Hub, so
-// what is pinned here is the behaviour an SDK used to hand-write and could get
-// wrong: laziness, single-flight loading, progress, retry after failure, and
+// what is pinned here is the behaviour an SDK could get wrong: laziness, single-flight loading, progress, retry after failure, and
 // offline availability.
 import Testing
 import DesertAnt

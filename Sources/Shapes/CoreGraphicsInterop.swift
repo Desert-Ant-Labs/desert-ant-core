@@ -1,10 +1,6 @@
 #if canImport(CoreGraphics)
 import CoreGraphics
 
-// Apple-only ergonomics: convert between the portable `Point` and `CGPoint`,
-// render a fitted `Shape` to a `CGPath`, and accept `CGPoint` strokes directly.
-// CoreGraphics exists only on Apple platforms, so this whole file is gated and
-// never affects the Android/wasm builds.
 
 public extension Point {
     /// Create a point from a `CGPoint`.

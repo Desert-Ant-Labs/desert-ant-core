@@ -4,8 +4,7 @@ import RealModule
 ///
 /// Each fitter takes the raw stroke points and returns clean vector geometry
 /// plus a normalized fit residual (RMS point-to-shape distance / bbox diagonal),
-/// which the recognizer's gates use to verify the neural-net's proposal. Math
-/// is the portable ``V2`` type (no `simd`), so it runs identically everywhere.
+/// which the recognizer's gates use to verify the neural-net's proposal.
 enum Fitter {
     static func fit(_ shape: ShapeKind, points: [Point], snap config: SnapConfig)
         -> (Shape, Double) {
@@ -80,7 +79,7 @@ enum Fitter {
     private static func cgp(_ v: V2) -> Point { Point(x: v.x, y: v.y) }
     private static func centroid(_ p: [V2]) -> V2 { p.reduce(V2(0, 0), +) / Double(p.count) }
 
-    // MARK: Line — PCA principal axis
+    // MARK: Line (PCA principal axis)
 
     private static func fitLine(_ pts: [V2]) -> (Shape, Double) {
         let c = centroid(pts)
@@ -99,13 +98,12 @@ enum Fitter {
         return (.line(from: cgp(a), to: cgp(b)), residual(pts, [a, b], closed: false))
     }
 
-    // MARK: Rectangle — minimum-area oriented box
+    // MARK: Rectangle (minimum-area oriented box)
 
     private static func fitRectangle(_ pts: [V2]) -> (Shape, Double) {
         // Minimum-area oriented bounding box via rotating calipers over the
         // convex hull; rotation = atan2 of the best box edge direction. PCA of
-        // the perimeter is unstable for near-squares (it picks the diagonal), so
-        // we keep the tightest hull-edge-aligned box instead.
+        // the perimeter is unstable for near-squares (it picks the diagonal).
         let hull = convexHull(pts)
         if hull.count < 3 { return fitLine(pts) }
         var best: (area: Double, corners: [V2])?
@@ -127,7 +125,7 @@ enum Fitter {
         return (.rectangle(corners: corners.map(cgp)), residual(pts, corners, closed: true))
     }
 
-    // MARK: Triangle — largest-area triangle over the hull
+    // MARK: Triangle (largest-area triangle over the hull)
 
     private static func fitTriangle(_ pts: [V2]) -> (Shape, Double) {
         var hull = convexHull(pts)
@@ -149,7 +147,7 @@ enum Fitter {
         return (.triangle(vertices: tri.map(cgp)), residual(pts, tri, closed: true))
     }
 
-    // MARK: Ellipse — principal axis + projected extents
+    // MARK: Ellipse (principal axis + projected extents)
 
     private static func fitEllipse(_ pts: [V2]) -> (Shape, Double) {
         // Principal-axis direction from the covariance, then center and semi-axes
@@ -195,7 +193,7 @@ enum Fitter {
         }
     }
 
-    // MARK: Star — instantiate template at a fitted pose
+    // MARK: Star (template at a fitted pose)
 
     private static func fitStar(_ pts: [V2]) -> (Shape, Double) {
         let center = centroid(pts)
@@ -266,7 +264,7 @@ enum Fitter {
         return Array(lower.dropLast()) + Array(upper.dropLast())
     }
 
-    // MARK: small linear algebra
+    // MARK: Linear algebra
 
     /// Major eigenvector of the symmetric 2x2 [[a,b],[b,c]].
     private static func symEig2x2Major(_ a: Double, _ b: Double, _ c: Double) -> V2 {

@@ -1,11 +1,7 @@
-// Emo's exported entry points. Everything behind them is model-agnostic and
-// lives in NativeBindings; this file only names the symbols, because symbol
-// names are the one thing that cannot be shared: `@_cdecl` takes a string
-// literal and JNI derives its name from the Kotlin class.
-//
-// The names are model-scoped (`emo_create`, `Java_ai_desertant_emo_...`) rather
-// than generic, so two models can be linked into one binary - which is what lets
-// a model be a single target instead of a separate native one.
+// Emo's exported entry points. Symbol names are the one thing NativeBindings
+// cannot share: `@_cdecl` takes a string literal and JNI derives the name from
+// the Kotlin class. They are model-scoped so two models can link into one
+// binary (`emo_create`, `Java_ai_desertant_emo_...`).
 
 #if !os(WASI)
 import DesertAnt

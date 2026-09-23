@@ -5,10 +5,9 @@
 // result in Kotlin (see androidtest/).
 //
 // `runChecks` installs the bridge, exercises the host-backed paths (Regex, JSON
-// decode) and the platform-ICU path (NFKC), and returns a failure summary —
-// an empty string means every check passed. `usageContext` returns the usage
-// context the core builds from the host's device facts. Android-only; empty
-// elsewhere.
+// decode, NFKC), and returns a failure summary; an empty string means every
+// check passed. `usageContext` returns the usage context the core builds from
+// the host's device facts. Android-only; empty elsewhere.
 
 #if os(Android)
 import Android
@@ -47,7 +46,7 @@ public func coreBridgeRunChecks(_ env: HostEnv, _ clazz: jclass?, _ host: jclass
         failures.append("json threw: \(error)")
     }
 
-    // TextNormalization: NFKC via the platform ICU (CAndroidICU), no host needed.
+    // TextNormalization: NFKC via the host's java.text.Normalizer.
     if "\u{FB01}".nfkc != "fi" { failures.append("nfkc did not fold the fi ligature") }
 
     let summary = failures.joined(separator: " | ")

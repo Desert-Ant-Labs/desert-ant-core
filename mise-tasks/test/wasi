@@ -5,8 +5,6 @@
 # Not at the same time as test:swift: both build Tools/EchoServer.swift and bind
 # 127.0.0.1:8199 (HTTPClientTests connects to that exact port), so run in
 # parallel whichever started second dies with "bind() failed on port 8199".
-# `mise run test` runs its dependencies concurrently, which is how this showed
-# up as a suite that passes alone and fails in the aggregate.
 #MISE wait_for=["test:swift"]
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 

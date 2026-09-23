@@ -218,8 +218,7 @@ import Speech
     ///
     /// The parity tests compare to 1e-6, so the fixtures have to come from this runtime
     /// rather than a reimplementation, and they go stale whenever the pinned weights
-    /// revision changes. Until now there was no generator in either repo and they had to
-    /// be reproduced by hand.
+    /// revision changes.
     ///
     ///     ALIGN_REGENERATE_GOLDENS=1 swift test --filter regenerateGoldens
     ///
@@ -369,14 +368,14 @@ import Speech
     }
 
     #if canImport(Speech)
-    // Nothing buffered is the "no context yet" fallback: it used to trap cropping an empty log-mel.
+    // Nothing buffered is the "no context yet" fallback, which must not crop an empty log-mel.
     @Test func streamingWithNothingBufferedKeepsTheWords() async throws {
         let streaming = StreamingRefiner(align: try await makeRefiner(), languageCode: "en")
         let words = [WordTiming(text: "one", start: 0.3, end: 0.55)]
         #expect(try await streaming.refine(words) == words)
     }
 
-    // Infinity means unbounded; Int() of it used to trap.
+    // Infinity means unbounded; Int() of it would trap.
     @Test func infiniteBufferDoesNotTrap() async throws {
         let streaming = StreamingRefiner(align: try await makeRefiner(), languageCode: "en",
                                          maxBufferedSeconds: .infinity)
@@ -387,7 +386,7 @@ import Speech
     }
     #endif
 
-    // The old name still resolves for the asset init, with a deprecation warning.
+    // The deprecated name still resolves for the asset init, with a warning.
     @Test func deprecatedNameStillResolves() async throws {
         let files = try await ModelFixture.files(AlignModel.self)
         let refiner = SpeechTimestampRefiner(

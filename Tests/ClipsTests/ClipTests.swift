@@ -9,17 +9,13 @@ import DesertAnt
 /// These run everywhere and need no artifact, which is the point: every one of
 /// them guards a constant that has to agree with training (`budget`, the
 /// feature order, the span bounds) or a rule a reader notices immediately
-/// (duplicates). The model-backed end-to-end suite arrives with the published
-/// Hub artifacts; `HubDownloadTests` is the network-gated half that exists today.
+/// (duplicates). The model-backed half is `ShippingArtifactTests` and the
+/// network-gated `HubDownloadTests`.
 struct ClipPipelineTests {
     /// The budget is an UPPER LIMIT set by DURATION, and it is the same rule
     /// `python/construct.py`'s `clip_budget` applies: 8 under 5 minutes, 11 to 10,
-    /// 13 to 30, 14 beyond, at 2.5 words per second.
-    ///
-    /// This test previously asserted `n // 4` capped at 12 and called it "the same
-    /// number train and eval use". It never was: the offline path capped at a literal
-    /// 6, which bound on 79% of the frozen holdout. The two paths emitted different
-    /// clip counts from identical input and only one of them was ever evaluated.
+    /// 13 to 30, 14 beyond, at 2.5 words per second. If the two paths disagree,
+    /// identical input emits different clip counts and only one is evaluated.
     @Test func budgetIsTheDurationCeilingSharedWithTrainEval() {
         // 2.5 words/sec => 150 words per minute.
         func transcript(minutes: Double) -> [String] {
@@ -36,11 +32,11 @@ struct ClipPipelineTests {
         #expect(Pipeline.budget(for: []) == 8)
     }
 
-    /// A limit SIZES the selection, it does not trim the result — and the two differ in
+    /// A limit SIZES the selection, it does not trim the result - and the two differ in
     /// content, not just in cost. The best set of two is not the best set of three minus one.
     @Test func aLimitSizesTheSelectionRatherThanTrimmingIt() {
         // Three disjoint spans. At budget 3 the DP takes all three; at budget 2 it takes the
-        // two highest-scoring, which is NOT "the first two of the three by score" in general —
+        // two highest-scoring, which is NOT "the first two of the three by score" in general -
         // here it is, because they are disjoint, so the sharper check is on the BUDGET path.
         let transcript = (0..<12).map { "sentence number \($0) with distinct words \($0)" }
         let candidates = [Array(0...2), Array(4...6), Array(8...10)]
@@ -113,7 +109,7 @@ struct ClipPipelineTests {
     /// The 5 scalars the heads were trained with, in order:
     /// [position, hookCount, payoffCount, endsWithQuestion, digitRatio].
     /// Position FIRST, and the middle two are COUNTS of matching patterns, not
-    /// booleans - an earlier hand-written version had all five wrong.
+    /// booleans.
     @Test func discourseFeaturesAreOrderedAsInTraining() {
         let plain = Pipeline.discourseFeatures("the cat sat on the mat", position: 0.25)
         #expect(plain.count == 5)
@@ -162,7 +158,7 @@ struct ClipPipelineTests {
 }
 
 /// The tokenizer's truncation contract, over a synthetic vocab so it needs no
-/// download. This is the invariant that cost real quality: HuggingFace's
+/// download. HuggingFace's
 /// `truncation=True, max_length=` KEEPS the eos, and a plain `prefix(maxLength)`
 /// silently replaces it with one more content token, so every span longer than
 /// the bucket is scored on input the model never saw in training.

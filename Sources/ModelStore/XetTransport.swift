@@ -7,8 +7,8 @@
 // `canImport(Xet)` is the whole gate. swift-xet is a *trait*-conditional package
 // dependency restricted to Apple platforms in Package.swift (see the `Xet`
 // trait there), so this file exists only in a graph that asked for it: a
-// consumer without the trait, and every Linux/Android/wasm build, compiles the
-// module exactly as before and keeps the URLSession path.
+// consumer without the trait, and every Linux/Android/wasm build, keeps the
+// URLSession path.
 #if canImport(Xet)
 import Foundation
 import Xet

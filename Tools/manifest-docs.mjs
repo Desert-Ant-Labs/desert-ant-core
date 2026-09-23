@@ -48,8 +48,7 @@ export function renderTable(models, org) {
     "| Model | What it does | Platform | Docs |",
     "| --- | --- | --- | --- |",
     // Two links, because they answer different questions. The SDK page says how
-    // to install and call it; the card says what the model is. A single "docs"
-    // link had to pick one, and picked the one the org card is not about.
+    // to install and call it; the card says what the model is.
     ...shipping.map(
       (m) =>
         `| **${m.name}** | ${m.summary} | ${platforms(m, "short")} | ` +
@@ -141,23 +140,16 @@ export function splitCard(text) {
   return match ? { frontMatter: match[1], body: match[2] } : { frontMatter: "", body: text };
 }
 
-/// The card is TWO halves and only the first is ours. Identity comes from the
+/// The card is two halves and only the first is ours. Identity comes from the
 /// manifest so a card cannot drift from the registry; everything below the
 /// markers is the model's own documentation, written on the Hub by whoever has
 /// the numbers, and is carried across untouched.
 ///
-/// It did not used to be. This returned front matter plus `renderCardBody` and
-/// nothing else, so every sync replaced each card whole. Two runs, 2026-08-21
-/// and 2026-08-24, took clear from 168 lines to 29, redact from 194 to 52 and
-/// emo from 115 to 47, and redact's benchmark section went with them. The org
-/// card survived both because it alone went through `replaceMarked`.
-///
-/// AN UNMARKED CARD IS REFUSED, NOT ADOPTED. Guessing where the generated half
+/// An unmarked card is refused, not adopted. Guessing where the generated half
 /// ends means either duplicating the heading or deleting an intro that carries
-/// figures the manifest does not hold, and redact's two deployable sizes live
-/// exactly there. This incident was an automated rewrite being too clever, so
-/// the migration is a person adding the markers once, and until they do the
-/// card is left alone.
+/// figures the manifest does not hold (redact's two deployable sizes live
+/// exactly there). A person adds the markers once; until then the card is left
+/// alone.
 export function renderCard(existing, model, org, version) {
   const { frontMatter, body } = splitCard(existing);
   if (!body.includes(CARD_MARKERS.start)) throw new UnmarkedCard(model.id);
@@ -202,7 +194,7 @@ export function replaceBlock(text, body) {
 
 export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
 
-/// The Hub's markers are NOT the model page's. A card is read and edited on a
+/// The Hub's markers are not the model page's. A card is read and edited on a
 /// site where every block is about the model, so `model:start` names nothing and
 /// warns nobody. These name the block and say what to do instead, in the marker
 /// itself rather than in a comment above it that a careless edit would drop.
@@ -211,9 +203,8 @@ export const CARD_MARKERS = {
   end: "<!-- card-header:end -->",
 };
 
-/// Two more generated blocks, each INDEPENDENT of the others. A card opts into
-/// one by having its markers; a card without them keeps whatever it has. Making
-/// them all-or-nothing would break every card the day the feature landed.
+/// Two more generated blocks, each independent of the others. A card opts into
+/// one by having its markers; a card without them keeps whatever it has.
 export const CARD_INSTALL_MARKERS = {
   start: "<!-- card-install:start (generated from manifest.json, edit below this block) -->",
   end: "<!-- card-install:end -->",
@@ -351,7 +342,7 @@ export function renderModelHeader(model, org, version) {
 }
 
 /// The card's install half. Same source as the model page's, so a release bump
-/// rewrites both, but with ABSOLUTE links: `install()` emits `../../README.md`,
+/// rewrites both, but with absolute links: `install()` emits `../../README.md`,
 /// which resolves inside this repo and 404s on huggingface.co.
 export function renderCardInstall(model, org, version) {
   const facts = [["Platforms", platforms(model)]];
@@ -372,13 +363,10 @@ export function renderCardInstall(model, org, version) {
     .trimEnd();
 }
 
-/// The boilerplate every card ends with and no two cards agreed on. Measured
-/// 2026-08-28 across eight cards: four different shapes. Three had no copyright
-/// line, four had no notices link, one had no licensing address and no License
-/// section at all.
+/// The boilerplate every card ends with, generated so every card carries the
+/// same license, notices, citation and copyright lines.
 ///
-/// `Built on` and `Citation` are deliberately NOT here. Those are per-model, and
-/// generating them would be this same mistake in a smaller box.
+/// `Built on` is not here: it is per-model.
 export function renderCardFooter(model, org) {
   const summary = model.summary.replace(/\.$/, "");
   return [
@@ -390,9 +378,8 @@ export function renderCardFooter(model, org) {
     "",
     "See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).",
     "",
-    // Three cards of fourteen had one, and the other eleven left a reader with
-    // nothing to paste. Every field here is already in the manifest, so the
-    // block is uniform and cannot go stale against the repo it points at.
+    // Every field here is already in the manifest, so the block is uniform and
+    // cannot go stale against the repo it points at.
     "## Citation",
     "",
     "```bibtex",

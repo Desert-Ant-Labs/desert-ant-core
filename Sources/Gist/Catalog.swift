@@ -1,7 +1,3 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The gist model: on-device content topic tagging.
@@ -9,16 +5,13 @@ public enum GistModel: ModelDeclaration {
     public static let id = "gist"
     public static let product = "Gist"
     public static let revision = "v2.2.0"
-    /// Matches packages/gist-node/package.json and packages/gist-kotlin/build.gradle.kts
-    /// (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "Multilingual on-device content topic tagging across a 36-topic taxonomy."
 
-    /// The variant this declaration describes: the SDK default. The repo also
-    /// publishes the English-only build under `en/`, which a caller selects per
-    /// instance (`Gist(variant:)`) and which downloads through ``GistVariant``
-    /// rather than through this manifest - the catalog entry stays one model's
-    /// default artifact, which is what tooling and the shared fixtures expect.
+    /// The SDK default. The repo also publishes the English-only build under
+    /// `en/`, which a caller selects with `Gist(variant:)` and which downloads
+    /// through ``GistVariant``: tooling and the shared fixtures expect the
+    /// catalog entry to describe one default artifact.
     public static let variant = GistVariant.default
 
     /// Pruned-unigram semantic tokenizer.

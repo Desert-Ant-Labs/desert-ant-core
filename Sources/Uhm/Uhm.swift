@@ -5,10 +5,8 @@ import DesertAnt
 import AudioDSP
 import AudioIO
 
-/// `Uhm` — public API for filler-word detection: frame-precise "uh", "um",
-/// "hmm" and other filler sounds, one prediction every 20 ms. DistilHuBERT
-/// under the hood, running through desert-ant-core's inference seam (Core ML
-/// on Apple today).
+/// Filler-word detection: frame-precise "uh", "um", "hmm" and other filler
+/// sounds, one prediction every 20 ms. DistilHuBERT under the hood.
 ///
 /// The model is downloaded on demand from `desert-ant-labs/uhm` and cached
 /// locally. Construction is cheap and does no I/O; the model downloads (if
@@ -28,7 +26,7 @@ public final class Uhm: @unchecked Sendable {
 
     // MARK: - Types
 
-    /// Precision / recall trade-off knob. `balanced` is the default — empirically
+    /// Precision / recall trade-off knob. `balanced` is the default: empirically
     /// the cleanest cutoff between real fillers and borderline false positives
     /// across en/es/fr/de/nl. Step up to `.precision` for stricter auto-cut, or
     /// down to `.recall` when you'd rather review-and-confirm than miss.
@@ -36,11 +34,11 @@ public final class Uhm: @unchecked Sendable {
         // Thresholds are stable across model versions: shipped models are
         // pre-calibrated so a given `Options.minConfidence` means the same thing
         // against any release.
-        /// Strictest gate (min confidence 0.75) — fewest false alarms; safest for automatic cuts.
+        /// Strictest gate (min confidence 0.75): fewest false alarms; safest for automatic cuts.
         case precision
-        /// Default gate (min confidence 0.65) — clean cuts on the labeled corpus.
+        /// Default gate (min confidence 0.65): clean cuts on the labeled corpus.
         case balanced
-        /// Loosest gate (min confidence 0.50) — catches more, at the cost of more false positives.
+        /// Loosest gate (min confidence 0.50): catches more, at the cost of more false positives.
         case recall
 
         /// The confidence threshold this preset maps to. Public so host apps can
@@ -90,9 +88,9 @@ public final class Uhm: @unchecked Sendable {
     }
 
     /// Output of the per-filler type labeler.
-    /// `and` is a mid-sentence "and"-as-filler subtype — useful when you want
+    /// `and` is a mid-sentence "and"-as-filler subtype, useful when you want
     /// to keep or treat connectors differently from `uh`/`um`. `other` is the
-    /// "labeler isn't confident which kind" bucket — surface it as something
+    /// "labeler isn't confident which kind" bucket; surface it as something
     /// neutral ("filler") in user-facing UI; useful as-is for analytics.
     public enum FillerType: String, Sendable, Codable, CaseIterable {
         case uh, um, hmm, and, other
@@ -177,8 +175,6 @@ public final class Uhm: @unchecked Sendable {
     /// Model input rate: 16 kHz mono, one frame every 20 ms.
     static let sampleRate = 16_000
 
-    // Resolving, downloading, single-flighting, and offline availability are
-    // `LoadedModel`; Uhm adds only how a resolved directory becomes its session.
     let model: LoadedModel<ModelAssets>
 
     /// The concrete model tier this instance loads (`auto` already resolved),
@@ -192,7 +188,7 @@ public final class Uhm: @unchecked Sendable {
     ///
     /// Construction does **no** network or model I/O. The model is downloaded
     /// (if not already cached) and loaded lazily on the first `analyze(...)`.
-    /// To fetch it ahead of time — e.g. at app launch — call
+    /// To fetch it ahead of time (e.g. at app launch), call
     /// `download(progress:)`.
     ///
     /// Nothing is bundled with this package. To ship the model with your app,
@@ -206,19 +202,13 @@ public final class Uhm: @unchecked Sendable {
     ///   - computeUnits: Core ML compute-unit policy. Default
     ///     `.cpuAndNeuralEngine`.
     ///
-    /// The default asks for the Neural Engine rather than `.all` because this
-    /// artifact is authored for it: every operation in `uhm.mlmodelc` has an
-    /// ANE path. `.all` does not mean "the fastest device" - it lets Core ML's
-    /// cost model choose per chip, and on a part with a large GPU it splits the
-    /// graph and the transfers cost more than the split saves. Measured over 5
-    /// minutes of audio, realtime factor: M1 205x both ways, M5 315x both ways,
-    /// M3 Ultra 468x asking for the engine against 450x with `.all` - and 178x
-    /// with `.all` before the runs were allowed to overlap. Asking for the
-    /// engine is also what keeps the placement the same on a phone as on the
-    /// desk it was measured on.
-    ///
-    /// A caller that wants Core ML to decide, or that knows it is on a machine
-    /// with a large GPU and does not care about power, can still pass `.all`.
+    /// The default asks for the Neural Engine rather than `.all` because every
+    /// operation in `uhm.mlmodelc` has an ANE path. `.all` lets Core ML's cost
+    /// model choose per chip, and on a part with a large GPU it splits the graph
+    /// and the transfers cost more than the split saves. Realtime factor over 5
+    /// minutes of audio: M1 205x both ways, M5 315x both ways, M3 Ultra 468x with
+    /// the engine against 450x with `.all`. Asking for the engine also keeps the
+    /// placement the same on a phone as on the desk it was measured on.
     public convenience init(directory: String? = nil, quality: Quality = .auto,
                             computeUnits: ComputeUnits = .cpuAndNeuralEngine) {
         self.init(directory: directory, cacheRoot: nil, quality: quality,
@@ -249,7 +239,7 @@ public final class Uhm: @unchecked Sendable {
         model = LoadedModel { assets }
     }
 
-    /// Bench / power-user initializer — load a local model artifact directly
+    /// Bench / power-user initializer: load a local model artifact directly
     /// (a `.mlmodelc` on Apple), skipping the store entirely. Lets a host app
     /// ship its own variant. For tests and custom deployments; apps point
     /// `directory` at their files instead. The tier is read off the file name
@@ -326,9 +316,7 @@ public final class Uhm: @unchecked Sendable {
         timings: PhaseTimings
     ) async throws -> Result {
         var timings = timings
-        // Bail early if the caller already cancelled.
         try Task.checkCancellation()
-        // Download (first call only) + load the model. No-op once cached/loaded.
         let assets = try await model.value()
 
         let input = sampleRate == Self.sampleRate
@@ -450,11 +438,9 @@ public final class Uhm: @unchecked Sendable {
               let labeler = try? FillerTypeClassifier(modelURL: URL(fileURLWithPath: labelerPath))
         else { return detections }
         let window = Self.sampleRate  // 1 s clip centered on each detection
-        // One 1 s clip per detection, and none of them depends on another - the
-        // same shape as the detector's windows, and it was the same serial loop.
-        // It is worth spreading even though each clip is small: this pass was
-        // 0.19 s of a 0.63 s analyze on an M3 Ultra, more than the detector it
-        // labels. Bounded rather than unbounded because every clip in flight
+        // Clips are independent, and worth spreading even though each is small:
+        // run serially this pass is 0.19 s of a 0.63 s analyze on an M3 Ultra,
+        // more than the detector it labels. Bounded because every clip in flight
         // holds a SoundAnalysis analyzer and its feature extractor.
         let lanes = min(4, max(1, detections.count))
         let labelled = LabelResults(count: detections.count)

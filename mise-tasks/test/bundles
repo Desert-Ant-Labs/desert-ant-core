@@ -4,10 +4,10 @@
 #MISE depends=["npm-install"]
 #MISE tools={node="22"}
 
-# The npm packages are isomorphic - one import, four module graphs (browser,
-# SSR-in-Node, plain Node native, and each bundler's idea of those) - and the
-# seams that keep them apart only exist at bundle time. Every SSR regression we
-# have shipped passed the unit tests and failed in a consumer's `next build`.
+# The npm packages are isomorphic (one import, four module graphs: browser,
+# SSR-in-Node, plain Node native, and each bundler's idea of those), and the
+# seams that keep them apart only exist at bundle time. An SSR failure passes the
+# unit tests and only shows up in a consumer's `next build`.
 #
 # So this packs core and every packages/<model>-node with `npm pack` and builds
 # the tarballs with esbuild, vite, webpack, and Next (Turbopack + webpack),

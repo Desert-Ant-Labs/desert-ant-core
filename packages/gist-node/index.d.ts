@@ -73,5 +73,5 @@ export declare class Gist {
 }
 
 /** Aggregate a channel's per-post topic scores into a ranked list of channel
- *  topics. Pure and deterministic — no model. */
+ *  topics. Pure and deterministic, no model. */
 export declare function channelTopics(posts: PostTopics[], options?: RollupOptions): ChannelTopic[];

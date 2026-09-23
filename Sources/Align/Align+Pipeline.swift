@@ -6,8 +6,8 @@ import Speech
 
 /// A SpeechTranscriber result with corrected word-level timestamps.
 ///
-/// It preserves the familiar `text`, `range`, `resultsFinalizationTime`, and `isFinal`
-/// surface. The original Apple result remains available for alternatives and other metadata.
+/// Keeps the `text`, `range`, `resultsFinalizationTime`, and `isFinal` surface. `original`
+/// carries alternatives and other metadata.
 @available(iOS 26, macOS 26, tvOS 26, visionOS 26, *)
 public struct RefinedSpeechResult: SpeechModuleResult, Sendable, CustomStringConvertible {
     public let original: SpeechTranscriber.Result
@@ -43,8 +43,8 @@ public extension StreamingRefiner {
         )
     }
 
-    /// Buffer audio for timestamp refinement and create the AnalyzerInput passed to Apple.
-    /// This combines the two operations needed in callback-based audio pipelines.
+    /// Buffer audio for timestamp refinement and create the AnalyzerInput passed to Apple,
+    /// for callback-based audio pipelines.
     func analyzerInput(_ buffer: AVAudioPCMBuffer, at startTime: CMTime? = nil) async throws -> AnalyzerInput {
         try await appendAudio(buffer)
         return AnalyzerInput(buffer: buffer, bufferStartTime: startTime)

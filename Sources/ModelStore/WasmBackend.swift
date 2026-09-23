@@ -1,7 +1,7 @@
 // wasm backend: HTTP via JS `fetch`; filesystem via node's `fs` (whose *Sync
 // methods match the synchronous FileSystem seam) on node, or an in-memory store
 // in the browser (browser persistence is async - OPFS/Cache API - and would need
-// its own backend; the browser HTTP cache covers refetch for now). The download
+// its own backend; the browser HTTP cache covers refetch). The download
 // and SHA-256 verification are the shared Swift ModelStore on every platform.
 #if os(WASI)
 import JSHost
@@ -170,8 +170,8 @@ public struct JSTransport: ModelTransport {
         jsTransportDebugLog("fetch \(url)")
         // `this: JSObject.global` is required, not cosmetic: a browser's `fetch`
         // is a Window method and throws "Illegal invocation" when called
-        // detached. Node tolerates a detached call, which is why the Node-hosted
-        // WASI suite never saw this and only a real browser does.
+        // detached. Node tolerates a detached call, so only a real browser
+        // catches this, not the Node-hosted WASI suite.
         guard let fetch = JSObject.global.fetch.function,
               let promise = JSPromise(from: fetch(this: JSObject.global, url, opts)) else {
             throw ModelStoreError.io("fetch(\(url))")
@@ -194,12 +194,10 @@ public extension StoredModel {
         return StoredModel(rootPath: rootPath, fileSystem: JSFileSystem(cacheRoot: rootPath))
     }
 
-    /// Hand a model file to a JavaScript host session factory. Node receives
-    /// the cached path (avoiding a large copy across the wasm boundary);
-    /// browsers receive bytes because their store is in memory.
     /// Hand the model to the JS host so it can compile it: the cached path under
-    /// node, the bytes in the browser (where there is no filesystem to point at).
-    /// The host's typed contract lives in `Sources/JSHost/Host.swift`.
+    /// node (avoiding a large copy across the wasm boundary), the bytes in the
+    /// browser, whose store is in memory. The host's typed contract lives in
+    /// `Sources/JSHost/Host.swift`.
     func createJavaScriptSession(modelFile: String) async throws {
         do {
             if jsIsNode() {

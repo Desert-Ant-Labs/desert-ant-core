@@ -3,19 +3,6 @@ import Testing
 
 @testable import Ear
 
-/// The path a caller actually takes: `Ear()`, with nothing on disk.
-///
-/// Every other test in this suite hands the SDK a directory that already holds
-/// the model. That skips resolution, the manifest of per-platform files, the
-/// download, and the cache - which is where the names in `Catalog.swift` have to
-/// match the names in the published repo. They did not, once: the catalog asked
-/// for `detector.mlmodelc` after the artifact had been renamed to
-/// `ear.mlmodelc`, and the only symptom was a fall-through to a download.
-///
-/// Off by default. It reaches the network, and while the weights repo is
-/// private it needs a token, so a bare `swift test` must not depend on it:
-///
-///     EAR_TEST_DOWNLOAD=1 swift test --filter DownloadTests
 /// Progress callbacks arrive off the calling thread.
 final class Reported: @unchecked Sendable {
     private let lock = NSLock()
@@ -27,6 +14,18 @@ final class Reported: @unchecked Sendable {
 // Reaches the network and the cache directory, neither of which wasm has
 // here.
 #if !os(WASI)
+/// The path a caller actually takes: `Ear()`, with nothing on disk.
+///
+/// Every other test in this suite hands the SDK a directory that already holds
+/// the model. That skips resolution, the manifest of per-platform files, the
+/// download, and the cache, which is where the names in `Catalog.swift` have to
+/// match the names in the published repo. A mismatch shows only as a
+/// fall-through to a download.
+///
+/// Off by default. It reaches the network, and while the weights repo is
+/// private it needs a token, so a bare `swift test` must not depend on it:
+///
+///     EAR_TEST_DOWNLOAD=1 swift test --filter DownloadTests
 @Suite(.enabled(if: EarFixtures.downloadEnabled,
                 "reaches the network: set EAR_TEST_DOWNLOAD=1"))
 struct DownloadTests {

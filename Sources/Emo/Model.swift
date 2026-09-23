@@ -1,9 +1,7 @@
 import DesertAnt
 
 /// The neural stage: tokenize a phrase into the model's fixed-window feature
-/// tensors, run them through the shared `InferenceSession` (Core ML | LiteRT | JS
-/// host, chosen by desert-ant-core), and read the emoji probability vector. This
-/// file only knows emo's tensor layout; the runtime is oblivious.
+/// tensors and read the emoji probability vector.
 final class Model: @unchecked Sendable {
     private let session: any InferenceSession
     private let meta: EmoMeta
@@ -31,11 +29,7 @@ final class Model: @unchecked Sendable {
             .map { EmoSuggestion(emoji: $0.0.applyingSkinTone(skinTone), confidence: $0.1) }
     }
 
-    // MARK: inference
-
-    /// Build the fixed-window tensors (n-gram stream + masked semantic sequence)
-    /// and read the `probabilities` output. Both the Core ML and LiteRT exports
-    /// share this exact signature, so there is nothing platform-specific here.
+    /// The Core ML and LiteRT exports share this exact signature.
     private func probabilities(_ text: String) async throws -> [Float] {
         let fmax = meta.fmax
         let smax = meta.smax

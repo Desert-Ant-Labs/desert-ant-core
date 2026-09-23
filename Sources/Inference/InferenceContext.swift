@@ -4,7 +4,7 @@
 // end-user device id must be bound to the individual inference call, not read
 // from a process-wide global that concurrent calls would race on. A task-local
 // carries it down the `await` chain of exactly that call's task tree, so
-// overlapping calls stay isolated — and no SDK has to thread `deviceId` through
+// overlapping calls stay isolated, and no SDK has to thread `deviceId` through
 // its public API. The host binds it once at its entry point:
 //
 //     try await InferenceContext.$deviceId.withValue(id) {
@@ -37,7 +37,7 @@ public enum InferenceContext {
 
     /// Coalesce every inference run made inside `body` into a single tracked
     /// usage call (per device). Use it when one logical operation performs
-    /// several `run`s — e.g. a multi-stage or autoregressive model — but should
+    /// several `run`s (e.g. a multi-stage or autoregressive model) but should
     /// bill as one call:
     ///
     ///     try await InferenceContext.withCallGroup {
@@ -45,7 +45,7 @@ public enum InferenceContext {
     ///         let b = try await session.run(...)   // same group -> not counted again
     ///     }
     ///
-    /// Runs outside any group count individually, as before. Nesting reuses the
+    /// Runs outside any group count individually. Nesting reuses the
     /// enclosing group, so wrapping an already-grouped operation is a no-op.
     /// Mixing the two APIs does not: `withCallGroup(id:)` with a non-nil id
     /// inside this one binds its own group, so a device already counted by the
@@ -65,7 +65,7 @@ public enum InferenceContext {
     /// its own, leaving any enclosing one in effect.
     ///
     /// This is the reuse path for hosts whose calls cross a boundary that does
-    /// not preserve a task-local — chiefly a native C ABI invoked once per host
+    /// not preserve a task-local, chiefly a native C ABI invoked once per host
     /// call (the JS/koffi SDKs): the host passes a stable id per logical
     /// operation and releases it with `endCallGroup(_:)` (or the
     /// `dal_call_group_end` C entry point) when done. Every SDK reuses this
@@ -138,8 +138,8 @@ public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
 ///
 /// Keyed on the device rather than on the usage client, because one operation can
 /// run over several sessions and each session builds its own client for the same
-/// device. Keying on the client counted once per session, which billed a
-/// two-stage model as two calls inside a group that documents one per device.
+/// device. Keying on the client would count once per session, billing a
+/// two-stage model as two calls.
 #if os(WASI)
 public final class InferenceCallGroup: @unchecked Sendable {
     private var counted: Set<String> = []   // single-threaded: no lock

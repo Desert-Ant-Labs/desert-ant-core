@@ -1,10 +1,8 @@
 import RealModule
 
-/// Internal 2D vector math. Replaces `simd` (Apple-only) with a small portable
-/// struct so the geometric fitters and snapping run identically on every
-/// platform (Apple, Linux, Android, wasm). All transcendental math goes through
-/// `swift-numerics` (`Double.cos`, `Double.atan2`, ...); the stdlib has none and
-/// importing the platform libm per target is messier.
+/// Portable 2D vector math in place of `simd`, which is Apple-only. Transcendental
+/// math goes through `swift-numerics`: the stdlib has none, and importing the
+/// platform libm per target is messier.
 struct V2: Equatable {
     var x: Double
     var y: Double

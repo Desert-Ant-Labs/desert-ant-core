@@ -4,7 +4,7 @@ import Testing
 
 struct SnappingTests {
     @Test func lineSnapsToHorizontalAxis() throws {
-        // 3° off horizontal — within the 5° threshold.
+        // 3° off horizontal - within the 5° threshold.
         let a = Point(x: 0, y: 0)
         let b = Point(x: 100, y: 100 * tan(3 * Double.pi / 180))
         guard case let .line(from, to) = Fitter.snap(.line(from: a, to: b), config: .standard) else {

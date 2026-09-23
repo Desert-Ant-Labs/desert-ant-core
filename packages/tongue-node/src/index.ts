@@ -1,5 +1,5 @@
 /**
- * tongue — on-device language identification for short text, across 84 languages.
+ * tongue: on-device language identification for short text, across 84 languages.
  *
  * ```ts
  * import { Tongue } from "@desert-ant-labs/tongue";
@@ -8,10 +8,10 @@
  * tongue.detect("kann ich das haben").language;   // "de"
  * ```
  *
- * One entry point for browser and Node, unlike emo's split build: there is no
- * wasm module and no inference runtime to swap, because a detection is arithmetic
- * — an int8 gather, a sum, one 59x32 matmul and a masked softmax. The only
- * platform difference is how the 2 MB weights are read, which `load` handles.
+ * One entry point for browser and Node: there is no wasm module and no inference
+ * runtime to swap, because a detection is arithmetic (an int8 gather, a sum, one
+ * 59x32 matmul and a masked softmax). The only platform difference is how the
+ * 2 MB weights are read, which `load` handles.
  */
 import { normalize, MAX_CHARACTERS } from "./normalize.js";
 import { route, type Route, type Verdict } from "./router.js";
@@ -28,8 +28,8 @@ export { fnv1a, buckets, NGRAM_ORDERS } from "./hashing.js";
 /**
  * How much to trust an answer.
  *
- * Keyed off evidence — input length and how far the top candidate leads the
- * runner-up — not raw softmax confidence, which is badly overconfident on very
+ * Keyed off evidence (input length and how far the top candidate leads the
+ * runner-up), not raw softmax confidence, which is badly overconfident on very
  * short text. `"hi i am"` reads as Welsh to any character model at high
  * probability; the margin and the length are what reveal it as a guess.
  */
@@ -61,7 +61,7 @@ export interface LoadOptions {
 }
 
 export class Tongue {
-  /** One turnstile per instance. See usage.ts and docs/USAGE.md. */
+  /** One turnstile per instance. See usage.ts. */
   private readonly usage: UsageTurnstile;
 
   private constructor(
@@ -71,21 +71,17 @@ export class Tongue {
     this.usage = UsageTurnstile.create(SDK_VERSION);
   }
 
-  /** Load from explicit bytes — the platform-free path. */
+  /** Load from explicit bytes: the platform-free path. */
   static fromBytes(metadata: Metadata, weightBytes: Uint8Array): Tongue {
     return new Tongue(metadata, new Weights(weightBytes, metadata));
   }
 
   /**
-   * Load the model. Reads the bundled weights by default: on Node from the
-   * package directory, in a browser by fetching relative to `options.from`.
-   */
-  /**
    * Load the model.
    *
    * On Node this reads the weights out of the package by default. In a browser
-   * they are fetched, and there is nothing sensible to default to — a bundler
-   * does not serve files out of node_modules — so pass `from`:
+   * they are fetched, and there is nothing sensible to default to (a bundler
+   * does not serve files out of node_modules), so pass `from`:
    *
    * ```ts
    * const tongue = await Tongue.load({ from: "/models/tongue" });

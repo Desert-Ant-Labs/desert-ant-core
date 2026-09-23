@@ -9,15 +9,12 @@ dal_vendor_litert
 # Sets `litert_flags`: -L on Linux, /LIBPATH: on Windows, empty on Apple.
 eval "$(dal_litert_link_flags)"
 
-# The per-model loop below used to be the only mode, one serial `swift build
-# --target` per model, to prove each model compiles against its own dependency
-# graph alone. But in a shared scratch path the compile is identical either
-# way; what the loop actually caught was a model importing a module it never
-# declared, and `--explicit-target-dependency-import-check error` catches
-# exactly that inside a single whole-package build. So `all` is one parallel
-# build with the check on, and naming a model keeps the isolated per-target
-# build for diagnosis. `mise run check:isolation` still proves the
-# complementary half - that the graph contains nothing it shouldn't.
+# `all` is one parallel whole-package build with
+# `--explicit-target-dependency-import-check error`, which catches a model
+# importing a module it never declared (in a shared scratch path, per-target
+# builds compile nothing different). Naming a model keeps the isolated
+# per-target build for diagnosis. `mise run check:isolation` proves the
+# complementary half: that the graph contains nothing it shouldn't.
 if [ "${usage_model:-all}" = all ]; then
     echo "== all targets =="
     if [ "$(dal_host_os)" = darwin ]; then

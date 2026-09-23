@@ -13,7 +13,7 @@
 //
 // Standalone (compiled ad-hoc with `swiftc`, not a SwiftPM target) so it stays
 // out of the library/iOS/wasm build graph. It runs as a separate host process;
-// the tests reach it over localhost — including the wasm run, where Node's
+// the tests reach it over localhost, including the wasm run, where Node's
 // `fetch` hits the host. Raw sockets, no Dispatch and no Foundation: POSIX
 // everywhere, Winsock on Windows, behind the aliases below.
 

@@ -1,14 +1,10 @@
-// Enhancement over an arbitrary-length mono signal: STFT -> DFN features ->
-// fixed-window model (via desert-ant-core's InferenceSession, so the same code
-// runs Core ML on Apple, LiteRT on Android/Linux, and the JS host on the web)
-// -> scatter enhanced spectrum -> ISTFT. Ported from clear-swift's Inference
-// chunk loop; tensors are float32 (LiteRT's I/O type; Core ML casts fp16).
+// Ported from clear-swift's Inference chunk loop. Tensors are float32 (LiteRT's
+// I/O type; Core ML casts to fp16).
 //
 // The model is a fixed 200-frame window and each chunk is independent, so the
-// chunk loop hands its groups to `ParallelRuns`, which spreads them as widely
-// as the runtime allows: several requests in flight on one Core ML session,
-// one request each across a pool of LiteRT sessions, since a LiteRT run holds
-// its session for the duration.
+// chunk groups go to `ParallelRuns`: several requests in flight on one Core ML
+// session, or one each across a pool of LiteRT sessions, since a LiteRT run
+// holds its session for the duration.
 
 import DesertAnt
 #if canImport(Accelerate)
@@ -79,12 +75,6 @@ struct ClearEnhancer {
         self.chunkLen = chunkLen
     }
 
-    /// - Parameters:
-    ///   - onAnalysis: the front end (STFT then the ERB/DF feature pass),
-    ///     reported as it completes each step.
-    ///   - onChunk: the fraction of model chunks completed. Chunks finish out
-    ///     of order across the session pool, so this counts completions rather
-    ///     than positions - monotonic, but not a position in the file.
     /// Wall time in each stage of one `enhance` call, for
     /// ``Clear/PhaseTimings``. Seconds.
     struct StageTimings: Sendable {
@@ -101,20 +91,24 @@ struct ClearEnhancer {
         }
     }
 
-    /// Seconds since `start`, on the monotonic clock.
     private static func since(_ start: ContinuousClock.Instant) -> Double {
         let c = start.duration(to: .now).components
         return Double(c.seconds) + Double(c.attoseconds) / 1e18
     }
 
+    /// - Parameters:
+    ///   - onAnalysis: the front end (STFT then the ERB/DF feature pass),
+    ///     reported as it completes each step.
+    ///   - onChunk: the fraction of model chunks completed. Chunks finish out
+    ///     of order across the session pool, so this counts completions: it is
+    ///     monotonic, but not a position in the file.
     func enhance(_ samples: [Float],
                  timings: UnsafeMutablePointer<StageTimings>? = nil,
                  onAnalysis: (@Sendable (Double) -> Void)? = nil,
                  onChunk: (@Sendable (Double) -> Void)? = nil) async throws -> [Float] {
         guard !samples.isEmpty, !sessions.isEmpty else { return samples }
-        // Sanitize, tail-pad, and lay in the STFT prepad in a single buffer.
-        // Doing these as three passes cost three full-signal copies, and at
-        // 48 kHz mono each one is 363 MB for a 33-minute file.
+        // One buffer for sanitize, tail-pad and STFT prepad: three passes would
+        // cost three full-signal copies, each 363 MB for 33 minutes at 48 kHz.
         let padded = Self.prepareInput(samples)
         var mark = ContinuousClock.now
         let (real, imag, nFrames) = stft.forward(prePadded: padded)
@@ -158,8 +152,8 @@ struct ClearEnhancer {
         timings?.pointee.modelPredict += Self.since(mark)
 
         // Synthesize straight from the scratch buffers. Copying them into
-        // `Array`s first held a second pair of spectrogram planes (726 MB at 33
-        // minutes) while the originals were still live until the `defer`.
+        // `Array`s would hold a second pair of spectrogram planes (726 MB at 33
+        // minutes) while the originals stay live until the `defer`.
         mark = .now
         var enhanced = stft.inverse(real: outRe, imag: outIm, nFrames: nFrames)
         timings?.pointee.stftInverse += Self.since(mark)
@@ -392,9 +386,7 @@ struct ClearEnhancer {
 
     /// One allocation carrying, in order: the `fftSize - hopSize` analysis
     /// prepad, the sanitized signal, and enough tail zeros to reach a whole
-    /// number of windows. Same layout the old
-    /// `stft.forward(padToWindowMultiple(sanitize(x)))` chain produced, without
-    /// the intermediate copies.
+    /// number of windows.
     private static func prepareInput(_ samples: [Float]) -> [Float] {
         let hop = ClearDSP.hopSize, fft = ClearDSP.fftSize
         let prePad = fft - hop

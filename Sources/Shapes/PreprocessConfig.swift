@@ -1,8 +1,8 @@
 /// Tunables + frozen constants for the stroke preprocessor.
 ///
-/// The defaults match the trained model's `config.json` exactly. The SAME values
+/// The defaults match the trained model's `config.json` exactly. The same values
 /// must be used at training-data generation, training, and inference on every
-/// platform — any divergence silently destroys accuracy.
+/// platform; any divergence silently destroys accuracy.
 struct PreprocessConfig: Sendable {
     /// Arc-length spacing in normalized units (~0.02 -> ~50 points per stroke).
     var spacing: Double

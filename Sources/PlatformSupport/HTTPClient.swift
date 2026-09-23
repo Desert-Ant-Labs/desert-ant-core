@@ -177,8 +177,7 @@ private func performHTTPRequest(
 
     // `this: JSObject.global` is required, not cosmetic: a browser's `fetch` is a
     // Window method and throws "Illegal invocation" when called detached. Node
-    // tolerates a detached call, which is why the Node-hosted WASI suite never
-    // saw this and only a real browser does.
+    // tolerates a detached call, so only a real browser catches this.
     guard let fetch = JSObject.global.fetch.function,
           let promise = JSPromise(from: fetch(this: JSObject.global, url.jsValue, options.jsValue)) else {
         throw HTTPClientError.requestFailed("fetch(\(url))")

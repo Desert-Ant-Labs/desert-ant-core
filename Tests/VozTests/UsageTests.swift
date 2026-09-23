@@ -47,9 +47,8 @@ struct VozUsage {
         #expect(sink.sent.isEmpty)
 
         // Wait for the debounce rather than for a fixed interval: it is three
-        // seconds, and a fixed four left a hundred milliseconds of margin - on
-        // a loaded runner the actor's timer is scheduled late and the test
-        // fails the machine rather than the code. What matters is that the
+        // seconds, and on a loaded runner the actor's timer is scheduled late,
+        // so a fixed wait fails the machine rather than the code. What matters is that the
         // burst leaves as one send carrying five calls, however late it goes.
         let deadline = Date().addingTimeInterval(30)
         while sink.sent.isEmpty, Date() < deadline {

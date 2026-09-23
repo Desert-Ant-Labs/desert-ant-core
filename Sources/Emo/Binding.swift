@@ -1,8 +1,3 @@
-// Emo's side of the cross-language binding: construction, plus the two payload
-// schemas that are genuinely model-specific (the options a run takes, and what a
-// result looks like). The generic handle lifecycle and the exported symbols live
-// in NativeBindings and EmoNative, so this file is only the model's adapter.
-
 import DesertAnt
 
 extension Emo: BoundModel {

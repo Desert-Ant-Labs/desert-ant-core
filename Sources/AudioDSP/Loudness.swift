@@ -27,8 +27,8 @@ public enum Loudness {
     private static let s2a: [Float] = [-1.99004745483398, 0.99007225036621]
 
     /// Filters `x` through one biquad stage in place. The K-weighting cascade
-    /// runs two of these back to back, and allocating a fresh output per stage
-    /// cost two full-signal buffers (726 MB for 33 minutes at 48 kHz).
+    /// runs two of these back to back, and a fresh output per stage would cost
+    /// two full-signal buffers (726 MB for 33 minutes at 48 kHz).
     private static func biquadInPlace(_ x: inout [Float], _ b: [Float], _ a: [Float]) {
         var delays = [Float](repeating: 0, count: 4)
         biquadInPlace(&x, b, a, delays: &delays)
@@ -42,8 +42,8 @@ public enum Loudness {
                                           delays: inout [Float]) {
         #if canImport(Accelerate)
         let coeffs: [Double] = [Double(b[0]), Double(b[1]), Double(b[2]), Double(a[0]), Double(a[1])]
-        // Preserve the old failure behaviour: no filter means no measurement,
-        // which the caller reads as silence rather than as unweighted audio.
+        // No filter means no measurement, which the caller reads as silence
+        // rather than as unweighted audio.
         guard let setup = vDSP_biquad_CreateSetup(coeffs, 1) else {
             for i in 0..<x.count { x[i] = 0 }
             return
@@ -81,11 +81,10 @@ public enum Loudness {
     /// BS.1770-4 integrated loudness over a signal delivered in pieces, so a
     /// caller can measure a long file without ever holding it.
     ///
-    /// Feeding the whole signal in one `consume` produces the same number as
-    /// ``Loudness/integratedLUFS(_:sampleRate:)`` - that function is now a
-    /// wrapper around this - because the K-weighting biquad state carries
-    /// across calls and the 400 ms blocks are cut at absolute sample positions,
-    /// not at chunk boundaries.
+    /// Chunked input produces the same number as
+    /// ``Loudness/integratedLUFS(_:sampleRate:)`` (which wraps this), because the
+    /// K-weighting biquad state carries across calls and the 400 ms blocks are cut
+    /// at absolute sample positions, not at chunk boundaries.
     ///
     /// Not thread safe; feed it from one place.
     public final class StreamingMeter {

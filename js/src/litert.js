@@ -82,8 +82,7 @@ export function assertBrowserRuntime({ packageName, litert }) {
  *
  * It is created before LiteRT.js exists, because a core instantiates at import
  * time and its session only exists once the app calls `load()`. So `imports` is
- * stable and its methods forward to whatever `install` last set - the same late
- * binding a named global used to provide, minus the global.
+ * stable and its methods forward to whatever `install` last set.
  *
  * @returns {{ imports: object, install: (host: object) => void }}
  */

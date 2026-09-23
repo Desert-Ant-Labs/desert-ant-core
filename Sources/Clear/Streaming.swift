@@ -8,28 +8,24 @@ import Foundation
 // File-to-file enhancement in bounded memory.
 //
 // The in-memory pipeline (`Clear.enhance(samples:)`) holds the signal, its
-// spectrogram, and the enhanced result at once - roughly 383 MB per 5 minutes
-// at 48 kHz, so a 33-minute recording peaks in the gigabytes and an hour is
-// simply not possible on a phone. This path keeps peak flat instead: it works
-// on 20-second windows and streams both ends.
+// spectrogram, and the enhanced result at once: roughly 383 MB per 5 minutes at
+// 48 kHz, so an hour does not fit on a phone. This path keeps peak flat by
+// working on 20-second windows and streaming both ends.
 //
 // Two things make windowing safe:
 //
 //   * The model runs on independent 200-frame chunks, so cutting the signal
 //     into windows changes nothing about inference itself.
 //   * The ERB/DF front end carries a running mean (EMA, tau = 1 s). That state
-//     cannot be cut, so each window is fed 3 s of the previous window's audio
-//     as warmup and that prefix is discarded from the output. At tau = 1 s,
-//     3 s is ~95% convergence, so the seam is inaudible - but it does mean the
-//     output is not bit-identical to the whole-file path. Tests assert SNR, not
-//     equality.
+//     cannot be cut, so each window is fed the previous window's last 4 s as
+//     warmup and that prefix is discarded from the output. The seam is
+//     inaudible, but the output is not bit-identical to the whole-file path, so
+//     tests assert SNR, not equality.
 //
-// Mastering needs the integrated loudness of the *enhanced* signal, which is
-// only known once the last window is done. Rather than predict it from the
-// input (what the previous SDK did, via a calibrated attenuation constant) the
-// enhanced audio goes to a float32 scratch file while a streaming meter runs,
-// then a second, cheap pass applies the gain and encodes. No model work is
-// repeated.
+// Mastering needs the integrated loudness of the *enhanced* signal, known only
+// after the last window. Rather than predict it from the input with a calibrated
+// attenuation constant, the enhanced audio goes to a float32 scratch file while
+// a streaming meter runs, then a second, cheap pass applies the gain and encodes.
 
 extension Clear {
     /// Samples spanned by one model chunk: 200 frames at a 480-sample hop, so
@@ -40,17 +36,15 @@ extension Clear {
     /// that grid shifts every chunk boundary inside it, which moves the
     /// per-chunk edge effects and audibly changes the output. Measured against
     /// the in-memory path: a 4 s warmup (2 chunks) agrees at ~43 dB SNR, while
-    /// 3 s (1.5 chunks) collapses to ~12 dB. Length past the first couple of
-    /// chunks buys nothing - 4 s, 6 s and 10 s all land at ~43 dB - so this is
-    /// an alignment constraint, not a convergence one.
+    /// 3 s (1.5 chunks) collapses to ~12 dB. 4 s, 6 s and 10 s all land at
+    /// ~43 dB, so this is an alignment constraint, not a convergence one.
     private static var chunkSamples: Int { 200 * ClearDSP.hopSize }
 
-    /// Window of new audio per iteration. 10 chunks.
     private static var windowFrames: Int { 10 * chunkSamples }
 
     /// Audio replayed from the previous window so the feature EMA (tau = 1 s)
-    /// reconverges before the samples we keep. 2 chunks = 4 s, which is both
-    /// grid-aligned and ~98% converged.
+    /// reconverges before the kept samples. 4 s is both grid-aligned and ~98%
+    /// converged.
     private static var warmupFrames: Int { 2 * chunkSamples }
 
     func enhanceStreaming(path: String, to outputPath: String,
@@ -155,7 +149,7 @@ extension Clear {
 
         // Mastering: one gain for the whole file, from the enhanced signal's own
         // loudness, matching what the in-memory path computes. The peak ceiling
-        // is the limiter's job in the second pass, not this gain's - backing the
+        // is the limiter's job in the second pass, not this gain's: backing the
         // whole file off to fit its loudest transient would miss the target.
         var measured: Double? = nil
         var gain: Float = 1

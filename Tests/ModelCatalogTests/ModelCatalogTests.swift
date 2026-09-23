@@ -53,9 +53,7 @@ struct ModelCatalogTests {
 
     /// A model's `sdkVersion` is what its usage attributes to, and it is declared
     /// here rather than read from the package files (Swift cannot see them at
-    /// build time), so this test is what keeps the three copies honest. It has
-    /// caught real drift: Emo shipped 0.10.2 to npm and Maven while reporting
-    /// 0.7.0 in its telemetry.
+    /// build time), so this test is what keeps the three copies honest.
     @Test func sdkVersionsMatchThePublishedPackages() throws {
         for model in catalog {
             #expect(
@@ -95,10 +93,9 @@ struct ModelCatalogTests {
         }
     }
 
-    /// The catalog id is the last fact an npm package still restates: the native
-    /// `dal_*` ABI takes it as an argument, so the JS side has to know it. (The
-    /// wasm side no longer does - a core reports its own `modelInfo()`, and the
-    /// host it drives arrives as an import rather than a named global.)
+    /// The catalog id is the one fact an npm package restates: the native `dal_*`
+    /// ABI takes it as an argument, so the JS side has to know it. (The wasm side
+    /// does not: a core reports its own `modelInfo()`.)
     @Test func jsPackagesUseTheDeclaredId() throws {
         for model in catalog {
             guard let codec = try packageFile("packages/\(model.id)-node/codec.js") else { continue }
@@ -181,10 +178,7 @@ private func firstSemanticVersion(in line: Substring) -> String? {
 /// The declared OS floor must match the artifact, not somebody's memory.
 ///
 /// This is the check that makes `osFloor` worth having. A comment saying "needs iOS 18" rots
-/// silently; a value the catalog states and a test reads off the COMPILED PACKAGE cannot. The
-/// defect it exists to catch already happened twice on this repo: `Package.swift` declared
-/// iOS 16 while `README.md` promised iOS 18, and `ClipModel.revision` carried a justification
-/// that had stopped being true.
+/// silently; a value the catalog states and a test reads off the COMPILED PACKAGE cannot.
 @Suite("Model OS floors")
 struct ModelOSFloorTests {
 

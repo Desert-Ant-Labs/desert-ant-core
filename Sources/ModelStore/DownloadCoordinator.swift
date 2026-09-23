@@ -5,8 +5,8 @@
 // same model (two test suites in one process, or a server handling two requests
 // that both need a model not yet cached) would each run the full download,
 // writing the same `<location>/.dal-meta/<file>.part` temp and moving it into
-// the same destination. Their writes interleave and the model lands corrupt:
-// the symptom was Core ML failing to open a half-written `weights/weight.bin`.
+// the same destination. Their writes interleave and the model lands corrupt
+// (Core ML then fails to open a half-written `weights/weight.bin`).
 //
 // This process-global actor keys an in-flight `Task` by cache location. The
 // first caller starts the download; everyone else on the same location awaits

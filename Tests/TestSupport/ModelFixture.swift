@@ -1,9 +1,8 @@
 // Shared test support for every model's suite: where model-backed tests run, and
 // the one download they share.
 //
-// Both pieces used to be copied into each model's test target. Generic over
-// `ModelDeclaration` instead, they work for any model in the catalog, so a new
-// model's suite adds no fixture code.
+// Generic over `ModelDeclaration`, so they work for any model in the catalog and
+// a new model's suite adds no fixture code.
 
 import Foundation
 import DesertAnt

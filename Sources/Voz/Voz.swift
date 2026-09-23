@@ -33,16 +33,15 @@ public enum VozError: Error, CustomStringConvertible, Sendable {
 /// fetch it ahead of time.
 public actor Voz {
 
-    /// How far along a transcription is, and what it has produced so far.
+    /// How far along a transcription is.
     public struct Progress: Sendable {
         /// 0...1 over the whole request.
         public let fractionCompleted: Double
     }
 
     public struct Result: Sendable {
-        /// The full transcript.
         public let text: String
-        /// Every word with the time it starts. Resolution is 80 ms.
+        /// Resolution is 80 ms.
         public let words: [Word]
         /// Length of the audio transcribed.
         public let duration: TimeInterval
@@ -56,9 +55,9 @@ public actor Voz {
 
     private let pipeline: Pipeline
     // Actor isolation is not a lock across awaits, and a transcription suspends
-    // at every model call - the browser's are promises, and the native decode
-    // join is an await - while the pipeline's buffers are still live. Two
-    // concurrent calls interleaved into one set of them.
+    // at every model call (the browser's are promises, and the native decode
+    // join is an await) while the pipeline's buffers are still live. Two
+    // concurrent calls would interleave into one set of them.
     private var transcribing = false
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
@@ -77,11 +76,9 @@ public actor Voz {
             waiting.removeFirst().resume()
         }
     }
-    /// One turnstile per instance. See UsageTracking.swift: this model drives
-    /// Core ML directly rather than through `Inference`, so it opens its own
-    /// rather than inheriting the session factory's.
-    // Usage is reported through Core ML's own client, which a browser build does
-    // not have: UsageTracking.swift is `#if canImport(CoreML)` whole.
+    /// One turnstile per instance. This model drives Core ML directly rather
+    /// than through `Inference`, so it opens its own; see UsageTracking.swift,
+    /// which is Core ML only.
     #if canImport(CoreML)
     private let usage: UsageTurnstile?
     #endif
@@ -150,11 +147,10 @@ public actor Voz {
                                         .appendingPathComponent("embedding.f16"),
                                     options: .mappedIfSafe))
         // The engine binds these buffers into its feature providers and output
-        // backings, so both halves have to be handed the same set.
+        // backings at load, so both halves have to be handed the same set, with a
+        // slot per overlapped encode. One window per slot: this graph is a fixed
+        // shape.
         let lanes = try CoreMLEngine.declaredLanes(directory: modelDirectory)
-        // The engine says how many encodes it will overlap, and the buffers
-        // carry a slot for each: they are bound into its providers at load.
-        // One window per slot, because this graph is a fixed shape.
         let buffers = try PipelineBuffers(configuration: assets.configuration, lanes: lanes,
                                           batch: 1, depth: CoreMLEngine.encodeDepthForLoad)
         let engine = try CoreMLEngine(directory: modelDirectory, computeUnits: computeUnits,
@@ -230,7 +226,7 @@ public actor Voz {
 #if os(WASI)
 /// Samples pulled from the JavaScript host a chunk at a time.
 ///
-/// The point is what it does NOT hold. A caller who hands over a whole
+/// The point is what it does not hold. A caller who hands over a whole
 /// `Float32Array` pays for the file twice: once in JS and once copied into wasm
 /// memory, which for an hour of audio is 460 MB before the model has allocated
 /// anything. This asks for the next chunk when the pipeline needs it, and the

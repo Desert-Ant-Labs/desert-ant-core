@@ -8,7 +8,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
 
 /**
- * Time, identity and the POST transport — the pieces core keeps in
+ * Time, identity and the POST transport: the pieces core keeps in
  * `Identity.swift` and `Transport.swift`.
  *
  * `HttpURLConnection` rather than a client library: the jar must stay
@@ -33,7 +33,7 @@ internal fun ingestEndpoint(): String =
  * (`DesertAnt.apiKey`) wins, matching core's `hostProvidedApiKey()`; otherwise
  * it is read from the environment as core does, then from the same-named system
  * property. Trimmed: a key read from a secret file often ends in a newline, which
- * the body tolerated but `setRequestProperty` rejects, dropping the POST.
+ * the body tolerates but `setRequestProperty` rejects, dropping the POST.
  */
 internal fun apiKey(): String? =
     ai.desertant.tongue.DesertAnt.apiKey?.trim()?.takeIf { it.isNotEmpty() }

@@ -84,7 +84,7 @@ enum Deterministic {
 
     /// Cut a candidate to its country's IBAN length. `ibanRE` allows a space
     /// between characters (for grouped IBANs), so it swallows the following
-    /// word and fails mod-97 — leaking every IBAN in running prose.
+    /// word and fails mod-97, leaking every IBAN in running prose.
     private static func ibanTrim(_ candidate: String) -> String? {
         guard let want = ibanLen[String(candidate.prefix(2)).uppercased()] else { return nil }
         var seen = 0

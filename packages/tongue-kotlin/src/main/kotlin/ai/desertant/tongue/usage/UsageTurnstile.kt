@@ -13,9 +13,8 @@ import java.util.TimerTask
  * recorded or sent, and until the first detection with it off no client is
  * built, so no store is touched and no device id is minted.
  *
- * The equivalent of core's `TrackedSession`, which this SDK cannot use — that
- * wraps an `InferenceSession`, and there is no inference session here. See
- * docs/USAGE.md.
+ * The equivalent of core's `TrackedSession`, which this SDK cannot use: that
+ * wraps an `InferenceSession`, and there is no inference session here.
  *
  * `synchronized` rather than an actor or a coroutine scope: `UsageClient` is not
  * thread-safe, and the artifact takes no dependency on kotlinx-coroutines. The
@@ -165,7 +164,7 @@ internal class UsageTurnstile private constructor(
                     )
                     client.start()
                     // A process that exits inside the 3 s debounce would otherwise send
-                    // nothing at all, while `start()` has already stamped the window —
+                    // nothing at all, while `start()` has already stamped the window,
                     // so a short-lived JVM would report zero every day, permanently.
                     // The hook flushes what it can on the way out.
                     runCatching {

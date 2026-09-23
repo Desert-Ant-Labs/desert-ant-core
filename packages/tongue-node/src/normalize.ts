@@ -23,10 +23,9 @@ export const MAX_CHARACTERS = 512;
 
 // Order is part of the contract; see `normalize`.
 // Every class is spelled out. `\w`, `\d`, `\s` and `\S` are engine-defined and the
-// three engines behind this spec disagree. This port already wrote the mention and
-// digit classes out; `\s` and `\S` were still JavaScript's, which omits U+0085 and
+// three engines behind this spec disagree: JavaScript's `\s` omits U+0085 and
 // U+001C-001F and adds U+FEFF. Python's definition is the spec, and the same
-// 29 scalars now appear in all three ports.
+// 29 scalars appear in all three ports.
 const WS = "\\u0009-\\u000D\\u001C-\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000";
 const NON_WS = `[^${WS}]`;
 
@@ -37,7 +36,7 @@ const DIGIT_RE = /\p{Nd}+/gu;
 // Emoji, symbol modifiers and invisible formatting characters: no language
 // signal, but they do perturb the n-gram bag. So, Sk, Cf, Co, Cn.
 // From the pinned table rather than `\p{So}` and friends, because those answer
-// from the engine's Unicode version and the model was trained on 13.0.0 — a newer
+// from the engine's Unicode version and the model was trained on 13.0.0: a newer
 // V8 would otherwise keep scalars the training data discarded.
 function isDiscarded(codePoint: number): boolean {
   let low = 0;

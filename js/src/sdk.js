@@ -1,10 +1,9 @@
 // The shared model-SDK runtime: one implementation of "load a model, run it,
 // dispose it" for both cores a Desert Ant package ships.
 //
-// The two cores now expose the same surface - the WebAssembly ABI BridgeJS
-// generates from Swift's `@JS` entry points and the native `dal_*` C ABI bound
-// with koffi - so the
-// only difference between a package's browser entry and its native entry is
+// The two cores expose the same surface (the WebAssembly ABI BridgeJS generates
+// from Swift's `@JS` entry points, and the native `dal_*` C ABI bound with
+// koffi), so the only difference between a package's browser entry and its native entry is
 // which core it binds and, for the browser, the LiteRT.js session it has to set
 // up first. Everything after that (create or adopt, download with progress,
 // encode options, run, decode, group calls, dispose) is identical for every

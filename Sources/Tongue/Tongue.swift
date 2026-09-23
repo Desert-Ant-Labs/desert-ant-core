@@ -1,8 +1,8 @@
 
 /// How much to trust an answer.
 ///
-/// Keyed off evidence — input length and how far the top candidate leads the
-/// runner-up — not raw softmax confidence, which is badly overconfident on very
+/// Keyed off evidence (input length and how far the top candidate leads the
+/// runner-up), not raw softmax confidence, which is badly overconfident on very
 /// short text. `"hi i am"` reads as Welsh to any character model at high
 /// probability; the margin and length are what reveal that it is a guess.
 public enum Reliability: String, Sendable {

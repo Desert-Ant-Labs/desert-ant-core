@@ -4,14 +4,9 @@ import Regex
 // src/tongue_training/normalize.py. That module is a frozen specification, not
 // an implementation detail: this file must reproduce its output exactly, or the
 // model sees different features here than it was trained on. The contract is
-// docs/normalizer.md plus normalize_vectors.json — generated in the reference
-// repo's golden/ and copied into each port's test resources — replayed by
-// TongueTests — change one and you change all of them, in the same commit.
-//
-// Regex comes from desert-ant-core, the shared primitive every model SDK uses: on
-// Android it routes through the host's java.util.regex, so the pipeline holds no
-// platform code. NFC is still local (see NFC.swift) only because core's `nfc` is
-// unreleased; that file documents how to delete itself once it ships.
+// docs/normalizer.md plus normalize_vectors.json (generated in the reference
+// repo's golden/ and copied into each port's test resources), replayed by
+// TongueTests. Change one and you change all of them, in the same commit.
 //
 // Porting hazards this file is deliberate about:
 //
@@ -19,7 +14,7 @@ import Regex
 //     characters (U+FB01 -> "fi", U+00BD -> "1/2"), which changes the character
 //     sequence and therefore every n-gram derived from it.
 //   Scalar truncation.  Python slices by code point, so the 512 cap counts
-//     Unicode scalars — not grapheme clusters and not UTF-16 units.
+//     Unicode scalars, not grapheme clusters or UTF-16 units.
 //   Invariant lowercase.  `String.lowercased()` is Unicode-default, never
 //     locale-aware: Turkish dotted/dotless I would otherwise diverge by locale.
 //   General category.  `Unicode.Scalar.Properties.generalCategory` is stdlib,
@@ -37,7 +32,7 @@ public enum Normalizer {
     // detection that costs tens of microseconds.
     // Every class is spelled out. `\w`, `\d`, `\s` and `\S` are engine-defined and
     // the three engines behind this spec disagree: ICU's `\w` includes combining
-    // marks (so `#नमस्ते` vanished entirely here while surviving elsewhere),
+    // marks (so `#नमस्ते` would vanish here while surviving elsewhere),
     // java.util.regex's are ASCII-only without UNICODE_CHARACTER_CLASS, and
     // JavaScript's `\s` omits U+0085 but adds U+FEFF. Python's are the spec, so
     // they are written out and the same three strings appear in all three ports.
@@ -59,7 +54,7 @@ public enum Normalizer {
     // language signal but do perturb the n-gram bag.
     //
     // From the generated table rather than `generalCategory`, because that answers
-    // from the runtime's Unicode version and the model was trained on 13.0.0 — a
+    // from the runtime's Unicode version and the model was trained on 13.0.0: a
     // newer OS would otherwise keep scalars the training data discarded. See
     // DiscardTable.swift.
     static func isDiscarded(_ scalar: Unicode.Scalar) -> Bool {
@@ -85,7 +80,7 @@ public enum Normalizer {
     /// Replace every match with a single space.
     ///
     /// `Regex` reports match ranges rather than offering substitution, so this
-    /// walks the matches in reverse and splices — reverse order keeps the earlier
+    /// walks the matches in reverse and splices; reverse order keeps the earlier
     /// indices valid as the string is mutated.
     private static func replacingMatches(_ pattern: Pattern, in text: String) -> String {
         let matches = pattern.matches(in: text)

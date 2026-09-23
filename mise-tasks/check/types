@@ -5,9 +5,8 @@
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# The .d.ts files are the public API every TypeScript consumer sees, and nothing
-# used to check them: they are hand-written prose that ships to npm. This compiles
-# them.
+# The .d.ts files are the public API every TypeScript consumer sees, hand-written
+# and shipped to npm. This compiles them.
 #
 # The sharpest cases are `WasmCore` and `HostImports` in js/index.d.ts. They
 # restate the two contracts BridgeJS generates from Swift - the exports a core

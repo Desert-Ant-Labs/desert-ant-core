@@ -1,9 +1,6 @@
-// Browser half of the platform seam for the universal entry (browser.js).
-// Bundlers resolve this file through the "browser" import condition of
-// `#platform` (see package.json "imports"), so none of the node-only code in
-// platform-node.js ever enters the browser module graph. That is what lets one
-// `@desert-ant-labs/voz` import build cleanly for the browser target of
-// multi-target bundlers (Next, Remix, SvelteKit, Nuxt).
+// Browser half of the `#platform` seam, resolved through the "browser" import
+// condition so the node-only code in platform-node.js never enters the browser
+// module graph.
 import { installAudioHost } from "@desert-ant-labs/core/audio";
 
 /** The bundle, keyed by revision, so a new pin does not read the old cache. */
@@ -18,8 +15,8 @@ export async function setupCore() {
 /**
  * The shared model-host import, which Voz never calls.
  *
- * Voz's core does not use the single-session `dalModelHost` seam - it drives
- * three graphs through its own `__vozHost` - but it reaches that module through
+ * Voz's core does not use the single-session `dalModelHost` seam (it drives
+ * three graphs through its own `__vozHost`), but it reaches that module through
  * DesertAnt, and the generated instantiator asks for the import unconditionally.
  * Throwing rather than no-op'ing: if one of these is ever reached, the wiring is
  * wrong and a silent success would hide it.

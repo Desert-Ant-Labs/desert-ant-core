@@ -224,8 +224,6 @@ public struct SHA256 {
         #endif
     }
 
-    // MARK: one-shot helpers
-
     /// The 32-byte SHA-256 digest of `bytes`.
     public static func digest<C: Collection>(_ bytes: C) -> [UInt8] where C.Element == UInt8 {
         var s = SHA256(); s.update(bytes); return s.finalize()

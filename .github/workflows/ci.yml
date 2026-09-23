@@ -42,9 +42,8 @@ jobs:
       - run: mise run check:manifest
       - run: mise run check:links
       - run: mise run check:docs
-      # hub:sync rendered against docs/hub-cards/, an archive that no longer exists.
-      # The dry run is the same check against what the Hub actually serves, and it
-      # needs no token: every repo it reads is public.
+      # The dry run renders against what the Hub actually serves, and it needs no
+      # token: every repo it reads is public.
       - run: mise run hub:publish --dry-run
       # The .d.ts files are the API every TypeScript consumer sees, and they are
       # hand-written. This job has no built core, so it checks that they compile;
@@ -56,8 +55,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: false
-      # The README promises a minimum Swift; this builds on exactly that, because
-      # the claim silently drifted twice while nothing checked it.
+      # The README promises a minimum Swift; this builds on exactly that.
       - run: mise run check:swift-floor
       - run: mise run test:js
 
@@ -89,23 +87,18 @@ jobs:
       # so these caches turn the simulator build into an incremental one.
       # Package.resolved keys the dependency graph; restore-keys accept a stale
       # DerivedData, which xcodebuild then patches incrementally.
-      #
-      # (This used to say swift-syntax dominated the job, via JavaScriptKit's
-      # macro plugin. That stopped being true when JavaScriptKit became opt-in
-      # behind DAL_WASM_BUILD, which test:ios does not set: swift-syntax no
-      # longer appears in the build log at all.)
       - name: Cache iOS DerivedData
         uses: actions/cache@v6
         with:
           path: .build/ios-deriveddata
-          # v2: same debug-to-release reset as the scratch cache below, and
-          # per-commit keyed for the same reason: an exact hit never re-saves.
+          # Per-commit keyed for the same reason as the scratch cache below: an
+          # exact hit never re-saves.
           key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
           restore-keys: ios-deriveddata-v2-${{ runner.os }}-
 
       # Package.resolved is gitignored, so it cannot key this (hashFiles skips
       # a missing file and the key silently collapses to Package.swift). test:ios
-      # now resolves without -skipPackageUpdates, so a reused clone dir is
+      # resolves without -skipPackageUpdates, so a reused clone dir is
       # patched to the current graph rather than trusted whole; restore-keys
       # hand over the previous clone and xcodebuild fetches whatever drifted.
       - name: Cache iOS SPM clones
@@ -117,13 +110,11 @@ jobs:
 
       # build:swift and test:swift build into these scratch paths. Cold, they
       # rebuild every dependency (including swift-syntax via Title's MLX trait
-      # in .build-mlx) on each push. Keyed on the commit, not a file hash:
-      # every input guess so far (Package.swift alone, then sources) missed
-      # something that changes the build (task flags live in mise-tasks/), and
-      # an exact hit never re-saves, freezing the snapshot at its first save
-      # while every later run silently re-paid the same conversion. Per-commit
-      # keys always miss, restore the newest snapshot via restore-keys, and
-      # save their own.
+      # in .build-mlx) on each push. Keyed on the commit, not a file hash: file
+      # hashes miss inputs that change the build (task flags live in
+      # mise-tasks/), and an exact hit never re-saves, freezing the snapshot at
+      # its first save. Per-commit keys always miss, restore the newest snapshot
+      # via restore-keys, and save their own.
       - name: Cache Swift scratch paths
         uses: actions/cache@v6
         with:
@@ -131,8 +122,7 @@ jobs:
             .build-host
             .build-mlx
             .build-xet
-          # v2: the tasks moved from debug to release configuration; the old
-          # caches hold only dead debug artifacts.
+          # The version prefix invalidates caches built in another configuration.
           key: swift-scratch-v2-${{ runner.os }}-${{ github.sha }}
           restore-keys: swift-scratch-v2-${{ runner.os }}-
 
@@ -143,18 +133,12 @@ jobs:
   darwin-native:
     name: darwin native (npm)
     # The runner release.yml publishes the darwin-arm64 native from, so the
-    # toolchain that ships is the one CI proves. It was macos-14 to keep the
-    # shipped native on the oldest compiler, but macos-14 carries Swift 5.10 and
-    # the package now requires 6.2, so it cannot build this at all.
-    #
-    # Nothing is lost by moving. The artifact's compatibility floor comes from the
-    # manifest's `platforms`, not the runner: built here it still reports
-    # `minos 13.0` (verified with otool), the same as before. And "does it build on
-    # the oldest compiler we promise" is now a job of its own, check:swift-floor,
-    # which is a stricter version of what the old runner pin was reaching for - a
-    # broken release once shipped through exactly that gap. macOS still ships bash
-    # 3.2, so this remains the task set's only cover for the empty-array expansion
-    # the Linux jobs accept.
+    # toolchain that ships is the one CI proves. The artifact's compatibility
+    # floor comes from the manifest's `platforms`, not the runner (verified with
+    # otool: `minos 13.0`), and "does it build on the oldest compiler we
+    # promise" is check:swift-floor's job. macOS ships bash 3.2, so this is also
+    # the task set's only cover for the empty-array expansion the Linux jobs
+    # accept.
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
@@ -180,9 +164,8 @@ jobs:
         run: |
           # These three are already on the ubuntu-22.04 runner image, so the
           # common path installs nothing and never touches the network. That
-          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
-          # job's 6 h timeout rather than failing - one hung runner blocked two
-          # PRs at once. Bound each attempt and retry, so a bad mirror costs
+          # matters: apt can wedge on a bad mirror, sitting on `update` until the
+          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
@@ -292,8 +275,7 @@ jobs:
         with:
           path: .build
           # Per-commit key, same reasoning as the Apple scratch cache: file
-          # hashes kept exact-hitting a Sep 5 snapshot (no commit touched
-          # Sources/ since), converting it on every run and never saving.
+          # hashes exact-hit a stale snapshot and never re-save.
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
           restore-keys: js-wasm-build-${{ runner.os }}-
 
@@ -349,8 +331,7 @@ jobs:
           DAL_BROWSER_TIMEOUT_MS: "900000"
 
       # Then the packages through the real bundlers, against the real dist.
-      # Every SSR break we ever shipped passed the unit tests and failed in a
-      # consumer's `next build`.
+      # SSR breaks pass the unit tests and fail in a consumer's `next build`.
       - run: mise run test:bundles
 
   js-node:
@@ -364,9 +345,8 @@ jobs:
         run: |
           # These three are already on the ubuntu-22.04 runner image, so the
           # common path installs nothing and never touches the network. That
-          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
-          # job's 6 h timeout rather than failing - one hung runner blocked two
-          # PRs at once. Bound each attempt and retry, so a bad mirror costs
+          # matters: apt can wedge on a bad mirror, sitting on `update` until the
+          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
@@ -417,7 +397,7 @@ jobs:
         with:
           enable-cache: false
 
-      # build:node-native builds into .build-host from scratch otherwise. The
+      # build:node-native builds into .build-host from scratch otherwise.
       # Per-commit key, same reasoning as js-browser's wasm cache: file-hash
       # keys exact-hit stale snapshots and never re-save.
       - name: Cache the Swift native build
@@ -524,8 +504,8 @@ jobs:
           Write-Host "Windows models: $($products -join ', ')"
           "products=$($products -join ' ')" >> $env:GITHUB_OUTPUT
 
-      # One model at a time, mirroring mise-tasks/build/swift: each build proves
-      # the model compiles against its own dependency closure alone.
+      # One model at a time: each build proves the model compiles against its
+      # own dependency closure alone.
       - name: Build models
         shell: pwsh
         run: |
@@ -541,10 +521,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
-      # The store roots at Foundation's cachesDirectory, and guessing where
-      # that lands on Windows is how this cache spent its life saving nothing
-      # ("~\AppData\Local\desert-ant-models" never existed, so every run
-      # re-downloaded every model). Ask Foundation itself instead.
+      # The store roots at Foundation's cachesDirectory; ask Foundation itself
+      # where that lands on Windows rather than guessing a path that may not
+      # exist (which would cache nothing and re-download every model).
       - name: Locate model cache
         id: modelcache
         shell: pwsh
@@ -567,9 +546,8 @@ jobs:
       # Separate build step so a frontend failure names its exact invocation
       # (-v) instead of swift-driver's bare "error: fatalError". That line is
       # not a crash: on Windows the driver prints it after an ordinary compile
-      # error (a7ef4b2 read it as a memory spike and added -j 2; the run before
-      # that commit shows the real diagnostic right above it). Job count is
-      # left to SwiftPM, one per core.
+      # error. Job count is left to SwiftPM, one per core.
+      #
       # Debug, and only on this runner. Release is the faster configuration
       # everywhere else (the DSP frontends are bounds-checked triple loops that
       # run ~170x slower at -Onone: Ear's identify is 12-17 s per call in debug
@@ -577,9 +555,7 @@ jobs:
       # at all. SwiftPM does not link a test target into its runner there: the
       # runner .exe imports no <Target>Tests.dll, swift-testing scans a process
       # holding no test records, and every binary reports "0 tests in 0 suites"
-      # and exits 0. This job ran debug until 707ceef moved it to release on
-      # the belief that it already tested release; it did not, and the step
-      # that follows now proves a real test count either way.
+      # and exits 0. The step that follows proves a real test count either way.
       #
       # -Xswiftc -O on top of that: what breaks the test link is the release
       # *configuration* (SwiftPM's build plan), not the optimizer, and swiftc
@@ -587,15 +563,14 @@ jobs:
       # its tests while the code runs optimized. Measured locally on Swift 6.4
       # in this same debug configuration: Ear's suite took 38 s at -Onone and
       # 1.8 s with -O, Clear's 7.5 s with -O against 155 s at -Onone on this
-      # runner, and both still reported their full test count. Before this the
-      # test step was 17 minutes, 10 of them Ear.
+      # runner, and both still reported their full test count.
       - name: Build tests
         shell: pwsh
         run: swift build --build-tests -c debug -Xswiftc -O -v -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
 
       # One invocation per model, timed, so a slow target is named in the log
-      # instead of hiding in one 17-minute lump (which is how Ear's 992s went
-      # unnoticed: swift-testing output buffers apart from XCTest's).
+      # instead of hiding in one lump (swift-testing output buffers apart from
+      # XCTest's).
       - name: Test models (per model, timed)
         timeout-minutes: 45
         shell: pwsh
@@ -610,14 +585,8 @@ jobs:
             swift test --skip-build -c debug -Xswiftc -O --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
             if ($LASTEXITCODE -ne 0) { $failed = $true }
             # A suite that discovers nothing still exits 0, and prints "Test run
-            # with 0 tests in 0 suites". SwiftPM does not always link a test
-            # target into its runner on Windows in release: the runner .exe then
-            # imports no <Target>Tests.dll, swift-testing scans a process that
-            # holds no test records, and the job goes green having executed
-            # nothing. Reproduced on Swift 6.4 with a two-file package, and
-            # neither /OPT:NOREF nor forcing the import library in brings the
-            # import back. The steps above run debug for exactly that reason;
-            # this keeps watch on it, because a silently empty run is the one
+            # with 0 tests in 0 suites" (see Build tests for why that happens in
+            # release). This keeps watch, because a silently empty run is the one
             # failure this job cannot otherwise see.
             if (-not (Select-String -Path $log -Pattern 'Test run with [1-9]' -Quiet)) {
               Write-Host "::error::$p discovered no tests, so this run proves nothing"
@@ -653,9 +622,8 @@ jobs:
         run: |
           # These three are already on the ubuntu-22.04 runner image, so the
           # common path installs nothing and never touches the network. That
-          # matters: apt has wedged on a bad mirror here, sitting on `update` until the
-          # job's 6 h timeout rather than failing - one hung runner blocked two
-          # PRs at once. Bound each attempt and retry, so a bad mirror costs
+          # matters: apt can wedge on a bad mirror, sitting on `update` until the
+          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
           # seconds and a retry instead of the run. Retrying rather than just
           # `timeout-minutes`: that would still lose the run to a manual re-run,
           # which is the toil this is here to remove.
@@ -715,8 +683,8 @@ jobs:
       # keys an exact hit, and restore-keys accept a stale cache that SwiftPM
       # then patches incrementally. Two dirs, one per toolchain: .build-android
       # belongs to the 6.4.x snapshot (build:android-natives), .build-androidtest
-      # to the pinned release toolchain (test:android). Sharing one dir poisoned
-      # the restored state across toolchains (CHostBridge: stdlib.h not found).
+      # to the pinned release toolchain (test:android). Sharing one dir would
+      # poison the restored state across toolchains (CHostBridge: stdlib.h not found).
       - name: Cache the Android Swift builds
         uses: actions/cache@v6
         with:
@@ -756,7 +724,7 @@ jobs:
         if: steps.avd-cache.outputs.cache-hit != 'true'
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
+          api-level: 31 # androidtest minSdk
           arch: x86_64
           target: default # AOSP image: smaller and faster than google_apis, nothing here needs Play Services
           force-avd-creation: false
@@ -772,7 +740,7 @@ jobs:
           # one ABI this emulator can execute.
           DAL_ANDROID_ABIS: x86_64
         with:
-          api-level: 31 # androidtest minSdk (ICU NFKC needs 31+)
+          api-level: 31 # androidtest minSdk
           arch: x86_64
           target: default
           force-avd-creation: false

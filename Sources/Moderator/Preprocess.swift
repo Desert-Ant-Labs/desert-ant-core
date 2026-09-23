@@ -49,7 +49,7 @@ enum Preprocess {
         return out
     }
 
-    // MARK: Pillow's two-pass resampler (libImaging/Resample.c), bilinear filter
+    // MARK: Pillow bilinear resampler (libImaging/Resample.c)
 
     private static let precisionBits: Int32 = 32 - 8 - 2
 

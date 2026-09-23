@@ -12,7 +12,7 @@ import TestSupport
 /// many times it loads, and nothing else.
 ///
 /// `Gist()` resolves through its own `LoadedModel`, which does not share
-/// `ModelFixture`'s memo — so a suite that used both paid the 9 s twice. Building
+/// `ModelFixture`'s memo, so a suite that used both would pay the 9 s twice. Building
 /// the tagger from the fixture's already-resolved files collapses that to one,
 /// shared with `PipelineTests`, which needs the same files for its oracles.
 ///

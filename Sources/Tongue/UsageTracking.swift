@@ -1,20 +1,15 @@
-// The usage turnstile, wired directly.
+// The usage turnstile, wired directly. Other models get usage from `Inference`,
+// which wraps every session in a `TrackedSession`; Tongue has no inference
+// session to hook (a detection is arithmetic), so the client is opened here.
 //
-// emo, redact and shapes never write this: they depend on desert-ant-core's
-// `Inference`, which depends on `Usage` and wraps every session it builds in a
-// `TrackedSession`, so there is no untracked path. This model has no inference
-// runtime — a detection is arithmetic, not a Core ML or LiteRT session — so there
-// is no session factory to hook, and the client is opened here instead.
+// Same guarantees: one turnstile per `Tongue`, opened on the first detection, a
+// call recorded per `detect`, and a debounced flush that coalesces a burst of
+// keystrokes into one send. The state machine, storage keys and wire format come
+// from core's `Usage`.
 //
-// Same guarantees, reached differently: one turnstile per `Tongue`, opened on
-// the first detection, a call recorded per `detect`, and a debounced flush that coalesces
-// a burst of keystrokes into one send. The state machine, storage keys and wire
-// format all come from core's `Usage`, so a device counts identically however it
-// reached the endpoint.
-//
-// The Kotlin and JavaScript SDKs cannot share this file — they are direct ports
-// with no Swift underneath, unlike emo's JNI and native bridges — so each carries
-// its own port of the same state machine. docs/USAGE.md is the reference.
+// The Kotlin and JavaScript SDKs are direct ports with no Swift underneath, so
+// each carries its own port of the same state machine.
+// packages/tongue-node/USAGE.md is the reference.
 
 import Usage
 
@@ -145,6 +140,3 @@ func makeTongueClient(
 ) -> UsageClient {
     makeClient(sdk: TongueModel.sdkInfo, storage: storage, send: send, disabled: disabled)
 }
-
-// `usageDisabled()` is core's, in `Usage` (this file already imports it). Tongue
-// used to carry its own copy; they never differed, so it is the shared one now.

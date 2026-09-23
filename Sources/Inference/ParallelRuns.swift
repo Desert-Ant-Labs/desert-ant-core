@@ -3,18 +3,15 @@ import Foundation
 /// Run independent pieces of work across the inference backend, as widely as
 /// that backend can take them.
 ///
-/// Every model here has the same shape somewhere in it: a list of items that do
-/// not depend on each other - windows of audio, chunks of a spectrogram, frames
-/// of video - and a loop that hands them to a model one at a time. That loop
-/// leaves the machine idle, but how much it leaves idle, and what to do about
-/// it, depends on the runtime rather than the model:
+/// Items that do not depend on each other (windows of audio, chunks of a
+/// spectrogram, frames of video) leave the machine idle when run one at a time,
+/// and what to do about it depends on the runtime rather than the model:
 ///
 /// - **Core ML** takes several requests in flight on one session and spreads
 ///   them itself, including across the two Neural Engines of an Ultra part.
-///   Measured per call, Voz's encoder on an M3 Ultra: 34.8 ms one at a time,
-///   16.8 ms with two in flight, 13.2 ms with four. On single-engine chips the
-///   same depth is free rather than useful - an M5 goes 25.0 to 24.7 ms, an
-///   iPhone 16 Pro 30.9 to 30.8 - because one window already fills the engine.
+///   Voz's encoder on an M3 Ultra: 34.8 ms per call one at a time, 13.2 ms with
+///   four in flight. On single-engine chips the same depth is free rather than
+///   useful.
 /// - **LiteRT** cannot: a session serializes its whole run under a mutex, so
 ///   concurrency there means several sessions, one request each. That is what
 ///   a caller's session pool is for, and why passing more than one session here
@@ -31,7 +28,7 @@ public enum ParallelRuns {
     /// only thing depth buys: a dispatch's fixed host cost is hidden by the
     /// next request being already queued, which is why the small models gain
     /// from it on every chip measured (Voz's mel, 0.31 ms to 0.13 on an M5).
-    /// Above four nothing measured gains - an Ultra flattens at 13.2 ms - and
+    /// Above four nothing measured gains (an Ultra flattens at 13.2 ms), and
     /// each request in flight costs the caller a set of input buffers.
     ///
     /// One where a run holds a lock for its duration, since queueing behind it
@@ -46,8 +43,7 @@ public enum ParallelRuns {
     /// run it on. Rethrows the first failure and cancels the rest.
     ///
     /// Items may complete in any order. A caller that needs ordering should
-    /// write into a preallocated slot per index, which is what every caller
-    /// here does anyway.
+    /// write into a preallocated slot per index.
     ///
     /// An item is handed to the session whose turn it is, and only while that
     /// session holds fewer than its `depth`, so a session that serializes never

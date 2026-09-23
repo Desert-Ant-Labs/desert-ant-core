@@ -199,8 +199,8 @@ public struct ModelStore: Sendable {
     /// Resolve a ``RevisionRequirement`` to a concrete revision for `repo`.
     /// `exact` needs nothing. A range asks the Hub for the repo's tags; when
     /// that fails (offline, or a transport without a refs call), it falls back
-    /// to the newest *downloaded* revision in range, then to the range's `from`
-    /// - so a device that downloaded once keeps working offline, and a fresh
+    /// to the newest *downloaded* revision in range, then to the range's `from`,
+    /// so a device that downloaded once keeps working offline, and a fresh
     /// offline install still points at a valid revision to try.
     public func resolveRevision(_ requirement: RevisionRequirement, repo: String) async -> String {
         switch requirement {

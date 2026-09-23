@@ -18,7 +18,6 @@ struct ShapeMeta: Sendable {
         let resid: Float
     }
 
-    /// Parse the JSON sidecar with the platform's native decoder (Codable).
     init(json: String) throws {
         let raw = try JSONDecoder().decode(Raw.self, from: json)
         classOrder = raw.classes.map { ShapeKind(rawValue: $0) }

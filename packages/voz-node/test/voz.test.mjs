@@ -129,7 +129,7 @@ test("a self-hosted bundle is served from the caller's URL", async () => {
 
 test("a modelBaseUrl may be a path on the app's own origin", async () => {
   // What serving the bundle yourself looks like: a path, not an absolute URL.
-  // `new URL(name, base)` rejects a relative base, so this used to throw
+  // `new URL(name, base)` rejects a relative base, which would throw
   // "Invalid base URL" from inside the first fetch.
   const core = fakeCore();
   const Voz = makeVoz(fakePlatform(core));

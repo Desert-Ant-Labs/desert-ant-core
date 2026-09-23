@@ -1,9 +1,5 @@
-// Which published build of the model to run.
-//
-// The Hub repo ships two trained builds side by side, so this is a real choice,
-// not a label: it selects the files that get downloaded and loaded. Unlike
-// clear's variants (separate artifact stems in one flat repo), gist's live in
-// separate folders - multilingual at the repo root, English under `en/` - so a
+// Unlike clear's variants (separate artifact stems in one flat repo), gist's live
+// in separate folders (multilingual at the repo root, English under `en/`), so a
 // variant is a path prefix rather than a file-name stem.
 
 import DesertAnt
@@ -12,8 +8,8 @@ import DesertAnt
 ///
 /// The default multilingual model covers 36 topics across 101 languages (~74 MB).
 /// The English-only build is the same 36 topics and the same classifier head at
-/// ~15 MB, for apps that only ever see English/Latin text - **other scripts are
-/// not covered** (non-Latin input degrades to noise), so pick it deliberately.
+/// ~15 MB, for apps that only ever see English/Latin text. **Other scripts are
+/// not covered**: non-Latin input degrades to noise.
 public enum GistVariant: String, Sendable, Equatable, CaseIterable, Identifiable {
     /// The full model: 36 topics, 101 languages (~74 MB). The SDK default.
     case multilingual
@@ -38,9 +34,8 @@ public enum GistVariant: String, Sendable, Equatable, CaseIterable, Identifiable
     /// Core ML export (a directory on the Hub): Apple.
     public var coreML: String { pathPrefix + "gist.mlmodelc" }
 
-    /// The sidecars every platform needs alongside the artifact. Unlike the
-    /// other text models, gist carries the embedding table outside the graph:
-    /// the potion stream is a lookup, not a tensor op, so it stays a sidecar.
+    /// The sidecars every platform needs alongside the artifact. The embedding
+    /// table is one: the potion stream is a lookup, not a tensor op.
     public var sidecars: [String] { [tokenizer, embedding, embeddingMeta, config, taxonomy] }
 
     /// The runnable artifact for `platform`.
@@ -68,9 +63,8 @@ public enum GistVariant: String, Sendable, Equatable, CaseIterable, Identifiable
     /// variant never downloads the other.
     public var distribution: ModelDistribution { distribution(revision: GistModel.revision) }
 
-    /// The same slice pinned to an explicit repo `revision` instead of the SDK's
-    /// pinned one. Each revision caches separately, so switching never clobbers
-    /// another.
+    /// The same slice pinned to an explicit repo `revision`. Each revision
+    /// caches separately.
     public func distribution(revision: String) -> ModelDistribution {
         ModelDistribution(repo: GistModel.repo, revision: revision, files: files)
     }

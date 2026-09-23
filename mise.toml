@@ -14,7 +14,7 @@
 #   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
 #   mise run check:swift-floor   the package builds on the Swift the README promises
 #
-#   mise run build:swift [model] Swift targets, one model at a time
+#   mise run build:swift [model] Swift targets, all at once or one model
 #   mise run build:wasm  [model] the browser core -> packages/<model>-node/dist
 #   mise run build:node-native   the server-side native core, for this host
 #   mise run build:android       ai.desertant:core plus every model AAR
@@ -40,13 +40,9 @@
 # build` stays green on all three hosts and builds what each one can.
 #
 # `mise run test` on Windows runs every check and suite but test:wasi and
-# test:browser, which skip for the same wasm reasons. test:swift is the one that
-# changes shape: it runs debug there, because SwiftPM does not link a test target
-# into its runner on Windows in release, so swift-testing scans a process with no
-# test records and every binary reports "0 tests in 0 suites" and exits 0. Debug
-# is not a preference on that host, it is the only configuration that runs
-# anything; the task also fails outright on a zero-discovery run rather than
-# calling it a pass.
+# test:browser, which skip for the same wasm reasons. test:swift runs debug
+# there, because release links no tests on Windows (the task explains), and it
+# fails outright on a zero-discovery run rather than calling it a pass.
 #
 # Toolchains differ per task on purpose. test:swift and test:ios use the full
 # Xcode toolchain (Apple frameworks, Core ML), so they pin no mise `swift`. The
@@ -61,7 +57,7 @@
 DAL_GPU = ""
 # Our own suites run on networked CI; without this every model load would post a
 # real turnstile event, and a fire-and-forget send still in flight as a test
-# process exits raced Node's teardown into a SIGSEGV. Honoured by Usage's
+# process exits can race Node's teardown into a SIGSEGV. Honoured by Usage's
 # `usageDisabled()` on every platform, the wasm build under Node included; set
 # here so every `mise run` task inherits it.
 DAL_USAGE_DISABLED = "1"

@@ -3,11 +3,9 @@ import AudioIO
 import TestSupport
 @testable import Uhm
 
-/// A real 14-channel field-recorder capture crashed `analyze(audioPath:)`
-/// (std::overflow_error out of the whole-file convert) and, decoded, carried
-/// only channel 0. Both fixed in AudioIO's Apple backend (chunked convert,
-/// explicit many-channel mixdown); this pins the contract at Uhm's level: a
-/// many-channel file is analyzable audio like any other, not a crash.
+/// A many-channel file is analyzable audio like any other, not a crash. The
+/// decode hazards behind this (overflowing convert, channel-0 "mixdown") are
+/// pinned in AudioIOTests; this is the contract at Uhm's level.
 #if canImport(CoreML)
 @Suite(.serialized, .modelBacked)
 struct ManyChannelTests {

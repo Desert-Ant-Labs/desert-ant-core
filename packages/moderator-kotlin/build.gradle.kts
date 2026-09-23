@@ -1,6 +1,5 @@
-// Android library (AAR) for Moderator: ai.desertant:moderator. Everything
-// structural lives in the shared ai.desertant.model-sdk convention plugin
-// (gradle-plugin/); this is only what is genuinely Moderator's.
+// Android library (AAR) for Moderator: ai.desertant:moderator. Everything structural comes
+// from the ai.desertant.model-sdk convention plugin (gradle-plugin/).
 plugins { id("ai.desertant.model-sdk") }
 
 desertAntSdk {

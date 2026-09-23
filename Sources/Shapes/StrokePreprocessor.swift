@@ -1,24 +1,14 @@
 import RealModule
 
 /// Converts one raw pen-down…pen-up stroke into the model's `[N, C]` feature
-/// vectors. This is a 1:1 port of the Python reference (`preprocess.py`); the
-/// algorithm is the cross-platform source of truth, so it is kept deliberately
-/// simple and explicit. All math is done in `Double`; outputs are `Float`.
-///
-/// Pipeline:
-///   1. Reject degenerate input + drop duplicate consecutive points.
-///   2. Normalize position + scale (center; longer bbox side -> 1.0).
-///   3. Arc-length resample at fixed spacing.
-///   4. Per-point features `[dist, cos, sin]` (+ optional curvature).
-///   5. Z-score the distance channel with frozen mean/std.
+/// vectors. A 1:1 port of the Python reference (`preprocess.py`). All math is
+/// done in `Double`; outputs are `Float`.
 struct StrokePreprocessor {
     let config: PreprocessConfig
 
     init(config: PreprocessConfig = PreprocessConfig()) {
         self.config = config
     }
-
-    // MARK: Public entry point
 
     /// Run the full pipeline on one stroke. Throws `DegenerateStrokeError` for
     /// input that is too short / too small.
@@ -40,7 +30,7 @@ struct StrokePreprocessor {
         return computeFeatures(resampled)
     }
 
-    // MARK: Step 1 — dedupe + length
+    // MARK: Dedupe
 
     private func dedupeConsecutive(_ points: [Point]) -> [Point] {
         guard let first = points.first else { return [] }
@@ -70,7 +60,7 @@ struct StrokePreprocessor {
         return total
     }
 
-    // MARK: Step 2 — normalize position + scale
+    // MARK: Normalize
 
     private func normalize(_ points: [Point]) -> [Point] {
         guard let first = points.first else { return [] }
@@ -97,7 +87,7 @@ struct StrokePreprocessor {
         return out
     }
 
-    // MARK: Step 3 — arc-length resampling
+    // MARK: Resample
 
     private func resampleArcLength(_ points: [Point], spacing: Double) -> [Point] {
         let n = points.count
@@ -150,7 +140,7 @@ struct StrokePreprocessor {
         return resampled
     }
 
-    // MARK: Steps 4 + 5 — features + distance normalization
+    // MARK: Features
 
     private func computeFeatures(_ points: [Point]) -> [StrokePoint] {
         let n = points.count

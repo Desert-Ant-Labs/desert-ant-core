@@ -1,7 +1,6 @@
 import DesertAnt
 
-/// Crops an image, scores every crop through the shared `InferenceSession`
-/// (Core ML | LiteRT | JS host, chosen by the core), and keeps the per-head max.
+/// Crops an image, scores every crop, and keeps the per-head max.
 /// Normalization is inside the model, so a crop goes in as raw pixels.
 final class Model: Sendable {
     private let session: any InferenceSession

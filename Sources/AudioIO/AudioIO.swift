@@ -128,8 +128,8 @@ public extension AudioIO {
     /// Write mono (or interleaved) `samples` as a 16-bit PCM WAV file. Uses the
     /// portable encoder, so the bytes match `encodeWAV`. Available where a
     /// filesystem is (Apple/Linux); on Android/wasm write through the host.
-    /// Streams the file out in fixed-size blocks. Encoding to `[UInt8]` and then
-    /// copying into `Data` held two more full-size buffers (about 362 MB
+    /// Streams the file out in fixed-size blocks: encoding to `[UInt8]` and then
+    /// copying into `Data` would hold two more full-size buffers (about 362 MB
     /// combined for 33 minutes of 48 kHz mono) on top of the samples.
     static func writeWAV(_ samples: [Float], sampleRate: Int, channels: Int = 1, to path: String) throws {
         let url = URL(fileURLWithPath: path)

@@ -204,7 +204,7 @@ final class ShapeSnapper: NSObject {
     private func detectAndPreview() {
         guard penDown, canvas?.tool is PKInkingTool,
               let stroke = inProgressStroke() else { return }
-        // Recognize from the live PencilKit stroke itself — same coordinate space
+        // Recognize from the live PencilKit stroke itself: same coordinate space
         // as the ink, no separately accumulated points.
         let pts = strokePoints(stroke)
         guard pts.count >= 8 else { return }
@@ -316,8 +316,8 @@ final class ShapeSnapper: NSObject {
     private func makeStroke(_ shape: Shape, ink: PKInk, width: CGFloat) -> PKStroke {
         let outline = shape.cgOutline(samples: 96)
         // For closed shapes, start (and end) the loop at the midpoint of the first
-        // edge so the path seam lands on a straight section rather than a corner
-        // — otherwise that corner renders sharp while the spline rounds the others.
+        // edge so the path seam lands on a straight section rather than a corner,
+        // which would render sharp while the spline rounds the others.
         let isLine: Bool
         if case .line = shape { isLine = true } else { isLine = false }
         let loop = isLine ? outline : Self.closedLoopFromMidEdge(outline)
@@ -330,12 +330,11 @@ final class ShapeSnapper: NSObject {
                           opacity: 1, force: 1, azimuth: 0, altitude: .pi / 2)
         }
         let path = PKStrokePath(controlPoints: sp, creationDate: Date())
-        // The standalone SDK also carried over the source stroke's render state
-        // (grain-texture anchoring for pencil/crayon/marker) and its wet-ink
-        // group, through `PKStroke(ink:path:transform:renderGroupID:renderState:)`.
-        // That initializer is iOS 27 / visionOS 27, which this repo's pinned
-        // Xcode has no SDK for, so it cannot even be compiled behind an
-        // `#available` check here. Restore it when the toolchain moves.
+        // TODO: carry over the source stroke's render state (grain anchoring for
+        // pencil/crayon/marker) and wet-ink group through
+        // `PKStroke(ink:path:transform:renderGroupID:renderState:)`. That
+        // initializer is iOS 27 / visionOS 27, which the pinned Xcode has no SDK
+        // for, so it cannot compile even behind `#available`.
         return PKStroke(ink: ink, path: path, transform: .identity)
     }
 

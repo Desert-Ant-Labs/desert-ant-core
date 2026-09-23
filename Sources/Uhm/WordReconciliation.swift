@@ -12,7 +12,7 @@
 /// } ?? []
 /// ```
 ///
-/// Float → Double conversion stays the caller's job — keeps this type free
+/// Float → Double conversion stays the caller's job, which keeps this type free
 /// of a hard WhisperKit dependency and lets non-Whisper ASR sources (Apple
 /// `SFSpeechRecognizer`, Deepgram, AssemblyAI, etc.) map in equally easily.
 public struct WordRange: Sendable, Equatable {
@@ -38,7 +38,7 @@ public struct WordRange: Sendable, Equatable {
 /// only adjust words with substantial filler overlap, and emit one timestamp
 /// per word rather than fragments.
 public struct ReconcileOptions: Sendable {
-    /// Minimum overlap fraction — overlap_seconds / piece_duration — before a
+    /// Minimum overlap fraction (overlap_seconds / piece_duration) before a
     /// (piece, filler) pair triggers an adjustment. Below this the pair is
     /// ignored. Default 0.5.
     ///
@@ -49,7 +49,7 @@ public struct ReconcileOptions: Sendable {
 
     /// When a word strictly contains a filler, emit *both* the pre- and
     /// post-filler halves if true; emit only the longer half if false.
-    /// Default false — most consumers want one timestamp per word.
+    /// Default false: most consumers want one timestamp per word.
     public var splitContainedWords: Bool = false
 
     /// Creates reconciliation options.
@@ -99,7 +99,7 @@ public extension Uhm {
     ///
     /// - Parameters:
     ///   - words:   ASR word ranges. Need not be sorted.
-    ///   - fillers: Filler detections — typically `result.fillers` from
+    ///   - fillers: Filler detections, typically `result.fillers` from
     ///              `Uhm.analyze(...)`. Need not be sorted.
     ///   - options: See `ReconcileOptions`.
     /// - Returns: Reconciled word ranges, sorted by `start`.
@@ -159,7 +159,7 @@ public extension Uhm {
                     let leaksToAfter    = piece.start >= filler.start && piece.end > filler.end
 
                     // The fraction gate absorbs ASR-vs-filler boundary jitter on partial
-                    // (leak) overlaps only. Full containment is unambiguous — a stretched
+                    // (leak) overlaps only. Full containment is unambiguous: a stretched
                     // word enclosing a filler has a small overlap *because* it is
                     // over-extended, the case we most want to split.
                     if (leaksFromBefore || leaksToAfter), overlap / dur < options.minOverlapFraction {

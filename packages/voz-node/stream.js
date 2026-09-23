@@ -2,10 +2,9 @@
 // does not grow with the length of the recording.
 //
 // The core already works this way: it asks for audio when it needs it and frees
-// what is behind the window it is transcribing. What used to undo that is this
-// side, where a whole file became a whole decoded buffer became a whole
-// Float32Array: a 29-minute video peaked around 2.7 GB, of which 2.5 GB was the
-// file and its decoded form rather than anything the model needed.
+// what is behind the window it is transcribing. Handing it a whole decoded
+// Float32Array undoes that: a 29-minute video peaks around 2.7 GB, of which
+// 2.5 GB is the file and its decoded form rather than anything the model needs.
 //
 // Three sources, in order of preference:
 //
@@ -17,8 +16,8 @@
 //     any file is the promise, and a promise kept only by callers who installed
 //     an optional extra is not one. Imported lazily, so it is a 179 KB chunk
 //     that a caller who only ever hands over WAV or samples never downloads.
-//   * Failing both, `decodeAudioData` on the whole file, which is what this
-//     used to always do and is the path that costs memory.
+//   * Failing both, `decodeAudioData` on the whole file, the path that costs
+//     memory.
 //
 // Measured on a 29-minute recording, peak resident: 2.7 GB whole-file against
 // 2.5 GB streaming, where 2.5 GB is the model and the runtime. Streaming is
@@ -30,8 +29,8 @@
  *  disappears, small enough that it is noise next to one 15-second window. */
 const CHUNK = 16000 * 4;
 
-// Each pull returns a fresh array rather than a reused buffer. Reuse was tried
-// and is not available: the core takes the samples as a JavaScript typed array,
+// Each pull returns a fresh array rather than a reused buffer. Reuse does not
+// work: the core takes the samples as a JavaScript typed array,
 // and JavaScriptKit reads a view of a larger buffer as though it owned the whole
 // thing, which is a wasm "memory access out of bounds" rather than a wrong
 // answer. The garbage is a chunk at a time and the collector keeps up.

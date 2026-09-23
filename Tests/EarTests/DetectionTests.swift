@@ -33,8 +33,8 @@ struct DetectionTests {
 
     @Test func theMarginIsTheCalibratedOne() {
         // 0.25 was swept against 162 recordings: 98.5% of answers above it route
-        // correctly, against 95.2% at the 0.15 that was here before it was
-        // measured. Changing it means re-running that sweep, not re-guessing.
+        // correctly, against 95.2% at 0.15. Changing it means re-running that
+        // sweep, not re-guessing.
         #expect(Detection.reliableMargin == 0.25)
         #expect(!Self.detection([("de", 0.50), ("nl", 0.30)]).isReliable)  // 0.20
         #expect(Self.detection([("de", 0.55), ("nl", 0.25)]).isReliable)   // 0.30
@@ -55,8 +55,6 @@ struct DetectionTests {
         #expect(d.language == "sv")
         #expect(d.confidence > 0.9)
     }
-
-    // MARK: - Label space
 
     @Test func aliasesBecomeTheCodesCallersExpect() {
         #expect(canonicalLanguage("nb") == "no")

@@ -34,7 +34,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
         peak = max(peak, active)
         defer { active -= 1 }
         // Suspends where a real dispatch does, which is where two
-        // transcriptions used to interleave into one set of buffers.
+        // transcriptions would interleave into one set of buffers.
         try await Task.sleep(nanoseconds: 1_000_000)
         if failNext {
             failNext = false

@@ -40,7 +40,7 @@ function fnv1aOfCodePoints(codePoints: number[], from: number, until: number): n
  *
  * Each whitespace token is wrapped in `^`/`$` so word-initial and word-final
  * sequences stay distinguishable from word-internal ones. That distinction
- * carries much of the signal — Portuguese `ão$`, Italian `^gli`.
+ * carries much of the signal: Portuguese `ão$`, Italian `^gli`.
  */
 export function buckets(
   text: string,

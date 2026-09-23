@@ -26,25 +26,25 @@ import Testing
     }
 
     @Test func wordFullyInsideFillerIsDropped() {
-        // Whisper transcribed the filler as a word — drop it.
+        // Whisper transcribed the filler as a word - drop it.
         let out = Uhm.reconcileWords([w(2.1, 2.7, "uh")], fillers: [f(2.0, 3.0)])
         #expect(out == [])
     }
 
     @Test func wordLeaksIntoFillerFromBefore() {
-        // Word [1, 3], filler [2, 4] — trim word end to 2.
+        // Word [1, 3], filler [2, 4] - trim word end to 2.
         let out = Uhm.reconcileWords([w(1, 3, "actually")], fillers: [f(2, 4)])
         #expect(out == [w(1, 2, "actually")])
     }
 
     @Test func wordLeaksOutOfFillerToAfter() {
-        // Word [3, 5], filler [2, 4] — push word start to 4.
+        // Word [3, 5], filler [2, 4] - push word start to 4.
         let out = Uhm.reconcileWords([w(3, 5, "thinking")], fillers: [f(2, 4)])
         #expect(out == [w(4, 5, "thinking")])
     }
 
     @Test func wordContainsFillerEmitsLongerHalfByDefault() {
-        // Word [1, 10] dur 9, filler [2, 7] dur 5 — overlap 5/9 ≈ 56% ≥ 0.5.
+        // Word [1, 10] dur 9, filler [2, 7] dur 5 - overlap 5/9 ≈ 56% ≥ 0.5.
         // Pre=[1,2] dur 1, Post=[7,10] dur 3. Default: emit longer (post).
         let out = Uhm.reconcileWords([w(1, 10, "and-then-um-anyway")],
                                      fillers: [f(2, 7)])
@@ -63,7 +63,7 @@ import Testing
     }
 
     @Test func wordContainingSmallFillerSplitsRegardlessOfFraction() {
-        // Word [1, 10] dur 9 fully contains filler [2, 3] dur 1 — overlap 11% < 0.5.
+        // Word [1, 10] dur 9 fully contains filler [2, 3] dur 1 - overlap 11% < 0.5.
         // Containment is unambiguous (the word is over-extended), so it splits below
         // the fraction gate; emit the longer post half.
         let out = Uhm.reconcileWords([w(1, 10, "long")], fillers: [f(2, 3)])
@@ -72,9 +72,9 @@ import Testing
 
     @Test func shortFillerDeepInsideLongWordSplits() {
         // Production case from a transcript: 'but' [6.94, 8.70] encloses a 0.16s
-        // [uh] [7.92, 8.08] — overlap only ~9%, which the fraction gate skipped,
+        // [uh] [7.92, 8.08] - overlap only ~9%, which the fraction gate would skip,
         // leaving the filler buried in the word. Containment splits to the longer
-        // pre half so the word no longer encloses the filler.
+        // pre half so the word does not enclose the filler.
         let out = Uhm.reconcileWords([w(6.94, 8.70, "but")], fillers: [f(7.92, 8.08)])
         #expect(out == [w(6.94, 7.92, "but")])
     }
@@ -82,7 +82,7 @@ import Testing
     // MARK: - minOverlapFraction gating
 
     @Test func tinyOverlapIgnoredAtDefaultThreshold() {
-        // Word [1, 3] (dur 2), filler [2.95, 5] — overlap = 0.05s, fraction 2.5%.
+        // Word [1, 3] (dur 2), filler [2.95, 5] - overlap = 0.05s, fraction 2.5%.
         // Below 0.5 default → ignored, word passes through.
         let out = Uhm.reconcileWords([w(1, 3, "good")], fillers: [f(2.95, 5)])
         #expect(out == [w(1, 3, "good")])
@@ -96,7 +96,7 @@ import Testing
     }
 
     @Test func fractionThresholdIsAgainstCurrentPieceNotOriginal() {
-        // Word [0, 10] dur 10. Filler1 [2, 7] dur 5 — overlap 50%, at threshold
+        // Word [0, 10] dur 10. Filler1 [2, 7] dur 5 - overlap 50%, at threshold
         // (strict <, so NOT ignored). Contains rule: pre=[0,2] dur 2,
         // post=[7,10] dur 3. Longer = post = [7, 10].
         //
@@ -173,12 +173,12 @@ import Testing
     }
 
     @Test func wordEqualToFillerIsDropped() {
-        // Exact same bounds — treated as "fully inside".
+        // Exact same bounds - treated as "fully inside".
         let out = Uhm.reconcileWords([w(2, 3, "uh")], fillers: [f(2, 3)])
         #expect(out == [])
     }
 
-    // MARK: - Realistic INSIDE-class scenario from the brief
+    // MARK: - Realistic INSIDE-class scenario
 
     @Test func insideClassThirtyPercentScenario() {
         // Simulates the actual production case: a transcript where some

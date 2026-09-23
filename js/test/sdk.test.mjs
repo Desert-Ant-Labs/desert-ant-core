@@ -1,7 +1,7 @@
 // The shared model-SDK runtime: load / run / group / dispose, written once for
 // both cores. Driven here through a fake core with the normalized shape, which
-// is exactly what `wasmCore` and `createNativeSdk` produce - so this covers the
-// logic every model package now inherits instead of hand-writing.
+// is exactly what `wasmCore` and `createNativeSdk` produce, so this covers the
+// logic every model package inherits.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LoadedModel, readyModel, wasmCore, createWasmSdk } from "../src/sdk.js";

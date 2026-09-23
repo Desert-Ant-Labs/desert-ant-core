@@ -9,7 +9,7 @@ import Foundation
 // normalized string, every platform produces the same bucket indices by
 // construction.
 //
-// Iterated over **Unicode scalar values** — not UTF-8 bytes, not UTF-16 code
+// Iterated over **Unicode scalar values**, not UTF-8 bytes or UTF-16 code
 // units. Scalars are the only unit Swift, Kotlin and JavaScript agree on without
 // extra work, and getting this wrong silently shifts every feature.
 
@@ -45,7 +45,7 @@ public enum Hashing {
     ///
     /// Each whitespace token is wrapped in `^`/`$` so word-initial and word-final
     /// sequences stay distinguishable from word-internal ones. That distinction
-    /// carries much of the signal — Portuguese `ão$`, Italian `^gli`.
+    /// carries much of the signal: Portuguese `ão$`, Italian `^gli`.
     public static func buckets(
         _ text: String,
         numBuckets: Int,
@@ -55,11 +55,10 @@ public enum Hashing {
         var counts: [Int: Int] = [:]
         // Split on Unicode scalars, not Characters. `components(separatedBy:)` and
         // `split` both work in grapheme clusters, and a space followed by a
-        // combining mark is ONE cluster — so a token starting with a mark (Devanagari
+        // combining mark is one cluster, so a token starting with a mark (Devanagari
         // virama, Arabic fatha, common once a hashtag's leading letters are stripped)
-        // silently swallowed its own boundary here, while Kotlin's `split(" ")` and
-        // JavaScript's `split(" ")` both cut on the code unit. Same normalized bytes,
-        // different tokens, different n-grams, different answer.
+        // would swallow its own boundary, while Kotlin's and JavaScript's
+        // `split(" ")` cut on the code unit. Different tokens, different answer.
         for token in text.unicodeScalars.split(separator: " ", omittingEmptySubsequences: true) {
             var marked = [boundaryStart]
             marked.append(contentsOf: token)

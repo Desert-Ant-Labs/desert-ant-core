@@ -1,10 +1,5 @@
-// The loading edge. Everything that touches a file system lives here, so the
-// pipeline itself (Tongue.swift, Model.swift, Normalize.swift, Router.swift,
-// Hashing.swift) stays free of platform code and cross-compiles as pure Swift.
-//
-// Matches emo's split: its pipeline takes `metaJSON: String` and `modelBytes:
-// [UInt8]`, and a separate Foundation section resolves those from a bundle or a
-// downloaded directory.
+// Everything that touches a file system lives here, so the rest of the pipeline
+// stays free of platform code and cross-compiles as pure Swift.
 #if canImport(Foundation)
 import Foundation
 

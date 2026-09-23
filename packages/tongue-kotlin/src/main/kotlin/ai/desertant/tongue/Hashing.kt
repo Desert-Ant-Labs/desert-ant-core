@@ -7,7 +7,7 @@ package ai.desertant.tongue
  * given the same normalized string, every platform produces the same bucket
  * indices by construction, with no BPE merge-order drift to reconcile.
  *
- * Iterated over **Unicode code points** — not UTF-8 bytes and not UTF-16 `char`s.
+ * Iterated over **Unicode code points**, not UTF-8 bytes or UTF-16 `char`s.
  * Iterating `char` would split astral characters into surrogate pairs and hash
  * something the reference never sees.
  */
@@ -43,7 +43,7 @@ public object Hashing {
      *
      * Each whitespace token is wrapped in `^`/`$` so word-initial and word-final
      * sequences stay distinguishable from word-internal ones. That distinction
-     * carries much of the signal — Portuguese `ão$`, Italian `^gli`.
+     * carries much of the signal: Portuguese `ão$`, Italian `^gli`.
      */
     @JvmOverloads
     public fun buckets(

@@ -1,15 +1,14 @@
-// Node example for packages/emo-node. In Node the package's conditional exports
-// resolve to the prebuilt native core (node.js), so inference runs natively
-// server-side - no browser, no LiteRT.js needed. (The browser example,
-// browser.html / `npm run browser-example`, exercises the WebAssembly +
-// LiteRT.js path instead.)
+// Node example for packages/emo-node. The package's default export is the
+// WebAssembly build (browser.js); the prebuilt native core is
+// `@desert-ant-labs/emo/native`. The browser example (browser.html /
+// `npm run browser-example`) exercises the WebAssembly + LiteRT.js path.
 // Enable DAL HTTP request logging. Set before importing Emo: static imports
 // are hoisted, so we use a dynamic import below to guarantee ordering.
 globalThis.__dalHttpDebug = true;
 const { Emo } = await import("@desert-ant-labs/emo");
 
-// Emo downloads, verifies (SHA-256), and caches the model from the Hub, then
-// runs inference through the native core. First run fetches; later runs cache.
+// Emo downloads, verifies (SHA-256), and caches the model from the Hub. First
+// run fetches; later runs cache.
 const emo = await Emo.load({});
 
 const start = Date.now();

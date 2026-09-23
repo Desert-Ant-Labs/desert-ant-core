@@ -78,12 +78,11 @@ func spliceOverlap(_ previous: [Word], _ next: [Word], boundary: TimeInterval,
         return previous.filter { $0.start < boundary } + next.filter { $0.start >= boundary }
     }
 
-    // Longest run of words the two windows agree on. Two constraints keep the
-    // alignment honest, and both were learned by measurement: a single matching
-    // word is not evidence - "the" appears everywhere, and splicing on one
-    // dropped 181 words over half an hour - and the time tolerance has to be
-    // tight enough that a word cannot match a different occurrence of itself
-    // seconds away.
+    // Longest run of words the two windows agree on. Two measured constraints:
+    // a single matching word is not evidence ("the" appears everywhere, and
+    // splicing on one dropped 181 words over half an hour), and the time
+    // tolerance has to be tight enough that a word cannot match a different
+    // occurrence of itself seconds away.
     var best = (length: 0, tailAt: 0, headAt: 0, drift: Double.greatestFiniteMagnitude)
     for ti in tail.indices {
         for hi in head.indices {
@@ -132,8 +131,7 @@ private func repairJoin(_ left: [Word], _ right: [Word]) -> [Word] {
         // The same word in the same case, twice, and the two spans overlap in
         // time. A speaker saying "that that" says it twice, one after the
         // other; these two occupy the same moment, so they are one word timed
-        // by two windows. Without end times the two cases are
-        // indistinguishable, which is why this repeat used to be left alone.
+        // by two windows.
         right.removeFirst()
     }
 
@@ -169,9 +167,8 @@ private func matches(_ a: Word, _ b: Word, _ tolerance: TimeInterval) -> Bool {
     abs(a.start - b.start) <= tolerance && fold(a.text) == fold(b.text)
 }
 
-/// Compare words the way a reader would: ignoring case and edge punctuation, so
-/// a window that starts mid-sentence and capitalises its first word still aligns.
-/// Compare two words ignoring case, for spotting a seam duplicate.
+/// Compare words the way a reader would, ignoring case and punctuation, so a
+/// window that starts mid-sentence and capitalises its first word still aligns.
 ///
 /// Unicode case folding rather than lowercasing, so that German "STRASSE" and
 /// "straße" are recognised as the same word. Folding stops at case: making it
@@ -257,7 +254,7 @@ func refineEnds(_ words: [Word], samples: ArraySlice<Float>, windowStart: TimeIn
         // Swept against the aligner over 6295 words: 0.02 through 0.10 all land
         // within 2 ms of the same error, so this is a shallow choice rather than
         // a fitted one. The lower end wins narrowly and errs late, which is the
-        // safe direction - an end that runs a little long falls in the gap
+        // safe direction: an end that runs a little long falls in the gap
         // after the word, where a short one clips the word itself.
         let floorEnergy = peak * 0.05
         var last = from

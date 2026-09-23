@@ -39,7 +39,7 @@ public struct MelSpectrogram: Sendable {
     }
 
     private static func hzToMel(_ hz: Double, htk: Bool) -> Double {
-        htk ? 2595 * log10(1 + hz / 700) : hz  // HTK; linear placeholder only if !htk unused
+        htk ? 2595 * log10(1 + hz / 700) : hz  // non-HTK is an unused linear placeholder
     }
     private static func melToHz(_ mel: Double, htk: Bool) -> Double {
         htk ? 700 * (pow(10, mel / 2595) - 1) : mel

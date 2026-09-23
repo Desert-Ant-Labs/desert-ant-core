@@ -42,14 +42,14 @@ private actor WindowGate {
     }
 }
 
-/// What a group's decode produced, in a reference the decoding thread can write
-/// and the encoding one can read once it has joined.
 /// A group's encoder output, shared between the encoder writing it and a decode
 /// reading it. Unchecked because the gate orders the two, not the type system.
 private struct Projections: @unchecked Sendable {
     let base: UnsafeMutablePointer<Element>
 }
 
+/// What a group's decode produced, in a reference the decoding thread can write
+/// and the encoding one can read once it has joined.
 private final class DecodeResult: @unchecked Sendable {
     var tokens: [[Int]] = []
     var frames: [[Int]] = []
@@ -62,9 +62,9 @@ private final class DecodeResult: @unchecked Sendable {
 /// Not reentrant: it owns preallocated buffers that every call mutates, and
 /// `Voz` serialises access through an actor.
 ///
-/// `@unchecked Sendable` because one transcription does cross threads, and
-/// already did before the checking reached here: the decode overlap runs on a
-/// queue of its own while the encoder keeps the calling thread. What makes it
+/// `@unchecked Sendable` because one transcription does cross threads: the
+/// decode overlap runs on a queue of its own while the encoder keeps the
+/// calling thread. What makes it
 /// safe is that the two halves touch disjoint buffers, the encoder writing
 /// rows, melOut and encOut while the decode reads `projections` and writes
 /// embed, encStep, logits and the recurrent state, ordered by a gate. The
@@ -205,11 +205,6 @@ final class Pipeline: @unchecked Sendable {
         }
     }
 
-    /// One window of audio to encoder projections, left in `encOut`.
-    ///
-    /// The caller copies it where it belongs. It used to write straight into the
-    /// batch through a pointer, but `withUnsafeMutableBufferPointer` takes a
-    /// synchronous closure and running a model is now asynchronous.
     /// Lay one window into lane `lane` of a slot's frontend buffers, with its
     /// masks.
     private func stage(window: ArraySlice<Float>, lane: Int,
@@ -237,8 +232,8 @@ final class Pipeline: @unchecked Sendable {
     /// consecutively from `destination`, using slot `slot` of the buffers.
     ///
     /// Slots share nothing that is written, so calls with different slots
-    /// overlap - which is the whole point on a machine with more engine than
-    /// one window can fill. Windows never interact either, attention being
+    /// overlap, which is the point on a machine with more engine than one
+    /// window can fill. Windows never interact either, attention being
     /// within a window, so carrying several in one call is exact, and on a
     /// browser GPU it amortises both the dispatch and the readback after it.
     private func encode(windows: [ArraySlice<Float>], slot: Int,
@@ -376,10 +371,8 @@ final class Pipeline: @unchecked Sendable {
                 var offset = 0
                 var didEmit = false
                 while offset < span {
-                    // Either the engine reduced the logits for us or it handed
-                    // them over whole. Core ML does the latter because the
-                    // argmax is free over a shared page; across a copying
-                    // boundary it would be a quarter of a megabyte per call.
+                    // Either the engine reduced the logits or it handed them
+                    // over whole; see `Engine.reducesInGraph`.
                     var best = 0
                     var bestDuration = 0
                     if engine.reducesInGraph {
@@ -520,21 +513,20 @@ final class Pipeline: @unchecked Sendable {
         return count > 0 && sum / Float(count) > Self.speechFloor
     }
 
-    /// Where each window should start, in samples.
+    /// Where the window after `start` should begin, given a way to read audio.
     ///
     /// A fixed 15 s grid cuts wherever it lands, and the model is measurably
     /// sensitive to that: a crop beginning mid-word can decode to nothing at all
     /// or stop emitting well before its end, while the same audio at any other
-    /// offset transcribes normally. That is the model's behaviour and not this
-    /// export's - float32 PyTorch reproduces it, and the encoder matches NeMo's
-    /// reference to 116 dB - so the fix is to stop handing it crops it handles
-    /// badly rather than to check its output afterwards.
+    /// offset transcribes normally. That is the model's behaviour, not this
+    /// export's (float32 PyTorch reproduces it, and the encoder matches NeMo's
+    /// reference to 116 dB), so the fix is to stop handing it crops it handles
+    /// badly.
     ///
     /// The model was trained on utterances, which begin and end in silence, so
     /// each boundary is placed at the quietest point in the last few seconds of
     /// the window. Windows are therefore up to `nSamples` long and usually a
     /// little shorter, and each one starts where the speaker paused.
-    /// Where the window after `start` should begin, given a way to read audio.
     ///
     /// Only ever looks inside `[start, start + nSamples]`, which is what lets a
     /// long file be walked with a sliding buffer instead of being held whole.
@@ -611,9 +603,8 @@ final class Pipeline: @unchecked Sendable {
         }
         let total = stream.totalSamples
         // Progress is how much audio has been read and encoded, which advances
-        // in order through the file. Reporting from the splice pass as well sent
-        // it back to the start of the batch each time, since the two passes walk
-        // the same windows.
+        // in order through the file. Reporting from the splice pass too would
+        // send it back to the start of the batch, since both walk the same windows.
         func reported(_ at: Int) -> Double {
             guard let total, total > 0 else { return 0 }
             return Swift.min(1, Double(at + window) / Double(total))
@@ -627,9 +618,9 @@ final class Pipeline: @unchecked Sendable {
         while true {
             // Extend the boundary list to fill a batch, reading only as far as
             // each decision needs. This has to happen before the loop decides
-            // it is finished: checking `processed < starts.count` first stops
-            // after a single batch, which silently truncated any file longer
-            // than one, and left the transcript reading perfectly well.
+            // it is finished: checking `processed < starts.count` first would stop
+            // after a single batch, silently truncating any longer file while the
+            // transcript still reads perfectly well.
             while starts.count - processed < Self.batchWindows {
                 let last = starts[starts.count - 1]
                 try await ensure(through: last + window + 1)
@@ -639,10 +630,9 @@ final class Pipeline: @unchecked Sendable {
             guard processed < starts.count else { break }
             let group = processed..<Swift.min(processed + Self.batchWindows, starts.count)
             // Everything before this batch is finished with. Releasing here
-            // rather than after the batch matters: at that point the boundary
-            // list has already been extended to exactly the batch that was just
-            // processed, so the release never fired and the buffer grew with the
-            // file - 5.8 MB for every minute of audio.
+            // rather than after the batch matters: by then the boundary list
+            // covers exactly the processed batch, so the release would never fire
+            // and the buffer would grow with the file (5.8 MB per minute of audio).
             release(before: starts[group.lowerBound])
             try await ensure(through: starts[group.upperBound - 1] + window)
             // Shared between the two threads for the length of the group, so it
@@ -665,7 +655,7 @@ final class Pipeline: @unchecked Sendable {
             // The decode consumes windows as the encoder produces them. Where
             // the two are on different processors this halves the group's cost;
             // where they are not, `decodeRunsBesideEncoder` is false and the
-            // work item simply runs here once encoding is done.
+            // work item runs here once encoding is done.
             let gate = WindowGate()
             let decoded = DecodeResult()
             // Detached, so it does not inherit the actor `Voz` calls from and
@@ -703,7 +693,7 @@ final class Pipeline: @unchecked Sendable {
                 // calls outstanding. Core ML's graph is a fixed shape, so its
                 // engine takes one window a call and four calls at a time; the
                 // browser's takes six windows in one call, which is where most
-                // of its encoder speed came from.
+                // of its encoder speed comes from.
                 //
                 // The decode still sees windows in order: a batch that lands
                 // early waits for its predecessors before the gate is told its
@@ -810,16 +800,18 @@ final class Pipeline: @unchecked Sendable {
             // different length. Every refused window tested recovered when its
             // audio was shortened, and this costs a second pass only over the
             // windows that produced nothing, which is normally none of them.
-            // Audio that is not speech at all - music, room tone, a held
-            // note - legitimately produces nothing from every window, and
+            //
+            // Audio that is not speech at all (music, room tone, a held
+            // note) legitimately produces nothing from every window, and
             // retrying all of them doubles the work to learn that. So a run of
             // retries that recovers nothing switches retrying off, and any
             // recovery switches it back on: the cost is bounded on material
             // that has nothing to say, without giving up on a file that is
             // quiet for a while and then starts talking.
+            //
             // A window can fail in two ways, and they look different. It can
             // produce nothing at all, or it can produce a plausible transcript
-            // and stop partway through - one French window emitted 37% of its
+            // and stop partway through: one French window emitted 37% of its
             // audio and read perfectly, so nothing downstream could tell. Both
             // are the same behaviour and both are fixed by the same thing,
             // running the window at a different length: that one goes from 37%
@@ -856,9 +848,8 @@ final class Pipeline: @unchecked Sendable {
                 // Retried together rather than one at a time, for the same
                 // reason the first pass batches: a decode call costs about the
                 // same whatever it carries. Run singly, a file of pure
-                // non-speech - where every window legitimately produces
-                // nothing and every one is retried - ran at a third of its
-                // usual speed instead of half.
+                // non-speech (where every window is retried) runs at a third of
+                // its usual speed instead of half.
                 let retryProjections = UnsafeMutablePointer<Element>.allocate(
                     capacity: refused.count * stride)
                 retryProjections.initialize(repeating: 0, count: refused.count * stride)
@@ -879,8 +870,8 @@ final class Pipeline: @unchecked Sendable {
                         // its own, starting a second before it gave up so the
                         // splice has an overlap to align on. Rerunning a
                         // truncated window at a different length is a coin flip
-                        // - it rescued one of French's three worst and left the
-                        // other two exactly where they were - because the model
+                        // (it rescued one of French's three worst and left the
+                        // other two exactly where they were) because the model
                         // is sensitive to the crop in a way that does not
                         // reward guessing.
                         let stopped = widestSilence(emitFrames[entry.offset],
@@ -895,10 +886,8 @@ final class Pipeline: @unchecked Sendable {
                             + Int(Double(stopped) * c.secondsPerFrame * Double(c.sampleRate))
                         let low = tokens[entry.offset].isEmpty ? windowStart
                             // `buffer` is the audio, not `out`: this searches the
-                            // waveform for a quiet point. The two were briefly the
-                            // same name, and this read went into the projections
-                            // with sample indices, which is unmapped memory a few
-                            // megabytes in.
+                            // waveform for a quiet point. Reading the projections
+                            // with sample indices lands in unmapped memory.
                             : quietestPoint(near: gaveUp, from: windowStart,
                                             limit: available, audio: { buffer[$0 - origin] })
                         let high = Swift.min(low + c.nSamples, available)
@@ -908,14 +897,11 @@ final class Pipeline: @unchecked Sendable {
                         retryValids[slot] = Self.validEncoderFrames(
                             sampleCount: shortened - low, configuration: c)
                         // Retries fill a batch the same way the first pass
-                        // does. They used to go one at a time into lane 0, which
-                        // was fine when a call cost what it held; with a batched
-                        // engine a single-window call still pays a whole call's
-                        // dispatch, and six retries were six of the file's
-                        // twenty-one encoder calls. They keep to one call at a
-                        // time, though, on slot zero: there are rarely more than
-                        // a handful and they are already off the path a healthy
-                        // file takes.
+                        // does: with a batched engine a single-window call still
+                        // pays a whole call's dispatch (six single retries were
+                        // six of one file's twenty-one encoder calls). They keep
+                        // to one call at a time on slot zero: there are rarely
+                        // more than a handful, off the path a healthy file takes.
                         if pending.isEmpty { pendingFirst = slot }
                         pending.append(slice(low, shortened))
                         let last = slot == refused.count - 1
@@ -933,7 +919,7 @@ final class Pipeline: @unchecked Sendable {
                                  tokens: &retryTokens, frames: &retryFrames)
                 for (slot, entry) in refused.enumerated() {
                     if tokens[entry.offset].isEmpty {
-                        // Nothing to keep, so the rerun simply replaces it.
+                        // Nothing to keep, so the rerun replaces it.
                         tokens[entry.offset] = retryTokens[slot]
                         emitFrames[entry.offset] = retryFrames[slot]
                         emitEnds[entry.offset] = retryEnds[slot]
@@ -959,10 +945,8 @@ final class Pipeline: @unchecked Sendable {
                 // drift across an hour of audio.
                 //
                 // Every word the window produced is kept, including the part
-                // past the next boundary. Consecutive windows overlap, so that
-                // tail is what lets the splice align them; cutting purely on
-                // time duplicated any word whose two estimates straddled the
-                // seam, which is where "they they walked" came from.
+                // past the next boundary: consecutive windows overlap, and that
+                // tail is what lets the splice align them (see `spliceOverlap`).
                 let low = starts[w]
                 let high = Swift.min(low + c.nSamples, available)
                 let produced = refineEnds(

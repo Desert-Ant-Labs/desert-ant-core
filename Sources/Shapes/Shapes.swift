@@ -39,9 +39,8 @@ public enum ShapesError: MessageError, Sendable {
 ///
 /// `Shapes` turns one hand-drawn stroke into a clean vector ``Shape`` (line,
 /// rectangle, triangle, ellipse, or star), fully on device. A small classifier
-/// proposes a shape through the shared inference session (Core ML on Apple,
-/// LiteRT elsewhere); a geometric fitter produces the clean parameters and a fit
-/// residual; the stroke is accepted only if it clears that class's calibrated
+/// proposes a shape, a geometric fitter produces the clean parameters and a fit
+/// residual, and the stroke is accepted only if it clears that class's calibrated
 /// confidence and residual gates. Create one once and reuse it.
 ///
 /// ```swift
@@ -51,9 +50,6 @@ public enum ShapesError: MessageError, Sendable {
 /// }
 /// ```
 public final class Shapes: @unchecked Sendable {
-    // Resolving the files, loading once, sharing that load, and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Shapes adds only how a resolved directory becomes its model.
     private let model: LoadedModel<Model>
 
     /// Creates a recognizer. Construction does no work and starts no download;

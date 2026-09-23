@@ -1,12 +1,6 @@
-// The one import a model SDK needs.
-//
-// The core is built as small single-purpose modules (Regex, JSON, ModelStore,
-// Inference, …) so each has one job, one test suite, and its own per-platform
-// backends. That granularity is right for the core and wrong for its consumers:
-// an SDK had to name six of them across as many files, and adding a capability
-// meant editing every SDK's manifest as well.
-//
-// `DesertAnt` re-exports the common public surface, so an SDK writes one import.
+// The one import a model SDK needs. The core is small single-purpose modules,
+// each with its own tests and per-platform backends; this re-exports the common
+// surface so adding a capability does not mean editing every SDK's manifest.
 // Optional capabilities such as AudioIO and AudioDSP stay separate and are
 // dependencies only of models that use them.
 

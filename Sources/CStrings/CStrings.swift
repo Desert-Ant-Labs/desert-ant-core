@@ -1,8 +1,6 @@
 // NUL-terminated C string decoding, shared by every module that crosses a C
-// boundary (JNI, getenv, LiteRT, the CHostBridge callbacks). String(cString:)
-// is deprecated in newer SDKs in favor of decoding the bytes without the
-// terminator, and this target exists so that decode is written once. No
-// dependencies, so any module can link it on any platform.
+// boundary. String(cString:) is deprecated in newer SDKs in favor of decoding the
+// bytes without the terminator. No dependencies, so any module can link it.
 
 /// Decode a NUL-terminated UTF-8 C string, truncating the terminator.
 public func decodeCString(_ pointer: UnsafePointer<CChar>) -> String {

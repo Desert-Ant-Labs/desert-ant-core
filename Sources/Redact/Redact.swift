@@ -47,7 +47,7 @@ public struct Options: Sendable {
     /// (email, cards, IBANs, …) always apply. Default `0.6`.
     public var minimumConfidence: Double
     /// If set, only these categories are redacted. `nil` means
-    /// ``Label/defaultEnabled`` — every category except ``Label/org``.
+    /// ``Label/defaultEnabled``: every category except ``Label/org``.
     public var labels: Set<Label>?
 
     public init(minimumConfidence: Double = 0.6, labels: Set<Label>? = nil) {
@@ -86,9 +86,6 @@ public enum RedactError: MessageError, Sendable {
 /// r.items.first?.original   // "Anna"
 /// ```
 public final class Redact: @unchecked Sendable {
-    // Resolving the files, loading once, sharing that load, and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Redact adds only how a resolved directory becomes its model.
     private let model: LoadedModel<Model>
 
     /// Creates a redactor. Construction does no work and starts no download; the

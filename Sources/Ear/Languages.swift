@@ -11,9 +11,9 @@ let languageAliases: [String: String] = [
 /// naming one of them carries no information.
 ///
 /// The detector reads Norwegian as Swedish in roughly 40% of clips. That is a
-/// property of the network, not of the compression: it survives every build we
-/// have measured, quantized or not, and no amount of extra audio fixes it
-/// because the error is confident rather than uncertain.
+/// property of the network, not of the compression: it survives every measured
+/// build, quantized or not, and extra audio does not fix it because the error is
+/// confident rather than uncertain.
 ///
 /// ``Detection/isReliable`` is false for these, so a caller routing work on the
 /// answer can decline to. Nothing is hidden: the language is still reported.

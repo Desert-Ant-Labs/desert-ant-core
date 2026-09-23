@@ -1,7 +1,3 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The redact model: multilingual on-device PII detection.
@@ -9,8 +5,6 @@ public enum RedactModel: ModelDeclaration {
     public static let id = "redact"
     public static let product = "Redact"
     public static let revision = "v0.4.0"
-    /// Matches packages/redact-node/package.json and
-    /// packages/redact-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "Multilingual on-device PII detection and redaction."
 

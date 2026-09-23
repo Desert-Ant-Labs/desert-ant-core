@@ -42,9 +42,6 @@ public enum GistError: MessageError, Sendable {
 /// // [Topic(slug: "technology", name: "Technology & Software", score: 0.91), ...]
 /// ```
 public final class Gist: @unchecked Sendable {
-    // Resolving the files, loading once, sharing that load, and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Gist adds only how a resolved directory becomes its model.
     private let model: LoadedModel<Model>
 
     /// Creates a tagger. Construction does no work and starts no download; the
