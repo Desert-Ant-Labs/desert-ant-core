@@ -430,6 +430,12 @@ struct BrowserVocabularyTests {
         // A getter, as every other host global may be.
         JSObject.global.__dalUsageContextDisabled = .object(JSClosure { _ in .boolean(true) })
         #expect(deviceContextDisabled())
+        // A getter that throws reads as unset instead of unwinding the client.
+        let throwing = JSObject.global.Function.function!.new("throw new Error('no request context')")
+        JSObject.global.__dalUsageContextDisabled = .object(throwing)
+        #expect(!deviceContextDisabled())
+        JSObject.global.__dalAppVersion = .object(throwing)
+        #expect(hostProvidedAppVersion() == nil)
         // A number is not a flag: 1 does not opt out.
         JSObject.global.__dalUsageContextDisabled = .number(1)
         #expect(!deviceContextDisabled())

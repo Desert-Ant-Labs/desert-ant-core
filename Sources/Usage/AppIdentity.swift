@@ -23,10 +23,18 @@ import PlatformSupport
 /// zero-arg function returning one. `nil` when unset/empty or off WASI.
 #if os(WASI)
 private func jsHostString(_ name: String) -> String? {
-    let value = JSObject.global[name]
+    let value = jsHostValue(name)
     if let string = value.string, !string.isEmpty { return string }
-    if let getter = value.function, let string = getter().string, !string.isEmpty { return string }
     return nil
+}
+
+/// `globalThis[name]`, calling it when it is a getter. A getter that throws
+/// (say, one that needs a request context, called from a flush timer) reads as
+/// unset: an exception unwinding through the client would lose the event.
+func jsHostValue(_ name: String) -> JSValue {
+    let value = JSObject.global[name]
+    guard let getter = value.function else { return value }
+    return (try? getter.throws()) ?? .undefined
 }
 #endif
 
@@ -87,8 +95,7 @@ func hostProvidedAppVersion() -> String? {
 func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(WASI)
-    var value = JSObject.global["__dalUsageContextDisabled"]
-    if let getter = value.function { value = getter() }
+    let value = jsHostValue("__dalUsageContextDisabled")
     if value.boolean == true || flagIsSet(value.string) { return true }
     return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
 #else
