@@ -85,16 +85,20 @@ internal fun hostProvidedAppVersion(): String? = setting("DAL_APP_VERSION")
 
 /**
  * Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
- * set to false in code, or `DAL_USAGE_CONTEXT_DISABLED` (the environment, then
- * the same-named system property) set and not "", "0" or "false". Usage itself
- * still reports; only the context goes.
+ * set to false in code, or `DAL_USAGE_CONTEXT_DISABLED` under `flagIsSet` in the
+ * environment or as the same-named system property. Either one opts out, as
+ * with `usageDisabled()`. Usage itself still reports; only the context goes.
  */
 internal fun deviceContextDisabled(): Boolean =
-    !ai.desertant.tongue.DesertAnt.sendsDeviceContext || flagIsSet(setting("DAL_USAGE_CONTEXT_DISABLED"))
+    !ai.desertant.tongue.DesertAnt.sendsDeviceContext ||
+        flagIsSet(readEnvironment("DAL_USAGE_CONTEXT_DISABLED")) ||
+        flagIsSet(System.getProperty("DAL_USAGE_CONTEXT_DISABLED"))
 
 /**
- * The truthiness rule for the context opt-outs, core's. Only the context flag
- * treats "false" as off: `usageDisabled()` keeps its older rule, as core's does.
+ * The truthiness rule every port's opt-out flags share, usage and context alike:
+ * set, and not "", "0" or "false". This port reads strings only (the environment
+ * and system properties), so a number arrives as its text: "1" is set and "0"
+ * is not, as the JS ports' number rule has it. It fails closed.
  */
 internal fun flagIsSet(value: String?): Boolean =
     value != null && value != "" && value != "0" && value != "false"
