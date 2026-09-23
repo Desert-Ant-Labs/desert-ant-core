@@ -48,8 +48,8 @@ function flagIsSet(value) {
  * before setting the global is still attributed, but only until a native model
  * first loads in this process: from then on core threads read the environment,
  * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
- * later still counts, since `run` passes it per call; a key, app id, app version
- * or context flag set after the first load has to be in the environment already.
+ * later still counts, since `run` passes it per call; a key, app id, app version,
+ * usage switch or context flag set after the first load has to be in the environment already.
  */
 function bridgeHostIdentity() {
   if (globalThis[NATIVE_STARTED]) return;

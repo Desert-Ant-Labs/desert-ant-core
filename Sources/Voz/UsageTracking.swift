@@ -56,11 +56,10 @@ actor UsageTurnstile {
         self.disabled = disabled
     }
 
-    /// The client, opened (`start()`) the first time it is needed.
+    /// The client, built the first time it is needed.
     private func openClient() -> UsageClient {
         if let client { return client }
         let opened = buildClient()
-        opened.start()
         client = opened
         return opened
     }
@@ -70,7 +69,12 @@ actor UsageTurnstile {
     func record() async {
         // Read per call: a consent flow sets or clears it after load.
         if disabled() { return }
-        openClient().recordCall()
+        // `start()` on every call, as `TrackedSession` does per run: it is a
+        // no-op inside the window, and a switch set between the check above and
+        // the client's own would otherwise leave a start skipped for good.
+        let client = openClient()
+        client.start()
+        client.recordCall()
         await registerFlushHookIfNeeded()
         guard !flushScheduled else { return }
         flushScheduled = true
