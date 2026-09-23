@@ -27,6 +27,10 @@ for model in $(dal_models); do
     [ -z "$pin" ] || check "${pin#^}" "$dir @desert-ant-labs/core dependency"
 done
 
+# core's own usage identity, reported when no model names one.
+check "$(sed -n -E 's|^public let defaultSDKVersion = "([^"]*)".*|\1|p' Sources/Usage/Wire.swift)" \
+    "Sources/Usage/Wire.swift defaultSDKVersion"
+
 # tongue's standalone ports report their own SDK version in usage events.
 check "$(sed -n -E 's|^const SDK_VERSION = "([^"]*)".*|\1|p' packages/tongue-node/src/index.ts)" \
     "packages/tongue-node/src/index.ts SDK_VERSION"

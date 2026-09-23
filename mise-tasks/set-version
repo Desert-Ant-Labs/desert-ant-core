@@ -45,6 +45,11 @@ for model in $(dal_models); do
     ' "$dir" "$version"
 done
 
+# The identity core's own usage reports when no model names one (Usage/Wire.swift).
+# It said 0.1.0 through 3.4.0 because nothing rewrote it.
+sed -i.bak -E 's|(defaultSDKVersion = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
+    Sources/Usage/Wire.swift && rm -f Sources/Usage/Wire.swift.bak
+
 # tongue's Node and Kotlin ports are standalone (no Swift core underneath), so
 # each carries its own reported SDK version literal; they reported 0.1.2 through
 # 3.3.1 because nothing rewrote them.
