@@ -44,13 +44,21 @@ public final class StreamingRefiner: @unchecked Sendable {
     }
 
     /// Feed audio as it arrives (the same audio you give SpeechAnalyzer).
+    ///
+    /// Throws ``AlignError/invalidInput(_:)`` when `maxBufferedSeconds` is NaN or negative;
+    /// infinity keeps every sample.
     public func appendAudio(_ samples: [Float], sampleRate: Double = 16000) async throws {
+        guard !maxBufferedSeconds.isNaN, maxBufferedSeconds >= 0 else {
+            throw AlignError.invalidInput("maxBufferedSeconds is \(maxBufferedSeconds), expected zero or more")
+        }
         let rate = try await align.model.value().assets.config.sample_rate
         let audio = try Align.resampled(samples, from: sampleRate, to: rate)
+        // Infinity or a huge value means unbounded; Int() of it would trap.
+        let seconds = maxBufferedSeconds * Double(rate)
+        let cap = seconds >= Double(Int.max / 2) ? Int.max : Int(seconds)
         lock.withLock {
             completeAudio = nil
             buffer.append(contentsOf: audio)
-            let cap = Int(maxBufferedSeconds * Double(rate))
             if buffer.count > cap {
                 let drop = buffer.count - cap
                 buffer.removeFirst(drop)

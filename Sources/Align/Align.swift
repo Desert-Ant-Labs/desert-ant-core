@@ -79,16 +79,17 @@ public final class Align: Sendable {
     static func key(_ languageCode: String) -> String { String(languageCode.prefix(2)).lowercased() }
 
     /// A word keeps its input times when its correction hits the search edge, would end before it
-    /// starts, or, when streaming, has no forward context buffered yet.
+    /// starts, lies past the end of the audio, or, when streaming, has no forward context
+    /// buffered yet.
     ///
-    /// Every `start` and `end` must be finite and within `-1...10_000_000` seconds, and
-    /// `sampleRate` must be finite and positive; anything else throws
-    /// ``AlignError/invalidInput(_:)``, even for an unsupported language. Empty audio throws too.
-    /// Times past the end of the audio are accepted and searched against the mirrored edge, so
-    /// the result there is not meaningful; a word whose `start` is after its `end` is accepted.
+    /// Every `start` and `end` must be finite and within `-1...10_000_000` seconds, `sampleRate`
+    /// must be finite and positive, and `samples` must not be empty; anything else throws
+    /// ``AlignError/invalidInput(_:)``, even for an unsupported language. A word whose `start`
+    /// is after its `end` is accepted.
     public func refine(_ words: [WordTiming], audio samples: [Float], sampleRate: Double = 16000,
                        languageCode: String) async throws -> [WordTiming] {
-        try Self.validate(words)
+        try Self.validate(words, sampleRate: sampleRate)
+        guard !samples.isEmpty else { throw AlignError.invalidInput("the audio is empty") }
         guard !words.isEmpty else { return words }
         let rt = try await model.value()
         guard let langId = rt.assets.config.languages[Self.key(languageCode)].map(Int32.init) else {
@@ -107,6 +108,17 @@ public final class Align: Sendable {
     /// refines against the reflect-padded edge, so it is not rejected.
     static let negativeTolerance = 1.0
 
+    static func validate(_ words: [WordTiming], sampleRate: Double) throws {
+        try validate(sampleRate: sampleRate)
+        try validate(words)
+    }
+
+    static func validate(sampleRate: Double) throws {
+        guard sampleRate.isFinite, sampleRate > 0 else {
+            throw AlignError.invalidInput("sampleRate is \(sampleRate), expected a finite positive rate")
+        }
+    }
+
     static func validate(_ words: [WordTiming]) throws {
         for (i, w) in words.enumerated() {
             for (name, t) in [("start", w.start), ("end", w.end)]
@@ -122,9 +134,7 @@ public final class Align: Sendable {
     static let maxResampledCount = Double(Int32.max)
 
     static func resampled(_ samples: [Float], from sampleRate: Double, to rate: Int) throws -> [Float] {
-        guard sampleRate.isFinite, sampleRate > 0 else {
-            throw AlignError.invalidInput("sampleRate is \(sampleRate), expected a finite positive rate")
-        }
+        try validate(sampleRate: sampleRate)
         if sampleRate == Double(rate) { return samples }
         guard Double(samples.count) * Double(rate) / sampleRate <= maxResampledCount else {
             throw AlignError.invalidInput("\(samples.count) samples at \(sampleRate) Hz is too long to resample")
@@ -182,8 +192,11 @@ public final class Align: Sendable {
             // forward context is not buffered yet.
             let futureMissing = streaming && bounds[i].frame + coarseCenter >= nFrames
             let pastMissing = streaming && bounds[i].frame < 0
+            // Offline, a boundary more than a coarse half-window past the last frame searches only
+            // mirrored audio, which yields a confident but meaningless correction.
+            let beyondAudio = !streaming && bounds[i].frame - (coarseCenter - 2) > nFrames - 1
             if !cOff.isFinite || !fOff.isFinite || abs(cOff) >= Double(coarseCenter - 2)
-                || futureMissing || pastMissing {
+                || futureMissing || pastMissing || beyondAudio {
                 ok[i] = false
             }
         }

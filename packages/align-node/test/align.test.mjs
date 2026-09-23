@@ -88,7 +88,10 @@ test("unusable after dispose", modelOpts, async () => {
 });
 
 // Each of these once reached the native core and killed the process with SIGTRAP.
-const hostileTimes = [NaN, Infinity, -Infinity, 1e17, 1e19, 1e100, -1e20, -5, undefined];
+const trappingTimes = [NaN, Infinity, -Infinity, 1e17, 1e19, 1e100, -1e20, undefined];
+// Rejected by policy, not because they trap: these used to return a meaningless result.
+const outOfRangeTimes = [-5, 1e8];
+const hostileTimes = [...trappingTimes, ...outOfRangeTimes];
 
 test("an invalid word time rejects with a RangeError before the core runs", async () => {
   const model = { run() { throw new Error("the core must not be reached"); } };
@@ -102,6 +105,7 @@ test("an invalid word time rejects with a RangeError before the core runs", asyn
   for (const rate of [NaN, Infinity, 0, -16000]) {
     await assert.rejects(() => unloaded.refine(tone(1), rate, words, { language: "en" }), RangeError, `rate ${rate}`);
   }
+  await assert.rejects(() => unloaded.refine(new Float32Array(0), 16000, words, { language: "xx" }), RangeError);
 });
 
 test("times at the bounds and past the audio still reach the core", async () => {
@@ -128,9 +132,9 @@ test("the native core fails the call on invalid times instead of trapping", mode
     }
     const tiny = encodeInput(tone(1), 1e-300, words);
     await assert.rejects(() => raw.run(tiny, encodeOptions({ language: "en" })), /failed to run/);
-    // Past the audio is still accepted, as before; what the refiner makes of it is not pinned here.
+    // Past the audio is accepted but has nothing to search, so the input times come back.
     const out = await align.refine(tone(), 16000, [{ text: "late", start: 100, end: 101 }], { language: "en" });
-    assert.equal(out.length, 1);
+    assert.deepEqual(out.map((w) => [w.start, w.end, w.refined]), [[100, 101, false]]);
   } finally {
     raw.dispose();
   }
