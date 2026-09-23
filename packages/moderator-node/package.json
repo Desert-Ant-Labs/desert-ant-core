@@ -1,0 +1,84 @@
+{
+  "name": "@desert-ant-labs/moderator",
+  "version": "3.3.1",
+  "description": "On-device NSFW image detection for JavaScript. Runs in the browser (WebAssembly + LiteRT.js) and server-side in Node (native), from one import.",
+  "type": "module",
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://desertant.com/models/moderator/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
+    "directory": "packages/moderator-node"
+  },
+  "keywords": [
+    "nsfw",
+    "nudity-detection",
+    "content-moderation",
+    "image-classification",
+    "on-device",
+    "wasm",
+    "litert",
+    "isomorphic"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "./browser.js",
+  "browser": "./browser.js",
+  "types": "./index.d.ts",
+  "scripts": {
+    "test": "DAL_USAGE_DISABLED=1 node --test test/moderator.test.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./native": {
+      "types": "./index.d.ts",
+      "default": "./node.js"
+    },
+    "./browser": {
+      "types": "./index.d.ts",
+      "default": "./browser.js"
+    },
+    "./wasm": "./dist/ModeratorWeb.wasm"
+  },
+  "imports": {
+    "#platform": {
+      "browser": "./platform-browser.js",
+      "default": "./platform-node.js"
+    }
+  },
+  "files": [
+    "browser.js",
+    "codec.js",
+    "moderator.js",
+    "node.js",
+    "platform-browser.js",
+    "platform-node.js",
+    "index.d.ts",
+    "dist",
+    "native",
+    "LICENSE.md",
+    "README.md"
+  ],
+  "dependencies": {
+    "@bjorn3/browser_wasi_shim": "^0.3.0",
+    "@desert-ant-labs/core": "^3.3.1"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0"
+  },
+  "peerDependencies": {
+    "@litertjs/core": ">=2.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@litertjs/core": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@litertjs/core": "^2.5.2"
+  }
+}
