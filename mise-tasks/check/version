@@ -27,6 +27,13 @@ for model in $(dal_models); do
     [ -z "$pin" ] || check "${pin#^}" "$dir @desert-ant-labs/core dependency"
 done
 
+# tongue's standalone ports report their own SDK version in usage events.
+check "$(sed -n -E 's|^const SDK_VERSION = "([^"]*)".*|\1|p' packages/tongue-node/src/index.ts)" \
+    "packages/tongue-node/src/index.ts SDK_VERSION"
+check "$(sed -n -E 's|.*const val SDK_VERSION: String = "([^"]*)".*|\1|p' \
+    packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/usage/UsageTurnstile.kt)" \
+    "tongue-kotlin UsageTurnstile.kt SDK_VERSION"
+
 # The Gradle artifacts are not checked here because they cannot drift: every
 # Gradle project reads VERSION at configuration time (build.gradle.kts), so no
 # build script carries a version literal to get out of step.
