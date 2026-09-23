@@ -10,7 +10,8 @@
 // A server (platform "server", which includes macOS) and any client whose device
 // id the caller or host supplied send only osName, a major-only osVersion and
 // appVersion: that device is a tenant's, not the host's, so the host's model and
-// locale say nothing about it.
+// locale say nothing about it. A native macOS app is in that set only through its
+// platform tag; a Catalyst or iOS-on-Mac app reports "ios" and sends the full set.
 //
 // The ingest rejects a whole batch whose context is 4096 bytes or more, so every
 // context is cut down here (`sanitizeContext`) before it can reach a send.
@@ -131,7 +132,7 @@ private func isPrintable(_ scalar: Unicode.Scalar) -> Bool {
     switch scalar.value {
     case 0..<0x20, 0x7F...0x9F: return false            // C0, DEL, C1
     case 0x200B...0x200F, 0x2028...0x202E, 0x2060...0x206F: return false // zero-width, separators, bidi
-    case 0xFEFF, 0xFFF9...0xFFFB: return false
+    case 0xAD, 0x180E, 0xFE00...0xFE0F, 0xFEFF, 0xFFF9...0xFFFB, 0xE0000...0xE007F: return false
     default: return true
     }
 }

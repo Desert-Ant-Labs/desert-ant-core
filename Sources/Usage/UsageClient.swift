@@ -209,7 +209,7 @@ public final class UsageClient {
         return n > 0 ? n : nil
     }
 
-    // Sanitized here, the one place every context passes, because the ingest
+    // Every context is sanitized before it is queued, because the ingest
     // rejects the whole batch over an oversized one (see `sanitizeContext`).
     private func currentContext() -> [String: String]? {
         sanitizeContext(deps.context.flatMap { $0() })

@@ -38,7 +38,7 @@ struct ContextSanitizingTests {
     }
 
     @Test func valuesArePrintableTrimmedAndCut() {
-        #expect(printableValue("  \u{7}ab\u{202E}c\n\t ") == "abc")
+        #expect(printableValue("  \u{7}ab\u{202E}c\u{AD}\u{FE0F}\u{E0041}\n\t ") == "abc")
         let long = printableValue(String(repeating: "é", count: 100))   // 2 bytes each
         #expect(long.utf8.count == maxContextValueBytes)
         // Never splits a character to fit: 3-byte characters stop at 63 bytes.
@@ -278,7 +278,8 @@ struct BrowserVocabularyTests {
 }
 
 // Serialized: `DesertAnt.sendsDeviceContext` is process-wide, and these read the
-// real provider, which honours it.
+// real provider, which honours it. A test elsewhere that relies on the default
+// provider would race `theInCodeOptOutSendsUsageWithoutContext`; inject one.
 @Suite(.serialized) struct DefaultContextProviderTests {
     private func firstContext(platform: String, deviceId: String? = nil) -> [String: String]? {
         var sent: [IngestBody] = []
@@ -306,7 +307,9 @@ struct BrowserVocabularyTests {
         #expect(Set(context.keys).isSubset(of: serverSet))
     }
 
-    @Test func aGeneratedDeviceIdOnADeviceGetsTheFullSet() {
+    // A shell with DAL_DEVICE_ID or the context flag set changes the answer.
+    @Test(.enabled(if: hostProvidedDeviceId() == nil && !deviceContextDisabled()))
+    func aGeneratedDeviceIdOnADeviceGetsTheFullSet() {
         let context = firstContext(platform: "ios")
         #expect(context == sanitizeContext(DeviceContext.current.fields(minimal: false, appVersionOverride: hostProvidedAppVersion())))
         #if canImport(Darwin)
@@ -352,6 +355,9 @@ struct BrowserVocabularyTests {
         JSObject.global.__dalUsageContextDisabled = .string("false")
         #expect(!deviceContextDisabled())
         JSObject.global.__dalUsageContextDisabled = .string("1")
+        #expect(deviceContextDisabled())
+        // A getter, as every other host global may be.
+        JSObject.global.__dalUsageContextDisabled = .object(JSClosure { _ in .boolean(true) })
         #expect(deviceContextDisabled())
     }
     #endif

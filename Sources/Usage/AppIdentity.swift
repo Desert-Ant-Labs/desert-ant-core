@@ -75,12 +75,14 @@ public func hostProvidedAppVersion() -> String? {
 
 /// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
 /// set to false in code, or the host flag, `globalThis.__dalUsageContextDisabled`
-/// on WASI and the `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere.
+/// (a string, a boolean, or a function returning either) on WASI and the
+/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere.
 /// Usage itself still reports; only the context goes.
 public func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(WASI)
-    let value = JSObject.global["__dalUsageContextDisabled"]
+    var value = JSObject.global["__dalUsageContextDisabled"]
+    if let getter = value.function { value = getter() }
     if let flag = value.boolean { return flag }
     return flagIsSet(value.string)
 #else
@@ -88,8 +90,9 @@ public func deviceContextDisabled() -> Bool {
 #endif
 }
 
-/// The one truthiness rule for a string opt-out flag: set, and not "", "0" or
-/// "false". The Node port reads its flags the same way.
+/// The truthiness rule for the context opt-outs: set, and not "", "0" or
+/// "false". The Node port reads its flag the same way. `usageDisabled()` keeps
+/// its older rule, which every port shares.
 func flagIsSet(_ value: String?) -> Bool {
     guard let value else { return false }
     return value != "" && value != "0" && value != "false"

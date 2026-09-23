@@ -144,9 +144,11 @@ public func makeClient(
     let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
-    // A device id other than the one persisted here came from the caller (a
-    // tenant's) or the host, so it is not this machine's to describe.
-    let deviceIdSupplied = device != store.get(deviceIdKey)
+    // An id from the caller (a tenant's) or the host is not this machine's to
+    // describe. Inference passes the persisted id explicitly on its default path,
+    // which is why an explicit id equal to it still counts as generated.
+    let suppliedId = deviceId ?? hostProvidedDeviceId()
+    let deviceIdSupplied = suppliedId != nil && suppliedId != store.get(deviceIdKey)
     // Coalesce a continuously-running server's delta loads to hourly by default.
     let resolvedEmitInterval = emitIntervalMs ?? (platform == "server" ? hourMs : 0)
     return UsageClient(ClientDeps(
