@@ -414,6 +414,26 @@ struct BrowserVocabularyTests {
         #expect(DeviceContext.current.browserName == nil)
     }
 
+    /// A store whose calls throw (a full origin, a host store's I/O error) costs
+    /// the stored state, never the event already taken off the queue.
+    @Test func aThrowingStoreStillSendsTheTurnstile() throws {
+        let throwing = JSObject.global.Function.function!.new("k", "v", "throw new Error('quota')")
+        let object = JSObject.global.Object.function!.new()
+        object.getItem = .object(throwing)
+        object.setItem = .object(throwing)
+        let store = JSKeyValueStorage(object: object)
+        #expect(store.get("k") == nil)
+        store.set("k", "v")
+        var sent: [IngestBody] = []
+        let client = makeClient(
+            appId: "co.acme.app", deviceId: "d", platform: "web", context: { nil },
+            storage: store, send: { body, _ in sent.append(body) }
+        )
+        client.start()
+        client.flush()
+        #expect(sent.count == 1)
+    }
+
     @Test func theHostGlobalsAreRead() {
         defer {
             _ = JSObject.global.Reflect.object!.deleteProperty!(JSObject.global, "__dalUsageContextDisabled")
