@@ -358,6 +358,22 @@ struct BrowserVocabularyTests {
         #expect(sent[0].events[0].context == nil)
     }
 
+    @Test func aCallersOwnProviderObeysTheOptOut() {
+        DesertAnt.sendsDeviceContext = false
+        defer { DesertAnt.sendsDeviceContext = true }
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d", platform: "test",
+            context: { ["osName": "Linux"] },
+            loadState: { UsageState() }, saveState: { _ in },
+            send: { body, _ in sent.append(body) }
+        ))
+        client.start()
+        client.flush()
+        #expect(sent.count == 1)
+        #expect(sent[0].events[0].context == nil)
+    }
+
     @Test func theInCodeOptOutSendsUsageWithoutContext() {
         DesertAnt.sendsDeviceContext = false
         defer { DesertAnt.sendsDeviceContext = true }

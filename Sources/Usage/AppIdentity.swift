@@ -49,8 +49,8 @@ public func hostProvidedAppId() -> String? {
 /// networked CI, where every model load would otherwise post a real turnstile
 /// event, and because a fire-and-forget send left in flight as a short-lived
 /// process exits (a test runner, a CLI) is what raced Node's teardown into a
-/// SIGSEGV. WASI has no process environment to read, so the wasm build, in a
-/// page or under Node, always tracks.
+/// SIGSEGV. The wasm build does not read `DAL_USAGE_DISABLED`, in a page or
+/// under Node, so it always tracks.
 public func usageDisabled() -> Bool {
 #if os(WASI)
     return false
@@ -79,7 +79,8 @@ func hostProvidedAppVersion() -> String? {
 /// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
 /// set to false in code, or the host flag: `globalThis.__dalUsageContextDisabled`
 /// (a string, a boolean, or a function returning either) on WASI, then under
-/// Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, as tongue-node reads it; the
+/// Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, in the global-then-environment
+/// order tongue-node's `hostString` uses; the
 /// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere. A flag is a
 /// string under `flagIsSet` or the boolean `true`; a number, 1 included, does
 /// not opt out. Usage itself still reports; only the context goes.
