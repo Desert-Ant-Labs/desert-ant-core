@@ -188,6 +188,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The Linux build mounts the checkout into a container; nothing there
+          # should find a write token in .git/config.
+          persist-credentials: false
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2

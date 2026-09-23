@@ -104,6 +104,28 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     );
   }
 
+  // The Linux core opens the system libcurl itself (Tools/curlcompat) rather
+  // than linking it, so a host without one still loads the library and would
+  // only fail at the first download or usage report, as an abort. Asked here,
+  // before any other call, so it is an ordinary error from load() instead.
+  // A core built before the probe existed has no such symbol; its dlopen
+  // already failed on a missing libcurl, so there is nothing to check.
+  function checkLibcurl(core) {
+    if (process.platform !== "linux") return;
+    let available;
+    try {
+      available = core.func("int dal_curl_available()");
+    } catch {
+      return;
+    }
+    if (available()) return;
+    throw new Error(
+      `${packageName}: libcurl is required (downloads and usage reporting) but ` +
+        `libcurl.so.4 could not be loaded. Install libcurl4 (Debian, Ubuntu) or ` +
+        `libcurl (Fedora, Amazon Linux).`,
+    );
+  }
+
   const CORE = coreFile(coreName);
   let lib;
   function loadLib() {
@@ -115,6 +137,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     const runtime = RUNTIME[process.platform];
     if (runtime && fs.existsSync(path.join(dir, runtime))) koffi.load(path.join(dir, runtime));
     const core = koffi.load(path.join(dir, CORE[process.platform] || CORE.linux));
+    checkLibcurl(core);
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
     // Export the generic call-group
