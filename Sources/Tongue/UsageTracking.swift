@@ -131,12 +131,13 @@ func makeTurnstile() -> UsageTurnstile {
 
 /// The client every `Tongue` turnstile is built on. `TongueModel.sdkInfo` is the
 /// catalog's own identity, so detections arrive under this model's name and
-/// version rather than the package's. `storage` and `send` are for tests.
+/// version rather than the package's. `storage`, `send` and `disabled` are for tests.
 func makeTongueClient(
     storage: UsageStorage? = nil,
-    send: ((IngestBody, SendOptions) -> Void)? = nil
+    send: ((IngestBody, SendOptions) -> Void)? = nil,
+    disabled: @escaping () -> Bool = usageDisabled
 ) -> UsageClient {
-    makeClient(sdk: TongueModel.sdkInfo, storage: storage, send: send)
+    makeClient(sdk: TongueModel.sdkInfo, storage: storage, send: send, disabled: disabled)
 }
 
 // `usageDisabled()` is core's, in `Usage` (this file already imports it). Tongue

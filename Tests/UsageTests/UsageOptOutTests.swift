@@ -54,6 +54,37 @@ private final class Switch: @unchecked Sendable { var on = false }
         for task in registry.drain() { await task.value }
     }
 
+    /// The client itself holds while the switch is on: a flush, a load or a
+    /// suspend neither stores nor sends, and what it held goes out once the
+    /// switch is cleared. This is what a host's own `makeClient` client gets.
+    @Test func theClientHoldsWhileSwitchedOff() {
+        let off = Switch()
+        var state = UsageState()
+        var saves = 0
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d", platform: "test", now: { 1_000_000_000_000 },
+            loadState: { state }, saveState: { state = $0; saves += 1 },
+            send: { body, _ in sent.append(body) },
+            disabled: { off.on }
+        ))
+        client.start()
+        client.recordCall()
+        off.on = true
+        let before = saves
+        client.recordCall()
+        client.flush()
+        client.suspend()
+        client.load()
+        client.carryUnsent()
+        #expect(sent.isEmpty, "a switched-off client sent")
+        #expect(saves == before, "a switched-off client wrote its store")
+        off.on = false
+        client.flush()
+        #expect(sent.count == 1)
+        #expect(sent.first?.events.first?.callCount == 1, "the held call was lost, or one made while off counted")
+    }
+
     #if os(WASI)
     /// A page's consent banner sets `globalThis.__dalUsageDisabled` and clears it
     /// later; it is read the way the other host globals are.

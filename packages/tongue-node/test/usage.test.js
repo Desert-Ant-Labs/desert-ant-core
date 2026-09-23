@@ -213,6 +213,42 @@ test("the switch is read per detection and per send, as a consent flow flips it"
   }
 });
 
+test("a client holds while its switch is on, then sends what it held", () => {
+  let off = false;
+  let state = { lastActiveAt: 0, carryCallCount: 0 };
+  let saves = 0;
+  const sends = [];
+  const client = new UsageClient({
+    deviceId: "d",
+    keyInBody: true,
+    platform: "server",
+    version: "9.9.9",
+    windowMs: 86_400_000,
+    now: () => 1700000000000,
+    loadState: () => state,
+    saveState: (next) => {
+      state = next;
+      saves++;
+    },
+    send: (body) => void sends.push(body),
+    disabled: () => off,
+  });
+  client.start();
+  client.recordCall();
+  off = true;
+  const before = saves;
+  client.recordCall();
+  client.flush();
+  client.suspend();
+  client.load();
+  assert.equal(sends.length, 0, "a switched-off client sent");
+  assert.equal(saves, before, "a switched-off client wrote its store");
+  off = false;
+  client.flush();
+  assert.equal(sends.length, 1);
+  assert.equal(sends[0].events[0].callCount, 1, "the held call was lost, or one made while off counted");
+});
+
 test("a forced load posts inside the window and resolves only once the send has", async () => {
   // `flushTelemetry()` is what a short-lived worker calls before it exits. Two
   // things have to hold for it to be worth calling: it posts although the window

@@ -326,7 +326,8 @@ struct BrowserVocabularyTests {
             deviceId: deviceId,
             platform: platform,
             storage: storage,
-            send: { body, _ in sent.append(body) }
+            send: { body, _ in sent.append(body) },
+            disabled: { false }
         )
         client.start()
         client.flush()
@@ -444,7 +445,7 @@ struct BrowserVocabularyTests {
         defer { DesertAnt.sendsDeviceContext = true }
         #expect(deviceContextDisabled())
         var sent: [IngestBody] = []
-        let client = makeClient(appId: "co.acme.app", platform: "ios", storage: InMemoryStorage(), send: { body, _ in sent.append(body) })
+        let client = makeClient(appId: "co.acme.app", platform: "ios", storage: InMemoryStorage(), send: { body, _ in sent.append(body) }, disabled: { false })
         client.start()
         client.flush()
         #expect(sent.count == 1)
@@ -476,7 +477,7 @@ struct BrowserVocabularyTests {
         var sent: [IngestBody] = []
         let client = makeClient(
             appId: "co.acme.app", deviceId: "d", platform: "web", context: { nil },
-            storage: store, send: { body, _ in sent.append(body) }
+            storage: store, send: { body, _ in sent.append(body) }, disabled: { false }
         )
         client.start()
         client.flush()

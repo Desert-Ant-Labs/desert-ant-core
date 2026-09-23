@@ -64,6 +64,10 @@ public struct ClientDeps {
     public var loadState: () -> UsageState
     public var saveState: (UsageState) -> Void
     public var send: (IngestBody, SendOptions) -> Void
+    /// The usage opt-out, read before every step that would count, store or
+    /// send. While it returns true the client does nothing, so what it holds
+    /// waits in memory until it is cleared. `makeClient` passes `usageDisabled`.
+    public var disabled: () -> Bool
 
     public init(
         deviceId: String,
@@ -79,7 +83,8 @@ public struct ClientDeps {
         now: @escaping () -> Int64 = systemNowMs,
         loadState: @escaping () -> UsageState,
         saveState: @escaping (UsageState) -> Void,
-        send: @escaping (IngestBody, SendOptions) -> Void
+        send: @escaping (IngestBody, SendOptions) -> Void,
+        disabled: @escaping () -> Bool = { false }
     ) {
         self.deviceId = deviceId
         self.key = key
@@ -95,6 +100,7 @@ public struct ClientDeps {
         self.loadState = loadState
         self.saveState = saveState
         self.send = send
+        self.disabled = disabled
     }
 }
 
@@ -113,7 +119,7 @@ public final class UsageClient {
 
     /// Host calls this once per inference/call to attribute to the turnstile.
     public func recordCall(_ n: Int = 1) {
-        if n > 0 { sessionCalls += n }
+        if n > 0 && !deps.disabled() { sessionCalls += n }
     }
 
     /// Whether there is usage to report. Skips a client with nothing to say, so
@@ -127,7 +133,7 @@ public final class UsageClient {
     /// holds the device would otherwise strand them in memory, where they vanish
     /// with the session; the carry rides the device's next emit instead.
     public func carryUnsent() {
-        guard deps.callCount == nil, sessionCalls > 0 else { return }
+        guard deps.callCount == nil, sessionCalls > 0, !deps.disabled() else { return }
         let st = deps.loadState()
         deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
         sessionCalls = 0
@@ -136,6 +142,7 @@ public final class UsageClient {
     /// Evaluate the window and, if a new session/day is due, queue a turnstile.
     /// Call on init and again on reactivation.
     public func start() {
+        if deps.disabled() { return }
         let st = deps.loadState()
         if deps.now() - st.lastActiveAt < deps.windowMs { return } // still within the same session/day
         // Reserve the slot up front so a second start now won't double-emit.
@@ -145,6 +152,7 @@ public final class UsageClient {
 
     /// Mark the app inactive (stamp the idle clock) and flush via the unload-safe path.
     public func suspend() {
+        if deps.disabled() { return }
         let st = deps.loadState()
         deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount))
         flush(SendOptions(beacon: true))
@@ -152,6 +160,7 @@ public final class UsageClient {
 
     /// Force a turnstile now, ignoring the window.
     public func load(context: [String: String]? = nil) {
+        if deps.disabled() { return }
         let st = deps.loadState()
         deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount))
         queue(context: context)
@@ -160,6 +169,7 @@ public final class UsageClient {
 
     /// Flush any pending event. `beacon: true` uses the unload-safe path.
     public func flush(_ opts: SendOptions = SendOptions()) {
+        if deps.disabled() { return }
         let st = deps.loadState()
 
         if var ev = pending {

@@ -607,11 +607,20 @@ export class UsageClient {
       send: (body: IngestBody) => Promise<void> | void;
       /** Per-event `context`, sanitized before it is sent. None when omitted. */
       context?: () => Record<string, string> | undefined;
+      /**
+       * The usage opt-out, read before every step that would count, store or
+       * send; what the client holds waits until it is cleared. Never when omitted.
+       */
+      disabled?: () => boolean;
     },
   ) {}
 
+  private get off(): boolean {
+    return this.deps.disabled?.() ?? false;
+  }
+
   recordCall(n = 1): void {
-    if (n > 0) this.sessionCalls += n;
+    if (n > 0 && !this.off) this.sessionCalls += n;
   }
 
   /** Whether there is usage to report, so a forced flush never invents a call. */
@@ -624,6 +633,7 @@ export class UsageClient {
    * completion so a caller can await the POST. Port of core's `load()`.
    */
   load(): Promise<void> | void {
+    if (this.off) return;
     const st = this.deps.loadState();
     this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
     this.queue();
@@ -631,6 +641,7 @@ export class UsageClient {
   }
 
   start(): void {
+    if (this.off) return;
     const st = this.deps.loadState();
     if (this.deps.now() - st.lastActiveAt < this.deps.windowMs) return;
     this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
@@ -638,12 +649,14 @@ export class UsageClient {
   }
 
   suspend(): void {
+    if (this.off) return;
     const st = this.deps.loadState();
     this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
     this.flush();
   }
 
   flush(): Promise<void> | void {
+    if (this.off) return;
     const st = this.deps.loadState();
 
     if (this.pending) {
@@ -730,8 +743,8 @@ export class UsageClient {
  * Returns the send's promise so `flushTelemetry()` can await the POST. The
  * debounced path ignores it, exactly as core's fire-and-forget send does.
  *
- * Sends nothing while `usageDisabled()` is on, read per send. The turnstile
- * already holds its flushes while it is on; this is the backstop.
+ * Sends nothing while `usageDisabled()` is on, read per send: the last guard
+ * behind the client's and the turnstile's own.
  */
 export function makeSend(
   endpoint = INGEST_ENDPOINT,
@@ -878,6 +891,7 @@ export class UsageTurnstile {
           store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`),
         send: makeSend(ingestEndpoint(), key, keyInHeader),
         context: defaultContextProvider(platform, hostDevice !== undefined && hostDevice !== persisted),
+        disabled: usageDisabled,
       });
       client.start();
       // Deliver what was accrued when the host goes away. Without this a process
