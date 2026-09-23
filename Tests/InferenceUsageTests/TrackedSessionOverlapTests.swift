@@ -10,29 +10,41 @@ import Usage
 /// can: it holds its thread until the prediction is done. The ParallelRuns
 /// tests use `Task.sleep`, which suspends, so they say nothing about a wrapper
 /// in front of a session that does not.
+///
+/// A run blocks until a second run is active beside it, rather than sleeping a
+/// fixed interval and hoping the scheduler overlapped another run inside it,
+/// which made `peak` a race against a loaded CI runner. A wrapper that
+/// serializes its runs can never have two active, so the first run waits out
+/// the full deadline and `peak` stays 1; a wrapper that overlaps passes as
+/// fast as two tasks can start.
 private final class BlockingSession: InferenceSession, @unchecked Sendable {
     let runsConcurrently = true
-    private let lock = NSLock()
+    private let cond = NSCondition()
     private var active = 0
     private var _peak = 0
     private var _runs = 0
 
-    var peak: Int { locked { _peak } }
-    var runs: Int { locked { _runs } }
+    var peak: Int { cond.lock(); defer { cond.unlock() }; return _peak }
+    var runs: Int { cond.lock(); defer { cond.unlock() }; return _runs }
 
     /// Holds the thread without suspending - the whole point of this session.
-    /// Synchronous because `Thread.sleep` is unavailable from async contexts.
-    private func block(seconds: Double) { Thread.sleep(forTimeInterval: seconds) }
-
-    private func locked<T>(_ body: () -> T) -> T {
-        lock.lock(); defer { lock.unlock() }
-        return body()
+    /// Synchronous because `NSCondition` is unavailable from async contexts.
+    private func blockUntilOverlappedOrDeadline() {
+        cond.lock()
+        active += 1
+        _peak = max(_peak, active)
+        _runs += 1
+        cond.broadcast()
+        // `wait` blocks like a prediction does; the deadline only bounds the
+        // failure case, where a serializing wrapper never overlaps a second run.
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while _peak < 2, cond.wait(until: deadline) {}
+        active -= 1
+        cond.unlock()
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
-        locked { active += 1; _peak = max(_peak, active); _runs += 1 }
-        block(seconds: 0.02)
-        locked { active -= 1 }
+        blockUntilOverlappedOrDeadline()
         return []
     }
 }
