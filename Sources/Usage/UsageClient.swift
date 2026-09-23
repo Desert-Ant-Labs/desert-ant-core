@@ -209,12 +209,14 @@ public final class UsageClient {
         return n > 0 ? n : nil
     }
 
+    // Sanitized here, the one place every context passes, because the ingest
+    // rejects the whole batch over an oversized one (see `sanitizeContext`).
     private func currentContext() -> [String: String]? {
-        deps.context.flatMap { $0() }
+        sanitizeContext(deps.context.flatMap { $0() })
     }
 
     private func queue(context: [String: String]? = nil) {
-        pending = IngestEvent(deviceId: deps.deviceId, context: context ?? currentContext())
+        pending = IngestEvent(deviceId: deps.deviceId, context: context != nil ? sanitizeContext(context) : currentContext())
         emitted = true
     }
 

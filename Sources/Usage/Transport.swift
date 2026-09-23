@@ -119,6 +119,10 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///     (`globalThis.__dalDeviceId`, for server-side Node) or the generated,
 ///     persisted per-install UUID.
 ///   - storage: overrides the persistence backend (e.g. tests).
+///   - context: overrides the per-event `context` provider. Defaults to the
+///     cached host facts (`DeviceContext`), cut to the server set when `platform`
+///     is "server" or the device id was supplied rather than generated here.
+///     Whatever it returns is sanitized before it is sent (`sanitizeContext`).
 ///   - send: overrides the transport. Defaults to the real POST; a caller-supplied
 ///     one wins (tests), which is how a test reads the platform tag and the key's
 ///     placement that this function decides.
@@ -140,6 +144,9 @@ public func makeClient(
     let namespace = resolvedKey ?? resolvedAppId    // state namespaced per attribution identity
     let store = storage ?? defaultStorage()
     let device = resolveDeviceId(deviceId, store)
+    // A device id other than the one persisted here came from the caller (a
+    // tenant's) or the host, so it is not this machine's to describe.
+    let deviceIdSupplied = device != store.get(deviceIdKey)
     // Coalesce a continuously-running server's delta loads to hourly by default.
     let resolvedEmitInterval = emitIntervalMs ?? (platform == "server" ? hourMs : 0)
     return UsageClient(ClientDeps(
@@ -150,7 +157,7 @@ public func makeClient(
         sdk: sdk,
         platform: platform,
         callCount: callCount,
-        context: context,
+        context: context ?? defaultContextProvider(platform: platform, deviceIdSupplied: deviceIdSupplied),
         windowMs: windowMs,
         emitIntervalMs: resolvedEmitInterval,
         now: systemNowMs,

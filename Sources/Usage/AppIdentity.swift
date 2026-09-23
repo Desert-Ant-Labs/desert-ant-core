@@ -49,8 +49,8 @@ public func hostProvidedAppId() -> String? {
 /// networked CI, where every model load would otherwise post a real turnstile
 /// event, and because a fire-and-forget send left in flight as a short-lived
 /// process exits (a test runner, a CLI) is what raced Node's teardown into a
-/// SIGSEGV. On WASI the browser build is the TypeScript port, so there is
-/// nothing to read.
+/// SIGSEGV. WASI has no process environment to read, so the wasm build, in a
+/// page or under Node, always tracks.
 public func usageDisabled() -> Bool {
 #if os(WASI)
     return false
@@ -58,6 +58,41 @@ public func usageDisabled() -> Bool {
     guard let value = environmentVariable("DAL_USAGE_DISABLED") else { return false }
     return !value.isEmpty && value != "0"
 #endif
+}
+
+/// A host-provided app version, overriding the bundle's own for the event
+/// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function);
+/// elsewhere reads the `DAL_APP_VERSION` environment variable. `nil` when unset.
+/// The only appVersion a Linux, Android or wasm host sends.
+public func hostProvidedAppVersion() -> String? {
+#if os(WASI)
+    return jsHostString("__dalAppVersion")
+#else
+    guard let value = environmentVariable("DAL_APP_VERSION") else { return nil }
+    return value.isEmpty ? nil : value
+#endif
+}
+
+/// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
+/// set to false in code, or the host flag, `globalThis.__dalUsageContextDisabled`
+/// on WASI and the `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere.
+/// Usage itself still reports; only the context goes.
+public func deviceContextDisabled() -> Bool {
+    if !DesertAnt.sendsDeviceContext { return true }
+#if os(WASI)
+    let value = JSObject.global["__dalUsageContextDisabled"]
+    if let flag = value.boolean { return flag }
+    return flagIsSet(value.string)
+#else
+    return flagIsSet(environmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
+#endif
+}
+
+/// The one truthiness rule for a string opt-out flag: set, and not "", "0" or
+/// "false". The Node port reads its flags the same way.
+func flagIsSet(_ value: String?) -> Bool {
+    guard let value else { return false }
+    return value != "" && value != "0" && value != "false"
 }
 
 /// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins;

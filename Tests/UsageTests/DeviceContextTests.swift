@@ -1,0 +1,358 @@
+import Testing
+@testable import Usage
+import JSON
+#if os(WASI)
+import JavaScriptKit
+#endif
+
+private let serverSet: Set<String> = ["appVersion", "osName", "osVersion"]
+
+private let everyField = DeviceContext(
+    appVersion: "3.1.0",
+    osName: "iOS",
+    osVersion: "18.2",
+    deviceModel: "iPhone16,2",
+    browserName: "Safari",
+    browserVersion: "18",
+    formFactor: "mobile",
+    locale: "pt-BR"
+)
+
+private func encodedSize(_ context: [String: String]) -> Int {
+    (try? JSONEncoder().encodeToString(context))?.utf8.count ?? .max
+}
+
+struct ContextSanitizingTests {
+    @Test func onlyTheAllowlistedKeysSurvive() {
+        let context = sanitizeContext([
+            "osName": "iOS", "deviceName": "Ana's iPhone", "email": "a@b.c", "locale": "pt-BR",
+        ])
+        #expect(context == ["osName": "iOS", "locale": "pt-BR"])
+    }
+
+    @Test func aFormFactorOutsideTheVocabularyIsDropped() {
+        #expect(sanitizeContext(["formFactor": "tv", "osName": "tvOS"]) == ["osName": "tvOS"])
+        for value in formFactors {
+            #expect(sanitizeContext(["formFactor": value])?["formFactor"] == value)
+        }
+    }
+
+    @Test func valuesArePrintableTrimmedAndCut() {
+        #expect(printableValue("  \u{7}ab\u{202E}c\n\t ") == "abc")
+        let long = printableValue(String(repeating: "é", count: 100))   // 2 bytes each
+        #expect(long.utf8.count == maxContextValueBytes)
+        // Never splits a character to fit: 3-byte characters stop at 63 bytes.
+        #expect(printableValue(String(repeating: "語", count: 100)).utf8.count == 63)
+    }
+
+    @Test func nothingLeftIsNoContext() {
+        #expect(sanitizeContext(nil) == nil)
+        #expect(sanitizeContext([:]) == nil)
+        #expect(sanitizeContext(["osName": " \u{0} ", "other": "x"]) == nil)
+    }
+
+    /// Eight values of nothing but quotes escape to twice their length, past the
+    /// cap. The context goes; the event does not.
+    @Test func anOversizedContextIsDroppedAndTheEventStillSent() {
+        let quotes = String(repeating: "\"", count: maxContextValueBytes)
+        let oversized = Dictionary(uniqueKeysWithValues: contextKeys.map { ($0, quotes) })
+            .merging(["formFactor": "mobile"]) { $1 }
+        #expect(sanitizeContext(oversized) == nil)
+
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d",
+            platform: "test",
+            context: { oversized },
+            loadState: { UsageState() },
+            saveState: { _ in },
+            send: { body, _ in sent.append(body) }
+        ))
+        client.start()
+        client.flush()
+        #expect(sent.count == 1)
+        #expect(sent[0].events[0].context == nil)
+    }
+
+    @Test func anOversizedAppVersionOverrideIsCutNotSentWhole() throws {
+        let override = String(repeating: "9", count: 10_000)
+        let context = try #require(sanitizeContext(everyField.fields(minimal: false, appVersionOverride: override)))
+        #expect(context["appVersion"]?.utf8.count == maxContextValueBytes)
+        #expect(context["osName"] == "iOS")
+        #expect(encodedSize(context) <= maxContextBytes)
+    }
+
+    /// Whatever the host facts, the largest context a provider can build fits.
+    @Test func theLargestPossibleContextFits() throws {
+        let widest = String(repeating: "\u{10FFFF}", count: 100)
+        let facts = DeviceContext(
+            appVersion: widest, osName: widest, osVersion: widest, deviceModel: widest,
+            browserName: widest, browserVersion: widest, formFactor: "tablet", locale: widest
+        )
+        let context = try #require(sanitizeContext(facts.fields(minimal: false)))
+        #expect(context.count == 8)
+        #expect(encodedSize(context) <= maxContextBytes)
+    }
+
+    /// Caller-passed context goes through the same cut as the provider's.
+    @Test func anExplicitLoadContextIsSanitizedToo() {
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d", platform: "test",
+            context: { ["osName": "Linux"] },
+            loadState: { UsageState() }, saveState: { _ in },
+            send: { body, _ in sent.append(body) }
+        ))
+        client.load(context: ["osName": "macOS", "hostname": "build-07"])
+        #expect(sent.first?.events.first?.context == ["osName": "macOS"])
+    }
+}
+
+struct ContextFieldsTests {
+    @Test func theServerSetIsOSAndAppVersionWithAMajorOnlyVersion() {
+        let context = everyField.fields(minimal: true)
+        #expect(Set(context.keys) == serverSet)
+        #expect(context["osVersion"] == "18")
+    }
+
+    @Test func theFullSetCarriesEveryFact() {
+        let context = everyField.fields(minimal: false)
+        #expect(Set(context.keys) == contextKeys)
+        #expect(context["osVersion"] == "18.2")
+    }
+
+    @Test func anAppVersionOverrideWins() {
+        #expect(everyField.fields(minimal: true, appVersionOverride: "9.9")["appVersion"] == "9.9")
+        #expect(DeviceContext(osName: "Linux").fields(minimal: true, appVersionOverride: "1.0")
+            == ["osName": "Linux", "appVersion": "1.0"])
+    }
+
+    @Test func majorVersions() {
+        #expect(majorVersion("15.6") == "15")
+        #expect(majorVersion("26") == "26")
+    }
+
+    @Test func localesAreLanguageAndRegionOnly() {
+        #expect(languageRegion("pt-BR") == "pt-BR")
+        #expect(languageRegion("en_US") == "en-US")
+        #expect(languageRegion("zh-Hant-TW") == "zh-TW")
+        #expect(languageRegion("es-419") == "es-419")
+        #expect(languageRegion("fr") == "fr")
+        #expect(languageRegion("de-DE-u-co-phonebk") == "de-DE")
+        #expect(languageRegion("en-US@rg=gbzzzz") == "en-US")
+        #expect(languageRegion("sr-Latn") == "sr")
+        #expect(languageRegion("") == nil)
+        #expect(languageRegion("*") == nil)
+        #expect(languageRegion(nil) == nil)
+    }
+
+    @Test func nodePlatformsMapOntoTheSameOSNames() {
+        #expect(nodeOSName("darwin") == "macOS")
+        #expect(nodeOSName("linux") == "Linux")
+        #expect(nodeOSName("win32") == "Windows")
+        #expect(nodeOSName("freebsd") == "freebsd")
+        #expect(nodeOSName(nil) == nil)
+    }
+
+    @Test func flagTruthiness() {
+        for value in ["1", "true", "yes", "TRUE"] { #expect(flagIsSet(value)) }
+        for value: String? in [nil, "", "0", "false"] { #expect(!flagIsSet(value)) }
+    }
+}
+
+/// One row of the browser vocabulary: what a page reports, and what we send.
+private struct BrowserCase: CustomTestStringConvertible, Sendable {
+    let label: String
+    var brands: [String: String] = [:]
+    var hintPlatform: String?
+    var mobileHint: Bool?
+    let userAgent: String
+    var touch = 0
+    let name: String
+    let version: String?
+    let os: String?
+    let form: String
+    var testDescription: String { label }
+
+    var brandList: [(brand: String, version: String)] {
+        brands.sorted { $0.key < $1.key }.map { (brand: $0.key, version: $0.value) }
+    }
+}
+
+private let chromeMacUA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+private let chromeWinUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+
+private let browserCases: [BrowserCase] = [
+    BrowserCase(label: "Chrome on macOS",
+                brands: ["Google Chrome": "131", "Chromium": "131", "Not_A Brand": "24"],
+                hintPlatform: "macOS", mobileHint: false, userAgent: chromeMacUA,
+                name: "Chrome", version: "131", os: "macOS", form: "desktop"),
+    BrowserCase(label: "Edge on Windows",
+                brands: ["Microsoft Edge": "131", "Chromium": "131", "Not_A Brand": "24"],
+                hintPlatform: "Windows", mobileHint: false,
+                userAgent: chromeWinUA + " Edg/131.0.0.0",
+                name: "Edge", version: "131", os: "Windows", form: "desktop"),
+    BrowserCase(label: "Opera on Windows",
+                brands: ["Opera": "115", "Chromium": "130", "Not?A_Brand": "99"],
+                hintPlatform: "Windows", mobileHint: false,
+                userAgent: chromeWinUA + " OPR/115.0.0.0",
+                name: "Opera", version: "115", os: "Windows", form: "desktop"),
+    BrowserCase(label: "Brave (brands name no browser we know)",
+                brands: ["Brave": "131", "Chromium": "131", "Not_A Brand": "24"],
+                hintPlatform: "Windows", mobileHint: false, userAgent: chromeWinUA,
+                name: "Other", version: nil, os: "Windows", form: "desktop"),
+    BrowserCase(label: "Samsung Internet on an Android phone",
+                brands: ["Samsung Internet": "27", "Chromium": "125", "Not.A/Brand": "24"],
+                hintPlatform: "Android", mobileHint: true,
+                userAgent: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/125.0.0.0 Mobile Safari/537.36",
+                name: "Samsung Internet", version: "27", os: "Android", form: "mobile"),
+    BrowserCase(label: "Chrome on an Android tablet",
+                brands: ["Google Chrome": "131", "Chromium": "131", "Not_A Brand": "24"],
+                hintPlatform: "Android", mobileHint: false,
+                userAgent: "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                name: "Chrome", version: "131", os: "Android", form: "tablet"),
+    BrowserCase(label: "Chrome on ChromeOS",
+                brands: ["Google Chrome": "131", "Chromium": "131", "Not_A Brand": "24"],
+                hintPlatform: "Chrome OS", mobileHint: false,
+                userAgent: "Mozilla/5.0 (X11; CrOS x86_64 14541.0.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+                name: "Chrome", version: "131", os: "ChromeOS", form: "desktop"),
+    BrowserCase(label: "Safari on macOS",
+                userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+                name: "Safari", version: "18", os: "macOS", form: "desktop"),
+    BrowserCase(label: "Safari on an iPad (desktop user agent, touch)",
+                userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15",
+                touch: 5,
+                name: "Safari", version: "18", os: "iPadOS", form: "tablet"),
+    BrowserCase(label: "Safari on an iPhone",
+                userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Mobile/15E148 Safari/604.1",
+                touch: 5,
+                name: "Safari", version: "18", os: "iOS", form: "mobile"),
+    BrowserCase(label: "Chrome on an iPhone",
+                userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0.6778.73 Mobile/15E148 Safari/604.1",
+                touch: 5,
+                name: "Chrome", version: "131", os: "iOS", form: "mobile"),
+    BrowserCase(label: "Firefox on Linux",
+                userAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:133.0) Gecko/20100101 Firefox/133.0",
+                name: "Firefox", version: "133", os: "Linux", form: "desktop"),
+    BrowserCase(label: "Firefox on an Android phone",
+                userAgent: "Mozilla/5.0 (Android 14; Mobile; rv:133.0) Gecko/133.0 Firefox/133.0",
+                name: "Firefox", version: "133", os: "Android", form: "mobile"),
+    BrowserCase(label: "Firefox on Windows",
+                userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0",
+                name: "Firefox", version: "133", os: "Windows", form: "desktop"),
+    BrowserCase(label: "An iOS in-app web view",
+                userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+                touch: 5,
+                name: "Other", version: nil, os: "iOS", form: "mobile"),
+    BrowserCase(label: "Nothing to go on",
+                userAgent: "",
+                name: "Other", version: nil, os: nil, form: "desktop"),
+]
+
+struct BrowserVocabularyTests {
+    @Test(arguments: browserCases)
+    fileprivate func aPageIsDescribedInTheSharedVocabulary(_ row: BrowserCase) {
+        let browser = browserIdentity(brands: row.brandList, userAgent: row.userAgent)
+        #expect(browser.name == row.name)
+        #expect(browser.version == row.version)
+        #expect(browserNames.contains(browser.name))
+        #expect(browserOSName(hintPlatform: row.hintPlatform, userAgent: row.userAgent, maxTouchPoints: row.touch) == row.os)
+        #expect(browserFormFactor(userAgent: row.userAgent, mobileHint: row.mobileHint, maxTouchPoints: row.touch) == row.form)
+    }
+
+    /// Whatever a page reports, the form factor is one the ingest accepts:
+    /// anything else would be dropped, and the dashboard would lose the device.
+    @Test func theFormFactorIsAlwaysOneTheIngestAccepts() {
+        let agents = browserCases.map(\.userAgent) + [
+            "curl/8.4.0", "Mozilla/5.0 (PlayStation; PlayStation 5/2.26)", "Android", "iPad", "Mobile",
+            "Mozilla/5.0 (SMART-TV; Linux; Tizen 6.0)", "\u{0}", String(repeating: "Macintosh ", count: 50),
+        ]
+        for userAgent in agents {
+            for touch in [0, 1, 5] {
+                for hint: Bool? in [nil, false, true] {
+                    #expect(formFactors.contains(browserFormFactor(userAgent: userAgent, mobileHint: hint, maxTouchPoints: touch)))
+                }
+            }
+        }
+    }
+}
+
+// Serialized: `DesertAnt.sendsDeviceContext` is process-wide, and these read the
+// real provider, which honours it.
+@Suite(.serialized) struct DefaultContextProviderTests {
+    private func firstContext(platform: String, deviceId: String? = nil) -> [String: String]? {
+        var sent: [IngestBody] = []
+        let client = makeClient(
+            appId: "co.acme.app",
+            deviceId: deviceId,
+            platform: platform,
+            storage: InMemoryStorage(),
+            send: { body, _ in sent.append(body) }
+        )
+        client.start()
+        client.flush()
+        return sent.first?.events.first?.context
+    }
+
+    @Test func aServerSendsOnlyTheServerSet() {
+        let context = firstContext(platform: "server") ?? [:]
+        #expect(Set(context.keys).isSubset(of: serverSet))
+        if let version = context["osVersion"] { #expect(!version.contains(".")) }
+    }
+
+    /// A device id the caller supplied is a tenant's device, not this host.
+    @Test func aSuppliedDeviceIdGetsOnlyTheServerSet() {
+        let context = firstContext(platform: "ios", deviceId: "tenant-device") ?? [:]
+        #expect(Set(context.keys).isSubset(of: serverSet))
+    }
+
+    @Test func aGeneratedDeviceIdOnADeviceGetsTheFullSet() {
+        let context = firstContext(platform: "ios")
+        #expect(context == sanitizeContext(DeviceContext.current.fields(minimal: false, appVersionOverride: hostProvidedAppVersion())))
+        #if canImport(Darwin)
+        // Apple hosts always know their model and form factor.
+        #expect(context?["deviceModel"] != nil)
+        #expect(context?["formFactor"].map(formFactors.contains) == true)
+        #endif
+    }
+
+    @Test func theInCodeOptOutSendsUsageWithoutContext() {
+        DesertAnt.sendsDeviceContext = false
+        defer { DesertAnt.sendsDeviceContext = true }
+        #expect(deviceContextDisabled())
+        var sent: [IngestBody] = []
+        let client = makeClient(appId: "co.acme.app", platform: "ios", storage: InMemoryStorage(), send: { body, _ in sent.append(body) })
+        client.start()
+        client.flush()
+        #expect(sent.count == 1)
+        #expect(sent[0].events[0].context == nil)
+    }
+
+    @Test func onByDefault() {
+        #expect(DesertAnt.sendsDeviceContext)
+    }
+
+    #if os(WASI)
+    /// test:wasi runs under Node: the host facts are process.platform only.
+    @Test func underNodeTheOSComesFromProcessPlatform() {
+        let platform = JSObject.global.process.object?.platform.string
+        #expect(DeviceContext.current.osName == nodeOSName(platform))
+        #expect(DeviceContext.current.browserName == nil)
+    }
+
+    @Test func theHostGlobalsAreRead() {
+        defer {
+            _ = JSObject.global.Reflect.object!.deleteProperty!(JSObject.global, "__dalUsageContextDisabled")
+            _ = JSObject.global.Reflect.object!.deleteProperty!(JSObject.global, "__dalAppVersion")
+        }
+        JSObject.global.__dalAppVersion = .string("4.5.6")
+        #expect(hostProvidedAppVersion() == "4.5.6")
+        JSObject.global.__dalUsageContextDisabled = .boolean(true)
+        #expect(deviceContextDisabled())
+        JSObject.global.__dalUsageContextDisabled = .string("false")
+        #expect(!deviceContextDisabled())
+        JSObject.global.__dalUsageContextDisabled = .string("1")
+        #expect(deviceContextDisabled())
+    }
+    #endif
+}
