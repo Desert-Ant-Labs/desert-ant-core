@@ -53,7 +53,7 @@ public func hostProvidedAppId() -> String? {
 
 /// Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
 /// set in code, or the host flag: `globalThis.__dalUsageDisabled` (a string, a
-/// boolean, or a function returning either) on WASI, then under Node
+/// boolean, a number, or a function returning one) on WASI, then under Node
 /// `process.env.DAL_USAGE_DISABLED`; the `DAL_USAGE_DISABLED` environment
 /// variable elsewhere. The flag follows `flagIsSet`, as the context opt-out does.
 ///
@@ -68,8 +68,7 @@ public func hostProvidedAppId() -> String? {
 public func usageDisabled() -> Bool {
     if DesertAnt.usageDisabled { return true }
 #if os(WASI)
-    let value = jsHostValue("__dalUsageDisabled")
-    if value.boolean == true || flagIsSet(value.string) { return true }
+    if jsFlagIsSet(jsHostValue("__dalUsageDisabled")) { return true }
     return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
 #else
     return flagIsSet(environmentVariable("DAL_USAGE_DISABLED"))
@@ -96,12 +95,11 @@ func hostProvidedAppVersion() -> String? {
 /// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
 /// set to false in code (on Android, Kotlin's `HostBridge.sendsDeviceContext`
 /// as well), or the host flag: `globalThis.__dalUsageContextDisabled`
-/// (a string, a boolean, or a function returning either) on WASI, then under
-/// Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, in the global-then-environment
-/// order tongue-node's `hostString` uses; the
-/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere. A flag is a
-/// string under `flagIsSet` or the boolean `true`; a number, 1 included, does
-/// not opt out. Usage itself still reports; only the context goes.
+/// (a string, a boolean, a number, or a function returning one) on WASI, then
+/// under Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, in the
+/// global-then-environment order tongue-node's `hostString` uses; the
+/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere. The flag follows
+/// `flagIsSet`. Usage itself still reports; only the context goes.
 func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(Android)
@@ -109,8 +107,7 @@ func deviceContextDisabled() -> Bool {
     if host_sends_device_context() == 0 { return true }
 #endif
 #if os(WASI)
-    let value = jsHostValue("__dalUsageContextDisabled")
-    if value.boolean == true || flagIsSet(value.string) { return true }
+    if jsFlagIsSet(jsHostValue("__dalUsageContextDisabled")) { return true }
     return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
 #else
     return flagIsSet(environmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
@@ -126,11 +123,23 @@ func nodeEnvironmentVariable(_ name: String) -> String? {
 #endif
 
 /// The truthiness rule for every opt-out flag, usage and context alike: set,
-/// and not "", "0" or "false". A JS host may also pass the boolean `true`.
+/// and not "", "0" or "false". A JS host may also pass the boolean `true` or a
+/// finite non-zero number (`jsFlagIsSet`). It fails closed: `1`, which older
+/// tongue-node honoured, still opts out.
 func flagIsSet(_ value: String?) -> Bool {
     guard let value else { return false }
     return value != "" && value != "0" && value != "false"
 }
+
+#if os(WASI)
+/// `flagIsSet` for a JS value: `true`, a finite non-zero number, or a string
+/// under `flagIsSet`. `false`, 0, NaN, null and undefined are unset.
+func jsFlagIsSet(_ value: JSValue) -> Bool {
+    if let boolean = value.boolean { return boolean }
+    if let number = value.number { return number.isFinite && number != 0 }
+    return flagIsSet(value.string)
+}
+#endif
 
 /// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins;
 /// otherwise on WASI reads `globalThis.__dalApiKey` (string or function), and

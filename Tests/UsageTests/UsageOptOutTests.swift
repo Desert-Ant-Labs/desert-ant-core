@@ -118,9 +118,16 @@ private final class Switch: @unchecked Sendable { var on = false }
             JSObject.global.__dalUsageDisabled = .string(value)
             #expect(!usageDisabled(), "\(value) switched usage off")
         }
-        // A number is not a flag, as with the context opt-out.
-        JSObject.global.__dalUsageDisabled = .number(1)
-        #expect(!usageDisabled())
+        // A finite non-zero number opts out, failing closed, as older tongue-node
+        // did; 0, NaN and infinity do not.
+        for number in [1.0, -1, 0.5] {
+            JSObject.global.__dalUsageDisabled = .number(number)
+            #expect(usageDisabled(), "\(number) did not switch usage off")
+        }
+        for number in [0.0, .nan, .infinity] {
+            JSObject.global.__dalUsageDisabled = .number(number)
+            #expect(!usageDisabled(), "\(number) switched usage off")
+        }
         // A function, read on every call, as a consent manager may supply.
         let consent = Switch()
         JSObject.global.__dalUsageDisabled = .object(JSClosure { _ in .boolean(!consent.on) })
