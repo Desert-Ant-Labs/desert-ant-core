@@ -1,12 +1,15 @@
-// FIPS 180-4 SHA-256. Where CryptoKit exists (Apple platforms), the public
-// `SHA256` delegates to it: the framework is precompiled, so hashing runs at
-// hardware speed even in a Debug build, where the portable loop below is
-// slow enough to make verifying a large cached model take minutes.
-// `SoftwareSHA256` is the pure-Swift fallback (no Foundation, no
-// swift-crypto/BoringSSL) for Linux, Android, and wasm.
+// FIPS 180-4 SHA-256. Where the OS ships one, the public `SHA256` delegates to
+// it: CryptoKit on Apple platforms, CNG (bcrypt) on Windows. Those are
+// precompiled, so hashing runs at hardware speed even in a Debug build, where
+// the portable loop below manages about 4 MB/s and verifying a large cached
+// model takes minutes. `SoftwareSHA256` is the pure-Swift fallback (no
+// Foundation, no swift-crypto/BoringSSL) for Linux, Android, and wasm.
 
 #if canImport(CryptoKit)
 import CryptoKit
+#elseif os(Windows)
+import CBCrypt
+import WinSDK
 #endif
 
 struct SoftwareSHA256 {
@@ -116,11 +119,77 @@ struct SoftwareSHA256 {
     private func rotr(_ x: UInt32, _ n: UInt32) -> UInt32 { (x >> n) | (x << (32 - n)) }
 }
 
-/// Streaming SHA-256. Backed by CryptoKit on Apple platforms and by
-/// `SoftwareSHA256` everywhere else; both produce the same digest.
+#if os(Windows)
+/// SHA-256 from Windows CNG, with the same surface as `SoftwareSHA256`.
+struct WindowsSHA256 {
+    /// Owns the CNG hash object. A struct copy shares it until one side
+    /// writes, then `BCryptDuplicateHash` splits them, so a copied hasher
+    /// behaves as a value the way CryptoKit's and `SoftwareSHA256` do.
+    private final class State {
+        var handle: BCRYPT_HASH_HANDLE?
+
+        init() {
+            // The SHA-256 pseudo-handle (Windows 10+) needs no algorithm
+            // provider to open or close and may be shared across threads.
+            // bcrypt.h spells it as a macro Swift cannot import.
+            let sha256 = BCRYPT_ALG_HANDLE(bitPattern: 0x41)
+            let status = BCryptCreateHash(sha256, &handle, nil, 0, nil, 0, 0)
+            precondition(status >= 0, "BCryptCreateHash failed: \(status)")
+        }
+
+        init(copying other: State) {
+            let status = BCryptDuplicateHash(other.handle, &handle, nil, 0, 0)
+            precondition(status >= 0, "BCryptDuplicateHash failed: \(status)")
+        }
+
+        deinit { BCryptDestroyHash(handle) }
+    }
+
+    private var state = State()
+
+    init() {}
+
+    mutating func update<C: Collection>(_ bytes: C) where C.Element == UInt8 {
+        if bytes.withContiguousStorageIfAvailable({ update(buffer: UnsafeRawBufferPointer($0)) }) != nil { return }
+        let contiguous = Array(bytes)  // rare: non-contiguous collection
+        contiguous.withUnsafeBytes { update(buffer: $0) }
+    }
+
+    mutating func update(_ bytes: [UInt8]) { bytes.withUnsafeBytes { update(buffer: $0) } }
+    mutating func update(_ bytes: ArraySlice<UInt8>) { bytes.withUnsafeBytes { update(buffer: $0) } }
+
+    private mutating func update(buffer: UnsafeRawBufferPointer) {
+        guard let base = buffer.baseAddress, buffer.count > 0 else { return }
+        if !isKnownUniquelyReferenced(&state) { state = State(copying: state) }
+        // The length is a ULONG, so a buffer past 4 GB goes in pieces.
+        var offset = 0
+        while offset < buffer.count {
+            let n = min(buffer.count - offset, 1 << 30)
+            let input = UnsafeMutablePointer(mutating: base.advanced(by: offset).assumingMemoryBound(to: UInt8.self))
+            let status = BCryptHashData(state.handle, input, ULONG(n), 0)
+            precondition(status >= 0, "BCryptHashData failed: \(status)")
+            offset += n
+        }
+    }
+
+    /// Finish and return the 32-byte digest. The value is consumed.
+    mutating func finalize() -> [UInt8] {
+        if !isKnownUniquelyReferenced(&state) { state = State(copying: state) }
+        var out = [UInt8](repeating: 0, count: 32)
+        let status = BCryptFinishHash(state.handle, &out, 32, 0)
+        precondition(status >= 0, "BCryptFinishHash failed: \(status)")
+        return out
+    }
+}
+#endif
+
+/// Streaming SHA-256. Backed by CryptoKit on Apple platforms, CNG on Windows,
+/// and `SoftwareSHA256` everywhere else; all produce the same digest.
 public struct SHA256 {
     #if canImport(CryptoKit)
     private var impl = CryptoKit.SHA256()
+    #elseif os(Windows)
+    private var impl = WindowsSHA256()
     #else
     private var impl = SoftwareSHA256()
     #endif
