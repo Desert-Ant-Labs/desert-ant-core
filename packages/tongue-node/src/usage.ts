@@ -292,7 +292,8 @@ function characters(value: string): string[] {
 export function printableValue(raw: string): string {
   let out = "";
   let bytes = 0;
-  for (const char of characters([...raw].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim())) {
+  // Far more than 64 bytes' worth, so a huge host value is not segmented whole.
+  for (const char of characters([...raw.slice(0, 1024)].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim())) {
     bytes += utf8Length(char);
     if (bytes > MAX_CONTEXT_VALUE_BYTES) break;
     out += char;
@@ -334,6 +335,7 @@ export function browserIdentity(
 ): { name: string; version?: string } {
   if (brands.length > 0) {
     const named = brands
+      .filter((b) => b !== null && typeof b === "object")
       .map((b) => ({ brand: typeof b?.brand === "string" ? b.brand : "", version: typeof b?.version === "string" ? b.version : "" }))
       .filter((b) => !b.brand.includes("Brand") && b.brand !== "Chromium");
     for (const [prefix, name] of [
@@ -481,7 +483,7 @@ export interface BrowserNavigator {
 /** A page's facts. No OS version, screen size or time zone, as in core. */
 export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
   if (!nav) return {};
-  const userAgent = nav.userAgent ?? "";
+  const userAgent = typeof nav.userAgent === "string" ? nav.userAgent : "";
   const touch = nav.maxTouchPoints ?? 0;
   const hints = nav.userAgentData;
   const browser = browserIdentity(Array.isArray(hints?.brands) ? hints.brands : [], userAgent);
@@ -490,7 +492,7 @@ export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
     browserName: browser.name,
     browserVersion: browser.version,
     formFactor: browserFormFactor(userAgent, hints?.mobile, touch),
-    locale: languageRegion(nav.language),
+    locale: languageRegion(typeof nav.language === "string" ? nav.language : undefined),
   };
 }
 

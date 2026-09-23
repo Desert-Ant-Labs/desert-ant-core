@@ -28,6 +28,8 @@ process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
 // An opt-out in the calling shell would turn every provider here off.
 delete process.env.DAL_USAGE_CONTEXT_DISABLED;
 delete globalThis.__dalUsageContextDisabled;
+delete process.env.DAL_APP_VERSION;
+delete globalThis.__dalAppVersion;
 
 const KEYS = [
   "appVersion", "osName", "osVersion", "deviceModel",
@@ -184,6 +186,10 @@ test("a page's facts come from Client Hints, then the user agent", () => {
     { osName: "iPadOS", browserName: "Safari", browserVersion: "18", formFactor: "tablet", locale: "pt-BR" },
   );
   assert.deepEqual(browserFacts(undefined), {});
+  const odd = browserFacts({ userAgent: 42, language: 7, userAgentData: { brands: [null] } });
+  assert.deepEqual(JSON.parse(JSON.stringify(odd)), {
+    browserName: "Other", formFactor: "desktop",
+  });
 });
 
 test("a page sends its facts unless the device id was supplied or it is a server", () => {
