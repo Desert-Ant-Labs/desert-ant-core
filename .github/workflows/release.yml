@@ -149,10 +149,18 @@ jobs:
 
   # The npm packages ship a prebuilt native core per server-side target. Cross-OS
   # builds are not possible, so each is built on its own runner and gathered by
-  # the publish job. Linux builds inside a rhel-ubi9 container (glibc 2.34) so
-  # the published libs run on AWS Lambda's managed Node runtimes (Amazon Linux
-  # 2023 = glibc 2.34) as well as Ubuntu 22.04+/Debian 12+, not only on the
-  # build host. The container also supplies the Swift toolchain.
+  # the publish job. Linux builds inside an Amazon Linux 2 image (glibc 2.26,
+  # libstdc++ GLIBCXX_3.4.24) so the libs built here never raise the floor the
+  # vendored LiteRT already sets: glibc 2.28 on x64, which is Ubuntu 20.04+,
+  # Debian 11+ and AWS Lambda's managed Node runtimes (Amazon Linux 2023), and
+  # 2.34 on arm64, whose LiteRT wheel links newer than its tag says. The image
+  # also supplies the Swift toolchain.
+  #
+  # The image runs under `docker run` rather than as the job's `container:`.
+  # The runner executes JavaScript actions (checkout, mise, upload-artifact) with
+  # its own Node inside the job container, and that Node needs glibc 2.28, so
+  # none of them would start on Amazon Linux 2. They run on the host instead, and
+  # only the build itself enters the image.
   natives:
     name: native ${{ matrix.target }}
     needs: gate
@@ -160,10 +168,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Container glibc must stay <= 2.34 (Lambda AL2023); anything older
-          # also works. Newer runner images are fine - the container pins libc.
-          - { target: linux-x64, runner: ubuntu-24.04, container: "swift:6.3.3-rhel-ubi9" }
-          - { target: linux-arm64, runner: ubuntu-24.04-arm, container: "swift:6.3.3-rhel-ubi9" }
+          # Image glibc must stay <= 2.28 and libstdc++ <= GLIBCXX_3.4.25, which
+          # build:node-native checks; rhel-ubi9 (glibc 2.34, GLIBCXX_3.4.29)
+          # shipped the 3.3.1 natives, which Ubuntu 20.04 cannot load. Newer
+          # runner images are fine: the image pins libc.
+          - { target: linux-x64, runner: ubuntu-24.04, image: "swift:6.3.3-amazonlinux2" }
+          - { target: linux-arm64, runner: ubuntu-24.04-arm, image: "swift:6.3.3-amazonlinux2" }
           # CI's `darwin-native` job uses the same runner, so the toolchain that
           # ships is the one CI proves. macos-14 is no longer usable because its
           # Swift 5.10 predates the package's 6.2 requirement.
@@ -176,15 +186,7 @@ jobs:
           # nothing enforces this at resolve time; the README states it.
           - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
-    container: ${{ matrix.container }}
     steps:
-      # Before checkout: with git present, actions/checkout does a real clone
-      # instead of the REST-tarball fallback the bare ubi9 image would force.
-      - name: Linux build deps (static Foundation autolinks these)
-        if: startsWith(matrix.target, 'linux')
-        run: |
-          dnf install -y -q --setopt=install_weak_deps=False \
-            git tar gzip libcurl-devel libxml2-devel zlib-devel binutils file
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
         with:
@@ -195,7 +197,23 @@ jobs:
           # requirements.txt to key a cache on, and asking for one warns
           # that it can never be invalidated.
           enable-cache: false
-      - run: mise run build:node-native
+      - if: matrix.target == 'darwin-arm64'
+        run: mise run build:node-native
+      # LiteRT is vendored on the host, where uv is, and the image finds it
+      # already in place. The image already carries git, cc, binutils and the
+      # curl, libxml2 and zlib dev packages that static Foundation autolinks.
+      # The task runs as a plain script because mise is a host tool too, and
+      # mise sets nothing build:node-native reads. safe.directory because the
+      # checkout belongs to the runner user, not the image's root.
+      - name: Build in ${{ matrix.image }}
+        if: startsWith(matrix.target, 'linux')
+        run: |
+          set -euo pipefail
+          bash -c 'source Tools/dal.sh && dal_vendor_litert'
+          docker run --rm -v "$PWD:/w" -w /w -e MISE_PROJECT_ROOT=/w "${{ matrix.image }}" bash -c '
+            set -euo pipefail
+            git config --global --add safe.directory "*"
+            bash mise-tasks/build/node-native'
       - uses: actions/upload-artifact@v7
         with:
           name: natives-${{ matrix.target }}

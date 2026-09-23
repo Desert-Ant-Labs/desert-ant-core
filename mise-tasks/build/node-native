@@ -13,14 +13,25 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # the vendored LiteRT and a static Swift+Foundation so the .so is
 # self-contained; macOS uses Core ML against the OS-provided runtime.
 #
-# Two Linux distribution rules, learned the hard way:
-#   * build against glibc <= 2.34: AWS Lambda's managed Node runtimes (Amazon
-#     Linux 2023) ship glibc 2.34, and glibc is only forward-compatible. CI runs
-#     this inside a swift:*-rhel-ubi9 container (glibc 2.34, which also supplies
-#     the Swift toolchain - hence no mise swift pin above); ubuntu-22.04 is
-#     already too new (2.35). Guarded by the ceiling check below;
+# Three Linux distribution rules, learned the hard way:
+#   * build against glibc <= 2.28 and libstdc++ <= GLIBCXX_3.4.25, the
+#     manylinux_2_28 floor the vendored x86_64 LiteRT wheel already sets. Both
+#     are only forward-compatible, so the build host's versions become the
+#     package's floor. The release runs this inside a swift:*-amazonlinux2
+#     image (glibc 2.26, GLIBCXX_3.4.24, which also supplies the Swift
+#     toolchain - hence no mise swift pin above), so the x64 natives load on
+#     Ubuntu 20.04+, Debian 11+ and AWS Lambda's Amazon Linux 2023. rhel-ubi9
+#     (2.34) was used until 3.3.1 and shipped natives Ubuntu 20.04 cannot
+#     load. arm64 is held at 2.34 by its LiteRT wheel, not by this build.
+#     Guarded by the ceiling check below;
 #   * link `-z nodelete` so the process does not dlclose the static Swift
-#     runtime at shutdown, which segfaults on natural exit on some glibc builds.
+#     runtime at shutdown, which segfaults on natural exit on some glibc builds;
+#   * route libcurl through Tools/curlcompat instead of linking it, which
+#     opens the host's libcurl itself with RTLD_DEEPBIND. Linked directly, the
+#     .so fails to load on libcurl < 7.86 (the image's Foundation was compiled
+#     against libcurl 8), crashes its first download on < 7.84, and segfaults
+#     on Ubuntu 20.04 because that libcurl's OpenSSL 1.1 binds to the OpenSSL 3
+#     Node exports. The file says more; the check after the ceilings guards it.
 
 # No Windows lane: the npm packages ship natives for linux-x64, linux-arm64 and
 # darwin-arm64 (the three js/src/native.js names), and nothing consumes a
@@ -72,18 +83,24 @@ for model in $(dal_select "${usage_model:-all}" node); do
         rm -rf "$dest" && mkdir -p "$dest"
         # Static Foundation on Linux autolinks -lcurl/-lxml2/-lz; provide
         # dev-name symlinks to the runtime sonames (the recorded DT_NEEDED stays
-        # the soname, which is present on any normal Linux).
+        # the soname, which is present on any normal Linux). libcurl gets an
+        # empty linker script instead: dal_curl_compat.o defines every call, so
+        # the autolinked -lcurl must add nothing, not even a DT_NEEDED. Neither
+        # --as-needed nor an AS_NEEDED script does that reliably, because
+        # -Xlinker puts the object after -lcurl on the link line.
         stub=$(mktemp -d)
         ldc=$(command -v ldconfig || echo /sbin/ldconfig)
-        for soname in libcurl.so.4 libxml2.so.2 libz.so.1; do
+        for soname in libxml2.so.2 libz.so.1; do
             src=$("$ldc" -p 2> /dev/null | awk -v n="$soname" '$1 == n { print $NF; exit }' || true)
             [ -n "$src" ] && ln -sf "$src" "$stub/${soname%%.so*}.so"
         done
+        echo "/* libcurl is opened at run time by Tools/curlcompat */" > "$stub/libcurl.so"
+        cc -c -fPIC -O2 -o "$stub/dal_curl_compat.o" Tools/curlcompat/dal_curl_compat.c
         litert=$(dal_litert_dir)
         swift build --scratch-path .build-host -c release --product "${product}Node" ${traits[@]+"${traits[@]}"} \
             -Xswiftc -static-stdlib \
             -Xlinker "-L$stub" -Xlinker "-L$litert" -Xlinker -rpath -Xlinker '$ORIGIN' \
-            -Xlinker -z -Xlinker nodelete
+            -Xlinker -z -Xlinker nodelete -Xlinker "$stub/dal_curl_compat.o"
         rm -rf "$stub"
         cp ".build-host/release/lib${product}Node.so" "$dest/"
         cp "$litert/libLiteRt.so" "$dest/"
@@ -94,18 +111,33 @@ for model in $(dal_select "${usage_model:-all}" node); do
         # <model>_* C ABI through .dynsym, which stripping keeps.
         strip --strip-unneeded "$dest/lib${product}Node.so" "$dest/libdalcpushim.so"
         # Distribution floor guard: fail loudly if any shipped lib picked up a
-        # glibc symbol newer than Amazon Linux 2023 (AWS Lambda) provides.
-        # DAL_GLIBC_CEILING loosens it for builds that are never published
-        # (ci.yml's test-only natives build on newer hosts); the release
-        # workflow builds in a glibc-2.34 container and keeps the default.
-        ceiling=${DAL_GLIBC_CEILING:-2.34}
-        for lib in "$dest"/*.so; do
-            max=$(objdump -T "$lib" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
-            if [ -n "$max" ] && [ "$(printf '%s\n' "$max" "$ceiling" | sort -V | tail -1)" != "$ceiling" ]; then
-                echo "error: $(basename "$lib") requires GLIBC_$max > $ceiling; build on an older glibc" >&2
-                exit 1
-            fi
+        # glibc or libstdc++ symbol newer than manylinux_2_28 provides. arm64
+        # starts higher and nothing here can lower it: Google's aarch64 LiteRT
+        # wheel is tagged manylinux_2_28 but its libLiteRt.so links glibc 2.34
+        # and GLIBCXX_3.4.30, so arm64 needs Ubuntu 22.04 or AL2023 anyway.
+        # DAL_GLIBC_CEILING and DAL_GLIBCXX_CEILING loosen it for builds that
+        # are never published (ci.yml's test-only natives build on newer
+        # hosts); the release workflow builds on glibc 2.26 and keeps the
+        # defaults.
+        glibc_ceiling=2.28 glibcxx_ceiling=3.4.25
+        [ "$arch" = arm64 ] && glibc_ceiling=2.34 glibcxx_ceiling=3.4.30
+        for check in "GLIBC_:${DAL_GLIBC_CEILING:-$glibc_ceiling}" "GLIBCXX_:${DAL_GLIBCXX_CEILING:-$glibcxx_ceiling}"; do
+            prefix=${check%%:*} ceiling=${check#*:}
+            for lib in "$dest"/*.so; do
+                # `|| true`: a C lib has no GLIBCXX_ at all, and grep's miss
+                # would end the task under pipefail.
+                max=$(objdump -T "$lib" | { grep -o "${prefix}[0-9.]*" || true; } | sed "s/${prefix}//" | sort -uV | tail -1)
+                if [ -n "$max" ] && [ "$(printf '%s\n' "$max" "$ceiling" | sort -V | tail -1)" != "$ceiling" ]; then
+                    echo "error: $(basename "$lib") requires ${prefix}$max > $ceiling; build on an older glibc" >&2
+                    exit 1
+                fi
+            done
         done
+        if objdump -p "$dest/lib${product}Node.so" | grep -q 'NEEDED.*libcurl' \
+            || objdump -T "$dest/lib${product}Node.so" | grep -q 'UND.* curl_'; then
+            echo "error: lib${product}Node.so links libcurl directly; add the missing calls to Tools/curlcompat" >&2
+            exit 1
+        fi
     fi
     ls -la "$dest"
 done
