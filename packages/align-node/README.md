@@ -79,7 +79,7 @@ await align.withCallGroup(async (group) => {
 });
 ```
 
-Attribution is automatic: this package reports the platform it runs on, and the endpoint counts distinct devices per month. A server that wants to name itself instead of reporting its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`, and a registered API key goes in `DAL_API_KEY` or `globalThis.__dalApiKey`, sent as an `Authorization: Bearer` header. Each event also carries the OS name and version, plus the app version when `DAL_APP_VERSION` or `globalThis.__dalAppVersion` is set, and nothing else about the host; `DAL_USAGE_CONTEXT_DISABLED=1` or `globalThis.__dalUsageContextDisabled` leaves it out.
+Attribution is automatic: this package reports the platform it runs on, and the endpoint counts distinct devices per month. A server that wants to name itself instead of reporting its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`, and a registered API key goes in `DAL_API_KEY` or `globalThis.__dalApiKey`, sent as an `Authorization: Bearer` header. Each event also carries the OS name and major version, plus the app version when `DAL_APP_VERSION` or `globalThis.__dalAppVersion` is set, and nothing else about the host; `DAL_USAGE_CONTEXT_DISABLED=1` or `globalThis.__dalUsageContextDisabled` leaves it out.
 
 A process that exits without flushing reports nothing, because the usage POST is debounced. `flushTelemetry()` forces it out and resolves once the endpoint has answered, so a worker calls it before it exits:
 
