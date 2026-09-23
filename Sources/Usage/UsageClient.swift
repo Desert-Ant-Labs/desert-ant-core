@@ -163,11 +163,12 @@ public final class UsageClient {
         let st = deps.loadState()
 
         if var ev = pending {
+            // An opt-out set while the event waited out the debounce still
+            // applies. Read before the event leaves the queue.
+            if deviceContextDisabled() { ev.context = nil }
             // First flush of this session's turnstile: attach carry + session calls.
             pending = nil
             ev.callCount = resolveCount(st.carryCallCount + sessionCalls)
-            // An opt-out set while the event waited out the debounce still applies.
-            if deviceContextDisabled() { ev.context = nil }
             if deps.callCount == nil {
                 deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
             }
@@ -222,8 +223,8 @@ public final class UsageClient {
     }
 
     private func queue(context: [String: String]? = nil) {
-        // An explicit context obeys the opt-out as the provider's does.
-        let explicit = context.flatMap { deviceContextDisabled() ? nil : sanitizeContext($0) }
+        // The opt-out is enforced at flush, for an explicit context too.
+        let explicit = context.flatMap(sanitizeContext)
         pending = IngestEvent(deviceId: deps.deviceId, context: context != nil ? explicit : currentContext())
         emitted = true
     }
