@@ -63,7 +63,7 @@ class UsageKillSwitchTest {
             assertNull(UsageTurnstile.create(null, offStorage), "a client was built with the switch on")
             assertEquals(0, offStorage.touches.get(), "the switch on still touched the store")
 
-            val tongue = Tongue.bundled()
+            val tongue = Tongue.bundled(null)
             tongue.detect("kann ich das haben")
             assertTrue(tongue.flushTelemetry(), "a switched-off flush has nothing to fail")
             assertEquals(1, requests.get(), "the switch on still posted")

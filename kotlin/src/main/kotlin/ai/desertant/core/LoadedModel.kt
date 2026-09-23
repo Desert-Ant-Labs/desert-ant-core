@@ -36,8 +36,8 @@ import kotlinx.coroutines.withContext
  * @param modelId the catalog id (`"emo"`, `"redact"`, ...), which is how the
  *   model-agnostic native ABI is asked for this model.
  * @param name the public SDK name, used in its existing creation/closed errors.
- * @param context used only for its cache dir, the base of the managed model
- *   cache.
+ * @param context the base of the managed model cache (its cache dir), and the
+ *   source of the app identity and usage store ([HostBridge.attach]).
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model points at the folder it unpacked it into), otherwise
  *   the model is downloaded into it. Null uses the managed cache.
@@ -65,7 +65,16 @@ class LoadedModel internal constructor(
         directory: String? = null,
         fail: (String) -> Exception,
         native: NativeModelApi,
-    ) : this(modelId, name, context.cacheDir.absolutePath, directory, fail, native)
+    ) : this(
+        modelId,
+        name,
+        // Attach here, in the delegation's arguments, so it runs before the
+        // primary constructor's init creates the native handle.
+        context.also(HostBridge::attach).cacheDir.absolutePath,
+        directory,
+        fail,
+        native,
+    )
 
     init {
         native.ensureLoaded()
