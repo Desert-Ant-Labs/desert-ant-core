@@ -93,19 +93,6 @@ struct ContextSanitizingTests {
         #expect(context.count == 8)
         #expect(encodedSize(context) <= maxContextBytes)
     }
-
-    /// Caller-passed context goes through the same cut as the provider's.
-    @Test func anExplicitLoadContextIsSanitizedToo() {
-        var sent: [IngestBody] = []
-        let client = UsageClient(ClientDeps(
-            deviceId: "d", platform: "test",
-            context: { ["osName": "Linux"] },
-            loadState: { UsageState() }, saveState: { _ in },
-            send: { body, _ in sent.append(body) }
-        ))
-        client.load(context: ["osName": "macOS", "hostname": "build-07"])
-        #expect(sent.first?.events.first?.context == ["osName": "macOS"])
-    }
 }
 
 struct ContextFieldsTests {
@@ -342,6 +329,35 @@ struct BrowserVocabularyTests {
         #endif
     }
 
+    /// Caller-passed context goes through the same cut as the provider's.
+    // Here, not with the other sanitizing tests: it reads the process-wide opt-out.
+    @Test(.enabled(if: !deviceContextDisabled()))
+    func anExplicitLoadContextIsSanitizedToo() {
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d", platform: "test",
+            context: { ["osName": "Linux"] },
+            loadState: { UsageState() }, saveState: { _ in },
+            send: { body, _ in sent.append(body) }
+        ))
+        client.load(context: ["osName": "macOS", "hostname": "build-07"])
+        #expect(sent.first?.events.first?.context == ["osName": "macOS"])
+    }
+
+    @Test func anExplicitLoadContextObeysTheOptOut() {
+        DesertAnt.sendsDeviceContext = false
+        defer { DesertAnt.sendsDeviceContext = true }
+        var sent: [IngestBody] = []
+        let client = UsageClient(ClientDeps(
+            deviceId: "d", platform: "test",
+            loadState: { UsageState() }, saveState: { _ in },
+            send: { body, _ in sent.append(body) }
+        ))
+        client.load(context: ["osName": "macOS"])
+        #expect(sent.count == 1)
+        #expect(sent[0].events[0].context == nil)
+    }
+
     @Test func theInCodeOptOutSendsUsageWithoutContext() {
         DesertAnt.sendsDeviceContext = false
         defer { DesertAnt.sendsDeviceContext = true }
@@ -381,6 +397,27 @@ struct BrowserVocabularyTests {
         #expect(deviceContextDisabled())
         // A getter, as every other host global may be.
         JSObject.global.__dalUsageContextDisabled = .object(JSClosure { _ in .boolean(true) })
+        #expect(deviceContextDisabled())
+        // A number is not a flag: 1 does not opt out.
+        JSObject.global.__dalUsageContextDisabled = .number(1)
+        #expect(!deviceContextDisabled())
+    }
+
+    /// Under Node the wasm core also reads process.env, as tongue-node does.
+    @Test func underNodeTheEnvironmentIsRead() throws {
+        let env = try #require(JSObject.global.process.object?.env.object)
+        let saved = (env.DAL_USAGE_CONTEXT_DISABLED, env.DAL_APP_VERSION)
+        defer {
+            let reflect = JSObject.global.Reflect.object!
+            for (name, value) in [("DAL_USAGE_CONTEXT_DISABLED", saved.0), ("DAL_APP_VERSION", saved.1)] {
+                if value.isUndefined { _ = reflect.deleteProperty!(env, name) } else { env[name] = value }
+            }
+        }
+        env.DAL_APP_VERSION = .string("7.8.9")
+        #expect(hostProvidedAppVersion() == "7.8.9")
+        env.DAL_USAGE_CONTEXT_DISABLED = .string("false")
+        #expect(!deviceContextDisabled())
+        env.DAL_USAGE_CONTEXT_DISABLED = .string("1")
         #expect(deviceContextDisabled())
     }
     #endif

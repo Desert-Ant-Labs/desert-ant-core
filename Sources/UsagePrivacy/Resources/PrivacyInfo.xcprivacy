@@ -52,7 +52,13 @@
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
 			<!-- The platform tag, the app's bundle id, and the SDK's name and
-			     version. Nothing about the device's hardware or OS is sent. -->
+			     version. Each event's `context` adds the app version, the OS
+			     name and version, the model identifier (such as iPhone16,2),
+			     the form factor (desktop, mobile or tablet) and the
+			     language-region locale; on the web, the browser name and major
+			     version instead of the model. A server, or a caller-supplied
+			     device id, sends only the OS name, its major version and the
+			     app version. No name, serial, screen or time zone. -->
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

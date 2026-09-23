@@ -61,12 +61,15 @@ public func usageDisabled() -> Bool {
 }
 
 /// A host-provided app version, overriding the bundle's own for the event
-/// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function);
-/// elsewhere reads the `DAL_APP_VERSION` environment variable. `nil` when unset.
+/// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function),
+/// then under Node `process.env.DAL_APP_VERSION`; elsewhere reads the
+/// `DAL_APP_VERSION` environment variable. `nil` when unset.
 /// The only appVersion a Linux, Android or wasm host sends.
 func hostProvidedAppVersion() -> String? {
 #if os(WASI)
-    return jsHostString("__dalAppVersion")
+    if let value = jsHostString("__dalAppVersion") { return value }
+    guard let value = nodeEnvironmentVariable("DAL_APP_VERSION"), !value.isEmpty else { return nil }
+    return value
 #else
     guard let value = environmentVariable("DAL_APP_VERSION") else { return nil }
     return value.isEmpty ? nil : value
@@ -74,21 +77,31 @@ func hostProvidedAppVersion() -> String? {
 }
 
 /// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
-/// set to false in code, or the host flag, `globalThis.__dalUsageContextDisabled`
-/// (a string, a boolean, or a function returning either) on WASI and the
-/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere.
-/// Usage itself still reports; only the context goes.
+/// set to false in code, or the host flag: `globalThis.__dalUsageContextDisabled`
+/// (a string, a boolean, or a function returning either) on WASI, then under
+/// Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, as tongue-node reads it; the
+/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere. A flag is a
+/// string under `flagIsSet` or the boolean `true`; a number, 1 included, does
+/// not opt out. Usage itself still reports; only the context goes.
 func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(WASI)
     var value = JSObject.global["__dalUsageContextDisabled"]
     if let getter = value.function { value = getter() }
-    if let flag = value.boolean { return flag }
-    return flagIsSet(value.string)
+    if value.boolean == true || flagIsSet(value.string) { return true }
+    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
 #else
     return flagIsSet(environmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
 #endif
 }
+
+#if os(WASI)
+/// `process.env[name]` when the wasm core runs under Node; `nil` in a page.
+func nodeEnvironmentVariable(_ name: String) -> String? {
+    guard jsHostIsNode() else { return nil }
+    return JSObject.global.process.object?.env.object?[name].string
+}
+#endif
 
 /// The truthiness rule for the context opt-outs: set, and not "", "0" or
 /// "false". Only the context flags treat "false" as off: `usageDisabled()`
