@@ -24,7 +24,7 @@ Then add the `Voz` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:voz:3.1.0")
+implementation("ai.desertant:voz:3.5.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
