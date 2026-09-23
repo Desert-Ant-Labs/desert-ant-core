@@ -473,7 +473,7 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CoreAndroidTests",
-            dependencies: ["HostBridge", "Regex", "JSON", "TextNormalization"]
+            dependencies: ["HostBridge", "Regex", "JSON", "TextNormalization", "Usage"]
         ),
 ]
 

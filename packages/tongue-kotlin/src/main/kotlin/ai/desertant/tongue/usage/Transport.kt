@@ -211,8 +211,8 @@ internal fun makeClient(
     val key = apiKey()
     val namespace = key ?: appId
     val hostDevice = hostProvidedDeviceId()
-    // Read before the persisted id is minted: a host id equal to the stored one
-    // is still this device's own, as core and the Node port count it.
+    // A host id equal to the stored one is still this device's own, as core
+    // and the Node port count it.
     val stored = if (hostDevice != null) storage.storedDeviceId() else null
     val device = hostDevice ?: storage.persistentDeviceId()
     val platform = defaultPlatform()

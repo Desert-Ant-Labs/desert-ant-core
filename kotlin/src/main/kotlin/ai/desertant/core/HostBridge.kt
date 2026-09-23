@@ -236,8 +236,8 @@ object HostBridge {
     /**
      * The device facts for the usage context as `key=value` lines, empty before
      * [attach] or while [sendsDeviceContext] is off. The native side caps and
-     * filters them, and sends fewer (none of the model or locale) for a server
-     * or a host-supplied device id.
+     * filters them, and for a host-supplied device id (`DAL_DEVICE_ID`) sends
+     * only the OS, its major version and the app version.
      */
     @JvmStatic
     fun deviceContext(): ByteArray =
