@@ -21,7 +21,10 @@ private final class Sink: @unchecked Sendable {
 
 /// One turnstile per device, as the platform storage keeps it. Two sessions in a
 /// process share this, which is what makes a group collapse across them.
-private final class UsageStore: @unchecked Sendable { var byDevice: [String: UsageState] = [:] }
+private final class UsageStore: @unchecked Sendable {
+    var byDevice: [String: UsageState] = [:]
+    var saves = 0
+}
 
 /// A client wired to `sink`, reading and writing `store`.
 private func testClientFactory(_ sink: Sink, _ store: UsageStore = UsageStore()) -> (String) -> UsageClient {
@@ -32,7 +35,7 @@ private func testClientFactory(_ sink: Sink, _ store: UsageStore = UsageStore())
             platform: "test",
             now: { 1_000_000_000_000 },
             loadState: { store.byDevice[deviceId] ?? UsageState() },
-            saveState: { store.byDevice[deviceId] = $0 },
+            saveState: { store.byDevice[deviceId] = $0; store.saves += 1 },
             send: { body, _ in sink.add(body.events) }
         ))
     }
@@ -159,13 +162,15 @@ struct TrackedSessionTests {
 
     /// The switch is a consent flag a host flips after load: while it is on a
     /// run records nothing and opens no client (so no store write and no device
-    /// id), and the run after it is cleared reports.
+    /// id), the run after it is cleared reports, and a call recorded before it
+    /// is set again is held, neither stored nor sent, until it is cleared.
     @Test func theOptOutIsReadPerRun() async throws {
         final class Switch: @unchecked Sendable { var on = true; var opened = 0 }
         let off = Switch()
         let sink = Sink()
         let counting = CountingSession()
-        let factory = testClientFactory(sink)
+        let store = UsageStore()
+        let factory = testClientFactory(sink, store)
         let tracked = TrackedSession(
             wrapping: counting, flushAfter: 60,
             clientFactory: { off.opened += 1; return factory($0) },
@@ -188,6 +193,20 @@ struct TrackedSessionTests {
         await tracked.flush()
         #expect(counting.runs == 3)
         #expect(sink.events.compactMap(\.callCount).reduce(0, +) == 1, "a run after the opt-out was recorded")
+
+        off.on = false
+        _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "d")
+        off.on = true
+        let saves = store.saves
+        await tracked.flush()
+        await tracked.suspend()
+        await tracked.forceFlush()
+        #expect(sink.events.compactMap(\.callCount).reduce(0, +) == 1, "a call recorded before the opt-out was sent after it")
+        #expect(store.saves == saves, "a flush after the opt-out wrote the store")
+
+        off.on = false
+        await tracked.flush()
+        #expect(sink.events.compactMap(\.callCount).reduce(0, +) == 2, "the held call was lost when consent returned")
     }
 
     @Test func forwardsRunErrors() async throws {

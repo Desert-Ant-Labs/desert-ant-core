@@ -37,9 +37,9 @@ private var keyRidesInHeader: Bool {
 /// detached task. (The `beacon` flag is retained for API parity; there is no
 /// separate unload-safe path now that the client is fully async.)
 ///
-/// Sends nothing while `usageDisabled()` is on, read per send: an event queued
-/// before the opt-out, still waiting out the debounce, is dropped rather than
-/// posted after the visitor said no.
+/// Sends nothing while `usageDisabled()` is on, read per send. The session and
+/// turnstiles already hold their flushes while it is on; this is the backstop
+/// for a client a host built itself.
 public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
     makeSend(endpoint: endpoint, bearerKey: bearerKey, registry: .shared)
 }

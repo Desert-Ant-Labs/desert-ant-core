@@ -495,6 +495,11 @@ jobs:
     # models (Core ML or MLX runtimes) never enter this job.
     name: Windows (Swift + LiteRT)
     runs-on: windows-latest
+    # The one job that runs swift directly rather than through mise, so it does
+    # not inherit mise.toml's switch: without it every model test posts a real
+    # usage event.
+    env:
+      DAL_USAGE_DISABLED: "1"
     steps:
       - uses: actions/checkout@v5
       - uses: compnerd/gha-setup-swift@v0.4.0

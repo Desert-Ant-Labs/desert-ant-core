@@ -14,6 +14,8 @@ private final class Switch: @unchecked Sendable { var on = false }
         #expect(!DesertAnt.usageDisabled)
     }
 
+    /// Under mise the environment flag is on as well, so on its own this proves
+    /// little; `theHostGlobalIsRead` checks the switch with every host flag off.
     @Test func theInCodeSwitchTurnsUsageOff() {
         DesertAnt.usageDisabled = true
         defer { DesertAnt.usageDisabled = false }
@@ -67,6 +69,12 @@ private final class Switch: @unchecked Sendable { var on = false }
         // The suite runs with DAL_USAGE_DISABLED=1 under Node; out of the way,
         // so the global alone decides.
         _ = reflect.deleteProperty!(env, "DAL_USAGE_DISABLED")
+        #expect(!usageDisabled())
+
+        // With no host flag, the in-code switch alone decides.
+        DesertAnt.usageDisabled = true
+        #expect(usageDisabled())
+        DesertAnt.usageDisabled = false
         #expect(!usageDisabled())
 
         JSObject.global.__dalUsageDisabled = .boolean(true)

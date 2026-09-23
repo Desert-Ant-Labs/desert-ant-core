@@ -100,6 +100,19 @@ struct TongueUsage {
         #expect(sink.sent.compactMap { $0.events.first?.callCount }.reduce(0, +) == 1,
                 "a detection after the opt-out was recorded")
         #expect(off.opened == 1)
+
+        // Recorded with consent, withdrawn before the flush: held, not stored or sent.
+        off.on = false
+        await turnstile.record()
+        off.on = true
+        let state = sink.state
+        await telemetry.flushAndWait()
+        #expect(sink.sent.count == 1, "a call recorded before the opt-out was sent after it")
+        #expect(sink.state == state, "a flush after the opt-out wrote the store")
+        off.on = false
+        await telemetry.flushAndWait()
+        #expect(sink.sent.compactMap { $0.events.first?.callCount }.reduce(0, +) == 2,
+                "the held call was lost when consent returned")
     }
 
     /// Tongue opens its own client rather than going through `Inference`, and it

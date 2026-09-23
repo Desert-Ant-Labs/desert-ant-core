@@ -59,8 +59,9 @@ public func hostProvidedAppId() -> String? {
 ///
 /// This is the consent switch, public on every platform: a page keeps the
 /// beacon off until its visitor agrees, then clears the flag. So it is read
-/// when a call is recorded and again when an event is sent, never cached: set
-/// after load it stops the next send, and cleared it lets the next call report.
+/// when a call is recorded and again when events are flushed, never cached: set
+/// after load it holds what was recorded unsent, and cleared it lets reporting
+/// resume.
 /// While it is on nothing is recorded, stored or sent, and no device id is made.
 /// Our own suites set it too, because networked CI would otherwise post a real
 /// event per model load.

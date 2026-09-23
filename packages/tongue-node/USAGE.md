@@ -127,21 +127,24 @@ clear a flag the environment sets.
 
 While the switch is on nothing is recorded, nothing is stored and no request is
 made. A model loaded with it on does not even create the device id until the
-first call made with it off. It is read on every call and again on every send,
+first call made with it off. It is read on every call and again on every flush,
 never cached, so it can change at any time:
 
-- **Set after load**, it stops the next send. An event already queued behind the
-  3-second debounce is dropped, not posted after the user said no.
+- **Set after load**, it stops the next send. Calls recorded before it was set
+  and still waiting out the 3-second debounce are held in memory, neither stored
+  nor posted; they go out with the next flush after it is cleared, and are lost
+  if the page or process ends first. They were made with consent.
 - **Cleared after load**, the next call reports as usual. Calls made while it
-  was on are not counted afterwards.
+  was on are never counted.
 
 Two hosts read it less often. The native Node build (`/native`) copies the
 global into the environment only until its first model loads, because a native
 thread reading the environment while it is written can crash on glibc; set it
 before that, or start the process with `DAL_USAGE_DISABLED` set. An Android app
-on the core's AAR has no launch environment and no in-code switch yet;
-`android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)` is read on the next
-call.
+on the core's AAR has no launch environment and no in-code switch yet. It can
+call `android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)`, but only
+before its first model loads, for the same reason: the core reads the
+environment from its own threads on every call.
 
 ### A consent banner
 
@@ -183,7 +186,8 @@ attached.
 ### In this repository
 
 Every task in this repository sets `DAL_USAGE_DISABLED` through `mise.toml`,
-and every CI job runs through mise. A CI runner is not a billable device, and
+and the one CI job that runs swift without mise (Windows) sets it in
+`.github/workflows/ci.yml`. A CI runner is not a billable device, and
 without the guard each push would count as one.
 
 ## Why this SDK had to implement it
