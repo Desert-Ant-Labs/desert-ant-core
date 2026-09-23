@@ -434,6 +434,28 @@ struct BrowserVocabularyTests {
         #expect(sent.count == 1)
     }
 
+    /// A store shaped like localStorage, whose methods need their `this`.
+    @Test func aJSStoreRoundTrips() {
+        let make = JSObject.global.Function.function!.new("""
+            return { m: new Map(),
+                     getItem(k) { return this.m.has(k) ? this.m.get(k) : null },
+                     setItem(k, v) { this.m.set(k, String(v)) } }
+            """)
+        let store = JSKeyValueStorage(object: make().object!)
+        #expect(store.get("missing") == nil)
+        store.set("k", "v")
+        #expect(store.get("k") == "v")
+        let id = store.persistentDeviceId()
+        #expect(store.persistentDeviceId() == id)
+    }
+
+    @Test func aPropertyWhoseGetterThrowsReadsAsAbsent() {
+        let make = JSObject.global.Function.function!.new("""
+            const o = {}; Object.defineProperty(o, "localStorage", { get() { throw new Error("SecurityError") } }); return o
+            """)
+        #expect(jsProperty(make().object!, "localStorage").isUndefined)
+    }
+
     @Test func theHostGlobalsAreRead() {
         defer {
             _ = JSObject.global.Reflect.object!.deleteProperty!(JSObject.global, "__dalUsageContextDisabled")
