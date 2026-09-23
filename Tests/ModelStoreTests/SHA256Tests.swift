@@ -50,3 +50,38 @@ struct SHA256Tests {
                 "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0")
     }
 }
+
+/// `SHA256` is CryptoKit on Apple platforms and `SoftwareSHA256` elsewhere.
+/// The software loop still ships (Linux, Android, wasm), so it must keep
+/// agreeing with whatever the public type resolves to on this platform.
+@Suite struct SHA256BackendTests {
+    private func pseudoRandom(_ count: Int) -> [UInt8] {
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        return (0..<count).map { _ -> UInt8 in
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return UInt8(truncatingIfNeeded: seed >> 33)
+        }
+    }
+
+    @Test func softwareAndPublicImplementationsAgree() {
+        // Padding boundaries (55/56/63/64/65) and a multi-chunk input.
+        for size in [0, 1, 55, 56, 63, 64, 65, 1000, 1 << 20] {
+            let data = pseudoRandom(size)
+            var soft = SoftwareSHA256()
+            soft.update(data)
+            #expect(SHA256.hex(soft.finalize()) == SHA256.hexDigest(data), "differs at \(size) bytes")
+        }
+    }
+
+    @Test func publicTypeHashesNonContiguousInput() {
+        // A lazy view has no contiguous storage, so it takes the copying path.
+        let data = pseudoRandom(500)
+        let lazyView = data.lazy.map { $0 }
+        #expect(SHA256.hexDigest(lazyView) == SHA256.hexDigest(data))
+    }
+
+    @Test func publicTypeHashesArraySlices() {
+        let data = pseudoRandom(300)
+        #expect(SHA256.hexDigest(data[10..<200]) == SHA256.hexDigest(Array(data[10..<200])))
+    }
+}

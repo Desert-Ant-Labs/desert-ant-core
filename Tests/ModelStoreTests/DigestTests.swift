@@ -11,8 +11,15 @@ import Foundation
         return p
     }
 
-    @Test func digestMatchesWholeFileHash() throws {
-        let fs = FoundationFileSystem()
+    /// Both streaming digests: Foundation (Apple, Linux, Windows) and POSIX
+    /// (Android, exercised here because POSIX is identical on the host).
+    private static let filesystems: [any FileSystem] = [
+        FoundationFileSystem(),
+        POSIXFileSystem(cacheRoot: NSTemporaryDirectory()),
+    ]
+
+    @Test(arguments: 0..<filesystems.count) func digestMatchesWholeFileHash(_ i: Int) throws {
+        let fs = Self.filesystems[i]
         // Across a chunk boundary, which is where a streaming hash goes wrong.
         for size in [0, 1, 1023, 1 << 20, (1 << 20) + 1, 3 * (1 << 20) + 77] {
             var seed: UInt64 = 0x9E3779B97F4A7C15
@@ -40,8 +47,8 @@ import Foundation
         #expect(try fs.digest(dirty).sha256 != before, "a flipped bit past the first chunk went unnoticed")
     }
 
-    @Test func missingFileThrows() {
-        #expect(throws: (any Error).self) { try FoundationFileSystem().digest("/nonexistent/nope") }
+    @Test(arguments: 0..<filesystems.count) func missingFileThrows(_ i: Int) {
+        #expect(throws: (any Error).self) { try Self.filesystems[i].digest("/nonexistent/nope") }
     }
 }
 #endif
