@@ -36,6 +36,31 @@ test("a host global set after the package loads still reaches the native core", 
   }
 });
 
+test("the app version and the context flag reach the native core, a boolean flag included", async () => {
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  const names = ["DAL_APP_VERSION", "DAL_USAGE_CONTEXT_DISABLED"];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  for (const name of names) delete process.env[name];
+  try {
+    const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+    globalThis.__dalAppVersion = () => "2.4.1";
+    globalThis.__dalUsageContextDisabled = true;
+
+    await assert.rejects(sdk.open(), "there is no native library here to load");
+    assert.equal(process.env.DAL_APP_VERSION, "2.4.1");
+    assert.equal(process.env.DAL_USAGE_CONTEXT_DISABLED, "1");
+  } finally {
+    delete globalThis.__dalAppVersion;
+    delete globalThis.__dalUsageContextDisabled;
+    for (const name of names) {
+      if (saved[name] === undefined) delete process.env[name];
+      else process.env[name] = saved[name];
+    }
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});
+
 test("an environment variable already set wins over the host global", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));

@@ -36,7 +36,7 @@ public protocol UsageStorage {
 // The generated device id is shared across SDKs in an app (one physical device);
 // the re-emit state is namespaced per app key *and* device, so a multi-tenant
 // server tracks a separate turnstile per end-user device.
-private let deviceIdKey = "ai.desertant.usage.deviceId"
+let deviceIdKey = "ai.desertant.usage.deviceId"
 private func stateKey(_ appKey: String, _ deviceId: String) -> String {
     "ai.desertant.usage.\(appKey).\(deviceId).state"
 }

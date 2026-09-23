@@ -27,12 +27,14 @@ function hostDeviceId() {
 }
 
 /**
- * The native core reads usage identity from the environment (DAL_APP_ID,
- * DAL_API_KEY, DAL_DEVICE_ID); the browser entry reads the same values from
+ * The native core reads usage identity and settings from the environment
+ * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_APP_VERSION,
+ * DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the same values from
  * `globalThis.__dal*`. Bridging them means a host sets one spelling on either
  * runtime, and a server that sets the global is not silently unattributed. Each
  * may be a string or a zero-arg function, the two forms the core's own JS host
- * read accepts. An environment variable already set wins.
+ * read accepts, and the context flag may also be `true`, as it may in a page.
+ * An environment variable already set wins.
  *
  * Run at each load rather than once at import, so a host that imports the package
  * before setting the global is still attributed, but only until a native model
@@ -47,6 +49,8 @@ function bridgeHostIdentity() {
     ["__dalAppId", "DAL_APP_ID"],
     ["__dalApiKey", "DAL_API_KEY"],
     ["__dalDeviceId", "DAL_DEVICE_ID"],
+    ["__dalAppVersion", "DAL_APP_VERSION"],
+    ["__dalUsageContextDisabled", "DAL_USAGE_CONTEXT_DISABLED"],
   ]) {
     let value;
     try {
@@ -55,6 +59,7 @@ function bridgeHostIdentity() {
     } catch {
       continue;
     }
+    if (value === true) value = "1";
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
   }
 }

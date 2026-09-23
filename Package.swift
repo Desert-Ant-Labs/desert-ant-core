@@ -474,7 +474,7 @@ let libraryTargets: [Target] = [
 
 let testTargets: [Target] = [
         .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsWasi + jsTestSupport),
-        .testTarget(name: "UsageTests", dependencies: ["Usage"]),
+        .testTarget(name: "UsageTests", dependencies: ["Usage"] + jsWasi),
         .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),

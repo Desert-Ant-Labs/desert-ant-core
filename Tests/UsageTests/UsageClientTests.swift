@@ -72,6 +72,7 @@ struct UsageClientTests {
         let client = makeClient(
             key: "dal_test",
             deviceId: "host-device",
+            context: { nil },
             storage: InMemoryStorage(),
             send: { body, _ in sent.append(body) }
         )

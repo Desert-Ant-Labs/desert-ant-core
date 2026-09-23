@@ -28,10 +28,21 @@ public enum DesertAnt {
         set { withLock { storedApiKey = newValue } }
     }
 
+    /// Whether usage events carry the device `context` (OS, model, locale and
+    /// the like; see `DeviceContext`). `true` by default. Setting it to `false`
+    /// sends usage without context, the in-code form of the
+    /// `DAL_USAGE_CONTEXT_DISABLED` flag. Read per event, so it applies from
+    /// the next send on.
+    public static var sendsDeviceContext: Bool {
+        get { withLock { storedSendsDeviceContext } }
+        set { withLock { storedSendsDeviceContext = newValue } }
+    }
+
     // A launch-time write and per-client reads make contention irrelevant, but
     // the accessors still have to be data-race free under Swift 6, and the
     // package floor (iOS 17) predates Synchronization.Mutex.
     private nonisolated(unsafe) static var storedApiKey: String?
+    private nonisolated(unsafe) static var storedSendsDeviceContext = true
 
 #if os(WASI)
     // Single-threaded host, nothing to lock.
