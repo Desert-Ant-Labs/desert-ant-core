@@ -122,7 +122,9 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///   - context: overrides the per-event `context` provider. Defaults to the
 ///     cached host facts (`DeviceContext`), cut to the server set when `platform`
 ///     is "server" or the device id was supplied rather than generated here.
-///     Whatever it returns is sanitized before it is sent (`sanitizeContext`).
+///     Whatever it returns is sanitized before it is sent (`sanitizeContext`),
+///     and ignored while the context opt-out is on (`DesertAnt.sendsDeviceContext`,
+///     `DAL_USAGE_CONTEXT_DISABLED`).
 ///   - send: overrides the transport. Defaults to the real POST; a caller-supplied
 ///     one wins (tests), which is how a test reads the platform tag and the key's
 ///     placement that this function decides.

@@ -52,7 +52,9 @@ public struct ClientDeps {
     public var platform: String
     /// Authoritative call count read at emit time; overrides recordCall() when set.
     public var callCount: (() -> Int)?
-    /// Default context attached to auto-emitted loads.
+    /// Default context attached to auto-emitted loads. Ignored while the context
+    /// opt-out is on (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
+    /// what it returns is sanitized (`sanitizeContext`).
     public var context: (() -> [String: String]?)?
     /// Re-emit window (ms): `dayMs` for persistent installs, `webSessionMs` for web-like.
     public var windowMs: Int64
