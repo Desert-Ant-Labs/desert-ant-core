@@ -36,10 +36,12 @@ android {
     sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
 }
 
-// Reuse HostBridge without compiling unrelated core Kotlin sources.
+// Reuse HostBridge, and DesertAntNative (the host class the SDKs install, which
+// has the device-context callbacks), without compiling unrelated core sources.
 kotlin.sourceSets.named("main") {
     kotlin.srcDir("../kotlin/src/main/kotlin")
     kotlin.include("ai/desertant/core/HostBridge.kt")
+    kotlin.include("ai/desertant/DesertAntNative.kt")
     kotlin.include("ai/desertant/core/androidtest/**")
 }
 

@@ -45,9 +45,8 @@ the same way.
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
   the event is still sent. `DAL_USAGE_CONTEXT_DISABLED=1`
-  (`globalThis.__dalUsageContextDisabled`, `DesertAnt.sendsDeviceContext = false`
-  in Kotlin, `HostBridge.sendsDeviceContext = false` for the core's Android
-  SDKs) turns it off and leaves usage reporting on.
+  (see "Turning it off" for the in-code forms) turns it off and leaves usage
+  reporting on.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
 
@@ -119,8 +118,12 @@ A CI runner is not a billable device, and without the guard each push would coun
 as one.
 
 To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1`
-(`globalThis.__dalUsageContextDisabled` in JavaScript, or
-`DesertAnt.sendsDeviceContext = false` in Swift).
+(env var, or a JVM system property on Kotlin), or in code:
+`globalThis.__dalUsageContextDisabled` in JavaScript,
+`DesertAnt.sendsDeviceContext = false` in Swift and in this SDK's Kotlin
+(`ai.desertant.tongue.DesertAnt`), and `HostBridge.sendsDeviceContext = false`
+(`ai.desertant.core.HostBridge`) for the Android SDKs built on desert-ant-core,
+such as emo and redact.
 
 ## Why this SDK had to implement it
 
