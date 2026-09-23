@@ -86,8 +86,8 @@ public func defaultStorage() -> UsageStorage {
     // `localStorage` global that is unusable without --localstorage-file, and
     // merely touching it prints an ExperimentalWarning - which every consumer of
     // the server-side build would see on load, for a store we cannot use anyway.
-    let hasJSStore = JSObject.global.__dalUsageStore.object != nil
-        || (!jsHostIsNode() && JSObject.global.localStorage.object != nil)
+    let hasJSStore = jsProperty(JSObject.global, "__dalUsageStore").object != nil
+        || (!jsHostIsNode() && jsProperty(JSObject.global, "localStorage").object != nil)
     return hasJSStore ? JSKeyValueStorage() : InMemoryStorage()
 #else
     return InMemoryStorage()
@@ -131,6 +131,14 @@ public struct HostPreferencesStorage: UsageStorage {
 #endif
 
 #if os(WASI)
+/// `object[name]`, read through `Reflect.get` in the throwing form. The
+/// `localStorage` getter itself throws a SecurityError in a sandboxed or
+/// storage-blocked frame; that reads as absent instead of unwinding the client.
+func jsProperty(_ object: JSObject, _ name: String) -> JSValue {
+    guard let reflect = JSObject.global.Reflect.object else { return .undefined }
+    return (try? reflect.throwing.get?(object, name)) ?? .undefined
+}
+
 /// WASI backend over a JS key/value object with Web-Storage-shaped
 /// `getItem`/`setItem`. Prefers a host-injected `globalThis.__dalUsageStore`
 /// (e.g. a Node server-side store), otherwise the browser's `localStorage`.
@@ -145,8 +153,8 @@ public struct JSKeyValueStorage: UsageStorage {
     // Resolved at access time so a host store installed after init still applies.
     private var storage: JSObject? {
         if let fixed { return fixed }
-        if let injected = JSObject.global.__dalUsageStore.object { return injected }
-        return jsHostIsNode() ? nil : JSObject.global.localStorage.object
+        if let injected = jsProperty(JSObject.global, "__dalUsageStore").object { return injected }
+        return jsHostIsNode() ? nil : jsProperty(JSObject.global, "localStorage").object
     }
     // Through the throwing form: a full origin's `setItem` (QuotaExceededError)
     // or a host store's error must not unwind through a flush that has already
