@@ -48,6 +48,27 @@ public struct POSIXFileSystem: FileSystem {
         return out
     }
 
+    /// Hash in 64 KB chunks so peak memory does not track the file size. The
+    /// protocol's default `digest` reads the file whole, which on Android (the
+    /// platform this backend serves) means holding the largest weight file in
+    /// RAM just to hash it.
+    public func digest(_ path: String) throws -> (size: Int64, sha256: String) {
+        let fd = open(path, O_RDONLY)
+        guard fd >= 0 else { throw ModelStoreError.io("open(\(path))") }
+        defer { close(fd) }
+        var hasher = SHA256()
+        var total: Int64 = 0
+        var buf = [UInt8](repeating: 0, count: 1 << 16)
+        while true {
+            let n = buf.withUnsafeMutableBytes { posixRead(fd, $0.baseAddress, $0.count) }
+            if n < 0 { throw ModelStoreError.io("read(\(path))") }
+            if n == 0 { break }
+            total += Int64(n)
+            hasher.update(buf[0..<n])
+        }
+        return (total, SHA256.hex(hasher.finalize()))
+    }
+
     public func write(_ path: String, _ bytes: [UInt8]) throws {
         let fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
         guard fd >= 0 else { throw ModelStoreError.io("create(\(path))") }
