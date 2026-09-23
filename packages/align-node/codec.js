@@ -14,6 +14,29 @@ export function languageKey(language) {
   return String(language).slice(0, 2).toLowerCase();
 }
 
+/** The time range a word may carry, in seconds: the same bounds as Swift's `Align.validate`. */
+export const MIN_SECONDS = -1;
+export const MAX_SECONDS = 10_000_000;
+
+/**
+ * Reject what the core cannot turn into a frame index, with a message naming the word. The core
+ * checks the same rule, but its failure crosses the FFI as a bare "failed to run".
+ */
+export function validateInput(sampleRate, words) {
+  if (!(Number.isFinite(Number(sampleRate)) && Number(sampleRate) > 0)) {
+    throw new RangeError(`align: sampleRate is ${sampleRate}, expected a finite positive rate`);
+  }
+  words.forEach((word, i) => {
+    for (const key of ["start", "end"]) {
+      // Number(), as the f64 write coerces: a numeric string was always accepted and still is.
+      const t = Number(word[key]);
+      if (!(Number.isFinite(t) && t >= MIN_SECONDS && t <= MAX_SECONDS)) {
+        throw new RangeError(`align: word ${i} ${key} is ${word[key]}, expected a time from ${MIN_SECONDS} to ${MAX_SECONDS} seconds`);
+      }
+    }
+  });
+}
+
 /** Input payload: `f32Array samples`, `f64 sampleRate`, `u32 wordCount`, then text/start/end per word. */
 export function encodeInput(samples, sampleRate, words) {
   const w = new FfiWriter().f32Array(samples).f64(sampleRate).u32(words.length);

@@ -68,6 +68,64 @@ func makeFrontend() async throws -> Frontend {
     }
 }
 
+// Word times become Int frame indices, so a time Int cannot hold used to trap the host process.
+// Validation runs before the model loads, so none of these need the weights.
+@Suite struct InputValidationTests {
+    func refiner() -> Align {
+        Align(directory: NSTemporaryDirectory() + "align-unloaded-\(UUID().uuidString)")
+    }
+
+    @Test(arguments: [Double.nan, .infinity, -.infinity, 1e17, 1e308, -1e20, -5])
+    func invalidStartThrows(_ start: Double) async throws {
+        let words = [WordTiming(text: "one", start: start, end: 0.5)]
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "en")
+        }
+    }
+
+    @Test(arguments: [Double.nan, .infinity, 1e17, -1e20])
+    func invalidEndThrows(_ end: Double) async throws {
+        let words = [WordTiming(text: "one", start: 0.2, end: 0.5), WordTiming(text: "two", start: 0.6, end: end)]
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "en")
+        }
+    }
+
+    // Rejected even where refine would otherwise be a passthrough, so the rule does not depend on language.
+    @Test func invalidTimeThrowsForUnsupportedLanguage() async throws {
+        let words = [WordTiming(text: "one", start: .nan, end: 0.5)]
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "xx")
+        }
+    }
+
+    @Test(arguments: [Double.nan, .infinity, 0, -16000])
+    func invalidSampleRateThrows(_ rate: Double) async throws {
+        #expect(throws: AlignError.self) { try Align.resampled(synthAudio(16000, 16000), from: rate, to: 16000) }
+    }
+
+    @Test func tinySampleRateThrows() {
+        #expect(throws: AlignError.self) { try Align.resampled(synthAudio(16000, 16000), from: 1e-300, to: 16000) }
+    }
+
+    @Test func boundaryTimesAreAccepted() throws {
+        try Align.validate([
+            WordTiming(text: "a", start: -0.5, end: 0),
+            WordTiming(text: "b", start: 100, end: Align.maxSeconds),
+            WordTiming(text: "c", start: 3, end: 2),
+        ])
+    }
+
+    @Test func errorNamesTheWord() {
+        do {
+            try Align.validate([WordTiming(text: "a", start: 0, end: 1), WordTiming(text: "b", start: 1, end: .nan)])
+            Issue.record("expected a throw")
+        } catch {
+            #expect("\(error.localizedDescription)".contains("word 1 end is nan"))
+        }
+    }
+}
+
 #if canImport(Speech)
 import CoreMedia
 import Speech
@@ -237,6 +295,26 @@ import Speech
         #expect(try await refiner.isSupported(languageCode: "xx") == false)
         let words = [WordTiming(text: "a", start: 0.1, end: 0.2)]
         let out = try await refiner.refine(words, audio: synthAudio(16000, 16000), languageCode: "xx")
+        #expect(out == words)
+    }
+
+    @Test func emptyAudioThrowsInsteadOfTrapping() async throws {
+        let refiner = try await makeRefiner()
+        let words = [WordTiming(text: "one", start: 0.30, end: 0.55)]
+        await #expect(throws: AlignError.self) {
+            try await refiner.refine(words, audio: [], languageCode: "en")
+        }
+        // A rate so high the resampler returns nothing is the same empty audio.
+        await #expect(throws: AlignError.self) {
+            try await refiner.refine(words, audio: synthAudio(16000, 16000), sampleRate: 1e300, languageCode: "en")
+        }
+    }
+
+    @Test func nonFiniteAudioKeepsInputTimes() async throws {
+        let refiner = try await makeRefiner()
+        let words = [WordTiming(text: "one", start: 0.30, end: 0.55), WordTiming(text: "two", start: 0.6, end: 0.9)]
+        let audio = [Float](repeating: .nan, count: 16000)
+        let out = try await refiner.refine(words, audio: audio, languageCode: "en")
         #expect(out == words)
     }
 
