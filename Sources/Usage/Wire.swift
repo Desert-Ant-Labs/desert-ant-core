@@ -14,9 +14,12 @@ import JSON
 import JavaScriptKit
 #endif
 
-/// SDK identity attached to every body's `sdk` field.
+/// SDK identity attached to a body's `sdk` field when the caller names none.
+/// Every model passes its catalog's `sdkInfo` instead, so this only labels usage
+/// that reaches core without a model: the package itself, at the version in
+/// `VERSION`. `mise run set-version` rewrites it and `check:version` holds it.
 public let defaultSDKName = "desert-ant-core"
-public let defaultSDKVersion = "0.1.0" // keep in sync with the package/product version
+public let defaultSDKVersion = "3.4.0"
 
 /// The platform tag put on the wire's `platform` field, derived from the build
 /// target. `IngestBody` defaults to this, so callers never pass it by hand.

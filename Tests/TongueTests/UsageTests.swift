@@ -58,4 +58,20 @@ struct TongueUsage {
         }
         #expect(missed == 0, "\(missed) of 100 flushes ran before the recorded call")
     }
+
+    /// Tongue opens its own client rather than going through `Inference`, and it
+    /// used to open it with no `sdk`, so every detection was reported as
+    /// "desert-ant-core" at the package default version instead of as Tongue.
+    @Test func reportsThisModelsIdentityRatherThanThePackages() {
+        let sink = Sink()
+        let client = makeTongueClient(
+            storage: InMemoryStorage(),
+            send: { body, _ in sink.sent.append(body) }
+        )
+        client.recordCall()
+        client.load()
+        #expect(sink.sent.count == 1)
+        #expect(sink.sent.first?.sdk == TongueModel.sdkInfo)
+        #expect(sink.sent.first?.sdk.name == "Tongue")
+    }
 }

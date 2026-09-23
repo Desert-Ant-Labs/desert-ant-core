@@ -98,7 +98,17 @@ actor UsageTurnstile {
 /// The turnstile for a new `Tongue`, or `nil` when usage is switched off. Keeps
 /// `import Usage` to this file, so the pipeline stays free of it.
 func makeTurnstile() -> UsageTurnstile? {
-    usageDisabled() ? nil : UsageTurnstile(client: makeClient())
+    usageDisabled() ? nil : UsageTurnstile(client: makeTongueClient())
+}
+
+/// The client every `Tongue` turnstile is built on. `TongueModel.sdkInfo` is the
+/// catalog's own identity, so detections arrive under this model's name and
+/// version rather than the package's. `storage` and `send` are for tests.
+func makeTongueClient(
+    storage: UsageStorage? = nil,
+    send: ((IngestBody, SendOptions) -> Void)? = nil
+) -> UsageClient {
+    makeClient(sdk: TongueModel.sdkInfo, storage: storage, send: send)
 }
 
 // `usageDisabled()` is core's, in `Usage` (this file already imports it). Tongue

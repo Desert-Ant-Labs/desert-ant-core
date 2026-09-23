@@ -210,11 +210,8 @@ let tongueTargets: [Target] = [
         resources: [
             .copy("Resources/tongue_int8.bin"),
             .copy("Resources/tongue_meta.json"),
-            // Apple requires a privacy manifest from any SDK that collects data
-            // or calls a required-reason API; the usage turnstile does both.
-            // `.copy` so the file lands at the bundle root, where Xcode's
-            // manifest aggregation looks.
-            .copy("Resources/PrivacyInfo.xcprivacy"),
+            // No privacy manifest here: the usage turnstile's is `UsagePrivacy`'s,
+            // which Tongue reaches through DesertAnt -> Usage like every model.
         ]
     ),
     .testTarget(
@@ -402,7 +399,20 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "PlatformSupport", "JSON", "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
+                .target(name: "UsagePrivacy",
+                        condition: .when(platforms: [.iOS, .macOS, .macCatalyst, .tvOS, .visionOS, .watchOS])),
             ] + jsWasi
+        ),
+        // Apple requires a privacy manifest from any SDK that collects data or
+        // calls a required-reason API, and the turnstile above does both. Every
+        // model links it through DesertAnt. It is its own target, reached only
+        // on Apple, because a resource would make SwiftPM generate a Foundation
+        // `Bundle.module` accessor for Usage, and Usage keeps Foundation off
+        // Android and WASI. `.copy` so the file lands at the bundle root, where
+        // Xcode's manifest aggregation looks.
+        .target(
+            name: "UsagePrivacy",
+            resources: [.copy("Resources/PrivacyInfo.xcprivacy")]
         ),
         // Everything a model declares (its catalog entry), how it is loaded, and
         // what it implements to be reachable from another language.
