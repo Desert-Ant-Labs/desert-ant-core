@@ -6,7 +6,9 @@
 
 /// Re-emit windows. A native/mobile install is persistent, so a device re-emits
 /// at most once a DAY. Neither affects billing: MAD is COUNT(DISTINCT deviceId)
-/// per month regardless of how often a device re-emits within it.
+/// per month regardless of how often a device re-emits within it. What billing
+/// does need is a turnstile in every UTC month of use; `start()` guarantees one
+/// on every UTC day of use, separately from the window (see `UsageState.lastEmitDay`).
 public let dayMs: Int64 = 24 * 60 * 60 * 1000
 /// Session-shaped window (30-min idle timeout) for ephemeral, web-like hosts.
 public let webSessionMs: Int64 = 30 * 60 * 1000
@@ -19,11 +21,23 @@ public struct UsageState: Sendable, Equatable {
     public var lastActiveAt: Int64
     /// Calls accrued during throttled sessions, awaiting the next emitted load.
     public var carryCallCount: Int
+    /// UTC day (days since the epoch) of the last turnstile; nil = unknown, which
+    /// reads as not emitted today. Kept apart from `lastActiveAt` because
+    /// `suspend()` restamps that one: an app used at least once every 24 hours
+    /// never idled a whole window, and without this emitted only its first day,
+    /// so it was billed in its first month and never again.
+    public var lastEmitDay: Int64?
 
-    public init(lastActiveAt: Int64 = 0, carryCallCount: Int = 0) {
+    public init(lastActiveAt: Int64 = 0, carryCallCount: Int = 0, lastEmitDay: Int64? = nil) {
         self.lastActiveAt = lastActiveAt
         self.carryCallCount = carryCallCount
+        self.lastEmitDay = lastEmitDay
     }
+}
+
+/// The UTC day (days since the epoch) an epoch-ms instant falls on.
+func utcDay(_ epochMs: Int64) -> Int64 {
+    epochMs >= 0 ? epochMs / dayMs : (epochMs + 1) / dayMs - 1
 }
 
 /// Transport options. `beacon` requests an unload-safe (synchronous) delivery so
@@ -135,18 +149,24 @@ public final class UsageClient {
     public func carryUnsent() {
         guard deps.callCount == nil, sessionCalls > 0, !deps.disabled() else { return }
         let st = deps.loadState()
-        deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
+        deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls, lastEmitDay: st.lastEmitDay))
         sessionCalls = 0
     }
 
-    /// Evaluate the window and, if a new session/day is due, queue a turnstile.
-    /// Call on init and again on reactivation.
+    /// Queue a turnstile if this is a new UTC day or a new session (the window
+    /// elapsed since the app was last active). Call on every recorded call, not
+    /// only on init: a client started only when it opens never sees the next day.
     public func start() {
         if deps.disabled() { return }
         let st = deps.loadState()
-        if deps.now() - st.lastActiveAt < deps.windowMs { return } // still within the same session/day
+        let now = deps.now()
+        let today = utcDay(now)
+        // Billing counts distinct devices per UTC month, so the first use of each
+        // month must post. Gating on the UTC day guarantees it (months start on
+        // day boundaries) and delivers carried calls on the next day of use.
+        if st.lastEmitDay == today && now - st.lastActiveAt < deps.windowMs { return }
         // Reserve the slot up front so a second start now won't double-emit.
-        deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount))
+        deps.saveState(UsageState(lastActiveAt: now, carryCallCount: st.carryCallCount, lastEmitDay: today))
         queue()
     }
 
@@ -154,7 +174,7 @@ public final class UsageClient {
     public func suspend() {
         if deps.disabled() { return }
         let st = deps.loadState()
-        deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount))
+        deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount, lastEmitDay: st.lastEmitDay))
         flush(SendOptions(beacon: true))
     }
 
@@ -162,7 +182,8 @@ public final class UsageClient {
     public func load(context: [String: String]? = nil) {
         if deps.disabled() { return }
         let st = deps.loadState()
-        deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount))
+        let now = deps.now()
+        deps.saveState(UsageState(lastActiveAt: now, carryCallCount: st.carryCallCount, lastEmitDay: utcDay(now)))
         queue(context: context)
         flush()
     }
@@ -180,7 +201,7 @@ public final class UsageClient {
             pending = nil
             ev.callCount = resolveCount(st.carryCallCount + sessionCalls)
             if deps.callCount == nil {
-                deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
+                deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0, lastEmitDay: st.lastEmitDay))
             }
             sessionCalls = 0
             lastEmitAt = deps.now()
@@ -195,14 +216,14 @@ public final class UsageClient {
                 || deps.now() - lastEmitAt >= deps.emitIntervalMs
             if !due {
                 if deps.callCount == nil && sessionCalls > 0 {
-                    deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
+                    deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls, lastEmitDay: st.lastEmitDay))
                     sessionCalls = 0
                 }
                 return
             }
             let ev = IngestEvent(deviceId: deps.deviceId, callCount: resolveCount(st.carryCallCount + sessionCalls), context: currentContext())
             if deps.callCount == nil && st.carryCallCount != 0 {
-                deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0))
+                deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: 0, lastEmitDay: st.lastEmitDay))
             }
             sessionCalls = 0
             lastEmitAt = deps.now()
@@ -212,7 +233,7 @@ public final class UsageClient {
 
         if !emitted && sessionCalls > 0 && deps.callCount == nil {
             // Throttled session: no turnstile today. Carry the calls to the next emit.
-            deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls))
+            deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls, lastEmitDay: st.lastEmitDay))
             sessionCalls = 0
         }
     }

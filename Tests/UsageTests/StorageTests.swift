@@ -38,6 +38,20 @@ struct StorageTests {
         #expect(store.loadState("other", "dev-1") == UsageState())  // and per key
     }
 
+    /// The emit day lives under its own key, so `.state` keeps the two-field
+    /// shape older readers (earlier core, the Kotlin port) require.
+    @Test func emitDayRoundTripsBesideTheTwoFieldState() {
+        let store = InMemoryStorage()
+        store.saveState(UsageState(lastActiveAt: 123, carryCallCount: 4, lastEmitDay: 19754), "acme", "dev-1")
+        #expect(store.get("ai.desertant.usage.acme.dev-1.state") == "123,4")
+        #expect(store.get("ai.desertant.usage.acme.dev-1.emitDay") == "19754")
+        #expect(store.loadState("acme", "dev-1") == UsageState(lastActiveAt: 123, carryCallCount: 4, lastEmitDay: 19754))
+
+        // State an older release wrote has no day: unknown, not today.
+        let legacy = InMemoryStorage(["ai.desertant.usage.acme.dev-1.state": "123,4"])
+        #expect(legacy.loadState("acme", "dev-1") == UsageState(lastActiveAt: 123, carryCallCount: 4))
+    }
+
     #if canImport(Foundation) && !os(Android) && !os(WASI)
     @Test func userDefaultsPersists() throws {
         let suite = "dal.usage.test.\(UUID().uuidString)"

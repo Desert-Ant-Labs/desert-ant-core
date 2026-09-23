@@ -1,11 +1,12 @@
 {
-  "_comment": "Turnstile contract, replayed by the Kotlin and JavaScript ports against their own hand-ported UsageClient. The behaviour is desert-ant-core's Sources/Usage/UsageClient.swift, which the Swift SDK uses directly rather than porting. See docs/USAGE.md. Flat parallel arrays, no nested objects, so both ports read it with the same minimal reader they use for the model vectors instead of taking a JSON dependency. sendCounts uses -1 for an omitted callCount. Epochs are realistic on purpose: the window test is now-lastActiveAt, so with lastActiveAt=0 a small fake clock would read as 'inside the window' and emit nothing.",
+  "_comment": "Turnstile contract, replayed by the Kotlin and JavaScript ports against their own hand-ported UsageClient. The behaviour is desert-ant-core's Sources/Usage/UsageClient.swift, which the Swift SDK uses directly rather than porting, and which replays this file too (Tests/UsageTests/UsageVectorTests.swift). See packages/tongue-node/USAGE.md. Flat parallel arrays, no nested objects, so both ports read it with the same minimal reader they use for the model vectors instead of taking a JSON dependency. sendCounts uses -1 for an omitted callCount, and the emit days (UTC days since the epoch) use -1 for state written before the day was stored. A 'relaunch' step replaces the client over the same state, as a new process would. Epochs are realistic on purpose: the emit days are UTC days of the clock, and the day-crossing cases sit on a real UTC midnight.",
   "windowMs": 86400000,
   "cases": [
     {
       "name": "first start opens a turnstile with no calls",
       "stateLastActiveAt": 0,
       "stateCarry": 0,
+      "stateEmitDay": -1,
       "stepKinds": [
         "start",
         "flush"
@@ -22,12 +23,14 @@
         -1
       ],
       "finalLastActiveAt": 1700000000000,
-      "finalCarry": 0
+      "finalCarry": 0,
+      "finalEmitDay": 19675
     },
     {
       "name": "calls before the first flush ride the turnstile",
       "stateLastActiveAt": 0,
       "stateCarry": 0,
+      "stateEmitDay": -1,
       "stepKinds": [
         "start",
         "record",
@@ -47,12 +50,14 @@
         3
       ],
       "finalLastActiveAt": 1700000000000,
-      "finalCarry": 0
+      "finalCarry": 0,
+      "finalEmitDay": 19675
     },
     {
       "name": "inside the window nothing is sent and calls carry",
       "stateLastActiveAt": 1700000000000,
       "stateCarry": 0,
+      "stateEmitDay": 19675,
       "stepKinds": [
         "start",
         "record",
@@ -70,12 +75,14 @@
       ],
       "sendCounts": [],
       "finalLastActiveAt": 1700000000000,
-      "finalCarry": 2
+      "finalCarry": 2,
+      "finalEmitDay": 19675
     },
     {
       "name": "the next day emits once, with the carried calls added",
       "stateLastActiveAt": 1700000000000,
       "stateCarry": 2,
+      "stateEmitDay": 19675,
       "stepKinds": [
         "start",
         "record",
@@ -95,12 +102,14 @@
         3
       ],
       "finalLastActiveAt": 1700086400000,
-      "finalCarry": 0
+      "finalCarry": 0,
+      "finalEmitDay": 19676
     },
     {
       "name": "late calls after the turnstile ride a delta load",
       "stateLastActiveAt": 0,
       "stateCarry": 0,
+      "stateEmitDay": -1,
       "stepKinds": [
         "start",
         "flush",
@@ -124,12 +133,14 @@
         2
       ],
       "finalLastActiveAt": 1700000000000,
-      "finalCarry": 0
+      "finalCarry": 0,
+      "finalEmitDay": 19675
     },
     {
       "name": "a second start inside the window does not double-emit",
       "stateLastActiveAt": 0,
       "stateCarry": 0,
+      "stateEmitDay": -1,
       "stepKinds": [
         "start",
         "start",
@@ -149,7 +160,173 @@
         -1
       ],
       "finalLastActiveAt": 1700000000000,
-      "finalCarry": 0
+      "finalCarry": 0,
+      "finalEmitDay": 19675
+    },
+    {
+      "name": "a new UTC day emits inside the window, with the carried calls added",
+      "stateLastActiveAt": 1700006340000,
+      "stateCarry": 2,
+      "stateEmitDay": 19675,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700006460000,
+        1700006460000,
+        1700006460000
+      ],
+      "stepN": [
+        0,
+        1,
+        0
+      ],
+      "sendCounts": [
+        3
+      ],
+      "finalLastActiveAt": 1700006460000,
+      "finalCarry": 0,
+      "finalEmitDay": 19676
+    },
+    {
+      "name": "state without an emit day emits on the first start, whatever the window says",
+      "stateLastActiveAt": 1700000000000,
+      "stateCarry": 2,
+      "stateEmitDay": -1,
+      "stepKinds": [
+        "start",
+        "flush"
+      ],
+      "stepAt": [
+        1700000001000,
+        1700000001000
+      ],
+      "stepN": [
+        0,
+        0
+      ],
+      "sendCounts": [
+        2
+      ],
+      "finalLastActiveAt": 1700000001000,
+      "finalCarry": 0,
+      "finalEmitDay": 19675
+    },
+    {
+      "name": "an app relaunched every 20 hours emits on every UTC day, though suspend keeps it inside the window",
+      "stateLastActiveAt": 0,
+      "stateCarry": 0,
+      "stateEmitDay": -1,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush",
+        "suspend",
+        "relaunch",
+        "start",
+        "record",
+        "flush",
+        "suspend",
+        "relaunch",
+        "start",
+        "record",
+        "flush",
+        "suspend",
+        "relaunch",
+        "start",
+        "record",
+        "flush",
+        "suspend"
+      ],
+      "stepAt": [
+        1700000000000,
+        1700000000000,
+        1700000000000,
+        1700000000000,
+        1700072000000,
+        1700072000000,
+        1700072000000,
+        1700072000000,
+        1700072000000,
+        1700144000000,
+        1700144000000,
+        1700144000000,
+        1700144000000,
+        1700144000000,
+        1700216000000,
+        1700216000000,
+        1700216000000,
+        1700216000000,
+        1700216000000
+      ],
+      "stepN": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        0
+      ],
+      "sendCounts": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "finalLastActiveAt": 1700216000000,
+      "finalCarry": 0,
+      "finalEmitDay": 19678
+    },
+    {
+      "name": "an instance throttled at creation emits on its first use of the next UTC day",
+      "stateLastActiveAt": 1700000000000,
+      "stateCarry": 0,
+      "stateEmitDay": 19675,
+      "stepKinds": [
+        "start",
+        "record",
+        "flush",
+        "start",
+        "record",
+        "flush"
+      ],
+      "stepAt": [
+        1700000001000,
+        1700000001000,
+        1700000001000,
+        1700006460000,
+        1700006460000,
+        1700006460000
+      ],
+      "stepN": [
+        0,
+        2,
+        0,
+        0,
+        1,
+        0
+      ],
+      "sendCounts": [
+        3
+      ],
+      "finalLastActiveAt": 1700006460000,
+      "finalCarry": 0,
+      "finalEmitDay": 19676
     }
   ]
 }

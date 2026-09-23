@@ -27,6 +27,10 @@ private const val DEVICE_ID_KEY = "ai.desertant.usage.deviceId"
 
 private fun stateKey(appKey: String, deviceId: String) = "ai.desertant.usage.$appKey.$deviceId.state"
 
+// Its own key, as in core: earlier releases of this port and of core reset a
+// `.state` that is not exactly two fields, and two SDKs in one app share it.
+private fun emitDayKey(appKey: String, deviceId: String) = "ai.desertant.usage.$appKey.$deviceId.emitDay"
+
 /** A minimal string key/value store the turnstile persists into. */
 public interface UsageStorage {
     public fun get(key: String): String?
@@ -45,18 +49,26 @@ internal fun UsageStorage.persistentDeviceId(): String {
 /** The persisted device id, without minting one. */
 internal fun UsageStorage.storedDeviceId(): String? = get(DEVICE_ID_KEY)?.takeIf { it.isNotEmpty() }
 
-/** The turnstile state for an (app key, device): "lastActiveAt,carryCallCount". */
+/**
+ * The turnstile state for an (app key, device): "lastActiveAt,carryCallCount",
+ * plus the last emit day under its own key.
+ */
 internal fun UsageStorage.loadState(appKey: String, deviceId: String): UsageState {
-    val raw = get(stateKey(appKey, deviceId)) ?: return UsageState()
+    val emitDay = get(emitDayKey(appKey, deviceId))?.toLongOrNull()
+    val unset = UsageState(lastEmitDay = emitDay)
+    val raw = get(stateKey(appKey, deviceId)) ?: return unset
     val parts = raw.split(",")
-    if (parts.size != 2) return UsageState()
-    val last = parts[0].toLongOrNull() ?: return UsageState()
-    val carry = parts[1].toIntOrNull() ?: return UsageState()
-    return UsageState(last, carry)
+    if (parts.size != 2) return unset
+    val last = parts[0].toLongOrNull() ?: return unset
+    val carry = parts[1].toIntOrNull() ?: return unset
+    return UsageState(last, carry, emitDay)
 }
 
 internal fun UsageStorage.saveState(state: UsageState, appKey: String, deviceId: String) {
     set(stateKey(appKey, deviceId), "${state.lastActiveAt},${state.carryCallCount}")
+    // Only when it changed: every suspend and flush saves, but the day moves once a day.
+    val day = state.lastEmitDay?.toString() ?: return
+    if (get(emitDayKey(appKey, deviceId)) != day) set(emitDayKey(appKey, deviceId), day)
 }
 
 /** No persistence; also handy for tests. */

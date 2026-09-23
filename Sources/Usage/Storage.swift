@@ -40,6 +40,13 @@ let deviceIdKey = "ai.desertant.usage.deviceId"
 private func stateKey(_ appKey: String, _ deviceId: String) -> String {
     "ai.desertant.usage.\(appKey).\(deviceId).state"
 }
+// The day of the last turnstile has a key of its own rather than a third field
+// in `.state`: earlier core releases and the Kotlin port reset a `.state` that
+// is not exactly two fields, losing the carry. Two SDKs in one app share these
+// keys, so a newer one must not break an older one reading them.
+private func emitDayKey(_ appKey: String, _ deviceId: String) -> String {
+    "ai.desertant.usage.\(appKey).\(deviceId).emitDay"
+}
 
 /// Resolve the device id for a client: an explicit one wins, then a host-provided
 /// one (JS `__dalDeviceId`, e.g. server-side Node), then the generated+persisted
@@ -57,18 +64,24 @@ extension UsageStorage {
         return id
     }
 
-    /// The turnstile state for an (app key, device) ("lastActiveAt,carryCallCount").
+    /// The turnstile state for an (app key, device) ("lastActiveAt,carryCallCount",
+    /// plus the last emit day under its own key).
     func loadState(_ appKey: String, _ deviceId: String) -> UsageState {
-        guard let raw = get(stateKey(appKey, deviceId)) else { return UsageState() }
+        let emitDay = get(emitDayKey(appKey, deviceId)).flatMap { Int64($0) }
+        guard let raw = get(stateKey(appKey, deviceId)) else { return UsageState(lastEmitDay: emitDay) }
         let parts = raw.split(separator: ",", omittingEmptySubsequences: false)
         guard parts.count == 2, let last = Int64(parts[0]), let carry = Int(parts[1]) else {
-            return UsageState()
+            return UsageState(lastEmitDay: emitDay)
         }
-        return UsageState(lastActiveAt: last, carryCallCount: carry)
+        return UsageState(lastActiveAt: last, carryCallCount: carry, lastEmitDay: emitDay)
     }
 
     func saveState(_ state: UsageState, _ appKey: String, _ deviceId: String) {
         set(stateKey(appKey, deviceId), "\(state.lastActiveAt),\(state.carryCallCount)")
+        // Only when it changed: every suspend and flush saves, but the day moves once a day.
+        if let day = state.lastEmitDay.map(String.init), get(emitDayKey(appKey, deviceId)) != day {
+            set(emitDayKey(appKey, deviceId), day)
+        }
     }
 }
 

@@ -16,12 +16,21 @@ package ai.desertant.tongue.usage
 /** A native/mobile install is persistent, so a device re-emits at most once a day. */
 internal const val DAY_MS: Long = 24L * 60 * 60 * 1000
 
+/** The UTC day (days since the epoch) an epoch-ms instant falls on. */
+internal fun utcDay(epochMs: Long): Long = Math.floorDiv(epochMs, DAY_MS)
+
 /** Persisted per install, across sessions. */
 internal data class UsageState(
     /** Epoch ms we last emitted or went inactive (0 = never). Gates the next emit. */
     val lastActiveAt: Long = 0,
     /** Calls accrued during throttled sessions, awaiting the next emitted load. */
     val carryCallCount: Int = 0,
+    /**
+     * UTC day of the last turnstile; null = unknown, which reads as not emitted
+     * today. Gates a turnstile on every UTC day of use, so every month of use has
+     * one, even when a gap shorter than the window crosses midnight.
+     */
+    val lastEmitDay: Long? = null,
 )
 
 /** Everything the client needs from its host. Mirrors core's `ClientDeps`. */
@@ -60,28 +69,35 @@ internal class UsageClient(private val deps: ClientDeps) {
     fun hasUsage(): Boolean = sessionCalls > 0 || deps.loadState().carryCallCount > 0
 
     /**
-     * Evaluate the window and, if a new day is due, queue a turnstile.
-     * Call on init and again on reactivation.
+     * Queue a turnstile if this is a new UTC day or a new session (the window
+     * elapsed since the app was last active). Call on every recorded call, not
+     * only on init: a client started only when it opens never sees the next day.
      */
     fun start() {
         val st = deps.loadState()
-        if (deps.now() - st.lastActiveAt < deps.windowMs) return // still within the same day
+        val now = deps.now()
+        val today = utcDay(now)
+        // Billing counts distinct devices per UTC month, so the first use of each
+        // month must post. Gating on the UTC day guarantees it (months start on
+        // day boundaries) and delivers carried calls on the next day of use.
+        if (st.lastEmitDay == today && now - st.lastActiveAt < deps.windowMs) return
         // Reserve the slot up front so a second start now won't double-emit.
-        deps.saveState(UsageState(deps.now(), st.carryCallCount))
+        deps.saveState(st.copy(lastActiveAt = now, lastEmitDay = today))
         queue()
     }
 
     /** Mark the app inactive (stamp the idle clock) and flush. */
     fun suspend() {
         val st = deps.loadState()
-        deps.saveState(UsageState(deps.now(), st.carryCallCount))
+        deps.saveState(st.copy(lastActiveAt = deps.now()))
         flush()
     }
 
     /** Force a turnstile now, ignoring the window, and hand back the send in flight. */
     fun load(context: Map<String, String>? = null): SendHandle? {
         val st = deps.loadState()
-        deps.saveState(UsageState(deps.now(), st.carryCallCount))
+        val now = deps.now()
+        deps.saveState(st.copy(lastActiveAt = now, lastEmitDay = utcDay(now)))
         queue(context)
         return flush()
     }
@@ -98,7 +114,7 @@ internal class UsageClient(private val deps: ClientDeps) {
             // An opt-out set during the debounce still applies to the queued event.
             if (deviceContextDisabled()) event = event.copy(context = null)
             if (deps.callCount == null) {
-                deps.saveState(UsageState(st.lastActiveAt, 0))
+                deps.saveState(st.copy(carryCallCount = 0))
             }
             sessionCalls = 0
             return deps.send(makeBody(listOf(event)))
@@ -117,7 +133,7 @@ internal class UsageClient(private val deps: ClientDeps) {
 
         if (!emitted && sessionCalls > 0 && deps.callCount == null) {
             // Throttled session: no turnstile today. Carry the calls to the next emit.
-            deps.saveState(UsageState(st.lastActiveAt, st.carryCallCount + sessionCalls))
+            deps.saveState(st.copy(carryCallCount = st.carryCallCount + sessionCalls))
             sessionCalls = 0
         }
         return null

@@ -28,6 +28,13 @@ const SEND_TIMEOUT_MS = 5000;
 const DEVICE_ID_KEY = "ai.desertant.usage.deviceId";
 const stateKey = (appKey: string, deviceId: string) =>
   `ai.desertant.usage.${appKey}.${deviceId}.state`;
+// Its own key, as in core: earlier core releases and the Kotlin port reset a
+// `.state` that is not exactly two fields, and two SDKs in one app share it.
+const emitDayKey = (appKey: string, deviceId: string) =>
+  `ai.desertant.usage.${appKey}.${deviceId}.emitDay`;
+
+/** The UTC day (days since the epoch) an epoch-ms instant falls on. */
+const utcDay = (epochMs: number) => Math.floor(epochMs / DAY_MS);
 
 const SDK_NAME = "tongue-js";
 
@@ -36,6 +43,13 @@ export interface UsageState {
   lastActiveAt: number;
   /** Calls accrued during throttled sessions, awaiting the next emitted load. */
   carryCallCount: number;
+  /**
+   * UTC day of the last turnstile; absent = unknown, which reads as not emitted
+   * today. Gates a turnstile on every UTC day of use, so every month of use has
+   * one, even when the window never elapses (a tab restamped on each pagehide)
+   * or a gap shorter than the window crosses midnight.
+   */
+  lastEmitDay?: number;
 }
 
 interface IngestEvent {
@@ -592,6 +606,13 @@ export class UsageClient {
   private sessionCalls = 0;
   private pending: IngestEvent | null = null;
   private emitted = false;
+  // Earliest instant a turnstile could be due. The turnstile calls start() on
+  // every detection, and on Node each storage read is a synchronous file read,
+  // so start() skips storage until then. Other writers only move the stored
+  // clocks forward, so this can be early, never late, unless the wall clock
+  // steps back, which `checkedAt` catches.
+  private nextDueAt = 0;
+  private checkedAt = 0;
 
   constructor(
     private deps: {
@@ -637,23 +658,33 @@ export class UsageClient {
   load(): Promise<void> | void {
     if (this.off) return;
     const st = this.deps.loadState();
-    this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
+    const now = this.deps.now();
+    this.deps.saveState({ ...st, lastActiveAt: now, lastEmitDay: utcDay(now) });
     this.queue();
     return this.flush();
   }
 
   start(): void {
     if (this.off) return;
+    const now = this.deps.now();
+    if (now < this.nextDueAt && now >= this.checkedAt) return;
+    this.checkedAt = now;
     const st = this.deps.loadState();
-    if (this.deps.now() - st.lastActiveAt < this.deps.windowMs) return;
-    this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
+    const today = utcDay(now);
+    const tomorrow = (today + 1) * DAY_MS;
+    if (st.lastEmitDay === today && now - st.lastActiveAt < this.deps.windowMs) {
+      this.nextDueAt = Math.min(tomorrow, st.lastActiveAt + this.deps.windowMs);
+      return;
+    }
+    this.deps.saveState({ ...st, lastActiveAt: now, lastEmitDay: today });
+    this.nextDueAt = Math.min(tomorrow, now + this.deps.windowMs);
     this.queue();
   }
 
   suspend(): void {
     if (this.off) return;
     const st = this.deps.loadState();
-    this.deps.saveState({ lastActiveAt: this.deps.now(), carryCallCount: st.carryCallCount });
+    this.deps.saveState({ ...st, lastActiveAt: this.deps.now() });
     this.flush();
   }
 
@@ -667,7 +698,7 @@ export class UsageClient {
       const count = this.resolveCount(st.carryCallCount + this.sessionCalls);
       if (count !== undefined) event.callCount = count;
       this.attachContext(event);
-      this.deps.saveState({ lastActiveAt: st.lastActiveAt, carryCallCount: 0 });
+      this.deps.saveState({ ...st, carryCallCount: 0 });
       this.sessionCalls = 0;
       return this.deps.send(this.makeBody([event]));
     }
@@ -682,10 +713,7 @@ export class UsageClient {
     }
 
     if (!this.emitted && this.sessionCalls > 0) {
-      this.deps.saveState({
-        lastActiveAt: st.lastActiveAt,
-        carryCallCount: st.carryCallCount + this.sessionCalls,
-      });
+      this.deps.saveState({ ...st, carryCallCount: st.carryCallCount + this.sessionCalls });
       this.sessionCalls = 0;
     }
   }
@@ -879,18 +907,26 @@ export class UsageTurnstile {
         windowMs,
         now: () => Date.now(),
         loadState: () => {
+          const day = store.get(emitDayKey(namespace, device!));
+          const lastEmitDay = day && Number.isInteger(Number(day)) ? Number(day) : undefined;
           const raw = store.get(stateKey(namespace, device!));
-          if (!raw) return { lastActiveAt: 0, carryCallCount: 0 };
+          if (!raw) return { lastActiveAt: 0, carryCallCount: 0, lastEmitDay };
           const [last, carry] = raw.split(",");
           const lastActiveAt = Number(last);
           const carryCallCount = Number(carry);
           if (!Number.isFinite(lastActiveAt) || !Number.isFinite(carryCallCount)) {
-            return { lastActiveAt: 0, carryCallCount: 0 };
+            return { lastActiveAt: 0, carryCallCount: 0, lastEmitDay };
           }
-          return { lastActiveAt, carryCallCount };
+          return { lastActiveAt, carryCallCount, lastEmitDay };
         },
-        saveState: (state) =>
-          store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`),
+        saveState: (state) => {
+          store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`);
+          // Only when it changed: every flush saves, but the day moves once a day.
+          const day = state.lastEmitDay === undefined ? undefined : String(state.lastEmitDay);
+          if (day !== undefined && store.get(emitDayKey(namespace, device!)) !== day) {
+            store.set(emitDayKey(namespace, device!), day);
+          }
+        },
         send: makeSend(ingestEndpoint(), key, keyInHeader),
         context: defaultContextProvider(platform, hostDevice !== undefined && hostDevice !== persisted),
         disabled: usageDisabled,
@@ -928,6 +964,13 @@ export class UsageTurnstile {
     if (usageDisabled()) return;
     const client = this.open();
     if (!client) return;
+    // Every detection, not only when the client opens: one opened on a day that
+    // had already posted would otherwise carry its calls past midnight, forever.
+    try {
+      client.start();
+    } catch {
+      /* best effort */
+    }
     client.recordCall();
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {

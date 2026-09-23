@@ -6,28 +6,37 @@ import Testing
 private final class Harness {
     var state: UsageState
     var clock: Int64 = 1_000_000_000_000
-    var sent: [(body: IngestBody, opts: SendOptions)] = []
-    let client: UsageClient
+    var sent: [(body: IngestBody, opts: SendOptions, at: Int64)] = []
+    private(set) var client: UsageClient
+    private let makeClient: () -> UsageClient
 
     init(_ initial: UsageState = UsageState(), callCount: (() -> Int)? = nil, windowMs: Int64 = dayMs, emitIntervalMs: Int64 = 0, keyInBody: Bool = true) {
         self.state = initial
         // Captured by reference through the closures below.
         var boxRef: Harness!
-        self.client = UsageClient(ClientDeps(
-            deviceId: "dev-1",
-            key: "dal_test",
-            keyInBody: keyInBody,
-            platform: "test",
-            callCount: callCount,
-            windowMs: windowMs,
-            emitIntervalMs: emitIntervalMs,
-            now: { boxRef.clock },
-            loadState: { boxRef.state },
-            saveState: { boxRef.state = $0 },
-            send: { body, opts in boxRef.sent.append((body, opts)) }
-        ))
+        let factory = {
+            UsageClient(ClientDeps(
+                deviceId: "dev-1",
+                key: "dal_test",
+                keyInBody: keyInBody,
+                platform: "test",
+                callCount: callCount,
+                windowMs: windowMs,
+                emitIntervalMs: emitIntervalMs,
+                now: { boxRef.clock },
+                loadState: { boxRef.state },
+                saveState: { boxRef.state = $0 },
+                send: { body, opts in boxRef.sent.append((body, opts, boxRef.clock)) }
+            ))
+        }
+        self.makeClient = factory
+        self.client = factory()
         boxRef = self
     }
+
+    /// A new process over the same persisted state: the in-memory session
+    /// (whether this launch has emitted) starts over, as it does on a relaunch.
+    func relaunch() { client = makeClient() }
 
     var events: [IngestEvent] { sent.flatMap { $0.body.events } }
     func advance(_ ms: Int64) { clock += ms }
@@ -108,7 +117,7 @@ struct UsageClientTests {
 
     @Test func startDoesNotEmitWithinWindow() {
         let now: Int64 = 1_000_000_000_000
-        let h = Harness(UsageState(lastActiveAt: now - (dayMs - 1)))
+        let h = Harness(UsageState(lastActiveAt: now - (dayMs - 1), lastEmitDay: utcDay(now)))
         h.client.start()
         h.client.flush()
         #expect(h.sent.isEmpty)
@@ -125,7 +134,7 @@ struct UsageClientTests {
 
     @Test func throttledSessionCallsCarryToNextEmit() {
         let now: Int64 = 1_000_000_000_000
-        let h = Harness(UsageState(lastActiveAt: now - 1000))
+        let h = Harness(UsageState(lastActiveAt: now - 1000, lastEmitDay: utcDay(now)))
         h.client.start()
         h.client.recordCall(5)
         h.client.flush()
@@ -199,10 +208,11 @@ struct UsageClientTests {
 
     @Test func manualLoadBypassesWindow() {
         let now: Int64 = 1_000_000_000_000
-        let h = Harness(UsageState(lastActiveAt: now - 1000))
+        let h = Harness(UsageState(lastActiveAt: now - 1000, lastEmitDay: utcDay(now) - 1))
         h.client.load()
         #expect(h.sent.count == 1)
         #expect(h.events[0].name == "load")
+        #expect(h.state.lastEmitDay == utcDay(now))
     }
 
     @Test func callCountProviderOverridesRecordCall() {
@@ -218,6 +228,74 @@ struct UsageClientTests {
         h.client.start()
         h.client.flush()
         #expect(h.events[0].callCount == nil)
+    }
+
+    /// Billing counts distinct devices per calendar month, so a device in use
+    /// must post a turnstile on every UTC day it is used. `suspend()` restamps
+    /// the idle clock, so an app launched every 20 hours never sat idle for a
+    /// full window and used to post only its first turnstile, then carry its
+    /// calls forever: counted in its first month and in no month after.
+    @Test func dailyUseEmitsATurnstileEveryUTCDay() {
+        let h = Harness(UsageState())
+        h.clock = 1_704_067_200_000 + 9 * hourMs   // 2024-01-01T09:00Z
+        var usedDays = Set<Int64>()
+        for _ in 0..<40 {
+            usedDays.insert(utcDay(h.clock))
+            h.relaunch()
+            h.client.start()
+            h.client.recordCall()
+            h.client.flush()
+            h.client.suspend()
+            h.advance(20 * hourMs)
+        }
+        let sentDays = Set(h.sent.map { utcDay($0.at) })
+        #expect(sentDays == usedDays)
+        let sentCalls = h.events.reduce(0) { $0 + ($1.callCount ?? 0) }
+        #expect(sentCalls + h.state.carryCallCount == 40)
+    }
+
+    /// A new UTC day opens a turnstile even inside the window, and the carried
+    /// calls ride it.
+    @Test func aNewUTCDayEmitsInsideTheWindow() {
+        let midnight: Int64 = 1_706_745_600_000   // 2024-02-01T00:00Z
+        let h = Harness(UsageState(lastActiveAt: midnight - 60_000, carryCallCount: 4, lastEmitDay: utcDay(midnight) - 1))
+        h.clock = midnight + 60_000
+        h.client.start()
+        h.client.recordCall()
+        h.client.flush()
+        #expect(h.sent.count == 1)
+        #expect(h.events[0].callCount == 5)
+        #expect(h.state == UsageState(lastActiveAt: midnight + 60_000, carryCallCount: 0, lastEmitDay: utcDay(midnight)))
+
+        // A relaunch later that day stays throttled, and carries.
+        h.relaunch()
+        h.advance(hourMs)
+        h.client.start()
+        h.client.recordCall(2)
+        h.client.flush()
+        #expect(h.sent.count == 1)
+        #expect(h.state.carryCallCount == 2)
+    }
+
+    /// State written before the emit day was stored has none: the first start
+    /// after the upgrade emits, whatever the window says, and takes the carry.
+    @Test func stateWithoutAnEmitDayEmitsOnTheFirstStart() {
+        let now: Int64 = 1_000_000_000_000
+        let h = Harness(UsageState(lastActiveAt: now - 1000, carryCallCount: 3))
+        h.client.start()
+        h.client.flush()
+        #expect(h.sent.count == 1)
+        #expect(h.events[0].callCount == 3)
+        #expect(h.state.lastEmitDay == utcDay(now))
+    }
+
+    @Test func utcDayFloorsToTheDay() {
+        #expect(utcDay(0) == 0)
+        #expect(utcDay(dayMs - 1) == 0)
+        #expect(utcDay(dayMs) == 1)
+        #expect(utcDay(-1) == -1)
+        #expect(utcDay(-dayMs) == -1)
+        #expect(utcDay(1_706_745_600_000) == 19754)   // 2024-02-01
     }
 
     @Test func webSessionSuspendAndReturn() {
