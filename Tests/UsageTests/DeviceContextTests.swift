@@ -281,13 +281,15 @@ struct BrowserVocabularyTests {
 // real provider, which honours it. A test elsewhere that relies on the default
 // provider would race `theInCodeOptOutSendsUsageWithoutContext`; inject one.
 @Suite(.serialized) struct DefaultContextProviderTests {
-    private func firstContext(platform: String, deviceId: String? = nil) -> [String: String]? {
+    private func firstContext(
+        platform: String, deviceId: String? = nil, storage: InMemoryStorage = InMemoryStorage()
+    ) -> [String: String]? {
         var sent: [IngestBody] = []
         let client = makeClient(
             appId: "co.acme.app",
             deviceId: deviceId,
             platform: platform,
-            storage: InMemoryStorage(),
+            storage: storage,
             send: { body, _ in sent.append(body) }
         )
         client.start()
@@ -295,16 +297,33 @@ struct BrowserVocabularyTests {
         return sent.first?.events.first?.context
     }
 
-    @Test func aServerSendsOnlyTheServerSet() {
-        let context = firstContext(platform: "server") ?? [:]
+    @Test(.enabled(if: !deviceContextDisabled()))
+    func aServerSendsOnlyTheServerSet() throws {
+        let context = try #require(firstContext(platform: "server"))
         #expect(Set(context.keys).isSubset(of: serverSet))
+        #expect(context["osName"] != nil)
         if let version = context["osVersion"] { #expect(!version.contains(".")) }
     }
 
     /// A device id the caller supplied is a tenant's device, not this host.
-    @Test func aSuppliedDeviceIdGetsOnlyTheServerSet() {
-        let context = firstContext(platform: "ios", deviceId: "tenant-device") ?? [:]
+    @Test(.enabled(if: !deviceContextDisabled()))
+    func aSuppliedDeviceIdGetsOnlyTheServerSet() throws {
+        let context = try #require(firstContext(platform: "ios", deviceId: "tenant-device"))
         #expect(Set(context.keys).isSubset(of: serverSet))
+        #expect(context["osName"] != nil)
+    }
+
+    /// Inference passes the persisted id explicitly on every default path, so an
+    /// explicit id equal to it is this device's own and gets the full set.
+    @Test(.enabled(if: hostProvidedDeviceId() == nil && !deviceContextDisabled()))
+    func thePersistedIdPassedExplicitlyGetsTheFullSet() {
+        let store = InMemoryStorage()
+        let id = store.persistentDeviceId()
+        let context = firstContext(platform: "ios", deviceId: id, storage: store)
+        #expect(context == firstContext(platform: "ios"))
+        #if canImport(Darwin)
+        #expect(context?["deviceModel"] != nil)
+        #endif
     }
 
     // A shell with DAL_DEVICE_ID or the context flag set changes the answer.

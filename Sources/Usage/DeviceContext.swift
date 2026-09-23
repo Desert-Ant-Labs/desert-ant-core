@@ -268,6 +268,8 @@ extension DeviceContext {
 #if canImport(Darwin)
         return appleContext()
 #elseif os(Linux)
+        // Major.minor for a caller that passes a non-server platform; the
+        // default "server" tag cuts it to the major.
         return DeviceContext(osName: "Linux", osVersion: unameRelease().map(majorMinor))
 #elseif os(Android)
         return DeviceContext(osName: "Android")
@@ -348,7 +350,11 @@ private func appleContext() -> DeviceContext {
     return context
 }
 
+/// The user's first preferred language, as a page's `navigator.language` is.
+/// `Locale.current` is the language the app resolved to among its own
+/// localizations, so a Brazilian in an English-only app would read "en-BR".
 private func currentLocale() -> String? {
+    if let preferred = languageRegion(Locale.preferredLanguages.first) { return preferred }
     guard let language = Locale.current.language.languageCode?.identifier else { return nil }
     return languageRegion(Locale.current.region.map { "\(language)-\($0.identifier)" } ?? language)
 }
