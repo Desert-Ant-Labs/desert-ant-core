@@ -91,8 +91,9 @@ func deviceContextDisabled() -> Bool {
 }
 
 /// The truthiness rule for the context opt-outs: set, and not "", "0" or
-/// "false". tongue-node's usage.ts reads its flag the same way. `usageDisabled()` keeps
-/// its older rule, which every port shares.
+/// "false". Only the context flags treat "false" as off: `usageDisabled()`
+/// keeps the older rule, under which it disables, as `DAL_USAGE_DISABLED` does
+/// in every port.
 func flagIsSet(_ value: String?) -> Bool {
     guard let value else { return false }
     return value != "" && value != "0" && value != "false"
