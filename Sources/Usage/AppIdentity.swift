@@ -64,7 +64,7 @@ public func usageDisabled() -> Bool {
 /// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function);
 /// elsewhere reads the `DAL_APP_VERSION` environment variable. `nil` when unset.
 /// The only appVersion a Linux, Android or wasm host sends.
-public func hostProvidedAppVersion() -> String? {
+func hostProvidedAppVersion() -> String? {
 #if os(WASI)
     return jsHostString("__dalAppVersion")
 #else
@@ -78,7 +78,7 @@ public func hostProvidedAppVersion() -> String? {
 /// (a string, a boolean, or a function returning either) on WASI and the
 /// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere.
 /// Usage itself still reports; only the context goes.
-public func deviceContextDisabled() -> Bool {
+func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(WASI)
     var value = JSObject.global["__dalUsageContextDisabled"]
