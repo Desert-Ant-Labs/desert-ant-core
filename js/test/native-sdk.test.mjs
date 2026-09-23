@@ -133,7 +133,9 @@ test("the usage switch reaches the native core under the core's truthiness rule"
     assert.equal(await open(true, undefined), "1");
     assert.equal(await open(() => "1", undefined), "1", "a function-valued global is called");
     assert.equal(await open("false", undefined), undefined, '"false" is off');
-    assert.equal(await open(1, undefined), undefined, "a number is not a flag");
+    assert.equal(await open(1, undefined), "1", "a non-zero number is a flag");
+    assert.equal(await open(0, undefined), undefined, "0 is not");
+    assert.equal(await open(NaN, undefined), undefined, "NaN is not");
     // Either side opts out: a global set turns on a flag the environment has off.
     assert.equal(await open(true, "0"), "1");
     assert.equal(await open(false, "1"), "1", "a global cannot clear the environment's opt-out");

@@ -121,8 +121,8 @@ used: a site or an app can keep it on until its user consents, and clear it then
 
 The global may also be a function returning the flag, called each time it is
 read, and a global whose getter or function throws reads as unset. A flag counts
-as set when it is the boolean `true` or a string other than `""`, `"0"` and
-`"false"`; a number does not count. Either form turns reporting off: code cannot
+as set when it is the boolean `true`, a finite non-zero number such as `1`, or a
+string other than `""`, `"0"` and `"false"`; `false`, `0` and `NaN` do not. Either form turns reporting off: code cannot
 clear a flag the environment sets.
 
 While the switch is on nothing is recorded, nothing is stored and no request is

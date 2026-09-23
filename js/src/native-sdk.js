@@ -26,9 +26,13 @@ function hostDeviceId() {
   }
 }
 
-/** The core's `flagIsSet`: a string that is not "", "0" or "false", or `true`. */
+/**
+ * The core's `flagIsSet`: `true`, a finite non-zero number, or a string other
+ * than "", "0" and "false".
+ */
 function flagIsSet(value) {
   if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
   return typeof value === "string" && value !== "" && value !== "0" && value !== "false";
 }
 
@@ -39,8 +43,8 @@ function flagIsSet(value) {
  * same values from `globalThis.__dal*`. Bridging them means a host sets one
  * spelling on either runtime, and a server that sets the global is not silently
  * unattributed. Each may be a string or a zero-arg function, the two forms the
- * core's own JS host read accepts, and the two opt-out flags may also be `true`,
- * as they may in a page. An environment variable already set wins, except that
+ * core's own JS host read accepts, and the two opt-out flags may also be `true`
+ * or a number, as they may in a page. An environment variable already set wins, except that
  * a flag is an opt-out from either side, as in the core: a set global turns on
  * a flag the environment has off.
  *

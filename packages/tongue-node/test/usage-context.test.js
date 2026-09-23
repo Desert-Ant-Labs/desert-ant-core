@@ -257,8 +257,10 @@ test("the turnstile a host builds sends the server set, and nothing when opted o
 });
 
 test("the opt-outs share one truthiness rule", async () => {
-  for (const value of ["1", "true", "yes", true]) assert.equal(flagIsSet(value), true, String(value));
-  for (const value of [undefined, null, "", "0", "false", false, 1]) assert.equal(flagIsSet(value), false, String(value));
+  for (const value of ["1", "true", "yes", true, 1, -1, 0.5]) assert.equal(flagIsSet(value), true, String(value));
+  for (const value of [undefined, null, "", "0", "false", false, 0, NaN, Infinity]) {
+    assert.equal(flagIsSet(value), false, String(value));
+  }
 
   await withHost({ globals: { __dalUsageContextDisabled: true } }, () => assert.equal(deviceContextDisabled(), true));
   await withHost({ globals: { __dalUsageContextDisabled: "false" } }, () => assert.equal(deviceContextDisabled(), false));
@@ -273,12 +275,12 @@ test("the opt-outs share one truthiness rule", async () => {
 test("the usage switch follows the same rule, and a throwing global reads as unset", async () => {
   const off = { DAL_USAGE_DISABLED: undefined };
   await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
-  for (const value of [true, "1", "true", () => true, () => "1"]) {
+  for (const value of [true, 1, "1", "true", () => true, () => "1", () => 1]) {
     await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
       assert.equal(usageDisabled(), true, String(value)),
     );
   }
-  for (const value of [false, "", "0", "false", 1, () => false]) {
+  for (const value of [false, 0, NaN, "", "0", "false", () => false]) {
     await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
       assert.equal(usageDisabled(), false, String(value)),
     );

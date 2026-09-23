@@ -533,8 +533,12 @@ struct BrowserVocabularyTests {
             Object.defineProperty(globalThis, "__dalAppVersion", { configurable: true, get() { throw new Error("no request") } })
             """)()
         #expect(hostProvidedAppVersion() == nil)
-        // A number is not a flag: 1 does not opt out.
+        // A finite non-zero number opts out, failing closed; 0 and NaN do not.
         JSObject.global.__dalUsageContextDisabled = .number(1)
+        #expect(deviceContextDisabled())
+        JSObject.global.__dalUsageContextDisabled = .number(0)
+        #expect(!deviceContextDisabled())
+        JSObject.global.__dalUsageContextDisabled = .number(.nan)
         #expect(!deviceContextDisabled())
     }
 

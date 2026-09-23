@@ -223,7 +223,7 @@ function hostApiKey(): string | undefined {
 
 /**
  * Whether usage reporting is switched off, right now: `globalThis.__dalUsageDisabled`
- * (a string, a boolean, or a function returning either) or `DAL_USAGE_DISABLED`,
+ * (a string, a boolean, a number, or a function returning one) or `DAL_USAGE_DISABLED`,
  * under `flagIsSet`, as core reads it.
  *
  * The consent switch. A page keeps the beacon off until its visitor agrees, then
@@ -523,11 +523,13 @@ export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
 
 /**
  * The truthiness rule for every opt-out flag, usage and context alike, core's:
- * set, and not "", "0" or "false". A boolean `true` counts too, as it does in a
- * page; a number does not.
+ * `true`, a finite non-zero number, or a string other than "", "0" and "false".
+ * It fails closed: `1`, which this package's older check honoured, still opts
+ * out. `false`, 0, NaN, null and undefined are unset.
  */
 export function flagIsSet(value: unknown): boolean {
   if (typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
   return typeof value === "string" && value !== "" && value !== "0" && value !== "false";
 }
 
