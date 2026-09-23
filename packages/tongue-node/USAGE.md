@@ -25,9 +25,13 @@ the same way.
   same-named JVM system property on Kotlin), which replaces the generated id.
 - **`app.id`** is the bundle id or package name — the app, not the person.
 - **`callCount`** is how many detections happened, summed server-side.
-- **`context`** is a few coarse facts about where the SDK runs, sent by the
-  JavaScript port by the rules of desert-ant-core's `Sources/Usage/DeviceContext.swift`,
-  and not yet by the Kotlin port. In a browser: the browser name and major
+- **`context`** is a few coarse facts about where the SDK runs. The Swift SDK
+  sends it through desert-ant-core, whose `Sources/Usage/DeviceContext.swift`
+  sets the rules; the JavaScript port follows them; the Kotlin port does not
+  send it yet. On Apple: the app version, the OS and its version, the model
+  identifier (such as `iPhone16,2`), the form factor and the language-region
+  locale; a macOS app, as a `server`, sends only the OS, a major-only version
+  and the app version. In a browser: the browser name and major
   version, the OS, the form factor (`desktop`, `mobile` or `tablet`) and the
   language-region locale. On Node: the OS from `process.platform`. A server, and
   any process that sets its own device id, sends only the OS. Every host adds
@@ -102,6 +106,10 @@ threshold and commercial above it, and monthly active devices is the measure.
 Set `DAL_USAGE_DISABLED=1` (env var, or a JVM system property on Kotlin, or
 `globalThis.__dalUsageDisabled` in a browser). No client is constructed at all, so
 nothing is stored and no request is made.
+
+To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1`
+(`globalThis.__dalUsageContextDisabled` in JavaScript, or
+`DesertAnt.sendsDeviceContext = false` in Swift).
 
 Every task in this repository sets it — see `mise.toml` and `.github/workflows/ci.yml`.
 A CI runner is not a billable device, and without the guard each push would count
