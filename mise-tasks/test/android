@@ -128,7 +128,9 @@ fi # end of staging
 # the model natives first (preBuild -> build:android-natives), so run
 # `mise run build:android` before this if you want the two costs separated.
 [ -n "${usage_core_only:-}" ] && exit 0
-tasks=()
+# The core AAR's own JVM tests (HostBridge, LoadedModel) run on the host, not
+# the device, and nothing else runs them.
+tasks=(":core:testDebugUnitTest")
 for model in $(dal_select "${usage_model:-all}" kotlin); do
     # A pure-Kotlin module (no AndroidManifest.xml) has no instrumented suite:
     # its bytecode is what runs on the device, so its JVM tests are the check.
