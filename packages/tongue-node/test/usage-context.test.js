@@ -3,6 +3,8 @@
 // port sends no context, and that file is the contract the two ports share.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 import {
   BROWSER_NAMES,
@@ -359,4 +361,14 @@ test("the form factor is always one the ingest accepts", () => {
       }
     }
   }
+});
+
+test("a page's turnstile describes the host unless the host supplied another device's id", () => {
+  // A child process: Node's facts are cached by the time any test here runs.
+  const script = fileURLToPath(new URL("./fixtures-page-context.mjs", import.meta.url));
+  const results = JSON.parse(execFileSync(process.execPath, [script], { encoding: "utf8" }));
+  const full = { osName: "Windows", browserName: "Chrome", browserVersion: "131", formFactor: "desktop", locale: "de-DE" };
+  assert.deepEqual(results.none, full);
+  assert.deepEqual(results.persisted, full, "the persisted id is this device's own");
+  assert.deepEqual(results.tenant, { osName: "Windows" });
 });

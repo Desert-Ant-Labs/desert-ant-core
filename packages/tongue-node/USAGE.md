@@ -34,8 +34,8 @@ the same way.
   and the app version. In a browser: the browser name and major
   version, the OS, the form factor (`desktop`, `mobile` or `tablet`) and the
   language-region locale. On Node: the OS from `process.platform`. In
-  JavaScript, a server, and any page that sets its own device id, sends only
-  the OS. Every host adds
+  JavaScript, a server, and any page that sets a device id other than the one
+  stored here, sends only the OS. Every host adds
   `appVersion` when `DAL_APP_VERSION` (`globalThis.__dalAppVersion`) is set. No
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
