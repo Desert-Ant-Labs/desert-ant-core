@@ -44,9 +44,9 @@ function flagIsSet(value) {
  * spelling on either runtime, and a server that sets the global is not silently
  * unattributed. Each may be a string or a zero-arg function, the two forms the
  * core's own JS host read accepts, and the two opt-out flags may also be `true`
- * or a number, as they may in a page. An environment variable already set wins, except that
- * a flag is an opt-out from either side, as in the core: a set global turns on
- * a flag the environment has off.
+ * or a finite non-zero number, as they may in a page. An environment variable
+ * already set wins, except that a flag is an opt-out from either side, as in
+ * the core: a set global turns on a flag the environment has off.
  *
  * Run at each load rather than once at import, so a host that imports the package
  * before setting the global is still attributed, but only until a native model
