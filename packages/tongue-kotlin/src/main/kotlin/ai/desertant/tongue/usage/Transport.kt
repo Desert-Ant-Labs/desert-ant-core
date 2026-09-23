@@ -200,9 +200,6 @@ internal fun usageDisabled(): Boolean =
         flagIsSet(readEnvironment("DAL_USAGE_DISABLED")) ||
         flagIsSet(System.getProperty("DAL_USAGE_DISABLED"))
 
-/** The truthiness rule every port's opt-out flags share: set, and not "", "0" or "false". */
-internal fun flagIsSet(value: String?): Boolean = value != null && value != "" && value != "0" && value != "false"
-
 /**
  * Build a client wired to the shared endpoint, the system clock, a POST transport,
  * the best available storage and the default device context. Mirrors core's
