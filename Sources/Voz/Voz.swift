@@ -151,8 +151,7 @@ public actor Voz {
                                     options: .mappedIfSafe))
         // The engine binds these buffers into its feature providers and output
         // backings, so both halves have to be handed the same set.
-        let lanes = try CoreMLEngine.declaredLanes(directory: modelDirectory,
-                                                   computeUnits: computeUnits)
+        let lanes = try CoreMLEngine.declaredLanes(directory: modelDirectory)
         // The engine says how many encodes it will overlap, and the buffers
         // carry a slot for each: they are bound into its providers at load.
         // One window per slot, because this graph is a fixed shape.

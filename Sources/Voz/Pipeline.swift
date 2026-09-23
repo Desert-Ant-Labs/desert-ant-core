@@ -28,6 +28,8 @@ private actor WindowGate {
         }
     }
 
+    func isReady(_ index: Int) -> Bool { ready > index }
+
     /// Releases every waiter, for when encoding has failed and the windows it
     /// promised are never coming. The decode then reads zeroed projections,
     /// which is harmless because the caller throws the encoding error and
@@ -116,30 +118,6 @@ final class Pipeline: @unchecked Sendable {
     /// full for all but the last group.
     private static let batchWindows =
         Int(ProcessInfo.processInfo.environment["VOZ_BATCH_WINDOWS"] ?? "") ?? 64
-
-    /// Whether the decode runs on a thread of its own while the encoder feeds
-    /// it, rather than the two taking turns.
-    ///
-    /// Worth it only where the two land on different processors, which is the
-    /// same question the decode step's placement answers: M-series silicon
-    /// puts it on the CPU, everything else leaves it on the engine. So this
-    /// follows that and nothing else - an M-series iPad overlaps exactly as a
-    /// Mac does, and a phone does not, where it would only be the engine
-    /// waiting for itself and the measured 1% would cost a core a device on
-    /// battery would rather leave idle.
-    ///
-    /// Never in a browser. The page has one thread, and the two halves are on
-    /// the same device anyway: the encoder holds WebGPU while the decode step
-    /// runs on WebNN, and ONNX Runtime Web rejects concurrent runs across
-    /// sessions with "Session already started".
-    #if canImport(CoreML)
-    private static let overlapsByDefault = Silicon.isMSeries
-    #else
-    private static let overlapsByDefault = false
-    #endif
-    private static let overlapsDecode =
-        ProcessInfo.processInfo.environment["VOZ_OVERLAP"].map { $0 != "0" }
-            ?? overlapsByDefault
 
     #if canImport(Darwin)
     /// The decode's own thread. See ``DecodeWorker``.
@@ -284,6 +262,7 @@ final class Pipeline: @unchecked Sendable {
     private func decodeGroup(projections: Projections, valids: [Int],
                              count: Int, into result: DecodeResult,
                              awaitWindow: @escaping @Sendable (Int) async -> Void,
+                             isReady: @escaping @Sendable (Int) async -> Bool = { _ in true },
                              isolation: isolated (any Actor)? = #isolation) async {
         var tokens = [[Int]](repeating: [], count: count)
         var emitFrames = [[Int]](repeating: [], count: count)
@@ -291,7 +270,7 @@ final class Pipeline: @unchecked Sendable {
         do {
             try await decode(projections: projections.base, valids: valids,
                              ends: &emitEnds, tokens: &tokens, frames: &emitFrames,
-                             awaitWindow: awaitWindow)
+                             awaitWindow: awaitWindow, isReady: isReady)
         } catch {
             result.error = error
         }
@@ -320,6 +299,7 @@ final class Pipeline: @unchecked Sendable {
                         ends: inout [[Int]], tokens: inout [[Int]],
                         frames: inout [[Int]],
                         awaitWindow: (Int) async -> Void = { _ in },
+                        isReady: (Int) async -> Bool = { _ in true },
                         isolation: isolated (any Actor)? = #isolation) async throws {
         let c = configuration
         let width = c.decodeWidth
@@ -352,7 +332,19 @@ final class Pipeline: @unchecked Sendable {
             (cIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             pending += 1
         }
-        for lane in 0..<lanes { await admit(lane) }
+        func fill() async {
+            for lane in 0..<lanes where slot[lane] < 0 && pending < valids.count {
+                let eager = Self.eagerThroughout || valids.count - pending <= Self.eagerTail
+                guard eager else { await admit(lane); continue }
+                guard await isReady(pending) else { break }
+                await admit(lane)
+            }
+            if !slot.contains(where: { $0 >= 0 }), pending < valids.count,
+               let lane = slot.firstIndex(of: -1) {
+                await admit(lane)
+            }
+        }
+        await fill()
 
         while slot.contains(where: { $0 >= 0 }) {
             assets.withEmbedding { table in
@@ -375,7 +367,7 @@ final class Pipeline: @unchecked Sendable {
             try await engine.runDecodeStep(
                 embed: embed, hIn: hIn, cIn: cIn, encStep: encStep,
                 logits: logitsOut, tok: &tok, dur: &dur, hOut: hOut, cOut: cOut,
-                isolation: isolation)
+                activeLanes: (0..<lanes).filter { slot[$0] >= 0 }, isolation: isolation)
 
             for lane in 0..<lanes where slot[lane] >= 0 {
                 let window = slot[lane]
@@ -436,10 +428,25 @@ final class Pipeline: @unchecked Sendable {
                     offset += duration > 0 ? duration : 1
                 }
                 if !didEmit { position[lane] += max(offset, 1) }
-                if position[lane] >= limit[lane] { await admit(lane) }
+                if position[lane] >= limit[lane] { slot[lane] = -1 }
             }
+            await fill()
         }
     }
+
+    /// For the last this many windows, an empty lane takes only windows that
+    /// are already encoded rather than waiting, so the decode catches up while
+    /// the encoder is still busy and finishes on the narrow steps.
+    static let eagerTail = 8
+
+    /// Whether that holds for the whole group. Measured over a 10-minute clip:
+    /// +3.5% on an M1, level on an M3 Ultra and M5, 15-20% slower on an
+    /// iPhone 16 Pro, where the decode has no time to spare.
+    #if canImport(CoreML)
+    static let eagerThroughout = Silicon.isMSeries
+    #else
+    static let eagerThroughout = false
+    #endif
 
     /// The longest stretch of a window that produced no words, as frames.
     ///
@@ -657,8 +664,8 @@ final class Pipeline: @unchecked Sendable {
 
             // The decode consumes windows as the encoder produces them. Where
             // the two are on different processors this halves the group's cost;
-            // where they are not, `overlapsDecode` is false and the work item
-            // simply runs here once encoding is done.
+            // where they are not, `decodeRunsBesideEncoder` is false and the
+            // work item simply runs here once encoding is done.
             let gate = WindowGate()
             let decoded = DecodeResult()
             // Detached, so it does not inherit the actor `Voz` calls from and
@@ -671,18 +678,20 @@ final class Pipeline: @unchecked Sendable {
             #if os(WASI)
             let decodeTask: Task<Void, Never>? = nil
             #else
-            let decodeTask: Task<Void, Never>? = !Self.overlapsDecode ? nil : Task.detached {
+            let decodeTask: Task<Void, Never>? = !engine.decodeRunsBesideEncoder ? nil : Task.detached {
                 #if canImport(Darwin)
                 await self.decodeWorker.run { worker in
                     await self.decodeGroup(projections: shared, valids: valids,
                                            count: count, into: decoded,
                                            awaitWindow: { await gate.wait(for: $0) },
+                                           isReady: { await gate.isReady($0) },
                                            isolation: worker)
                 }
                 #else
                 await self.decodeGroup(projections: shared, valids: valids,
                                        count: count, into: decoded,
-                                       awaitWindow: { await gate.wait(for: $0) })
+                                       awaitWindow: { await gate.wait(for: $0) },
+                                       isReady: { await gate.isReady($0) })
                 #endif
             }
             #endif

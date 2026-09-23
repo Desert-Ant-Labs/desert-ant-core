@@ -9,7 +9,7 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Browser, Node |
 | **Languages** | 25 |
-| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/voz) |
+| **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/voz) |
 
 ## Install
 
