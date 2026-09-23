@@ -118,8 +118,8 @@ func makeFrontend() async throws -> Frontend {
         }
     }
 
-    // The path the Node and Kotlin bindings take: the thrown error must come back as nil, which
-    // the host reports as a failed call, rather than trapping.
+    // The path the Node binding takes: the thrown error must come back as nil, which the host
+    // reports as a failed call, rather than trapping.
     @Test(arguments: [Double.nan, 1e17, -1e20])
     func bindingRunReturnsNilForInvalidTime(_ start: Double) async throws {
         var input = FFIWriter()
