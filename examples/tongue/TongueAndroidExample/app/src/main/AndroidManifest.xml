@@ -2,7 +2,8 @@
     <!-- Detection needs no network — the model ships inside the artifact and
          nothing is ever fetched. This is for the usage turnstile, which posts one
          load event per device per day. See "Opting out" in
-         packages/tongue-node/USAGE.md: DesertAnt.usageDisabled switches it off,
+         packages/tongue-node/USAGE.md: DesertAnt.usageDisabled (from the Tongue
+         release after 3.4.0; this example pins an older one) switches it off,
          and this permission can go only if it stays off for good. -->
     <uses-permission android:name="android.permission.INTERNET" />
 

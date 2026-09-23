@@ -116,7 +116,7 @@ used: a site or an app can keep it on until its user consents, and clear it then
 |---|---|---|
 | Swift (every model SDK on core) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1` |
 | A page (every JavaScript SDK, wasm or not) | `globalThis.__dalUsageDisabled = true` | |
-| Node | `globalThis.__dalUsageDisabled = true` | `DAL_USAGE_DISABLED=1` |
+| Node | `globalThis.__dalUsageDisabled = true` (on `/native`, see below) | `DAL_USAGE_DISABLED=1` |
 | Kotlin (tongue) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1`, or the same-named JVM system property |
 
 The global may also be a function returning the flag, called each time it is
@@ -139,8 +139,10 @@ never cached, so it can change at any time:
 
 Two hosts read it less often. The native Node build (`/native`) copies the
 global into the environment only until its first model loads, because a native
-thread reading the environment while it is written can crash on glibc; set it
-before that, or start the process with `DAL_USAGE_DISABLED` set. An Android app
+thread reading the environment while it is written can crash on glibc. There the
+switch is fixed at the first load: a global set before it keeps usage off for
+the life of the process, and changing the global later has no effect either
+way. A server that needs to flip it at runtime uses the wasm build. An Android app
 on the core's AAR has no launch environment and no in-code switch yet. It can
 call `android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)`, but only
 before its first model loads, for the same reason: the core reads the
