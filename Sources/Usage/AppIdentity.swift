@@ -28,9 +28,10 @@ private func jsHostString(_ name: String) -> String? {
     return nil
 }
 
-/// `globalThis[name]`, calling it when it is a function. An accessor or a function that throws
-/// (say, one that needs a request context, called from a flush timer) reads as
-/// unset: an exception unwinding through the client would lose the event.
+/// `globalThis[name]`, calling it when it is a function. An accessor or a
+/// function that throws (say, one that needs a request context, called from a
+/// flush timer) reads as unset: an exception unwinding through the client
+/// would lose the event.
 func jsHostValue(_ name: String) -> JSValue {
     let value = jsProperty(JSObject.global, name)
     guard let getter = value.function else { return value }
