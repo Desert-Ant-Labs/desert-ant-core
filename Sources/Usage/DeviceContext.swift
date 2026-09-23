@@ -2,7 +2,7 @@
 // device it runs on, gathered once per process.
 //
 //   Apple      appVersion, osName, osVersion, deviceModel, formFactor, locale
-//   Linux      osName, osVersion (kernel major)
+//   Linux      osName, osVersion (kernel major.minor; major under "server")
 //   Android    osName
 //   WASI page  browserName, browserVersion, osName, formFactor, locale
 //   WASI Node  osName

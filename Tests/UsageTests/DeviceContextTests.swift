@@ -314,15 +314,19 @@ struct BrowserVocabularyTests {
     }
 
     /// Inference passes the persisted id explicitly on every default path, so an
-    /// explicit id equal to it is this device's own and gets the full set.
+    /// explicit id equal to it is this device's own and gets the full set. On
+    /// WASI and Android the full set is the server set, so there the check is
+    /// structural only.
     @Test(.enabled(if: hostProvidedDeviceId() == nil && !deviceContextDisabled()))
-    func thePersistedIdPassedExplicitlyGetsTheFullSet() {
+    func thePersistedIdPassedExplicitlyGetsTheFullSet() throws {
         let store = InMemoryStorage()
         let id = store.persistentDeviceId()
-        let context = firstContext(platform: "ios", deviceId: id, storage: store)
+        let context = try #require(firstContext(platform: "ios", deviceId: id, storage: store))
         #expect(context == firstContext(platform: "ios"))
         #if canImport(Darwin)
-        #expect(context?["deviceModel"] != nil)
+        #expect(context["deviceModel"] != nil)
+        #elseif os(Linux)
+        #expect(context["osVersion"]?.contains(".") == true)
         #endif
     }
 
