@@ -18,4 +18,15 @@ public object DesertAnt {
     @JvmStatic
     @Volatile
     public var apiKey: String? = null
+
+    /**
+     * Whether usage events carry the device context (OS, model, locale and the
+     * like; see usage/DeviceContext.kt). `true` by default. Setting it to
+     * `false` sends usage without context, the in-code form of the
+     * `DAL_USAGE_CONTEXT_DISABLED` flag, as core's `DesertAnt.sendsDeviceContext`
+     * is. Read per event, so it applies from the next send on.
+     */
+    @JvmStatic
+    @Volatile
+    public var sendsDeviceContext: Boolean = true
 }

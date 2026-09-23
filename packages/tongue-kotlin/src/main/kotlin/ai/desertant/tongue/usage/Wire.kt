@@ -55,14 +55,17 @@ internal fun buildBody(body: IngestBody): String = buildString {
         field("deviceId", event.deviceId)
         event.callCount?.let { append(",\"callCount\":").append(it) }
         event.timestamp?.let { append(','); field("timestamp", it) }
-        event.context?.let { ctx ->
-            append(",\"context\":{")
-            ctx.entries.forEachIndexed { i, (k, v) -> if (i > 0) append(','); field(k, v) }
-            append('}')
-        }
+        event.context?.let { append(",\"context\":"); appendContext(it) }
         append('}')
     }
     append("]}")
+}
+
+/** A context object as it goes on the wire; `sanitizeContext` measures this. */
+internal fun StringBuilder.appendContext(context: Map<String, String>) {
+    append('{')
+    context.entries.forEachIndexed { i, (k, v) -> if (i > 0) append(','); field(k, v) }
+    append('}')
 }
 
 private fun StringBuilder.field(key: String, value: String) {

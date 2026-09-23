@@ -33,6 +33,11 @@ internal class ClientDeps(
     val sdkVersion: String,
     /** Authoritative call count read at emit time; overrides recordCall when set. */
     val callCount: (() -> Int)? = null,
+    /**
+     * Default context attached to auto-emitted loads. Ignored while the context
+     * opt-out is on (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
+     * what it returns is sanitized (`sanitizeContext`).
+     */
     val context: (() -> Map<String, String>?)? = null,
     val windowMs: Long = DAY_MS,
     val now: () -> Long,
@@ -89,7 +94,9 @@ internal class UsageClient(private val deps: ClientDeps) {
         if (queued != null) {
             // First flush of this session's turnstile: attach carry + session calls.
             pending = null
-            val event = queued.copy(callCount = resolveCount(st.carryCallCount + sessionCalls))
+            var event = queued.copy(callCount = resolveCount(st.carryCallCount + sessionCalls))
+            // An opt-out set during the debounce still applies to the queued event.
+            if (deviceContextDisabled()) event = event.copy(context = null)
             if (deps.callCount == null) {
                 deps.saveState(UsageState(st.lastActiveAt, 0))
             }
@@ -123,10 +130,18 @@ internal class UsageClient(private val deps: ClientDeps) {
         return if (n > 0) n else null
     }
 
-    private fun currentContext(): Map<String, String>? = deps.context?.invoke()
+    // Every context is sanitized before it is queued, because the ingest rejects
+    // the whole batch over an oversized one (see `sanitizeContext`). A provider
+    // that throws costs the context, never the event.
+    private fun currentContext(): Map<String, String>? {
+        if (deviceContextDisabled()) return null
+        return runCatching { sanitizeContext(deps.context?.invoke()) }.getOrNull()
+    }
 
     private fun queue(context: Map<String, String>? = null) {
-        pending = IngestEvent(deviceId = deps.deviceId, context = context ?: currentContext())
+        // The opt-out is enforced at flush, for an explicit context too.
+        val explicit = context?.let(::sanitizeContext)
+        pending = IngestEvent(deviceId = deps.deviceId, context = if (context != null) explicit else currentContext())
         emitted = true
     }
 

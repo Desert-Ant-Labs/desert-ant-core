@@ -86,7 +86,8 @@ func hostProvidedAppVersion() -> String? {
 }
 
 /// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
-/// set to false in code, or the host flag: `globalThis.__dalUsageContextDisabled`
+/// set to false in code (on Android, Kotlin's `HostBridge.sendsDeviceContext`
+/// as well), or the host flag: `globalThis.__dalUsageContextDisabled`
 /// (a string, a boolean, or a function returning either) on WASI, then under
 /// Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, in the global-then-environment
 /// order tongue-node's `hostString` uses; the
@@ -95,6 +96,10 @@ func hostProvidedAppVersion() -> String? {
 /// not opt out. Usage itself still reports; only the context goes.
 func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
+#if os(Android)
+    // 0 is the host's opt-out; -1, a host that predates it, is not one.
+    if host_sends_device_context() == 0 { return true }
+#endif
 #if os(WASI)
     let value = jsHostValue("__dalUsageContextDisabled")
     if value.boolean == true || flagIsSet(value.string) { return true }

@@ -3,7 +3,8 @@
 //
 //   Apple      appVersion, osName, osVersion, deviceModel, formFactor, locale
 //   Linux      osName, osVersion (kernel major.minor; major under "server")
-//   Android    osName
+//   Android    appVersion, osName, osVersion, deviceModel, formFactor, locale
+//              (read by the Kotlin host bridge, `HostBridge.deviceContext`)
 //   WASI page  browserName, browserVersion, osName, formFactor, locale
 //   WASI Node  osName
 //
@@ -22,6 +23,8 @@ import JSON
 import Darwin
 import Foundation
 #elseif os(Android)
+import CHostBridge
+import CStrings
 #elseif canImport(Glibc)
 import Glibc
 #elseif canImport(Musl)
@@ -61,7 +64,13 @@ struct DeviceContext: Sendable, Equatable {
     /// language-region, e.g. "pt-BR".
     var locale: String?
 
+#if os(Android)
+    /// Not cached here: Kotlin reads the facts once, in `HostBridge.attach`, and
+    /// a client can be built before the first model's attach has run.
+    static var current: DeviceContext { detect() }
+#else
     static let current = DeviceContext.detect()
+#endif
 
     /// The context sent for this host. `minimal` is the server set.
     func fields(minimal: Bool, appVersionOverride: String? = nil) -> [String: String] {
@@ -260,6 +269,38 @@ private func leadingDigits(_ value: String) -> String? {
     return digits.isEmpty ? nil : String(digits)
 }
 
+// MARK: - Android
+
+/// The Kotlin host bridge's device facts, one `key=value` per line. Unknown keys
+/// and empty values are skipped; the locale is reduced to language-region here
+/// as well. osName is "Android" whatever the host says, as it was before the
+/// host supplied anything.
+func hostDeviceContext(_ lines: String) -> DeviceContext {
+    var context = DeviceContext(osName: "Android")
+    for line in lines.split(whereSeparator: { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }) {
+        guard let separator = line.firstIndex(of: "=") else { continue }
+        let value = String(line[line.index(after: separator)...])
+        if value.isEmpty { continue }
+        switch line[..<separator] {
+        case "appVersion": context.appVersion = value
+        case "osVersion": context.osVersion = value
+        case "deviceModel": context.deviceModel = value
+        case "formFactor": context.formFactor = value
+        case "locale": context.locale = languageRegion(value)
+        default: break
+        }
+    }
+    return context
+}
+
+#if os(Android)
+private func androidContext() -> DeviceContext {
+    guard let raw = host_device_context() else { return DeviceContext(osName: "Android") }
+    defer { host_free(raw) }
+    return hostDeviceContext(decodeCString(raw))
+}
+#endif
+
 // MARK: - Detection
 
 extension DeviceContext {
@@ -271,7 +312,7 @@ extension DeviceContext {
         // default "server" tag cuts it to the major.
         return DeviceContext(osName: "Linux", osVersion: unameRelease().map(majorMinor))
 #elseif os(Android)
-        return DeviceContext(osName: "Android")
+        return androidContext()
 #elseif os(WASI)
         return jsHostIsNode() ? nodeContext() : browserContext()
 #else

@@ -32,7 +32,8 @@ public enum DesertAnt {
     /// the like; see `DeviceContext`). `true` by default. Setting it to `false`
     /// sends usage without context, the in-code form of the
     /// `DAL_USAGE_CONTEXT_DISABLED` flag. Read per event, so it applies from
-    /// the next send on.
+    /// the next send on. An Android app, which has no Swift of its own, sets
+    /// `HostBridge.sendsDeviceContext = false` in Kotlin instead.
     public static var sendsDeviceContext: Bool {
         get { withLock { storedSendsDeviceContext } }
         set { withLock { storedSendsDeviceContext = newValue } }

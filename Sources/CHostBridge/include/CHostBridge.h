@@ -85,6 +85,19 @@ typedef char *(*HostAppIdFn)(void);
 void host_set_app_id(HostAppIdFn fn);
 char *host_app_id(void);
 
+// Device context (Android): the coarse device facts the usage `context` carries,
+// which the pure-Swift core cannot read itself there. device_context returns a
+// malloc'd string of "key=value" lines (NULL if not installed); the host
+// computes them once. sends_device_context returns 1 when the host allows the
+// context, 0 when it opted out, and -1 when not installed.
+typedef char *(*HostDeviceContextFn)(void);
+void host_set_device_context(HostDeviceContextFn fn);
+char *host_device_context(void);
+
+typedef int32_t (*HostSendsDeviceContextFn)(void);
+void host_set_sends_device_context(HostSendsDeviceContextFn fn);
+int32_t host_sends_device_context(void);
+
 // Audio decode (Android / hosts with no in-process audio decoder): the host
 // decodes the file at `path` (or, when `path` is NULL, the `byte_count` bytes at
 // `bytes`) to mono PCM at `target_sample_rate`, mixing channels down and

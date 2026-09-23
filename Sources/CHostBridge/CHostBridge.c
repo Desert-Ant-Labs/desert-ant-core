@@ -60,6 +60,15 @@ static HostAppIdFn g_app_id = 0;
 void host_set_app_id(HostAppIdFn fn) { g_app_id = fn; }
 char *host_app_id(void) { return g_app_id ? g_app_id() : 0; }
 
+static HostDeviceContextFn g_device_context = 0;
+static HostSendsDeviceContextFn g_sends_device_context = 0;
+
+void host_set_device_context(HostDeviceContextFn fn) { g_device_context = fn; }
+char *host_device_context(void) { return g_device_context ? g_device_context() : 0; }
+
+void host_set_sends_device_context(HostSendsDeviceContextFn fn) { g_sends_device_context = fn; }
+int32_t host_sends_device_context(void) { return g_sends_device_context ? g_sends_device_context() : -1; }
+
 static HostAudioDecodeFn g_audio_decode = 0;
 
 void host_set_audio_decode(HostAudioDecodeFn fn) { g_audio_decode = fn; }

@@ -27,11 +27,16 @@ the same way.
 - **`callCount`** is how many detections happened, summed server-side.
 - **`context`** is a few coarse facts about where the SDK runs. The Swift SDK
   sends it through desert-ant-core, whose `Sources/Usage/DeviceContext.swift`
-  sets the rules; the JavaScript port follows them; the Kotlin port does not
-  send it yet. On Apple: the app version, the OS and its version, the model
-  identifier (such as `iPhone16,2`), the form factor and the language-region
-  locale; a macOS app, as a `server`, sends only the OS, a major-only version
-  and the app version. In a browser: the browser name and major
+  sets the rules; the JavaScript and Kotlin ports follow them. On Apple: the
+  app version, the OS and its version, the model identifier (such as
+  `iPhone16,2`), the form factor and the language-region locale; a macOS app,
+  as a `server`, sends only the OS, a major-only version and the app version.
+  On Android, in Kotlin and through the core's host bridge alike: the app's
+  `versionName`, the OS and its major.minor version, `Build.MODEL` (such as
+  `Pixel 8 Pro`), the form factor (`tablet` from a 600dp smallest width, else
+  `mobile`) and the language-region locale; no serial, `ANDROID_ID` or build
+  fingerprint. A JVM, as a `server`, sends the OS and a major-only version. In
+  a browser: the browser name and major
   version, the OS, the form factor (`desktop`, `mobile` or `tablet`) and the
   language-region locale. On Node: the OS from `process.platform`. In
   JavaScript, a server, and any page that sets a device id other than the one
@@ -40,8 +45,9 @@ the same way.
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
   the event is still sent. `DAL_USAGE_CONTEXT_DISABLED=1`
-  (`globalThis.__dalUsageContextDisabled`) turns it off and leaves usage
-  reporting on.
+  (`globalThis.__dalUsageContextDisabled`, `DesertAnt.sendsDeviceContext = false`
+  in Kotlin, `HostBridge.sendsDeviceContext = false` for the core's Android
+  SDKs) turns it off and leaves usage reporting on.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
 
