@@ -292,8 +292,8 @@ function characters(value: string): string[] {
 export function printableValue(raw: string): string {
   let out = "";
   let bytes = 0;
-  // Far more than 64 bytes' worth, so a huge host value is not segmented whole.
-  for (const char of characters([...raw.slice(0, 1024)].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim())) {
+  const printable = [...raw].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim();
+  for (const char of characters(printable.slice(0, 1024))) {
     bytes += utf8Length(char);
     if (bytes > MAX_CONTEXT_VALUE_BYTES) break;
     out += char;
@@ -333,9 +333,9 @@ export function browserIdentity(
   brands: { brand: string; version: string }[],
   userAgent: string,
 ): { name: string; version?: string } {
-  if (brands.length > 0) {
-    const named = brands
-      .filter((b) => b !== null && typeof b === "object")
+  const entries = brands.filter((b) => b !== null && typeof b === "object");
+  if (entries.length > 0) {
+    const named = entries
       .map((b) => ({ brand: typeof b?.brand === "string" ? b.brand : "", version: typeof b?.version === "string" ? b.version : "" }))
       .filter((b) => !b.brand.includes("Brand") && b.brand !== "Chromium");
     for (const [prefix, name] of [
@@ -484,7 +484,7 @@ export interface BrowserNavigator {
 export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
   if (!nav) return {};
   const userAgent = typeof nav.userAgent === "string" ? nav.userAgent : "";
-  const touch = nav.maxTouchPoints ?? 0;
+  const touch = typeof nav.maxTouchPoints === "number" ? nav.maxTouchPoints : 0;
   const hints = nav.userAgentData;
   const browser = browserIdentity(Array.isArray(hints?.brands) ? hints.brands : [], userAgent);
   return {
@@ -799,7 +799,9 @@ export class UsageTurnstile {
       // A host-provided id wins, matching core's resolveDeviceId: a server that
       // knows its own device identity sets globalThis.__dalDeviceId.
       const hostDevice = hostString("__dalDeviceId", "DAL_DEVICE_ID");
-      let device = hostDevice ?? store.get(DEVICE_ID_KEY);
+      // Core's rule: a host id equal to the one persisted here is this device's own.
+      const persisted = store.get(DEVICE_ID_KEY);
+      let device = hostDevice ?? persisted;
       if (!device) {
         device = uuid();
         store.set(DEVICE_ID_KEY, device);
@@ -835,7 +837,7 @@ export class UsageTurnstile {
         saveState: (state) =>
           store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`),
         send: makeSend(ingestEndpoint(), key, keyInHeader),
-        context: defaultContextProvider(platform, hostDevice !== undefined),
+        context: defaultContextProvider(platform, hostDevice !== undefined && hostDevice !== persisted),
       });
       client.start();
       const turnstile = new UsageTurnstile(client);
