@@ -13,7 +13,7 @@ import Usage
 ///
 /// A run blocks until a second run is active beside it, rather than sleeping a
 /// fixed interval and hoping the scheduler overlapped another run inside it,
-/// which made `peak` a race against a loaded CI runner. A wrapper that
+/// which would make `peak` a race against a loaded CI runner. A wrapper that
 /// serializes its runs can never have two active, so the first run waits out
 /// the full deadline and `peak` stays 1; a wrapper that overlaps passes as
 /// fast as two tasks can start.
@@ -74,8 +74,8 @@ private func clientFactory(_ sink: Sink) -> (String) -> UsageClient {
 
 struct TrackedSessionOverlapTests {
     /// The wrapper counts calls on an actor. The wrapped session's `run` is
-    /// nonisolated, so it executes off that actor and the runs overlap - but
-    /// nothing checked that, and a wrapper that queued every prediction would
+    /// nonisolated, so it executes off that actor and the runs overlap. A
+    /// wrapper that queued every prediction would
     /// cost a two-engine part most of what ParallelRuns buys it (uhm's windows on
     /// an M3 Ultra: 121 ms each one at a time, 38 ms with four in flight).
     @Test func runsThroughTheWrapperStillOverlap() async throws {

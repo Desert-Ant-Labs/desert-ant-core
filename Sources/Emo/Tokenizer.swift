@@ -1,10 +1,5 @@
-// The two tokenizers that turn a phrase into the model's inputs, written in pure
-// Swift so they run identically on Apple, Android, and wasm:
-//   * `NGram`        script-aware n-grams + FNV hashing -> ngram_* tensors
-//   * `SemTokenizer` pruned-unigram (Viterbi) tokenizer -> sem_ids tensor
-// The only platform abstraction is Unicode NFKC, from desert-ant-core's
-// `TextNormalization` (Foundation on Apple, ICU on Android, `String.normalize`
-// on the web); everything else is Swift stdlib scalar arithmetic.
+// Pure Swift so both tokenizers run identically on Apple, Android, and wasm. The
+// only platform dependency is NFKC, from `TextNormalization`.
 import DesertAnt
 
 @inline(__always)
@@ -268,17 +263,13 @@ private func utf8Width(_ scalar: Unicode.Scalar) -> Int {
 ///
 /// Swift compares and hashes `String` by Unicode *canonical equivalence*, not by
 /// bytes, so in a `[String: Int32]` vocab two byte-distinct pieces that differ
-/// only in composition or in combining-mark order are ONE key, and the later id
-/// silently evicts the earlier - after which no input can ever produce it. Emo's
-/// 48,000-piece vocab has two such pairs, both Vietnamese and both common words:
-/// `▁một` (id 688 precomposed, id 39184 as `ô` + combining dot below) and `▁ở`
-/// (id 1493, id 41329). The decomposed entry is the higher id, so it won the key
-/// and the composed one - the only form NFKC can ever produce - was unreachable,
-/// which is why those two words encoded to ids the training tokenizer never
-/// assigns them.
+/// only in composition or in combining-mark order are one key, and the later id
+/// silently evicts the earlier. Emo's 48,000-piece vocab has two such pairs, both
+/// common Vietnamese words: `▁một` (id 688 precomposed, id 39184 as `ô` +
+/// combining dot below) and `▁ở` (id 1493, id 41329). The decomposed entry has
+/// the higher id, so it would evict the composed one, the only form NFKC produces.
 ///
-/// Bytes are what the container stores and what training matched, so bytes are
-/// the key. This is open addressing over the container's own byte image rather
+/// This is open addressing over the container's own byte image rather
 /// than a `[[UInt8]: Int32]` dictionary because the decoder probes the vocab
 /// O(scalars × maxLen) times per phrase, and an `Array` key would heap-allocate
 /// on every probe.
@@ -329,7 +320,7 @@ struct VocabIndex {
 
     /// Borrow the index for the length of one tokenization. Everything the inner
     /// loop touches is resolved to a pointer once, so a probe is a hash, a
-    /// length compare, and a byte compare - no allocation, no retain.
+    /// length compare, and a byte compare, with no allocation or retain.
     func withLookup<R>(_ body: (Lookup) -> R) -> R {
         image.withUnsafeBufferPointer { image in
             bounds.withUnsafeBufferPointer { bounds in

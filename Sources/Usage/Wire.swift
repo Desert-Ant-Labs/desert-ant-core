@@ -1,4 +1,4 @@
-// Wire format for the usage turnstile — a native port of desert-ant-web's core.
+// Wire format for the usage turnstile, a native port of desert-ant-web's core.
 //
 // The one billed signal is a `load` event. The server dedups by device
 // (COUNT DISTINCT deviceId per company per month) and SUMS callCount across
@@ -28,7 +28,7 @@ public let defaultSDKVersion = "3.5.0"
 /// targets are mapped onto those: Apple device platforms (iPhone, TV, watch,
 /// Vision) report `ios`, and everything that runs on a desktop or a server
 /// (macOS, Linux, Node-native hosts) reports `server`. The wasm build serves
-/// two hosts from one binary — a browser page and Node (e.g. an SSR pass) — so
+/// two hosts from one binary (a browser page and Node, e.g. an SSR pass), so
 /// on WASI the tag is detected at runtime: a browser is `web`, Node is `server`.
 #if os(Android)
 public let defaultPlatform = "android"
@@ -85,7 +85,7 @@ public struct IngestEvent: Codable, Sendable, Equatable {
 }
 
 /// App identity for keyless attribution. Native platforms have no browser
-/// `Origin`, so they identify by `app.id` (the platform app identifier — bundle
+/// `Origin`, so they identify by `app.id` (the platform app identifier: bundle
 /// id on Apple, package name on Android, etc.). Rides the body as a nested
 /// `{"app":{"id":"..."}}`.
 public struct AppInfo: Codable, Sendable, Equatable {
@@ -97,7 +97,7 @@ public struct AppInfo: Codable, Sendable, Equatable {
 }
 
 /// The request body posted to the ingest endpoint. Attribution is either a
-/// publishable `key` or — keyless, off-browser — the app identity in `app`.
+/// publishable `key` or, keyless and off-browser, the app identity in `app`.
 /// Field order on the wire follows declaration order.
 public struct IngestBody: Codable, Sendable, Equatable {
     public var platform: String

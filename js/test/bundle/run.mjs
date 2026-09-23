@@ -2,18 +2,17 @@
 // The bundle matrix: build every model package the way our consumers actually
 // build it, with the real bundlers, and fail if any target breaks.
 //
-// Why this exists: the JS packages are isomorphic (one import, four graphs -
+// Why this exists: the JS packages are isomorphic (one import, four graphs:
 // browser, SSR-in-Node, plain Node native, and each bundler's idea of the
-// above), and every SSR regression we have shipped was invisible to unit tests
-// because the failure only exists inside a bundler. The 0.10.2 break was a
-// bundler tracing a lazy `require("koffi")` and refusing to put a native addon
-// in an ESM chunk. Nothing short of running the bundler catches that class.
+// above), and SSR failures only exist inside a bundler, invisible to unit
+// tests. A bundler tracing a lazy `require("koffi")` refuses to put a native
+// addon in an ESM chunk; nothing short of running the bundler catches that class.
 //
 // What it does:
 //   1. Stages each packages/<model>-node (plus js/, the shared core) and packs
-//      them with `npm pack`, so every scenario consumes the *tarball* - the same
+//      them with `npm pack`, so every scenario consumes the *tarball*: the same
 //      bytes npm publishes. That also catches a missing "files" or "exports"
-//      entry, which is another way SSR has broken before.
+//      entry, which is another way SSR breaks.
 //   2. Installs the tarballs once into a temp workspace alongside the bundlers.
 //   3. Runs the scenario matrix below and asserts on both the exit status and
 //      the emitted bundles.
@@ -52,7 +51,7 @@ const TOOLING = {
   // resolvable runtime is what makes the node:*-free assertions mean something:
   // onnxruntime-web's own browser bundle references node:os, so a package that
   // imported it for the consumer would fail the browser scenarios here rather
-  // than in their app. onnxruntime-node is deliberately absent - it is a 100 MB
+  // than in their app. onnxruntime-node is deliberately absent: it is a 100 MB
   // native addon, and nothing in this repo may reach it from a bundled graph.
   "onnxruntime-web": "^1.30.0",
 };
@@ -424,12 +423,11 @@ function mkApp(work, name, pkgs) {
 /**
  * A Next App Router build, in the two shapes a consumer uses.
  *
- * `client: true` is the regression that started this: a page whose *client*
- * component imports the model, so Next renders it in Node for the
- * Client-Component SSR pass and follows the `#platform` seam's "default"
- * condition. Deliberately built with a stock config - no `serverExternalPackages`
- * - because that is the app that broke, and an escape hatch in the config would
- * hide exactly the regression this scenario exists to catch.
+ * `client: true` is a page whose *client* component imports the model, so Next
+ * renders it in Node for the Client-Component SSR pass and follows the
+ * `#platform` seam's "default" condition. Built with a stock config (no
+ * `serverExternalPackages`): an escape hatch in the config would hide exactly
+ * the failure this scenario exists to catch.
  *
  * `native: true` is the server-side shape: a route handler on the `/native`
  * entry. koffi is a real native addon that loads at runtime and is never
@@ -509,11 +507,11 @@ ${config}};
     emittedFiles(path.join(app, ".next", "static")));
   }
 
-  // And the SSR graph carries no native addon. A build failure covers this
-  // today, but only by accident of Turbopack's error message: a consumer hit
-  // "non-ecmascript placeable asset ... not placeable in ESM chunks" because a
-  // client component's SSR pass resolved the node export condition and reached
-  // koffi. Asserting it directly names the thing that went wrong. The /native
+  // And the SSR graph carries no native addon. A build failure would also
+  // catch this, but only through Turbopack's error message ("non-ecmascript
+  // placeable asset ... not placeable in ESM chunks", when a client component's
+  // SSR pass resolves the node export condition and reaches koffi). Asserting it
+  // directly names the thing that went wrong. The /native
   // app is exempt: that entry is server-only and declares koffi external, which
   // is the supported way to reach it.
   if (!native) {

@@ -2,9 +2,7 @@ import DesertAnt
 import RealModule
 
 /// The full hybrid detector: tokenization, windowing, BIOES decoding, and the
-/// deterministic-owner merge. Inference goes through the shared
-/// `InferenceSession` (Core ML | LiteRT | JS host, chosen by
-/// DesertAnt); this file only knows redact's fixed-256 tensor window.
+/// deterministic-owner merge.
 final class Model: @unchecked Sendable {
     private let session: any InferenceSession
     private let tokenizer: Tokenizer
@@ -28,8 +26,7 @@ final class Model: @unchecked Sendable {
         session = assets.session
     }
 
-    /// `labels.json` is `{"id2label": {"0": "O", ...}}`; decode it with the
-    /// platform's native JSON (NativeJSON, Codable) into `id -> label`.
+    /// `labels.json` is `{"id2label": {"0": "O", ...}}`.
     private struct Labels: Decodable { let id2label: [String: String] }
     private static func parseLabels(_ json: String) throws -> [Int: String] {
         let labels = try JSONDecoder().decode(Labels.self, from: json)
@@ -41,7 +38,7 @@ final class Model: @unchecked Sendable {
         return out
     }
 
-    // MARK: public entry - full hybrid detection
+    // MARK: Detection
     func detect(_ text: String, minScore: Double) async throws -> [Span] {
         let threshold = minScore.isFinite ? min(1, max(0, minScore)) : 0.6
         let det = Deterministic.detect(text, enabled: Deterministic.owned.union(["PHONE"]))
@@ -51,7 +48,7 @@ final class Model: @unchecked Sendable {
         return Pipeline.cleanSpans(text, Pipeline.relabelByContext(text, Pipeline.resolve(det, ml)))
     }
 
-    // MARK: neural spans (windowed)
+    // MARK: Neural spans
     private func mlSpans(_ text: String, minScore: Double) async throws -> [Span] {
         let t = UTF16Text(text)
         let tokens = tokenizer.tokenize(text)
@@ -144,15 +141,12 @@ final class Model: @unchecked Sendable {
         return out
     }
 
-    // MARK: inference (redact's fixed-256 window over the shared session)
+    // MARK: Inference
 
-    /// Run the token classifier over one window (<= 256 ids incl. specials):
-    /// both the Core ML and the LiteRT exports take a fixed 256, int32 window
-    /// with baked position ids, returning row-major logits (`ids.count *
-    /// numLabels` values, the first `realLen` rows real). The LiteRT `.tflite`
-    /// declares only `input_ids` and `attention_mask` (positions/type ids are
-    /// baked into the graph) and the session ignores extra inputs, so the same
-    /// tensor dict serves both.
+    /// Both exports take a fixed 256, int32 window with baked position ids and
+    /// return row-major logits. The `.tflite` declares only `input_ids` and
+    /// `attention_mask` and the session ignores extra inputs, so the same tensor
+    /// dict serves both.
     private func logits(ids: [Int]) async throws -> (values: [Float], numLabels: Int) {
         let realLen = ids.count
         guard realLen > 0, realLen <= Self.seq else { throw RedactError.predictionFailed }

@@ -1,7 +1,3 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The shapes model: on-device single-stroke shape recognition.
@@ -9,8 +5,6 @@ public enum ShapesModel: ModelDeclaration {
     public static let id = "shapes"
     public static let product = "Shapes"
     public static let revision = "v0.3.0"
-    /// Matches packages/shapes-node/package.json and
-    /// packages/shapes-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "On-device single-stroke shape recognition."
 

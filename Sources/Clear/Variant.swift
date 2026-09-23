@@ -1,10 +1,3 @@
-// Which published export of the model to run.
-//
-// The Hub repo ships two trained variants side by side, so this is a real
-// choice, not a label: it selects the files that get downloaded and loaded.
-// `Result.modelVariant` reports the one that produced a given output, which is
-// what makes a benchmark or a usage event self-identifying.
-
 import DesertAnt
 
 /// A published variant of the clear model. Its `rawValue` is the artifact stem
@@ -75,15 +68,14 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     public var distribution: ModelDistribution { distribution(revision: ClearModel.revision) }
 
     /// The same slice pinned to an explicit repo `revision` (a tag like
-    /// `v0.2.0`, a branch, or a commit hash) instead of the SDK's pinned one.
-    /// Each revision caches separately, so switching never clobbers another.
+    /// `v0.2.0`, a branch, or a commit hash). Each revision caches separately.
     public func distribution(revision: String) -> ModelDistribution {
         ModelDistribution(repo: ClearModel.repo, revision: revision, files: files, runtimeFiles: runtimeFiles)
     }
 
     /// The variant an artifact path belongs to, by its file name
-    /// (`.../clear-natural.mlmodelc` -> `.clearNatural`), or nil if the name is
-    /// not a published variant - a custom or renamed export.
+    /// (`.../clear-natural.mlmodelc` -> `.clearNatural`), or nil for a custom or
+    /// renamed export.
     public static func inferred(fromPath path: String) -> ModelVariant? {
         let name = path.split(separator: "/").last.map(String.init) ?? path
         return allCases.first { name.hasPrefix($0.rawValue) }

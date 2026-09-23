@@ -26,9 +26,9 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     /// nothing, and pooled so runs do not have to take turns.
     ///
     /// One shared set would mean holding a lock across the prediction itself,
-    /// which is a session that cannot overlap its own dispatches - and Core ML
-    /// spreading several in flight is how a two-engine part uses both engines.
-    /// So the lock covers leasing a set, not running with it.
+    /// so the session could not overlap its own dispatches, and overlap is how a
+    /// two-engine part uses both engines. The lock covers leasing a set, not
+    /// running with it.
     private struct Binding {
         let arrays: [String: MLMultiArray]
         let provider: MLDictionaryFeatureProvider
@@ -40,22 +40,19 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
 
     /// Load a compiled model. `computeUnits` is what the model SDK asks for
     /// (Core ML's `MLComputeUnits`); the environment and the simulator can
-    /// override it - see ``configuration(for:)``.
-    /// - Parameter functionName: which function of a multifunction model to run. One
-    ///   `.mlmodelc` can carry several graphs - a selector and a scorer sharing an encoder,
-    ///   say - and shipping them as one asset stores the shared weights once rather than
-    ///   twice. `nil` uses the model's default function, which is every single-function
-    ///   model.
+    /// override it (see ``configuration(for:)``).
+    /// - Parameter functionName: which function of a multifunction model to run (one
+    ///   `.mlmodelc` can carry several graphs over shared weights). `nil` uses the model's
+    ///   default function.
     init(modelPath: String, computeUnits: ComputeUnits = .all,
          functionName: String? = nil) throws {
         let configuration = CoreMLSession.configuration(for: computeUnits)
         if let functionName {
             // watchOS 11.0 belongs here even though this package declares no watchOS platform.
             // `MLModelConfiguration.functionName` is annotated watchOS 11.0+ in the Core ML
-            // header, and a platform left out of an `#available` list falls to `*` — which
-            // matches every watchOS version, so the guard PASSES and the line below then fails
-            // to COMPILE against the watchOS SDK. An omission here is a build error rather
-            // than a runtime fallback, and `ModelPlatform.current` does route watchOS to
+            // header, and a platform left out of an `#available` list falls to `*`, which
+            // matches every watchOS version, so the guard passes and the line below fails to
+            // compile against the watchOS SDK. `ModelPlatform.current` does route watchOS to
             // `.apple`.
             guard #available(macOS 15.0, iOS 18.0, tvOS 18.0, visionOS 2.0, watchOS 11.0, *)
             else {
@@ -71,7 +68,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     /// The configuration to load with, in precedence order:
     ///
     /// 1. `DAL_COREML_COMPUTE_UNITS` (`cpu`, `cpuAndGPU`, `cpuAndNeuralEngine`,
-    ///    `all`) - how a CI job pins itself to a configuration that is
+    ///    `all`): how a CI job pins itself to a configuration that is
     ///    reproducible there. A virtualized macOS host (CI runners) has no
     ///    Neural Engine, and `.all` can silently yield useless outputs rather
     ///    than failing.
@@ -111,11 +108,9 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
 
         // The async entry point, not the synchronous one. The synchronous call
         // holds its caller's thread for the whole prediction and Core ML does
-        // not overlap two of them, so a caller with several independent items
-        // got one at a time however widely it spread them - measured on an M3
-        // Ultra, uhm's 12 windows spent 1.45 s in the model through the
-        // synchronous call and 0.42 s through this one, four in flight. Which is
-        // the one thing `runsConcurrently` above promises.
+        // not overlap two of them: on an M3 Ultra, uhm's 12 windows spend 1.45 s
+        // in the model through the synchronous call and 0.42 s through this one,
+        // four in flight. This is what `runsConcurrently` promises.
         let prediction: MLFeatureProvider
         if !enterConcurrent() {
             prediction = try predictAlone(binding.provider)
@@ -133,8 +128,8 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 // (`ANEProgramProcessRequestDirect ... status=0x16`) rather than
                 // queueing it. So a failure is retried once, alone, and if that
                 // works the session runs alone from then on. The retry is this
-                // one prediction inside this one `run`, so a caller - and the
-                // usage count around it - sees one call either way. A model that
+                // one prediction inside this one `run`, so a caller (and the
+                // usage count around it) sees one call either way. A model that
                 // fails alone as well was not a concurrency problem, and the
                 // original error is the one worth reporting.
                 markSerialized()
@@ -266,7 +261,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 // here (see dataType(for:)) and both are 4 bytes per element, so
                 // this is the same size the destination was allocated for.
                 //
-                // Deliberately not derived from array.dataType: switching on
+                // Not derived from array.dataType: switching on
                 // MLMultiArrayDataType means guessing a width for whatever case
                 // a future SDK adds, and guessing too wide overruns the array's
                 // buffer. Core ML added .int8 (1 byte) exactly that way.
@@ -311,7 +306,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 }
             }
         } else {
-            // Genuinely arbitrary strides or float64: correct, slower path.
+            // Arbitrary strides or float64: correct, slower path.
             for i in 0..<count { out[i] = array[i].floatValue }
         }
         return Tensor(float32: out, shape: shape)

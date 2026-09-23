@@ -1,15 +1,8 @@
-// Shapes' side of the cross-language binding: construction, plus the two payload
-// schemas that are genuinely model-specific (the options a run takes, and what a
-// result looks like). The generic handle lifecycle and the exported symbols live
-// in NativeBindings and ShapesNative, so this file is only the model's adapter.
-
 import DesertAnt
 
 extension Shapes: BoundModel {
-    /// Input payload: `u32 count`, then that many `f64 x`, `f64 y` pairs - one
-    /// stroke in canvas coordinates. Nothing about the modality reaches the ABI:
-    /// a stroke is just this model's payload, like text is emo's and samples are
-    /// clear's.
+    /// Input payload: `u32 count`, then that many `f64 x`, `f64 y` pairs: one
+    /// stroke in canvas coordinates.
     ///
     /// Options payload: `f64 minimumConfidence`. An empty payload means the SDK
     /// defaults.

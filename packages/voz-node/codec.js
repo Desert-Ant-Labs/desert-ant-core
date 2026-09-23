@@ -5,7 +5,7 @@
 // a typed surface instead (`load`, `transcribe` in dist/bridge-js.d.ts), so
 // there is nothing to encode.
 //
-// What a `modelBaseUrl` has to serve is NOT listed here. The core reports it
+// What a `modelBaseUrl` has to serve is not listed here. The core reports it
 // from `Sources/Voz/Catalog.swift` through `modelInfo()`, so the file names
 // cannot drift from the catalog the way a mirrored list does.
 

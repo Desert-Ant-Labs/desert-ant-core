@@ -5,19 +5,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * A model loaded through the shared native core, behind its opaque handle - the
- * Android counterpart of the Swift SDK's `LoadedModel` and the JS SDK's.
+ * A model loaded through the shared native core, behind its opaque handle: the
+ * Android counterpart of the Swift SDK's `LoadedModel` and the JS SDK's. A model
+ * SDK keeps only its public API and its payload schemas.
  *
- * Every model SDK used to write this itself: load the libraries, create the
- * handle, check availability, download off the main thread, run and hand back a
- * reader, and release exactly once. Only the exception type differed. It is also
- * where an SDK could go quietly wrong - the handle is a retained pointer, so
- * releasing it twice over-releases the model and using it after release
- * dereferences freed memory, both easy to hit with `use { }` plus a defensive
- * `close()`.
- *
- * So it lives here once, and a model SDK keeps only its public API and its
- * payload schemas:
+ * The handle is a retained pointer, so releasing it twice over-releases the
+ * model and using it after release dereferences freed memory, both easy to hit
+ * with `use { }` plus a defensive `close()`; this class guards both.
  *
  * ```kotlin
  * class Emo(context: Context, directory: String? = null) : AutoCloseable {

@@ -1,19 +1,8 @@
-// How Align obtains and shapes its models: the sidecars it reads and the two
-// cascade sessions it runs. (Running them is `Align.swift`.) All platform
-// variation is data here (which export ships where, declared in
-// `Catalog.swift`); building the platform's session is DesertAnt's
-// `inferenceSession` factory.
 import DesertAnt
 import JSON
 
-// The SDK's usage identity (`AlignModel.sdkInfo`) is derived from the catalog
-// declaration's `product` + `sdkVersion`, so it cannot drift from the published
-// package version or be forgotten on a session.
-
-/// Loaded model inputs: the parsed sidecars and one ready session per cascade
-/// stage. Also the entry point for the cross-language bindings and custom
-/// deployments (not part of the Swift SDK's public API, which loads assets for
-/// you).
+/// The parsed sidecars and one ready session per cascade stage. The entry point
+/// for custom deployments; the public Swift API loads assets itself.
 @_spi(AlignBindings)
 public struct ModelAssets: Sendable {
     let config: RefinerConfig
@@ -67,11 +56,3 @@ public extension Align {
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { AlignModel.revision }
 }
-
-// MARK: shipping the model with your app
-
-// This package bundles no model artifact and has no resource bundle to load one
-// from. The model is downloaded on demand: to a managed cache location by
-// default, or to the `directory` you pass. Shipping the model with your app is
-// therefore just pointing `directory` at a folder that already holds both
-// stages plus the three sidecars - it is then used offline, with no download.

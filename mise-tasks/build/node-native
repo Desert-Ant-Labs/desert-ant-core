@@ -13,7 +13,7 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # the vendored LiteRT and a static Swift+Foundation so the .so is
 # self-contained; macOS uses Core ML against the OS-provided runtime.
 #
-# Three Linux distribution rules, learned the hard way:
+# Three Linux distribution rules:
 #   * build against glibc <= 2.28 and libstdc++ <= GLIBCXX_3.4.25, the
 #     manylinux_2_28 floor the vendored x86_64 LiteRT wheel already sets. Both
 #     are only forward-compatible, so the build host's versions become the
@@ -21,8 +21,7 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 #     image (glibc 2.26, GLIBCXX_3.4.24, which also supplies the Swift
 #     toolchain - hence no mise swift pin above), so the x64 natives load on
 #     Ubuntu 20.04+, Debian 11+ and AWS Lambda's Amazon Linux 2023. rhel-ubi9
-#     (2.34) was used until 3.3.1 and shipped natives Ubuntu 20.04 cannot
-#     load. arm64 is held at 2.34 by its LiteRT wheel, not by this build.
+#     (2.34) produces natives Ubuntu 20.04 cannot load. arm64 is held at 2.34 by its LiteRT wheel, not by this build.
 #     Guarded by the ceiling check below;
 #   * link `-z nodelete` so the process does not dlclose the static Swift
 #     runtime at shutdown, which segfaults on natural exit on some glibc builds;

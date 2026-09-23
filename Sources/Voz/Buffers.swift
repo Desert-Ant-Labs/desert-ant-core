@@ -36,10 +36,8 @@ typealias Element = Float
 /// call copies its tensors across the JS boundary, and a buffer that is reused
 /// keeps that to one copy rather than an allocation as well.
 ///
-/// The two storage kinds are deliberately behind one type. `Pipeline` is 700
-/// lines of windowing, decode bookkeeping and splice logic that has nothing to
-/// say about either, and it reads and writes these buffers by pointer on both
-/// platforms.
+/// Both storage kinds sit behind one type so `Pipeline`'s windowing, decode
+/// bookkeeping and splice logic reads and writes by pointer on both platforms.
 final class Buffer {
     let ptr: UnsafeMutablePointer<Element>
     let count: Int

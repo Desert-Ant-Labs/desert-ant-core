@@ -1,11 +1,11 @@
-// Client state machine for the usage turnstile — a native port of the web SDK's
+// Client state machine for the usage turnstile, a native port of the web SDK's
 // `createClient`. Transport- and storage-free by design: the caller injects a
 // stable `deviceId`, persisted-state access (`loadState`/`saveState`), a clock,
 // and a `send` transport. `makeClient` wires the defaults (system clock + a
 // POST transport over PlatformSupport's HTTP client).
 
 /// Re-emit windows. A native/mobile install is persistent, so a device re-emits
-/// at most once a DAY. Neither affects billing: MAD is COUNT(DISTINCT deviceId)
+/// at most once a day. Neither affects billing: MAD is COUNT(DISTINCT deviceId)
 /// per month regardless of how often a device re-emits within it. What billing
 /// does need is a turnstile in every UTC month of use; `start()` guarantees one
 /// on every UTC day of use, separately from the window (see `UsageState.lastEmitDay`).
@@ -211,7 +211,7 @@ public final class UsageClient {
 
         if emitted && (sessionCalls > 0 || st.carryCallCount > 0) {
             // Turnstile already sent; late calls ride a delta load (server sums them),
-            // coalesced to one send per emitIntervalMs — an unload (beacon) always drains.
+            // coalesced to one send per emitIntervalMs; an unload (beacon) always drains.
             let due = opts.beacon || deps.emitIntervalMs <= 0
                 || deps.now() - lastEmitAt >= deps.emitIntervalMs
             if !due {

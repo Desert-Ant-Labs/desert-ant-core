@@ -1,5 +1,5 @@
 // Apple/Linux backend for the ModelStore seams, using Foundation
-// (URLSession + FileManager). This is the ONLY file in the module that imports
+// (URLSession + FileManager). This is the only file in the module that imports
 // Foundation; it is gated off Android and wasm, which supply host-backed
 // transport/filesystem instead. So `import Foundation` never reaches those
 // builds (no ICU on Android, no bloat on wasm).
@@ -30,10 +30,9 @@ public struct FoundationTransport: ModelTransport {
     /// on corelibs-foundation (Linux and Windows) URLSession is libcurl-backed,
     /// and invalidating a session as its last task completes races the shared
     /// multi handle into "deallocated with non-zero retain count", which the
-    /// runtime turns into an abort. It killed the process at the *end* of a
-    /// successful download, having already written the file. A session that
-    /// lives as long as the process is never torn down, so the race has no
-    /// window -- and one connection pool serves every file instead of one per
+    /// runtime turns into an abort at the end of an otherwise successful
+    /// download. A session that lives as long as the process is never torn
+    /// down, so the race has no window, and one connection pool serves every
     /// file. The cost is that the delegate is shared too, so a download's
     /// state hangs off its task rather than off the delegate.
     private static let downloadDelegate = DownloadDelegate()
@@ -144,9 +143,7 @@ public struct FoundationTransport: ModelTransport {
         /// whatever `httpShouldUsePipelining` says), so two concurrent
         /// downloads from one host share an HTTP/2 connection and whichever of
         /// them redirects walks into a `try!` inside Foundation, which aborts
-        /// the process. A session per download never shared a connection, so
-        /// this only appeared once they did. Ubuntu 22.04 carries libcurl
-        /// 7.81, which is where CI hit it.
+        /// the process. Ubuntu 22.04 carries libcurl 7.81, which CI runs on.
         ///
         /// Answering `nil` makes the 3xx this task's own response, so no easy
         /// handle is ever reconfigured; the download carries on as a fresh task
@@ -184,8 +181,8 @@ public struct FoundationTransport: ModelTransport {
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
                         didWriteData bytesWritten: Int64, totalBytesWritten: Int64,
                         totalBytesExpectedToWrite: Int64) {
-            // URLSession reports every received chunk — tens of thousands for a
-            // large weight file — and each report fans out through an actor hop
+            // URLSession reports every received chunk (tens of thousands for a
+            // large weight file), and each report fans out through an actor hop
             // downstream (`LazyLoader` spawns a Task per callback), which floods
             // the actor badly enough that observers see only 0% and 100%.
             // 512 KB steps keep progress sub-percent-smooth for anything over
@@ -238,8 +235,6 @@ public struct FoundationTransport: ModelTransport {
     }
 }
 
-/// `FileManager`-backed filesystem.
-
 /// `autoreleasepool` where it exists, a plain call where it does not. The chunks
 /// a streaming hash reads are autoreleased on Darwin, so without a pool per
 /// iteration they stay live to the end of the loop and peak memory tracks the
@@ -253,6 +248,7 @@ func withReleasePool<T>(_ body: () throws -> T) rethrows -> T {
     #endif
 }
 
+/// `FileManager`-backed filesystem.
 public struct FoundationFileSystem: FileSystem {
     private let cacheRoot: String?
 
@@ -357,9 +353,7 @@ public extension ModelStore {
     }
 
     /// An explicit `cacheRoot` wins; `nil` falls back to FileManager's caches
-    /// directory. This used to discard `cacheRoot` outright, so a caller that
-    /// passed one wrote somewhere else without saying so - which matters wherever
-    /// the platform default is not writable.
+    /// directory.
     static func platformDefault(cacheRoot: String?) throws -> ModelStore {
         ModelStore(cacheRoot: cacheRoot)
     }

@@ -5,8 +5,7 @@ import java.util.zip.ZipFile
 // Publishable Android library for `ai.desertant:core`: the reusable Android host
 // side of desert-ant-core's Swift JNI harness (HostBridge.kt), its shared host
 // callbacks (DesertAntNative.kt), and the model shell every SDK wraps
-// (LoadedModel.kt). Model SDKs used to vendor this verbatim; they now depend on
-// this artifact instead.
+// (LoadedModel.kt).
 //
 // The AAR also owns the two supported ABI copies of libLiteRt.so. Model AARs
 // contain only their own Swift JNI library, so an app using several models gets

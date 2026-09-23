@@ -1,5 +1,5 @@
 // The script router: a zero-parameter layer that answers before the model runs.
-// Ported from src/tongue_training/script.py; test/golden.test.ts holds this file
+// Ported from src/tongue_training/script.py; test/golden.test.js holds this file
 // to those semantics.
 
 import { RANGES, DECISIVE, NARROWING, JAPANESE } from "./script-tables.js";
@@ -39,12 +39,12 @@ export function histogram(text: string): Map<string, number> {
  * Presence beats dominance for non-Latin scripts: Latin brand names embed in
  * Greek or Thai text constantly, while the reverse essentially never happens. So
  * a script only some languages use decides the route even when Latin characters
- * outnumber it — provided the evidence is substantial: at least half the scripted
+ * outnumber it, provided the evidence is substantial: at least half the scripted
  * characters, or at least two carrying a quarter of them.
  *
  * Ties break on the lexicographically greatest script name, matching Python's
- * `max((count, name))`. Insertion order would diverge on mixed-script input — the
- * exact bug that cost this port 2 of 119 golden vectors before it was found.
+ * `max((count, name))`. Insertion order would diverge on mixed-script input (2 of
+ * the 119 golden vectors).
  */
 export function presence(counts: Map<string, number>, among: ReadonlySet<string>): string | null {
   let scripted = 0;

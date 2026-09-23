@@ -2,10 +2,9 @@ import Foundation
 
 /// Model geometry, read from the export rather than assumed.
 ///
-/// Every field here was hardcoded at some point and caused a bug: a window
-/// length mismatch silently misframed audio, and a missing `nFFT` dropped the
-/// centering pad and shifted every frame by 256 samples while still producing
-/// fluent output.
+/// Hardcoding these is a known source of bugs: a window length mismatch
+/// silently misframes audio, and a missing `nFFT` drops the centering pad and
+/// shifts every frame by 256 samples while still producing fluent output.
 struct Configuration: Decodable, Sendable {
     let sampleRate: Int
     let hopLength: Int

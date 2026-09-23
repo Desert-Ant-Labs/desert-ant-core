@@ -1,8 +1,7 @@
 // The frame-level detector: sliding 30 s windows over 16 kHz mono samples,
 // one softmax per 20 ms frame from the model, then threshold + run-merging
-// into (start, end) spans. Platform-neutral: the model runs behind DesertAnt's
-// `InferenceSession` (Core ML on Apple today), and audio decode happens in
-// `Uhm.swift` via AudioIO, so nothing here touches a file or a framework.
+// into (start, end) spans. Nothing here touches a file or a framework: audio
+// decode happens in `Uhm.swift`.
 
 import DesertAnt
 
@@ -131,9 +130,8 @@ struct FillerDetector: Sendable {
     ///
     /// The Neural Engine caps every tensor axis at 16384, so an ANE-resident
     /// export cannot take a 480000-sample window as one row: it takes the window
-    /// pre-cut into overlapping tiles. Which one we have is a property of the
-    /// file, so it is detected from the declared input width instead of being a
-    /// flag someone has to keep in step with the download.
+    /// pre-cut into overlapping tiles. That is a property of the file, so it is
+    /// detected from the declared input width rather than kept in step by hand.
     enum Layout: Sendable, Equatable {
         /// One row of `maxWindowSec` samples: `(1, maxSamples)`.
         case window
@@ -191,7 +189,6 @@ struct FillerDetector: Sendable {
         timingsHandler: ((Timings) -> Void)? = nil
     ) async throws -> [Filler] {
         var t = Timings()
-        // Early bail if the caller already cancelled before we started.
         try Task.checkCancellation()
         guard !samples.isEmpty else {
             timingsHandler?(t)
@@ -240,8 +237,8 @@ struct FillerDetector: Sendable {
             progress.finishOne()
         }
         // Wall, not summed CPU: the windows overlap, so what the caller waited
-        // for is the span of the whole group. Prep is inside it for the same
-        // reason - it no longer happens anywhere a clock could separate it.
+        // for is the span of the whole group. Prep runs inside each task, so it
+        // is counted here too.
         t.inferenceSec = Self.elapsed(since: parallelStart)
 
         for (index, range) in winOffsets.enumerated() {

@@ -1,12 +1,8 @@
 import Foundation
 
-// The head. There is no inference runtime here and none is needed: a detection
-// is an int8 embedding gather, a sum over the n-grams present, one small matmul
-// and a masked softmax — a few thousand multiply-adds.
-//
-// Byte-oriented on purpose, matching emo: the core initializer takes `[UInt8]` and
-// a JSON string rather than a URL, so callers can supply a downloaded or embedded
-// model. File reading lives in TongueLoading.swift.
+// No inference runtime: a detection is an int8 embedding gather, a sum over the
+// n-grams present, one small matmul and a masked softmax, a few thousand
+// multiply-adds.
 //
 // Byte layout of tongue_int8.bin, as written by scripts/build_release.py:
 //
@@ -112,10 +108,9 @@ struct Weights: Sendable {
         var pooled = [Float](repeating: 0, count: dimension)
         // Ascending bucket order, not the hash table's. Float addition is not
         // associative, so the accumulation order is part of the answer: Swift
-        // randomises Dictionary iteration per process, which made `detect` return
-        // different probabilities on every launch and flipped `language`,
-        // `reliability` and `isTooCloseToCall` on inputs near a threshold. Kotlin
-        // and JavaScript sort the same way, so all three now pool identically.
+        // randomises Dictionary iteration per process, which would change
+        // probabilities between launches and flip answers near a threshold.
+        // Kotlin and JavaScript sort the same way, so all three pool identically.
         for (bucket, count) in Hashing.buckets(text, numBuckets: numBuckets, orders: ngramOrders)
             .sorted(by: { $0.key < $1.key }) {
             let base = bucket * dimension

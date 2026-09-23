@@ -1,13 +1,6 @@
-// On-device spoken language identification for JavaScript, server-side (Node).
-// This is the `node` conditional-exports entry: the same Ear API as the browser
-// build, but natively via the prebuilt Swift core (LiteRT/Core ML under the
-// hood) instead of WebAssembly + LiteRT.js. Consumers just `import { Ear }` -
-// Node resolves this file, browsers resolve `browser.js`.
-//
-// The koffi harness (resolve native/<platform>-<arch>, load the runtime, bind
-// the generic `dal_*` C ABI, run blocking calls off the event loop) lives in
-// @desert-ant-labs/core/node, and the public API is `ear.js`, shared with the
-// browser entry; this file only binds the two together.
+// The `node` conditional-exports entry: the same Ear API as browser.js, run
+// through the prebuilt Swift core instead of WebAssembly. The koffi harness
+// lives in @desert-ant-labs/core/node; the public API is `ear.js`.
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { createNativeSdk } from "@desert-ant-labs/core/node";

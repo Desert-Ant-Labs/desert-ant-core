@@ -1,8 +1,8 @@
-// Align's public API, over whichever core the entry point bound. Today that is only the native one.
+// Align's public API, over whichever core the entry point bound. (only the native one ships).
 import { LANGUAGES, decodeResult, encodeInput, encodeOptions, languageKey, validateInput } from "./codec.js";
 
 // sdkVersion is passed in: importing package.json here would inline it into every browser bundle.
-/** Build the `Align` class over a bound SDK. The entry points do nothing but call this. */
+/** Build the `Align` class over a bound SDK. */
 export function makeAlign(sdk, sdkVersion) {
   /** On-device word-timestamp refinement. Create one with `await Align.load()` and reuse it. */
   return class Align {

@@ -1,12 +1,5 @@
-// The shared shape of a model catalog entry.
-//
-// This file is the reusable half: identity, published coordinates, the
-// per-platform file manifest, and everything derivable from them (the
-// `ModelDistribution`, the current platform's runnable artifact, resolve /
-// availability helpers). No model appears here.
-//
-// Each model contributes its own module (`Sources/Emo`, `Sources/Redact`, ...)
-// holding only that model's data, so adding a model changes nothing shared.
+// The shared half of a catalog entry. Each model's own module (`Sources/Emo`,
+// `Sources/Redact`, ...) holds only its data, so adding a model changes nothing here.
 
 import Foundation
 import ModelStore
@@ -22,10 +15,9 @@ public protocol ModelDeclaration: Sendable {
     static var product: String { get }
     /// Pinned model revision the SDK is built against (a `v`-prefixed tag).
     static var revision: String { get }
-    /// The SDK's own released version, as published to npm and Maven. This is the
-    /// single source: it is what usage attributes to, and `ModelCatalogTests`
-    /// checks it against `packages/<id>-node/package.json` and
-    /// `packages/<id>-kotlin/build.gradle.kts` so the three cannot drift.
+    /// The SDK's released version, as published to npm and Maven, and what usage
+    /// attributes to. `ModelCatalogTests` checks it against
+    /// `packages/<id>-node/package.json` and `packages/<id>-kotlin/build.gradle.kts`.
     static var sdkVersion: String { get }
     /// One line describing what the model does.
     static var summary: String { get }
@@ -36,10 +28,8 @@ public protocol ModelDeclaration: Sendable {
     /// AI on Apple). Empty for a model that ships one artifact per platform.
     static var runtimeFiles: [ModelRuntime: [String]] { get }
 
-    /// The oldest OS this model's ARTIFACT runs on. Defaults to the package floor, so a model
-    /// whose artifact imposes nothing extra says nothing. Override when the artifact does,
-    /// and `ModelCatalogTests` checks the value against the compiled package rather than
-    /// trusting it.
+    /// The oldest OS this model's artifact runs on. Defaults to the package floor.
+    /// `ModelCatalogTests` checks an override against the compiled package.
     static var osFloor: OSFloor { get }
     /// The runnable artifact for `platform`: the file the inference session is
     /// built from, as opposed to the sidecars around it.
@@ -47,22 +37,19 @@ public protocol ModelDeclaration: Sendable {
 }
 
 public extension ModelDeclaration {
-    /// Hugging Face repo id, e.g. `"desert-ant-labs/redact"`. Uniform across the
-    /// catalog, so it is derived rather than declared per model.
+    /// Hugging Face repo id, e.g. `"desert-ant-labs/redact"`.
     static var repo: String { "desert-ant-labs/\(id)" }
 
     static var osFloor: OSFloor { .packageFloor }
 
     static var runtimeFiles: [ModelRuntime: [String]] { [:] }
 
-    /// This SDK's usage identity, attached to every emitted telemetry body's
-    /// `sdk` field so usage attributes to this model rather than to the core it
-    /// is built on. Derived, so a model cannot forget to pass one (which silently
-    /// bills its inference to the default identity) or let the version go stale.
+    /// This SDK's usage identity, sent in every telemetry body's `sdk` field so usage
+    /// attributes to this model rather than to the core. Derived, so a model cannot
+    /// forget it (which silently bills to the default identity) or let it go stale.
     static var sdkInfo: SDKInfo { SDKInfo(name: product, version: sdkVersion) }
 
-    /// This model's Hub declaration: repo, pinned revision, per-platform files.
-    /// The single value an SDK needs to download, adopt, or verify its model.
+    /// Everything an SDK needs to download, adopt, or verify its model.
     static var distribution: ModelDistribution {
         ModelDistribution(repo: repo, revision: revision, files: files, runtimeFiles: runtimeFiles)
     }
@@ -91,17 +78,12 @@ public extension ModelDeclaration {
 
 /// The oldest OS each Apple platform needs to run a model's artifact.
 ///
-/// Data, not a comment. A model's OS requirement comes from the artifact it ships: a Core ML
-/// package records `specificationVersion` and an availability map, and refusing to load below
-/// it is the runtime's behaviour whatever the SDK claims. Declaring it here means the catalog
-/// can be checked against the artifact instead of against somebody's memory.
+/// The requirement comes from the artifact: a Core ML package records
+/// `specificationVersion`, and the runtime refuses to load it below that whatever the SDK
+/// claims. Declaring it here lets the catalog be checked against the artifact.
 ///
-/// **This does NOT gate compilation.** Swift's `@available` is a compile-time attribute and
-/// cannot be computed from a value, so a model that must not COMPILE below some version still
-/// annotates its own declarations. What this gives is the other three things:
-/// a runtime refusal with a legible reason, a catalog test that every model states a floor,
-/// and one place to read when writing the README, instead of three that drift apart, which is
-/// how the manifest came to declare iOS 16 while the README promised iOS 18.
+/// **This does not gate compilation.** `@available` cannot be computed from a value, so a
+/// model that must not compile below some version still annotates its own declarations.
 public struct OSFloor: Sendable, Equatable {
     public let iOS: Int
     public let macOS: Int
@@ -114,17 +96,17 @@ public struct OSFloor: Sendable, Equatable {
         self.visionOS = visionOS; self.watchOS = watchOS
     }
 
-    /// What the SDK itself supports: nothing in the model is holding it back.
+    /// What the SDK itself supports, for an artifact that adds no requirement.
     public static let packageFloor = OSFloor(iOS: 16, macOS: 13, tvOS: 16, visionOS: 1, watchOS: 9)
 
-    /// A Core ML **multifunction** package. Two graphs over one stored copy of a shared trunk,
-    /// which is an iOS 18 feature; such an artifact reports `specificationVersion` 9.
+    /// A Core ML multifunction package (several graphs over one stored trunk), an iOS 18
+    /// feature. Such an artifact reports `specificationVersion` 9.
     public static let multifunction = OSFloor(iOS: 18, macOS: 15, tvOS: 18, visionOS: 2, watchOS: 11)
 
     /// MLX, which has no build below this.
     public static let mlx = OSFloor(iOS: 17, macOS: 14, tvOS: 17, visionOS: 1, watchOS: 11)
 
-    /// Is the OS running this code new enough?
+    /// Whether the running OS meets this floor.
     public var isSatisfiedHere: Bool {
         #if os(iOS)
         return ProcessInfo.processInfo.isOperatingSystemAtLeast(

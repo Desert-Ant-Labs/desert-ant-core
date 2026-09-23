@@ -4,16 +4,15 @@ import Testing
 import DesertAnt
 @_spi(ClipBindings) @testable import Clips
 
-/// CLAUDE.md rule 11, as a test: decode real output from the artifact that
-/// ships, through the consumer surface, before anything is pushed.
+/// Decode real output from the artifact that ships, through the consumer
+/// surface, before anything is pushed.
 ///
 /// The rest of `ClipsTests` runs against a 24 KB weightless fixture. That is the
 /// right shape for testing the loading contract - it proves a path names the
 /// file and not the graph - but it deliberately does not carry weights, so a
 /// green run of that suite says nothing about whether the shipping 281 MB
-/// package produces clips a reader would accept. The distinction is the one
-/// rule 11 exists for: a prompt-identity check validates the prompt, not the
-/// parser, and a fixture check validates the loader, not the model.
+/// package produces clips a reader would accept: a fixture check validates the
+/// loader, not the model.
 ///
 /// Opt in by pointing these at a resolved model directory and the reference
 /// transcripts, because the assets are 268 MB and not in the repo:
@@ -38,16 +37,15 @@ struct ShippingArtifactTests {
     /// quality bar: quality is settled by blind reads, and no test can stand in
     /// for one. What this pins is that the shipping bytes produce *decodable*
     /// clips - indices addressable in the caller's own array, text that is not
-    /// empty, an ordering the API promises, and no overlap between moments.
-    /// Every one of those has been wrong at some point in this model's history
-    /// while a numeric gate stayed green.
+    /// empty, an ordering the API promises, and no overlap between moments. Each
+    /// can be wrong while a numeric gate stays green.
     @Test func theShippingPackageProducesDecodableClips() async throws {
         let model = try Model(assets: await ModelAssets.clip(files: try realModelDirectory(), computeUnits: .cpuAndNeuralEngine))
         var totalClips = 0
 
         for sample in try referenceTranscripts() {
             let transcript = sample.sentences
-            // `limit: nil` = the duration curve, i.e. what the model itself would emit. Rule 11 is
+            // `limit: nil` = the duration curve, i.e. what the model itself would emit. This is
             // about whether the shipping bytes decode, so it should not be measured through a
             // product ceiling that a host can change.
             let moments = try await model.clips(in: transcript, limit: nil)
@@ -83,8 +81,6 @@ struct ShippingArtifactTests {
 
         #expect(totalClips > 0)
     }
-
-    // MARK: assets
 
     private struct Sample: Decodable {
         let stratum: String

@@ -2,7 +2,7 @@
 // an AAR. The pipeline is a direct Kotlin port using only java.text.Normalizer
 // and java.util.regex, so the same artifact serves Android (minSdk 24 is the
 // repo convention; both APIs predate API 1) and JVM 17+ with no native code and
-// no NDK ABIs — which is also why this module takes no dependency on :core (an
+// no NDK ABIs, which is also why this module takes no dependency on :core (an
 // AAR a JVM consumer cannot resolve) and nothing beyond kotlin-stdlib reaches
 // the POM. The 2 MB int8 model ships as a jar resource. Everything structural
 // lives in the ai.desertant.jvm-model-sdk convention (gradle-plugin/).

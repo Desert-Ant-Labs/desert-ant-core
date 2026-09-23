@@ -6,8 +6,7 @@
 // reaches the koffi native loader, the build dies before it ever runs: koffi
 // ships native `.node` addons, and bundlers statically trace the lazy
 // `require("koffi")` all the same (Turbopack: "non-ecmascript placeable asset:
-// asset is not placeable in ESM chunks"). Shipping that edge broke
-// @desert-ant-labs/emo 0.10.2 in Next.js.
+// asset is not placeable in ESM chunks").
 //
 // So: walk the static import graph the way a bundler would and assert koffi
 // stays out of it.

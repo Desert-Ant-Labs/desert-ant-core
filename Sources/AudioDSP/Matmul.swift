@@ -1,7 +1,6 @@
-// Row-major single-precision GEMM behind the STFT/mel matmuls. Accelerate BLAS
-// on Apple (the whole point of doing STFT as a matmul: it runs on the vector
-// units); a plain triple loop everywhere else. Same result, so tests pass on
-// Linux and the Apple SDK build still gets BLAS.
+// Row-major single-precision GEMM behind the STFT/mel matmuls: Accelerate on
+// Apple (the point of doing STFT as a matmul is that it runs on the vector
+// units), a plain triple loop everywhere else.
 
 #if canImport(Accelerate)
 import Accelerate
@@ -19,10 +18,9 @@ enum Matmul {
         // alpha/beta become one fused scale-and-add pass over c, negligible
         // next to the matmul itself.
         if beta == 0 {
-            // Write c directly; stale c is dead when beta == 0, so no temp and
-            // no read-back. The in-place scale for alpha != 1 is one pass; at
-            // Ear's minute-of-audio sizes the temp-buffer variant measured 15%
-            // slower than fused cblas, this is back within noise.
+            // Write c directly: stale c is dead when beta == 0, so no temp and
+            // no read-back. A temp buffer measured 15% slower than fused cblas at
+            // Ear's minute-of-audio sizes; this is within noise.
             vDSP_mmul(a, 1, b, 1, &c, 1, vDSP_Length(m), vDSP_Length(n), vDSP_Length(k))
             if alpha != 1 {
                 var sa = alpha

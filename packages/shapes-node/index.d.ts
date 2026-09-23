@@ -73,7 +73,6 @@ export interface RecognizeOptions extends CallOptions {
  * How the model is loaded, from `@desert-ant-labs/core`: `directory` (Node) or
  * `modelBaseUrl` (browser) adopt self-hosted files, `onProgress` reports the
  * download, and the `litert*` / `accelerator` options tune the browser runtime.
- * Model-agnostic, so it is declared once in core rather than restated per model.
  */
 export type LoadOptions = ModelLoadOptions;
 

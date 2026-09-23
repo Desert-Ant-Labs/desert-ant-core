@@ -1,14 +1,6 @@
-// Uhm's side of the cross-language binding: construction, plus the two payload
-// schemas that are genuinely model-specific (the options a run takes, and what a
-// result looks like). The generic handle lifecycle and the exported symbols live
-// in NativeBindings and UhmNative, so this file is only the model's adapter.
-
 import DesertAnt
 
 extension Uhm: BoundModel {
-    // `isDownloaded()` and `download(progress:)` are Uhm's own public API and
-    // witness the protocol as they stand.
-
     /// Input payload: `f32Array samples` (mono), then `f64 sampleRate`.
     ///
     /// Options payload: `f64 minConfidence` (NaN means the balanced preset),

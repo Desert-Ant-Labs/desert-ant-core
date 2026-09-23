@@ -13,9 +13,6 @@ public enum AlignError: MessageError, Sendable {
 
 /// Word-timestamp refinement for any transcript: audio and proposed times in, corrected times out.
 public final class Align: Sendable {
-    // Resolving the files, loading once, sharing that load, and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Align adds only how a resolved directory becomes its model.
     let model: LoadedModel<Runtime>
 
     struct Runtime: Sendable {
@@ -180,8 +177,8 @@ public final class Align: Sendable {
         let finePred = try await batched(rt, bounds, width: cfg.fine_frames, logmel: logmel, nFrames: nFrames,
                                          langId: langId, centers: fineCenters, model: rt.fine)
 
-        // Calibrate each correction from both output distributions. This policy was fit only
-        // on the validation split and reduces held-out MAE and large regressions.
+        // The calibration policy was fit only on the validation split; it reduces held-out MAE
+        // and large regressions.
         var corr = [Double](repeating: 0, count: bounds.count), ok = [Bool](repeating: true, count: bounds.count)
         for i in 0..<bounds.count {
             let cOff = coarsePred[i].position - Double(coarseCenter), fOff = finePred[i].position - Double(fineCenter)

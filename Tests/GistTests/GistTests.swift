@@ -10,7 +10,7 @@ import TestSupport
 #if !os(WASI)
 @Suite(.modelBacked)
 struct GistTests {
-    /// The tagger shared by every test here — see `GistFixture` for why the
+    /// The tagger shared by every test here - see `GistFixture` for why the
     /// suite loads the model exactly once.
     private func gist() async throws -> Gist { try await GistFixture.loaded().gist }
 
@@ -29,8 +29,8 @@ struct GistTests {
 
     /// A known weakness, asserted so it is tracked rather than rediscovered:
     /// elliptical sports copy with no sport noun ("Late equaliser sends the
-    /// semi-final to extra time") reads as `gaming`. Verified identical in the
-    /// standalone gist repo before migration, so it is the model, not the port.
+    /// semi-final to extra time") reads as `gaming`. The standalone gist
+    /// reference reads it the same way, so it is the model, not the port.
     /// Flip this to `sports` when a retrain fixes it.
     @Test func ellipticalSportsCopyIsMisread() async throws {
         let match = try await slugs("Late equaliser sends the semi-final to extra time")

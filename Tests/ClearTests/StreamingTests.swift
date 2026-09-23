@@ -11,8 +11,6 @@ import AudioDSP
 import TestSupport
 @testable import Clear
 
-/// The bounded-memory file path: it must agree with the in-memory pipeline, and
-/// its peak must not grow with the length of the file.
 /// Thread-safe max, because progress arrives from the worker pool.
 private final class PeakTracker: @unchecked Sendable {
     private let lock = NSLock()
@@ -35,6 +33,8 @@ private enum TempFootprint {
     }
 }
 
+/// The bounded-memory file path: it must agree with the in-memory pipeline, and
+/// its peak must not grow with the length of the file.
 @Suite(.serialized)
 struct ClearStreamingTests {
     private func enhancer() async throws -> Clear {

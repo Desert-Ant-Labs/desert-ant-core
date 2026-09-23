@@ -1,11 +1,9 @@
-// The log-mel frontend, in Swift, shared by every platform.
-//
-// It lives here rather than in the model artifact for a measured reason: the
-// power spectrum is squared magnitudes floored at 1e-10, and 80% of its bins sit
-// below float16's smallest normal number. Computed in float16 the features
-// measure 27 dB against 200 dB in Float, and end-to-end routing accuracy falls
-// from 97.5% to 84.2%. The Neural Engine is a float16 machine, so the frontend
-// cannot live there; it is cheap (about a millisecond) and exact here.
+// The log-mel frontend lives in Swift rather than in the model artifact because
+// the power spectrum is squared magnitudes floored at 1e-10, and 80% of its bins
+// sit below float16's smallest normal number. Computed in float16 the features
+// measure 27 dB against 200 dB in Float, and routing accuracy falls from 97.5% to
+// 84.2%. The Neural Engine is float16, so the frontend cannot live there; here it
+// costs about a millisecond.
 
 #if canImport(Darwin)
 import Darwin
@@ -129,12 +127,10 @@ struct Frontend: Sendable {
     /// | 10% speech in room tone | 100%     | 100%          |
     /// | overall              | 80%         | **95%**       |
     ///
-    /// Loudness is the intuitive choice and it is the wrong one: an intro is
-    /// mixed louder than the voice that follows it, so ranking by energy picks
-    /// the jingle. The detector then reads music as English with a margin up to
-    /// 0.60 - confident, wrong, and English, which is the worst combination
-    /// available. Multiplying the two scores does not help either (82%), because
-    /// the loudness term brings the jingle back.
+    /// Not loudness: an intro is mixed louder than the voice that follows it,
+    /// so ranking by energy picks the jingle, and the detector reads music as
+    /// English with a margin up to 0.60. Multiplying the two scores does not
+    /// help either (82%), because the loudness term brings the jingle back.
     ///
     /// This needs no voice-activity model, and costs one pass over the file's
     /// amplitude envelope: see ``modulationScores(_:hop:window:step:)``.
@@ -157,9 +153,8 @@ struct Frontend: Sendable {
     ///
     /// The envelope is built once for the file and band-passed once, and the
     /// per-window scores are then read out of running sums. Scoring each window
-    /// independently with a transform costs 16 seconds on a ten-minute file -
-    /// measured - against about 45 ms for the detection it is choosing windows
-    /// for, which is not a trade worth making for any accuracy.
+    /// independently with a transform measured 16 seconds on a ten-minute file,
+    /// against about 45 ms for the detection it is choosing windows for.
     ///
     /// Two one-pole filters stand in for a band-pass: the difference of a 8 Hz
     /// and a 2 Hz low-pass keeps what varies at syllable rate. It is not a sharp

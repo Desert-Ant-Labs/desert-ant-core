@@ -73,8 +73,8 @@ struct UsageClientTests {
 
     /// The default client's own decision: the platform tag it reports and whether
     /// the key rides the body. Every other test here builds `ClientDeps` by hand,
-    /// so a hardcoded platform tag or a wrong `keyInBody` inside `makeClient` went
-    /// unnoticed. The header half of the pairing is proved on the wire in
+    /// so a hardcoded platform tag or a wrong `keyInBody` inside `makeClient` would
+    /// go unnoticed. The header half of the pairing is proved on the wire in
     /// `HTTPTests`; what this pins is that the body half matches it.
     @Test func theDefaultClientTagsThePlatformAndPlacesTheKeyOnce() {
         var sent: [IngestBody] = []

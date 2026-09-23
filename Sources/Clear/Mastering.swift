@@ -1,13 +1,9 @@
-// The post-DSP mastering chain and the delivery presets that configure it.
+// Ported from the standalone Clear SDK so callers describe where the audio is
+// going ("Apple Podcasts") instead of hand-tuning LUFS numbers. The presets are
+// published platform specs, so they belong to the model rather than to each app.
 //
-// Ported from the standalone Clear SDK so callers describe *where the audio is
-// going* ("Apple Podcasts") instead of hand-tuning LUFS numbers. The presets are
-// the published platform specs, so they belong to the model rather than to each
-// app that ships it.
-//
-// What the core's loudness stage implements today is integrated-LUFS
-// normalization with a gain cap and a peak ceiling (`AudioDSP.Loudness`); each
-// field below documents how it maps, including the one that does not yet.
+// The loudness stage (`AudioDSP.Loudness`) implements integrated-LUFS
+// normalization with a gain cap and a peak ceiling; `loudnessRangeLU` has no stage.
 
 public extension Clear {
     /// Post-DSP mastering: where the enhanced audio should land, loudness-wise.
@@ -20,10 +16,9 @@ public extension Clear {
 
         /// True-peak ceiling in dBTP. -1.5 dBTP leaves headroom for lossy codecs.
         ///
-        /// The look-ahead limiter rides *sample* peak, so the ceiling it holds
-        /// is slightly optimistic about inter-sample peaks - which is what the
-        /// default -1.5 dBTP of headroom absorbs. The true peak that resulted is
-        /// measured with 4x oversampling and reported as
+        /// The look-ahead limiter rides *sample* peak, so the ceiling is slightly
+        /// optimistic about inter-sample peaks; the default headroom absorbs that.
+        /// The resulting true peak is measured with 4x oversampling and reported as
         /// ``Clear/Result/measuredTruePeakDBFS``, so a caller can assert against
         /// a delivery spec rather than trust the ceiling.
         public var truePeakDBTP: Double
@@ -32,10 +27,8 @@ public extension Clear {
         /// broadcast allows 10).
         ///
         /// Carried so a preset round-trips its full published spec, but **not
-        /// yet enforced**: the loudness stage normalizes integrated loudness and
-        /// ceils peaks, and has no range compressor. Setting it changes nothing
-        /// today; it will start being honoured when that stage lands, without a
-        /// source change here.
+        /// enforced**: the loudness stage has no range compressor, so setting it
+        /// changes nothing.
         public var loudnessRangeLU: Double
 
         /// Set false to return the unmastered model output, whose level tracks
@@ -45,12 +38,11 @@ public extension Clear {
         /// Per-channel target in LUFS applied *before* the joint stages, or nil
         /// (the default) to leave the balance alone.
         ///
-        /// Mastering is otherwise joint - one gain and one limiter envelope for
-        /// the whole programme - precisely so it never moves the stereo image.
-        /// This is the deliberate exception, for a pair whose sides were
-        /// recorded at different levels (one mic hotter than the other); it
-        /// corrects each side to the same loudness first, and the joint stages
-        /// then treat the result as one signal. Ignored for mono.
+        /// Mastering is otherwise joint (one gain and one limiter envelope for
+        /// the whole programme) so it never moves the stereo image. This is the
+        /// exception, for a pair recorded at different levels (one mic hotter
+        /// than the other): each side is corrected to the same loudness first,
+        /// then the joint stages treat the result as one signal. Ignored for mono.
         public var balanceChannelsLUFS: Double?
 
         /// Upper bound on the loudness gain in dB.

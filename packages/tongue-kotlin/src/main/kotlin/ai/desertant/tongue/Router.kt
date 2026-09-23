@@ -3,8 +3,7 @@ package ai.desertant.tongue
 /**
  * The script router: a zero-parameter layer that answers before the model runs.
  * Ported from src/tongue_training/script.py; the script_vectors.json copied into
- * src/test/resources holds
- * this file to those semantics.
+ * src/test/resources holds this file to those semantics.
  */
 internal object Router {
     fun scriptFor(codePoint: Int): String? {
@@ -37,12 +36,12 @@ internal object Router {
      * Presence beats dominance for non-Latin scripts: Latin brand names embed in
      * Greek or Thai text constantly, while the reverse essentially never happens.
      * So a script only some languages use decides the route even when Latin
-     * characters outnumber it — provided the evidence is substantial: at least half
+     * characters outnumber it, provided the evidence is substantial: at least half
      * the scripted characters, or at least two carrying a quarter of them.
      *
      * Ties break on the lexicographically greatest script name, matching Python's
-     * `max((count, name))`. Iteration order would diverge on mixed-script input —
-     * that exact mismatch cost the JavaScript port 2 of 119 golden vectors.
+     * `max((count, name))`. Iteration order would diverge on mixed-script input (2
+     * of the 119 golden vectors).
      */
     fun presence(histogram: Map<String, Int>, among: Set<String>): String? {
         val scripted = histogram.values.sum()

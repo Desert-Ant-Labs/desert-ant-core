@@ -69,9 +69,8 @@ struct EmoModelTests {
     /// `[String: Int32]` vocab merges byte-distinct pieces that normalize alike,
     /// and the later id evicts the earlier. This vocab has exactly two such
     /// pairs, both common Vietnamese words, and in both the decomposed entry
-    /// holds the higher id - so it took the key and the composed entry, the only
-    /// form NFKC can ever produce, became unreachable. Both words then encoded to
-    /// an id the training tokenizer never assigns them.
+    /// holds the higher id, so it would take the key and leave the composed
+    /// entry (the only form NFKC can produce) unreachable.
     @Test func vietnameseVocabPiecesAreReachable() async throws {
         let files = try await ModelFixture.files(EmoModel.self)
         let sem = try #require(SemTokenizer(bytes: try files.read(EmoModel.tokenizer)))

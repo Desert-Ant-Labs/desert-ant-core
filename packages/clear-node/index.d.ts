@@ -58,8 +58,8 @@ export interface EnhanceOptions extends CallOptions {
   outputSampleRate?: number;
   /**
    * What the output's channel layout should be. `"mono"` (the default)
-   * downmixes before enhancement and emits one channel, which is what every
-   * release so far did; `"preserve"` keeps the input's layout and costs an
+   * downmixes before enhancement and emits one channel; `"preserve"` keeps the
+   * input's layout and costs an
    * inference pass per channel.
    */
   channelMode?: "mono" | "preserve";

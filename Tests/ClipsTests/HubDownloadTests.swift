@@ -6,10 +6,7 @@ import TestSupport
 /// The Hub integration path, shared with every other model SDK and gated on
 /// `HF_INTEGRATION=1` so a normal run needs no network.
 ///
-/// This is the only end-to-end test Clips has today, and it is skipped by
-/// default: the published repo carries no tag whose file names match
-/// `ClipModel` yet (see the `revision` note there), so there is nothing to
-/// download. The selection logic that does not need an artifact is covered
+/// The selection logic that does not need an artifact is covered
 /// unconditionally in `ClipTests.swift`.
 @Suite(.hubIntegration)
 struct HubDownloadTests {

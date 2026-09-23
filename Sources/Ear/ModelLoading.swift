@@ -1,12 +1,7 @@
-// How Ear obtains and shapes its model: the sidecars it reads and the session it
-// runs. (Running the model is `Model.swift`.) All platform variation is data
-// here (which artifact ships where); building the platform's session is
-// DesertAnt's `inferenceSession` factory.
 import DesertAnt
 
-/// Loaded model inputs: the sidecar files and a ready inference session. Also
-/// the entry point for the cross-language bindings and custom deployments (not
-/// part of the Swift SDK's public API, which loads assets for you).
+/// The sidecar files and a ready inference session. The entry point for custom
+/// deployments; the public Swift API loads assets itself.
 @_spi(EarBindings)
 public struct ModelAssets: Sendable {
     /// Contents of `languages.json`: the codes the head emits, in head order.

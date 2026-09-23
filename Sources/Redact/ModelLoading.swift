@@ -1,19 +1,7 @@
-// How Redact obtains and shapes its model: the file manifest, the
-// download/adopt sources, and the `ModelAssets` the pipeline consumes.
-// (Running the model is `Model.swift`.) All platform variation is data here
-// (which artifact ships where); building the platform's session is
-// DesertAnt's `inferenceSession` factory.
 import DesertAnt
 
-// The model's file names, per-platform manifest, repo and pinned revision live
-// in the monorepo catalog (`Sources/Redact/Redact.swift`) as `RedactModel`,
-// so tooling and this SDK read one declaration. The same declaration derives the
-// SDK's usage identity (`RedactModel.sdkInfo`), which every session below is
-// built with so inference attributes to Redact rather than to the core.
-
-/// Loaded model inputs: the sidecar files plus a ready inference session. Also
-/// the entry point for the cross-language bindings and custom deployments (not
-/// part of the Swift SDK's public API, which loads assets for you).
+/// The sidecar files plus a ready inference session. The entry point for custom
+/// deployments; the public Swift API loads assets itself.
 @_spi(RedactBindings)
 public struct ModelAssets: Sendable {
     /// Contents of `redact_tokenizer.bin` (compact SentencePiece vocab).
@@ -49,13 +37,3 @@ public extension Redact {
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { RedactModel.revision }
 }
-
-// MARK: shipping the model with your app
-
-// This package bundles no model artifact and has no resource bundle to load
-// one from. The model is downloaded on demand: to a managed cache location by
-// default, or to the `directory` you pass. Shipping the model with your app is
-// therefore just pointing `directory` at a folder that already holds this
-// platform's artifact plus the sidecars - it is then used offline, with no
-// download. (Android's equivalent is classpath resources, and wasm always
-// downloads.)

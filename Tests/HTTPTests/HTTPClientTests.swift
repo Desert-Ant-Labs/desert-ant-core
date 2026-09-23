@@ -13,7 +13,7 @@ import JavaScriptKit
 
 /// The echo server's port. Each mise task exports its own DAL_ECHO_PORT: the
 /// umbrella `test` runs test:swift and test:wasi in parallel and both start a
-/// server, so a shared port lost the bind race. 8199 when unset, as before.
+/// server, so a shared port would lose the bind race. 8199 when unset.
 let echoPort: UInt16 = {
 #if os(WASI)
     // The harness hands the WASI module an empty environment, so the task's

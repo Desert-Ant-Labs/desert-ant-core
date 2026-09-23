@@ -2,8 +2,7 @@
 // Browser inference: run every model's real browser path in headless Chromium.
 //
 // Why this exists: the browser is the *default* entry of every model package
-// (`import { Emo } from "@desert-ant-labs/emo"`), and it was the one shipped
-// platform nothing executed. The bundle matrix proves the package *builds* for
+// (`import { Emo } from "@desert-ant-labs/emo"`). The bundle matrix proves the package *builds* for
 // the browser; test:wasi proves the Swift core runs under wasm but with the
 // model-backed tests compiled out. Neither loads real weights and runs LiteRT.js
 // in a real browser engine, which is exactly what a consumer does.
@@ -17,7 +16,7 @@
 //      it, which downloads the pinned model from the Hub and does inference;
 //   4. asserts the case's own check() back in Node.
 //
-// Adding a model means adding its browser-case.js - nothing here changes. A
+// Adding a model means adding its browser-case.js; nothing here changes. A
 // case that needs a runtime of its own says so by exporting `imports`, a list
 // of specifiers resolved from its own package and added to the page's import
 // map: Voz's runtime (onnxruntime-web) is the caller's to supply, so it cannot
@@ -226,9 +225,8 @@ await new Promise((resolve, reject) => {
 // GPU flags for every case, not just the ones that need them. LiteRT.js runs on
 // wasm here and does not care; Voz compiles its encoder for WebGPU and its
 // decode step for WebNN, and headless Chromium exposes neither without being
-// asked. `--use-angle=metal` is what gets a real adapter rather than the
-// software one, which would make a timing number meaningless.
-// ANGLE's Metal backend is what gets a real adapter on macOS; a Linux runner
+// asked. A real adapter rather than the software one is what makes a timing
+// number meaningful: ANGLE's Metal backend gets one on macOS; a Linux runner
 // has no Metal and needs Vulkan, falling back to SwiftShader when the runner
 // has no GPU at all. Naming the wrong one is not fatal (Chromium ignores it)
 // but naming the right one is the difference between a real adapter and none.

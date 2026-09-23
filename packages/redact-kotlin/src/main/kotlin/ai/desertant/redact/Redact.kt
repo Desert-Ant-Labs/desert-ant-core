@@ -82,10 +82,6 @@ class RedactException(message: String) : Exception(message)
  * redact.close()
  * ```
  *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Redact's API and
- * its payload schemas.
- *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),
  *   otherwise the model is downloaded into it. Omit to use the app cache.
@@ -96,8 +92,8 @@ class Redact(
 ) : AutoCloseable {
     private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::RedactException, RedactNative)
 
-    // The old handle factory lived here. Keep the marker so the generated JVM
-    // `Redact.Companion` field remains binary-compatible.
+    // Kept so the generated JVM `Redact.Companion` field stays binary-compatible
+    // with earlier releases.
     companion object
 
     /** Whether the model is available for this redactor with no network. */

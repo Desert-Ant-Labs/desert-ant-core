@@ -1,7 +1,6 @@
 // Which model revision a caller wants: a fixed ref, or a semver range over the
 // repo's published tags (SwiftPM-style `from:`, i.e. up to the next major).
-// Foundation-free like
-// the rest of the module's orchestration.
+// Foundation-free like the rest of the module's orchestration.
 
 /// A model revision requirement.
 ///

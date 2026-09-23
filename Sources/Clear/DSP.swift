@@ -1,8 +1,7 @@
-// DeepFilterNet3 DSP: STFT/ISTFT and the ERB + unit-norm feature front-end,
-// ported from the (Apple-only) clear-swift reference to portable Swift so it
-// runs identically on every platform. Accelerate-backed on Apple, plain loops
-// elsewhere; the constants and normalization state-init ramps must match the
-// training-time libDF exactly or the model gets out-of-distribution input.
+// DeepFilterNet3 DSP, ported from the Apple-only clear-swift reference so it runs
+// identically on every platform. The constants and normalization state-init ramps
+// must match the training-time libDF exactly or the model gets out-of-distribution
+// input.
 
 #if canImport(Darwin)
 import Darwin
@@ -272,7 +271,7 @@ final class BluesteinDFT {
 /// STFT/ISTFT matching DFN's reference (`libDF/src/lib.rs`): Vorbis window,
 /// n_fft 960, hop 480, forward gain `wnorm = 2*hop/n_fft^2 = 1/960`. Framing
 /// prepends `n_fft - hop = 480` zeros and drops the same from synthesis to undo
-/// the analysis-synthesis delay. Real-DFT as a matmul so it needs no power-of-two.
+/// the analysis-synthesis delay.
 final class ClearSTFT {
     let fftSize: Int
     let hopSize: Int
@@ -355,9 +354,7 @@ final class ClearSTFT {
 
     /// Same transform over a buffer the caller already laid out with the
     /// `fftSize - hopSize` analysis prepad in front (and whatever tail padding
-    /// it needs). Lets a long-file pipeline build that buffer once instead of
-    /// paying a second full-signal copy here: at 48 kHz a 33-minute signal is
-    /// 363 MB, so the copy is worth avoiding.
+    /// it needs), so a long-file pipeline skips a second full-signal copy.
     func forward(prePadded padded: [Float]) -> (real: [Float], imag: [Float], nFrames: Int) {
         guard padded.count >= fftSize else { return ([], [], 0) }
         let nFrames = (padded.count - fftSize) / hopSize + 1
@@ -412,8 +409,7 @@ final class ClearSTFT {
     }
 
     /// Pointer form, so a caller holding the spectrum in its own scratch buffers
-    /// can synthesize without first copying them into `Array`s. Two full
-    /// spectrogram planes are 726 MB for a 33-minute file.
+    /// can synthesize without first copying them into `Array`s.
     func inverse(real: UnsafePointer<Float>, imag: UnsafePointer<Float>, nFrames: Int) -> [Float] {
         let prePad = fftSize - hopSize
         guard nFrames > 0 else { return [] }

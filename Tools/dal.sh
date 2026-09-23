@@ -21,8 +21,7 @@ cd "$DAL_ROOT"
 
 # The host OS as these tasks talk about it: darwin, linux, or windows. Git Bash
 # and MSYS answer `uname -s` with MINGW64_NT-10.0-26200, so no task matches on
-# `uname` by hand; anything unrecognized answers linux, which is what the
-# `[ "$(uname)" = Darwin ]` tests this replaced already assumed.
+# `uname` by hand; anything unrecognized answers linux.
 dal_host_os() {
     case "$(uname -s)" in
         Darwin) echo darwin ;;
@@ -77,7 +76,7 @@ dal_models_with() {
 #
 # grep, not node: the release's native-build containers carry no JS toolchain,
 # and a guard that quietly returns false there sends a pure model into a native
-# build that cannot exist (v1.2.0 learned this the hard way).
+# build that cannot exist.
 dal_node_pure() { # <model>
     grep -q '"pure"[[:space:]]*:[[:space:]]*true' "packages/$1-node/package.json" 2> /dev/null
 }
@@ -228,8 +227,8 @@ dal_vendor_litert() {
 
 # Windows only: link.exe cannot link against a bare DLL, so synthesize the
 # import library from the DLL's own export table. llvm-readobj and llvm-lib both
-# ship in the Swift toolchain, which is what keeps this off an MSVC developer
-# prompt - the one thing that used to make the step CI-only. The LIBRARY line
+# ship in the Swift toolchain, which keeps this off an MSVC developer prompt.
+# The LIBRARY line
 # pins the loader to the vendored DLL's name.
 dal_windows_import_lib() { # <dll> <out.lib>
     local dll="$1" out="$2" tmp names

@@ -6,9 +6,8 @@
 #USAGE arg "<model>" help="Model to run, or 'all'" default="all"
 #USAGE flag "--headed" help="Show the browser instead of running headless"
 
-# The browser is the default entry of every model package, and it was the one
-# shipped platform nothing executed: the bundle matrix proves the package builds
-# for a browser, and test:wasi runs the Swift core under wasm with the
+# The browser is the default entry of every model package. The bundle matrix
+# proves the package builds for a browser, and test:wasi runs the Swift core under wasm with the
 # model-backed tests compiled out. This loads real weights and runs LiteRT.js in
 # a real engine, which is what a consumer's first page load does.
 #

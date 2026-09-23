@@ -20,9 +20,8 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # Windows hosts are out: the snapshot toolchain below is installed unattended
 # from a tarball (Linux) or through swiftly (macOS), and swift.org ships that
-# same snapshot for Windows only as an interactive ~1 GB installer, which no
-# build task is going to run behind your back. Cross-compiling from a Windows
-# host is otherwise untested here - if you want the AARs, build them in WSL.
+# same snapshot for Windows only as an interactive ~1 GB installer. Cross-
+# compiling from a Windows host is otherwise untested; build the AARs in WSL.
 if [ "$(dal_host_os)" = windows ]; then
     echo "skip: the ${DAL_SWIFT_ANDROID_SNAPSHOT:-Swift Android} snapshot has no unattended"
     echo "      Windows install; build the Android artifacts in WSL or on CI."
@@ -47,8 +46,8 @@ done
 # Build against the official Swift Android SDK. Stable releases floor at API 28
 # (Bionic gained posix_spawn there), but the 6.4.x snapshots support API 23+, so
 # this keeps minSdk 24 on first-party tooling. The host toolchain and the SDK
-# must be the SAME snapshot; a mismatch is what produced the old "missing
-# required module 'SwiftAndroid'" failures. Override the trio to move on.
+# must be the same snapshot; a mismatch fails with "missing required module
+# 'SwiftAndroid'". Override the trio to move on.
 snapshot="${DAL_SWIFT_ANDROID_SNAPSHOT:-swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a}"
 branch="${DAL_SWIFT_ANDROID_BRANCH:-swift-6.4.x-branch}"
 checksum="${DAL_SWIFT_ANDROID_SDK_CHECKSUM:-54a9c6b9491ea531cd3f5696f1071c2ca055cad89b89a2f408633b73f373c601}"
@@ -177,7 +176,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         # to it defines __cxa_pure_virtual and the rest of the Itanium ABI, and
         # libunwind backs its exception handling. Leaving them out still links
         # (a shared object may carry undefined symbols) and then fails at
-        # dlopen on the device, which is exactly how this shipped unnoticed.
+        # dlopen on the device.
         extra_libs=()
         for name in libc++abi.a libunwind.a; do
             found=$(find -L "$(dirname "$cxx")" -maxdepth 1 -name "$name" 2> /dev/null | head -1 || true)

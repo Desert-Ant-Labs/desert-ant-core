@@ -7,7 +7,6 @@ export interface VozWord {
 }
 
 export interface VozResult {
-  /** The transcript. */
   text: string;
   /** Every word, in order, with its start and end. */
   words: VozWord[];

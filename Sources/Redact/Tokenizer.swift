@@ -1,12 +1,12 @@
 import DesertAnt
 
-/// XLM-R SentencePiece **Unigram** tokenizer, ported to pure Swift and verified
-/// to reproduce the training tokenizer's ids exactly (NFKC normalization, no
+/// XLM-R SentencePiece **Unigram** tokenizer (NFKC normalization, no
 /// lowercasing, `▁` metaspace, Viterbi over the vocab with a `min_score − 10`
-/// unknown penalty). Backed by a compact `redact_tokenizer.bin`.
+/// unknown penalty). Ids must match training exactly. Backed by a compact
+/// `redact_tokenizer.bin`.
 struct Tokenizer {
-    /// One content sub-word: its vocab `id` and its surface `text` (the piece
-    /// string, which may begin with the `▁` metaspace marker).
+    /// One content sub-word: its vocab `id` and its surface `scalars` (which may
+    /// begin with the `▁` metaspace marker).
     struct Token {
         let id: Int
         let scalars: [Unicode.Scalar]
@@ -173,17 +173,12 @@ private func utf8Width(_ scalar: Unicode.Scalar) -> Int {
 ///
 /// Swift compares and hashes `String` by Unicode *canonical equivalence*, not by
 /// bytes, so in a `[String: Int]` vocab two byte-distinct pieces that differ only
-/// in composition or in combining-mark order are ONE key, and the later id
-/// silently evicts the earlier - after which no input can ever produce it.
-/// Redact's own pruned 31,475-piece vocab happens to have no such pair today, so
-/// this is not a fix to its published ids; it is the same defect that made the
-/// full xlm-roberta-base vocab unloadable in `Clips` (29 collapsed keys), and
-/// the two tokenizers read the same container from the same builder, so the two
-/// must not disagree about what a vocab key is. A re-pruned or re-trained vocab
-/// would otherwise reintroduce it silently.
+/// in composition or in combining-mark order are one key, and the later id
+/// silently evicts the earlier. Redact's pruned 31,475-piece vocab has no such
+/// pair, but the full xlm-roberta-base vocab `Clips` reads from the same builder
+/// has 29, and a re-pruned vocab could introduce one silently.
 ///
-/// Bytes are what the container stores and what training matched, so bytes are
-/// the key. This is open addressing over the container's own byte image rather
+/// This is open addressing over the container's own byte image rather
 /// than a `[[UInt8]: Int]` dictionary because the decoder probes the vocab
 /// O(scalars × maxLen) times per sentence, and an `Array` key would heap-allocate
 /// on every probe.
@@ -234,7 +229,7 @@ struct VocabIndex {
 
     /// Borrow the index for the length of one tokenization. Everything the inner
     /// loop touches is resolved to a pointer once, so a probe is a hash, a
-    /// length compare, and a byte compare - no allocation, no retain.
+    /// length compare, and a byte compare, with no allocation or retain.
     func withLookup<R>(_ body: (Lookup) -> R) -> R {
         image.withUnsafeBufferPointer { image in
             bounds.withUnsafeBufferPointer { bounds in

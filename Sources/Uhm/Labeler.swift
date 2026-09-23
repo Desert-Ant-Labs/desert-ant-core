@@ -1,12 +1,11 @@
 // The per-filler type labeler. A small sound classifier (`uh` / `um` / `hmm` /
 // `other`) trained with CreateML's MLSoundClassifier, so inference runs
 // through Apple's SoundAnalysis framework using the built-in audio feature
-// extractor - the model is just the classifier head (~13 KB), downloaded
+// extractor; the model is just the classifier head (~13 KB), downloaded
 // alongside the detector (`UhmModel.labeler`).
 //
 // SoundAnalysis exists only on Apple platforms, so everywhere else
-// `Detection.type` is nil and `Options.includeTypes` is a no-op. That is the
-// honest shape until a cross-platform labeler export lands.
+// `Detection.type` is nil and `Options.includeTypes` is a no-op.
 
 #if canImport(SoundAnalysis) && canImport(CoreML)
 import AVFoundation
@@ -51,10 +50,8 @@ final class FillerTypeClassifier: NSObject, @unchecked Sendable {
     /// The winning filler type for one clip of samples, or `nil` when nothing
     /// cleared the confidence bar.
     ///
-    /// Takes the samples the caller already holds. The file-based path below
-    /// needs an audio file, so labelling a detection used to mean writing a 1 s
-    /// WAV to the temp directory, analyzing it, and deleting it - three
-    /// filesystem operations per filler for audio that was already in memory.
+    /// Takes the samples the caller already holds; the file-based path below
+    /// would write, analyze and delete a 1 s WAV per filler.
     func bestLabel(for clip: [Float], sampleRate: Int) throws -> String? {
         guard let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                          sampleRate: Double(sampleRate),

@@ -4,16 +4,13 @@ import DesertAnt
 /// normalization, no lowercasing, `▁` metaspace, Viterbi over the vocab with a
 /// `min_score − 10` unknown penalty. Backed by a compact `clip_tokenizer.bin`.
 ///
-/// Token ids MUST match training exactly. A stand-in tokenizer produces
-/// plausible latency and meaningless clips, because the encoder sees words it
-/// was never trained on.
+/// Token ids must match training exactly. A stand-in tokenizer produces
+/// plausible latency and meaningless clips.
 ///
-/// This is a port of the same container format and Viterbi decoder Redact
-/// reads, because both models were trained on the same xlm-roberta-base vocab.
-/// It is duplicated rather than shared because `check:isolation` forbids one
-/// model's Swift graph from containing another; the natural home is a shared
-/// capability module beside `TextNormalization`, which is a core-wide decision
-/// rather than something a new model gets to make.
+/// The same container format and Viterbi decoder Redact reads (both models use
+/// the xlm-roberta-base vocab), duplicated because `check:isolation` forbids one
+/// model's Swift graph from containing another. Sharing it would take a capability
+/// module beside `TextNormalization`.
 struct Tokenizer {
     let bosID: Int
     let eosID: Int
@@ -98,15 +95,11 @@ struct Tokenizer {
     /// Encode `text` the way the exports were fed in training: `<s>`, the
     /// content pieces, `</s>`, truncated to `maxLength`.
     ///
-    /// Truncation follows HuggingFace's `truncation=True, max_length=`: it KEEPS
-    /// the eos. A plain `prefix(maxLength)` drops `</s>` and substitutes one
-    /// more content token, so every span longer than the bucket is scored on
-    /// input the model never saw in training. Measured Aug 2026: that alone
-    /// accounted for the Swift port's divergence from the Python reference on
-    /// long transcripts, and cost 3.7% of total scorer mass - its worst clip
-    /// scored 0.466 where the reference's worst scored 0.537. Only spans over
-    /// the limit were affected, which is why short transcripts looked perfect
-    /// and hid it.
+    /// Truncation follows HuggingFace's `truncation=True, max_length=`: it keeps
+    /// the eos. A plain `prefix(maxLength)` drops `</s>`, so every span longer than
+    /// the bucket is scored on input the model never saw in training. On long
+    /// transcripts that costs 3.7% of total scorer mass against the Python
+    /// reference (worst clip 0.466 vs 0.537); short transcripts hide it.
     func encode(_ text: String, maxLength: Int) -> [Int32] {
         guard maxLength > 0 else { return [] }
         var ids = [Int32(bosID)]
@@ -194,22 +187,15 @@ private func utf8Width(_ scalar: Unicode.Scalar) -> Int {
 ///
 /// Swift compares and hashes `String` by Unicode *canonical equivalence*, not by
 /// bytes, so in a `[String: Int]` vocab two byte-distinct pieces that differ only
-/// in composition or in combining-mark order are ONE key, and the later id
+/// in composition or in combining-mark order are one key, and the later id
 /// silently evicts the earlier. xlm-roberta-base's 250,002 pieces hold 29 such
-/// pairs - Burmese `င့်` sign orderings, Arabic shadda before or after its vowel,
-/// Hebrew dagesh, precomposed Kannada `ೋ` against its decomposition. In 16 of the
-/// 29 the evicted id is the one the Python reference emits, so that input
-/// tokenized differently on device than in training.
+/// pairs (Burmese `င့်` sign orderings, Arabic shadda before or after its vowel,
+/// Hebrew dagesh, precomposed Kannada `ೋ` against its decomposition). In 16 of
+/// the 29 the evicted id is the one the Python reference emits. A count check
+/// on a `String`-keyed index would also reject the published vocab outright.
 ///
-/// And it is worse than 29 wrong tokens. The loader's own
-/// `parsedIndex.count == count` check cannot hold when 29 keys collapse, so a
-/// `String`-keyed index REJECTS the published vocab outright from `init?` and
-/// every `Clips` load throws `modelNotFound`. Checked against the file on the
-/// Hub, which is byte-identical to the one the export builds.
-///
-/// Bytes are what the container stores and what training matched, so bytes are
-/// the key. This is open addressing over the container's own byte image rather
-/// than a `[[UInt8]: Int]` dictionary because the decoder probes the vocab
+/// This is open addressing over the container's own byte image rather than a
+/// `[[UInt8]: Int]` dictionary because the decoder probes the vocab
 /// O(scalars × maxLen) times per sentence over 400-sentence transcripts, and an
 /// `Array` key would heap-allocate on every probe.
 struct VocabIndex {
@@ -259,7 +245,7 @@ struct VocabIndex {
 
     /// Borrow the index for the length of one tokenization. Everything the inner
     /// loop touches is resolved to a pointer once, so a probe is a hash, a
-    /// length compare, and a byte compare - no allocation, no retain.
+    /// length compare, and a byte compare, with no allocation or retain.
     func withLookup<R>(_ body: (Lookup) -> R) -> R {
         image.withUnsafeBufferPointer { image in
             bounds.withUnsafeBufferPointer { bounds in

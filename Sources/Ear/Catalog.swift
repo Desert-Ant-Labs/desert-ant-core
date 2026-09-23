@@ -1,26 +1,14 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The ear model: on-device spoken language identification.
 ///
-/// Every platform runs the same graph shape -- log-mel in, language logits out
-/// -- because the frontend is Swift (`Frontend.swift`) rather than part of the
-/// artifact. That is not only for symmetry: the frontend cannot run in float16,
-/// so folding it into the Core ML program would either drop the whole thing off
-/// the Neural Engine or destroy the features. Measured, a float16 frontend takes
-/// routing accuracy from 97.5% to 84.2%. Swift computes it in Float and hands
-/// the model the one tensor it wants.
+/// Every platform runs the same graph shape (log-mel in, language logits out)
+/// because the frontend is Swift rather than part of the artifact; see
+/// `Frontend.swift` for why.
 public enum EarModel: ModelDeclaration {
     public static let id = "ear"
     public static let product = "Ear"
-    /// Pinned to a tag rather than a branch. A branch means a push to the Hub
-    /// silently changes what already-shipped SDKs download, which is the kind of
-    /// change nobody is looking for when something starts behaving differently.
     public static let revision = "v0.1.0"
-    /// Matches VERSION (check:version enforces it; this repo releases as one).
     public static let sdkVersion = "3.5.0"
     public static let summary = "On-device spoken language identification across 99 languages."
 

@@ -4,7 +4,7 @@
 // asserts the JNI checks pass. `mise run test:android` builds the .so into
 // jniLibs and runs `connectedAndroidTest`.
 //
-// Plugin/dependency versions are a starting point — align them with the
+// Plugin/dependency versions are a starting point: align them with the
 // consuming SDKs' Android toolchain as needed.
 plugins {
     id("com.android.library") version "8.6.0"      // compileSdk 35 needs AGP 8.6.0+ (Gradle 8.7+)
@@ -17,7 +17,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
-        minSdk = 31  // CAndroidICU's unorm2_getNFKCInstance is available from API 31
+        minSdk = 31
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }

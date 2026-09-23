@@ -1,14 +1,6 @@
-// Ear's side of the cross-language binding: construction, plus the two payload
-// schemas that are genuinely model-specific (what a run takes, and what a result
-// looks like). The generic handle lifecycle and the exported symbols live in
-// NativeBindings and EarNative, so this file is only the model's adapter.
-
 import DesertAnt
 
 extension Ear: BoundModel {
-    // `isDownloaded()` and `download(progress:)` are Ear's own public API and
-    // witness the protocol as they stand.
-
     /// Input payload: `f32Array` samples (mono), then `f64 sampleRate`.
     ///
     /// Mono because language identification reads broad spectral shape and a
@@ -23,11 +15,9 @@ extension Ear: BoundModel {
     /// probability)` pairs most-likely first, then `f64 windows` actually
     /// listened to and `f64 reliable` (1 or 0).
     ///
-    /// `isReliable` crosses as a number rather than being recomputed per host:
-    /// the rule behind it is measured, not obvious - a margin under 0.25, or any
-    /// answer in the Nordic group, which the model confuses confidently rather
-    /// than uncertainly - and three hosts reimplementing it is three chances to
-    /// get it wrong.
+    /// `isReliable` crosses as a number rather than being recomputed per host,
+    /// because the rule behind it is measured, not obvious (see
+    /// `Detection.isReliable`).
     ///
     /// Every group is appended, never reordered, so a host built against an
     /// earlier schema keeps reading the prefix it knows.

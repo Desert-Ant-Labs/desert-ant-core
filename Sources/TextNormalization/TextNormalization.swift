@@ -7,8 +7,8 @@
 //   Android       : the host's java.text.Normalizer (via CHostBridge), no ICU
 //   WebAssembly   : the JS host's String.prototype.normalize('NFKC')
 //
-// Model-agnostic and reusable across projects. Exactly one backend file (in
-// this module) is compiled per platform; each provides `nfkcNormalize`.
+// Exactly one backend file is compiled per platform; each provides
+// `nfkcNormalize` and `nfcNormalize`.
 
 public extension String {
     /// This string under Unicode Normalization Form KC (compatibility

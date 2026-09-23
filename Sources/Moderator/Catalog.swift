@@ -1,18 +1,10 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The moderator model: on-device NSFW image detection.
 public enum ModeratorModel: ModelDeclaration {
     public static let id = "moderator"
     public static let product = "Moderator"
-    /// The first public release. The Core ML and LiteRT files share one
-    /// signature (see `artifact(for:)`).
     public static let revision = "v1.0.0"
-    /// Matches packages/moderator-node/package.json and
-    /// packages/moderator-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "On-device NSFW image detection, trained only on licensed and synthetic data."
 

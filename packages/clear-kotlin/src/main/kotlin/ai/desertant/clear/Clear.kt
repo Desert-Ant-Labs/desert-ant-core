@@ -27,8 +27,8 @@ data class Mastering(
     /** Set false to return the unmastered model output. */
     val enabled: Boolean = true,
     /** Per-channel LUFS target applied before the joint stages, or null to
-     *  leave the balance alone. Mastering is otherwise joint - one gain, one
-     *  limiter envelope - so it never moves the stereo image; this is the
+     *  leave the balance alone. Mastering is otherwise joint (one gain, one
+     *  limiter envelope), so it never moves the stereo image; this is the
      *  exception, for a pair whose sides were recorded at different levels. */
     val balanceChannelsLufs: Double? = null,
 ) {
@@ -42,8 +42,7 @@ data class Mastering(
 
 /**
  * What to do with a multi-channel input. [MONO] is the default because keeping
- * a pair costs an inference pass per channel (measured 1.8x), and no app should
- * start paying that for taking a new version.
+ * a pair costs an inference pass per channel (measured 1.8x).
  */
 enum class ChannelMode {
     /** Downmix before enhancement, emit one channel. */
@@ -62,7 +61,7 @@ data class Options(
      *  resampled on the way out. */
     val sampleRate: Double = 48_000.0,
     /** What the output's channel layout should be. Defaults to
-     *  [ChannelMode.MONO], which is what every release so far produced. */
+     *  [ChannelMode.MONO]. */
     val channelMode: ChannelMode = ChannelMode.MONO,
 )
 
@@ -85,7 +84,7 @@ data class Result(
      */
     val measuredTruePeakDbfs: Double?,
 ) {
-    /** The first channel - the whole signal for mono, the left of a stereo
+    /** The first channel: the whole signal for mono, the left of a stereo
      *  pair. Multi-channel callers want [channels]. */
     val samples: FloatArray get() = channels.firstOrNull() ?: FloatArray(0)
 
@@ -136,10 +135,6 @@ class ClearException(message: String) : Exception(message)
  * clear.close()
  * ```
  *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Clear's API and
- * its payload schemas.
- *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),
  *   otherwise the model is downloaded into it. Omit to use the app cache.
@@ -163,8 +158,9 @@ class Clear(
     suspend fun download() = model.download()
 
     /**
-     * Enhance mono [samples] at [sampleRate], returning 48 kHz mono whatever
-     * the input rate. Loads the model lazily on first call.
+     * Enhance mono [samples] at [sampleRate], returning mono at
+     * [Options.sampleRate] whatever the input rate. Loads the model lazily on
+     * first call.
      */
     suspend fun enhance(
         samples: FloatArray,
@@ -211,8 +207,8 @@ class Clear(
             val duration = r.double()
             val processing = r.double()
             val lufs = r.double()
-            // Appended after the first release: a core built before them leaves
-            // nothing to read, and the fields read as absent.
+            // Appended to the schema later: an older core leaves nothing to
+            // read, and the fields read as absent.
             val truePeak = if (r.hasRemaining()) r.double() else Double.NaN
             val out = mutableListOf(first)
             if (r.hasRemaining()) {

@@ -32,11 +32,7 @@ class GistException(message: String) : Exception(message)
  * gist.close()
  * ```
  *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Gist's API and
- * its payload schemas.
- *
- * The English-only model build is currently selectable from the Swift SDK only.
+ * The English-only model build is selectable from the Swift SDK only.
  *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),

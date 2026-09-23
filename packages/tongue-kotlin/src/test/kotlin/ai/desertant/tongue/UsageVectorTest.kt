@@ -112,8 +112,8 @@ class UsageVectorTest {
 
     /**
      * The platform tag has to be one the endpoint accepts. Anything else is a 400,
-     * which drops the event: the turnstile looks healthy and the device is simply
-     * never billed. This port sent "jvm" until it was checked against the live enum.
+     * which drops the event: the turnstile looks healthy and the device is never
+     * billed.
      */
     @Test
     fun platformTagIsOneTheEndpointAccepts() {
@@ -127,9 +127,7 @@ class UsageVectorTest {
 
     /**
      * The bytes on the wire, pinned against the JavaScript port's identical
-     * assertion in test/usage.test.js. Field order is part of the contract, and
-     * nothing checked it before — Wire.kt claimed the two ports were
-     * byte-identical while the JS port actually emitted key and app last.
+     * assertion in test/usage.test.js. Field order is part of the contract.
      */
     @Test
     fun wireBodyMatchesCoreFieldOrder() {
@@ -154,7 +152,7 @@ class UsageVectorTest {
      * The keyless body, asserted exactly. Equality is the check that matters:
      * substring searches for leaked text give false positives ("de" is inside
      * "deviceId"), whereas pinning the whole string proves nothing beyond these
-     * fields can appear — no detected text, no language, no reliability.
+     * fields can appear: no detected text, no language, no reliability.
      */
     @Test
     fun keylessWireBodyIsExactlyTheseFields() {
@@ -175,9 +173,8 @@ class UsageVectorTest {
     /**
      * Drives the real transport at a local server.
      *
-     * Every other turnstile test injects `send`, so the HTTP path itself had never
-     * executed: nothing proved a body ever left the process. The destination stays
-     * hardcoded for real use — only this test passes an endpoint.
+     * Every other turnstile test injects `send`. The destination stays hardcoded
+     * for real use; only this test passes an endpoint.
      */
     @Test
     fun transportActuallyPostsTheBodyOverHttp() {
@@ -230,10 +227,9 @@ class UsageVectorTest {
     }
 
     /**
-     * The layer that decides the platform tag and where the key goes had no test:
-     * every other case builds a `ClientDeps` literal with `send` already injected,
-     * so a wrong platform tag or a dropped key survived the whole suite. This
-     * builds the client the way a host does and reads what went on the wire.
+     * Every other case builds a `ClientDeps` literal with `send` already injected,
+     * so a wrong platform tag or a dropped key would survive them. This builds the
+     * client the way a host does and reads what went on the wire.
      */
     @Test
     fun theClientAHostBuildsPutsTheKeyInExactlyOnePlace() {
@@ -484,8 +480,7 @@ class UsageVectorTest {
      * detection recorded afterwards. Both halves discriminate. Leaving the timer
      * behind sends the next detection a debounce early; leaving the flag set means
      * `record()` never schedules again and that detection is never sent at all.
-     *
-     * This is where the port drifted from the JavaScript twin, which cancels.
+     * The JavaScript twin pins the same two.
      */
     @Test
     fun aForcedFlushTakesThePendingDebounceAndTheTurnstileStillFlushesLater() {
@@ -569,7 +564,7 @@ class UsageVectorTest {
 
     // A reader for this document's shape only: flat objects inside "cases", whose
     // values are numbers, strings, or arrays of those. Same reason the model
-    // vectors have one — the artifact takes no JSON dependency, so neither do its
+    // vectors have one: the artifact takes no JSON dependency, so neither do its
     // tests. The vectors are deliberately free of nested objects so this stays
     // this short.
     private fun read(name: String): String =
@@ -622,9 +617,9 @@ class UsageVectorTest {
             ?: emptyList()
 
     /**
-     * `detect` on one thread and `flushTelemetry` on another. The flush used to be
-     * able to cancel the debounce task between `record` publishing it and
-     * scheduling it, and `Timer.schedule` then threw out of `detect`.
+     * `detect` on one thread and `flushTelemetry` on another. A flush that
+     * cancelled the debounce task between `record` publishing and scheduling it
+     * would make `Timer.schedule` throw out of `detect`.
      */
     @Test
     fun recordNeverThrowsWhileAnotherThreadFlushes() {
@@ -687,7 +682,7 @@ class UsageVectorTest {
     }
 
     /**
-     * A key read from a secret file often ends in a newline. The body tolerated it
+     * A key read from a secret file often ends in a newline. The body tolerates it
      * (the endpoint trims), but `setRequestProperty` rejects it and the POST is lost.
      */
     @Test

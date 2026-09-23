@@ -40,9 +40,7 @@ import kotlinx.serialization.json.long
  * `regexMatches` and `jsonParseTree` (the signatures the Swift
  * `installHostBridge` looks up on the class passed to JNI) that delegate here.
  *
- * Model-agnostic and reusable. Published as the `ai.desertant:core` Android
- * artifact (kotlin/build.gradle.kts); model SDKs depend on it rather than
- * vendoring this file.
+ * Published as the `ai.desertant:core` Android artifact (kotlin/build.gradle.kts).
  */
 object HostBridge {
     /**
@@ -83,14 +81,6 @@ object HostBridge {
         return out.toString().toByteArray(Charsets.UTF_8)
     }
 
-    /**
-     * Parse [jsonUtf8] with the platform parser (kotlinx.serialization) and emit
-     * the compact binary value tree desert-ant-core's JSON module decodes, so
-     * the Swift core hand-rolls no JSON on Android. Format: big-endian u32
-     * payload length, then nodes tagged 0 null, 1 false, 2 true, 3 f64,
-     * 4 string(u32+utf8), 5 array(u32 count+nodes),
-     * 6 object(u32 count+[u32 keyLen+key, node]).
-     */
     /// GET the Hugging Face tree API and return its files as one
     /// `path\tsize\tsha256` line each (empty sha256 for non-LFS files), so the
     /// Swift ModelStore can expand folders and verify. Empty result on failure.
@@ -457,6 +447,14 @@ object HostBridge {
         return out.toByteArray()
     }
 
+    /**
+     * Parse [jsonUtf8] with the platform parser (kotlinx.serialization) and emit
+     * the compact binary value tree desert-ant-core's JSON module decodes, so
+     * the Swift core hand-rolls no JSON on Android. Format: big-endian u32
+     * payload length, then nodes tagged 0 null, 1 false, 2 true, 3 f64,
+     * 4 string(u32+utf8), 5 array(u32 count+nodes),
+     * 6 object(u32 count+[u32 keyLen+key, node]).
+     */
     @JvmStatic
     fun jsonParseTree(jsonUtf8: ByteArray): ByteArray {
         val root = Json.parseToJsonElement(jsonUtf8.toString(Charsets.UTF_8))

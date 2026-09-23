@@ -10,14 +10,11 @@ import ai.desertant.tongue.usage.UsageTurnstile
  * tongue.detect("kann ich das haben").language   // "de"
  * ```
  *
- * A direct Kotlin port rather than a JNI binding over the Swift core. That is a
- * deliberate departure from emo and toxic: their pipelines are a tokenizer plus a
- * transformer plus an inference session, so writing them once in Swift and
- * bridging is clearly right. This pipeline is arithmetic — an int8 gather, a sum,
- * one 59x32 matmul and a masked softmax — so bridging would cost ~51 MB of static
- * Swift runtime per ABI to serve 2 MB of weights (see ANDROID.md). Pure Kotlin
- * needs no native library, no JNI and no cross-compile, and works unchanged on
- * the JVM and on Android.
+ * A direct Kotlin port rather than a JNI binding over the Swift core, unlike the
+ * other models: this pipeline is arithmetic (an int8 gather, a sum, one 59x32
+ * matmul and a masked softmax), so bridging would cost ~51 MB of static Swift
+ * runtime per ABI to serve 2 MB of weights. Pure Kotlin needs no native library,
+ * no JNI and no cross-compile, and works unchanged on the JVM and on Android.
  *
  * The safety normally bought by having one implementation is bought here instead
  * by the shared vectors: the normalizer, hasher and router are a frozen
@@ -51,7 +48,7 @@ public class Tongue internal constructor(
          * Load the bundled model, giving usage tracking somewhere to persist.
          *
          * `context` is an `android.content.Context`, typed as `Any` so this stays
-         * a plain jar that also runs on a bare JVM — it is never compiled against
+         * a plain jar that also runs on a bare JVM; it is never compiled against
          * the Android SDK. Anything else is ignored.
          */
         @JvmStatic
@@ -149,8 +146,8 @@ public class Tongue internal constructor(
     }
 
     /**
-     * Keyed off evidence — input length and how far the top candidate leads the
-     * runner-up — not raw softmax confidence, which is badly overconfident on very
+     * Keyed off evidence (input length and how far the top candidate leads the
+     * runner-up), not raw softmax confidence, which is badly overconfident on very
      * short text. `"hi i am"` reads as Welsh to any character model at high
      * probability; the margin and the length are what reveal it as a guess.
      */

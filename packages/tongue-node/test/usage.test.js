@@ -88,8 +88,7 @@ test("detection still works with reporting switched off", async () => {
 
 test("the platform tag is one the endpoint accepts", () => {
   // A tag outside the enum is a 400, which drops the event: the turnstile still
-  // looks healthy and the device is simply never billed. This port sent "node"
-  // until it was checked against the live enum.
+  // looks healthy and the device is never billed.
   assert.ok(
     acceptedPlatforms.includes(defaultPlatform()),
     `the endpoint rejects platform ${defaultPlatform()}`,
@@ -132,9 +131,8 @@ test("the wire body matches core's field order and carries no text", () => {
 });
 
 test("DAL_USAGE_DISABLED suppresses every send and every store write", async () => {
-  // The kill switch docs/USAGE.md offers operators. Nothing asserted it before,
-  // so a regression making it a no-op would have shipped green and started
-  // billing every CI runner.
+  // The kill switch docs/USAGE.md offers operators. A regression making it a
+  // no-op would start billing every CI runner.
   const { UsageTurnstile } = await import("../dist/usage.js");
   assert.equal(process.env.DAL_USAGE_DISABLED, "1", "suite must run with the switch on");
   let touches = 0;
@@ -626,8 +624,9 @@ test("a forced flush awaits the send the debounce started", async (t) => {
 
 test("a forced flush awaits every debounced send still in flight, not only the newest", async (t) => {
   // Fetches run concurrently, so on a slow endpoint the first debounce's POST can
-  // still be pending when the second debounce fires. Keeping only the newest let
-  // flushTelemetry() resolve with the first one, often the day's load, unsent.
+  // still be pending when the second debounce fires. Keeping only the newest
+  // would let flushTelemetry() resolve with the first one, often the day's load,
+  // unsent.
   const { UsageTurnstile } = await import("../dist/usage.js");
   const disabled = process.env.DAL_USAGE_DISABLED;
   delete process.env.DAL_USAGE_DISABLED;
@@ -694,9 +693,8 @@ test("a send is bounded, and a timed-out one is not sent again by beacon", async
 });
 
 test("the transport actually posts the body over HTTP", async () => {
-  // Everything else about the turnstile is tested with an injected `send`, so the
-  // HTTP path itself had never run: no test proved a body ever left the process.
-  // This drives the real transport at a local server. The destination stays
+  // Everything else about the turnstile is tested with an injected `send`; this
+  // drives the real transport at a local server. The destination stays
   // hardcoded for real use; only the test passes an endpoint.
   const { createServer } = await import("node:http");
   const received = [];
@@ -747,10 +745,9 @@ test("the transport actually posts the body over HTTP", async () => {
 });
 
 test("the turnstile a host builds puts the key in exactly one place", async () => {
-  // The layer that decides the platform tag and the key's placement had no test:
-  // every other case builds `UsageClient` literals with `send` already injected,
-  // so a wrong `keyInBody` or a hardcoded platform tag survived the whole suite.
-  // This constructs the turnstile the way a host does and reads what went on the
+  // Every other case builds `UsageClient` literals with `send` already injected,
+  // so a wrong `keyInBody` or a hardcoded platform tag would survive them. This
+  // constructs the turnstile the way a host does and reads what went on the
   // wire, with the endpoint pointed at a local server.
   const { createServer } = await import("node:http");
   const received = [];
@@ -804,8 +801,8 @@ test("the turnstile a host builds puts the key in exactly one place", async () =
 });
 
 test("a flush awaits a send an earlier, unawaited flush started", async () => {
-  // `void t.flushTelemetry(); await t.flushTelemetry()` used to resolve at once:
-  // the second flush had nothing to send and did not know about the first POST.
+  // `void t.flushTelemetry(); await t.flushTelemetry()`: the second flush has
+  // nothing to send, but must still wait for the first POST.
   const { UsageTurnstile } = await import("../dist/usage.js");
   const disabled = process.env.DAL_USAGE_DISABLED;
   delete process.env.DAL_USAGE_DISABLED;

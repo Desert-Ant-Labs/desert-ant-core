@@ -5,10 +5,9 @@ import Foundation
 /// The Core ML engine: three compiled programs, driven with preallocated
 /// buffers and `outputBackings` so a prediction allocates nothing.
 ///
-/// This is the path the shipping numbers come from, and its shape is load
-/// bearing. The feature providers and options are built once at init because
-/// the inputs never change identity - only their contents - so a call is a
-/// dispatch and nothing else.
+/// The feature providers and options are built once at init because the
+/// inputs never change identity, only their contents, so a call is a dispatch
+/// and nothing else.
 final class CoreMLEngine: Engine, @unchecked Sendable {
     let decodeLanes: Int
     let encodeBatch = 1
@@ -20,18 +19,16 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
 
     /// The models are `nonisolated(unsafe)` for the same reason `Slot` is
     /// unchecked: Core ML's types carry no concurrency annotations, and an
-    /// `MLModel` is documented to take concurrent predictions - which is the
-    /// behaviour `encodeDepth` above exists to use.
+    /// `MLModel` is documented to take concurrent predictions, which
+    /// `encodeDepth` exists to use.
     private nonisolated(unsafe) let mel: MLModel
     private nonisolated(unsafe) let encoder: MLModel
     private nonisolated(unsafe) let decodeStep: MLModel
 
-    /// One bound set of providers and backings per slot, built at load. A
-    /// dispatch is then a dispatch: the inputs never change identity, only
-    /// their contents.
-    /// `@unchecked Sendable` because a slot is owned by one encode at a time -
-    /// the pipeline hands out each slot index to a single task in flight - and
-    /// Core ML's own types carry no concurrency annotations.
+    /// One bound set of providers and backings per slot, built at load.
+    /// `@unchecked Sendable` because the pipeline hands each slot index to a
+    /// single task in flight, and Core ML's types carry no concurrency
+    /// annotations.
     private struct Slot: @unchecked Sendable {
         let mel: MLDictionaryFeatureProvider
         let encoder: MLDictionaryFeatureProvider
@@ -59,8 +56,8 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     /// reaches the second Neural Engine of an Ultra part: measured on this
     /// encoder, 34.8 ms a window one at a time, 16.8 with two in flight, 13.2
     /// with four, flat after that. On single-engine chips it is free rather
-    /// than useful - an M5 goes 25.0 to 24.7 ms, an M1 39.2 to 38.8, an iPhone
-    /// 16 Pro 30.9 to 30.8 - because one window already fills the engine.
+    /// than useful (an M5 goes 25.0 to 24.7 ms, an M1 39.2 to 38.8, an iPhone
+    /// 16 Pro 30.9 to 30.8) because one window already fills the engine.
     var encodeDepth: Int { Self.encodeDepthForLoad }
 
     /// Read before the engine exists, because the buffers it binds are sized
@@ -125,8 +122,6 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
         slots = try buffers.slots.map { slot in
             let melOptions = MLPredictionOptions()
             let encoderOptions = MLPredictionOptions()
-            // Write predictions straight into our own storage instead of
-            // letting Core ML allocate a result per call.
             melOptions.outputBackings = ["mel": slot.melOut.array]
             encoderOptions.outputBackings = ["enc_proj": slot.encOut.array]
             return Slot(
@@ -211,11 +206,10 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
     // take their arguments only to satisfy the protocol. `lanes` is one of
     // them: this graph is a fixed shape, so a short batch cannot exist here.
     //
-    // `predict` is a synchronous helper on purpose. Core ML offers an async
-    // `prediction(from:options:)` as well, and in an async context Swift picks
-    // it - which would hand every dispatch to the concurrency runtime for no
-    // reason. The decode step wants that; see `encode` for the call that does
-    // not.
+    // `predict` is a synchronous helper on purpose: in an async context Swift
+    // would pick Core ML's async `prediction(from:options:)`, handing every
+    // decode dispatch to the concurrency runtime for no reason. `encode` is the
+    // call that wants the async form.
 
     private func predict(_ model: MLModel, _ provider: MLDictionaryFeatureProvider,
                          _ options: MLPredictionOptions) throws {

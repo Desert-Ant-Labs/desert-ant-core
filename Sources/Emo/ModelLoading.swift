@@ -1,22 +1,8 @@
-// How Emo obtains and shapes its model: the file manifest, the
-// download/adopt sources, and the `ModelAssets` the pipeline consumes.
-// (Running the model is `Model.swift`.) All platform variation is data here
-// (which artifact ships where); building the platform's session is
-// DesertAnt's `inferenceSession` factory.
 import DesertAnt
 
-// The SDK's usage identity (`EmoModel.sdkInfo`) is derived from the catalog
-// declaration's `product` + `sdkVersion`, so it cannot drift from the published
-// package version or be forgotten on a session.
-
-// The model's file names, per-platform manifest, repo and pinned revision live
-// in the monorepo catalog (`Sources/Emo/Emo.swift`) as `EmoModel`, so
-// tooling and this SDK read one declaration.
-
-/// Loaded model inputs: the sidecar metadata, the semantic tokenizer bytes, and
-/// a ready inference session. Also the entry point for the cross-language
-/// bindings and custom deployments (not part of the Swift SDK's public API,
-/// which loads assets for you).
+/// The sidecar metadata, the semantic tokenizer bytes, and a ready inference
+/// session. The entry point for custom deployments; the public Swift API loads
+/// assets itself.
 @_spi(EmoBindings)
 public struct ModelAssets: Sendable {
     /// Contents of `emo_meta.json` (labels + featurizer/tokenizer constants).
@@ -51,13 +37,3 @@ public extension Emo {
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { EmoModel.revision }
 }
-
-// MARK: shipping the model with your app
-
-// This package bundles no model artifact and has no resource bundle to load
-// one from. The model is downloaded on demand: to a managed cache location by
-// default, or to the `directory` you pass. Shipping the model with your app is
-// therefore just pointing `directory` at a folder that already holds this
-// platform's artifact plus the sidecars - it is then used offline, with no
-// download. (Android's equivalent is classpath resources, and wasm always
-// downloads.)

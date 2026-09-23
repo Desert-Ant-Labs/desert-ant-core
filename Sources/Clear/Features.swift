@@ -1,8 +1,6 @@
-// DFN3 feature front-end: ERB-band log-power with running mean normalization,
-// and unit-norm complex DF features over the first nDf bins. Ported from
-// clear-swift's Features.swift (vDSP -> plain loops). The state-init ramps
-// (erbState -60..-90 dB, unit-norm s 1e-3..1e-4) are load-bearing for model
-// parity and must NOT be zero-initialized.
+// DFN3 feature front end, ported from clear-swift's Features.swift. The state-init
+// ramps (erbState -60..-90 dB, unit-norm s 1e-3..1e-4) are load-bearing for model
+// parity and must not be zero-initialized.
 
 #if canImport(Darwin)
 import Darwin

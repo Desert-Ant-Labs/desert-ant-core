@@ -1,6 +1,6 @@
 // The head. No inference runtime and none needed: a detection is an int8
 // embedding gather, a sum over the n-grams present, one small matmul and a masked
-// softmax — a few thousand multiply-adds. That is why this package has no wasm
+// softmax, a few thousand multiply-adds. That is why this package has no wasm
 // blob and no LiteRT dependency, unlike emo's browser path.
 //
 // Byte layout of tongue_int8.bin, written by scripts/build_release.py:
@@ -112,7 +112,7 @@ export class Weights {
     let maximum = -Infinity;
     for (const [, value] of logits) if (value > maximum) maximum = value;
     // The shift is a float32 subtraction in Swift and Kotlin (`Float - Float`,
-    // widened only for `exp`), so it has to be one here too — without the fround
+    // widened only for `exp`), so it has to be one here too: without the fround
     // this line alone moved the answer by ~1e-10.
     const exponentiated = logits.map(
       ([label, value]) => [label, Math.exp(Math.fround(value - maximum))] as const,

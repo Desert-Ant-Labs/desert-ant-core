@@ -27,11 +27,9 @@ public final class Clear: @unchecked Sendable {
     }
 
     /// What to do with a multi-channel input. ``mono`` is the default because
-    /// keeping a pair costs an inference pass per channel (measured 1.8x), and
-    /// no app should start paying that for taking a new version.
+    /// keeping a pair costs an inference pass per channel (measured 1.8x).
     public enum ChannelMode: Sendable, Equatable {
-        /// Downmix before enhancement, emit one channel. What every release so
-        /// far did, whatever went in.
+        /// Downmix before enhancement, emit one channel.
         case mono
         /// Keep the input's layout, enhancing each channel separately.
         case preserve
@@ -89,7 +87,7 @@ public final class Clear: @unchecked Sendable {
     /// Wall time on the critical path, not summed CPU: channels run serially so
     /// their stages add up, and `modelPredict` is the whole session pool rather
     /// than the sum of its workers. ``totalSec`` sits a little under
-    /// ``Clear/Result/processingSec`` - the difference is model load.
+    /// ``Clear/Result/processingSec``; the difference is model load.
     public struct PhaseTimings: Sendable, Equatable {
         /// Resampling the input to 48 kHz, and the downmix in
         /// ``Clear/ChannelMode/mono``. Zero when the input was already 48 kHz mono.
@@ -155,12 +153,8 @@ public final class Clear: @unchecked Sendable {
     /// before the next starts, and `fraction` resets to 0 at every transition,
     /// so a caller can weight them however its UI needs.
     ///
-    /// Same cases, and the same order, as the standalone Clear SDK, so progress
-    /// code moves over unchanged. What sits behind them differs: that SDK made
-    /// two streaming passes over the file (analyze into a loudness meter, then
-    /// re-stream applying gain), while this pipeline runs the front end once,
-    /// then the model, then masters the result in memory. The split lands in
-    /// the same place - a quick analysis phase, then the long model phase.
+    /// Same cases, in the same order, as the standalone Clear SDK, so progress
+    /// code moves over unchanged.
     public enum Phase: Sendable, Equatable {
         /// Resolving the model: downloading or adopting the files, then
         /// building the platform's session. On Apple the first launch also
@@ -192,9 +186,6 @@ public final class Clear: @unchecked Sendable {
     /// actor before touching UI state.
     public typealias ProgressHandler = @Sendable (Progress) -> Void
 
-    // Resolving, downloading, single-flighting, and offline availability are
-    // `LoadedModel`; Clear adds only how a resolved directory becomes its
-    // session pool.
     // `internal` so the Apple streaming path (Streaming.swift) can drive the
     // same loader.
     let model: LoadedModel<ModelAssets>
@@ -223,8 +214,8 @@ public final class Clear: @unchecked Sendable {
     ///
     /// A LiteRT run holds its session for the duration, so more than one core
     /// means more than one session. Core ML overlaps requests on a single
-    /// session instead - `ParallelRuns` decides which, so this is only about
-    /// how many sessions exist to give it.
+    /// session instead. `ParallelRuns` decides which; this only sets how many
+    /// sessions it gets.
     static var sessionPoolSize: Int {
         #if canImport(CoreML) || os(WASI)
         return 1          // Core ML overlaps on one; LiteRT.js is already threaded
@@ -257,10 +248,9 @@ public final class Clear: @unchecked Sendable {
     }
 
     /// Like `init(revision: String)`, but with a ``RevisionRequirement``:
-    /// `.exact("v0.2.0")` behaves as above, while
-    /// `.from("v0.2.0")` (SwiftPM semantics: up to the next major) resolves to
-    /// the newest published tag
-    /// with the same major version at load time - and, offline, to the newest
+    /// `.exact("v0.2.0")` behaves as above, while `.from("v0.2.0")` (SwiftPM
+    /// semantics: up to the next major) resolves to the newest published tag
+    /// with the same major version at load time, and offline to the newest
     /// already-downloaded revision in range, so an installed device keeps
     /// working without the network. The resolved revision is reported on each
     /// ``Result/modelRevision``.
@@ -325,7 +315,7 @@ public final class Clear: @unchecked Sendable {
     /// commit hash). It is reported back on ``revisionRequirement``,
     /// ``modelRevision``, and every ``Result/modelRevision``, so a CI cache
     /// keyed by revision produces self-identifying runs. It is never checked
-    /// against the file - there is nothing offline to check it against.
+    /// against the file.
     public init(modelPath: String, revision: String? = nil,
                 computeUnits: ComputeUnits = .all) throws {
         // Built eagerly (this initializer throws), then handed to the loader so
@@ -346,7 +336,7 @@ public final class Clear: @unchecked Sendable {
     /// you populated yourself (an explicit `directory`) is not part of the
     /// managed cache and is not listed.
     ///
-    /// Note: a revision directory may hold one or both variants' files - the
+    /// A revision directory may hold one or both variants' files; the
     /// per-variant check is ``isDownloaded(variant:revision:directory:cacheRoot:)``.
     public static func models(cacheRoot: String? = nil) -> [String] {
         ModelVariant.default.distribution.installedModels(cacheRoot: cacheRoot)
@@ -393,7 +383,7 @@ public final class Clear: @unchecked Sendable {
     /// Enhance mono `samples` at `sampleRate`.
     ///
     /// `progress` reports ``Phase/loadingModel`` (only when the model is not
-    /// loaded yet), then ``Phase/enhancing``, then ``Phase/mastering``.
+    /// loaded yet), then ``Phase/analyzing``, then ``Phase/enhancing``.
     public func enhance(samples: [Float], sampleRate: Double,
                         options: Options = .default,
                         progress: ProgressHandler? = nil) async throws -> Result {
@@ -407,7 +397,7 @@ public final class Clear: @unchecked Sendable {
     ///
     /// Channels run one after another, not concurrently: the chunk loop already
     /// spreads a channel across the session pool, so overlapping them would
-    /// only contend. Mastering is joint - one gain, one limiter envelope - so
+    /// only contend. Mastering is joint (one gain, one limiter envelope), so
     /// it cannot move the stereo image; see
     /// ``Clear/Mastering/balanceChannelsLUFS`` for the exception.
     public func enhance(channels: [[Float]], sampleRate: Double,
@@ -433,8 +423,8 @@ public final class Clear: @unchecked Sendable {
         var phases = PhaseTimings()
         var mark = ContinuousClock.now
 
-        // Downmix before resampling: the mix is what the model then runs on, so
-        // doing it first is what actually saves the second inference pass.
+        // Downmix before resampling: the mix is what the model runs on, so
+        // doing it first saves the second inference pass.
         let source = options.channelMode == .mono && channels.count > 1
             ? [Self.downmix(channels)] : channels
         let input = source.map {
@@ -471,7 +461,7 @@ public final class Clear: @unchecked Sendable {
                 },
                 onChunk: { progress?(Progress(phase: .enhancing, fraction: base + $0 * span)) })
 
-            // Strength blend against the (resampled) input.
+            // Blend against the resampled input.
             if s < 1 {
                 mark = .now
                 let n = min(enhanced.count, channel.count)
@@ -541,8 +531,8 @@ public final class Clear: @unchecked Sendable {
     }
 
     #if canImport(Foundation) && !os(Android) && !os(WASI)
-    /// Decode any audio file, enhance it, and (optionally) write the result at
-    /// 48 kHz mono. The output encoding follows `outputPath`'s extension:
+    /// Decode any audio file, enhance it, and (optionally) write the result
+    /// (48 kHz mono by default). The output encoding follows `outputPath`'s extension:
     /// `.wav` gives 16-bit PCM, `.m4a`/`.mp4`/`.aac` gives AAC, `.caf`/`.aiff`
     /// gives PCM. An unrecognized extension writes WAV.
     ///
@@ -554,10 +544,9 @@ public final class Clear: @unchecked Sendable {
                         options: Options = .default,
                         progress: ProgressHandler? = nil) async throws -> Result {
         #if canImport(AVFoundation)
-        // Bounded-memory path: peak stays flat instead of growing with the
-        // file. Only when writing a file - a caller that wants the samples back
-        // is asking for the whole signal by definition. `Result.samples` is
-        // empty here; `durationSec` carries the length.
+        // Bounded-memory path, only when writing a file: a caller that wants the
+        // samples back needs the whole signal anyway. `Result.samples` is empty
+        // here; `durationSec` carries the length.
         if let outputPath {
             return try await enhanceStreaming(path: path, to: outputPath,
                                               options: options, progress: progress)
@@ -576,8 +565,8 @@ public final class Clear: @unchecked Sendable {
     #endif
 
     /// Enhance in-memory audio-file `bytes`, returning the enhanced samples and
-    /// a ready-to-write WAV byte buffer. The input's channel layout is kept
-    /// unless ``Options/channelMode`` is ``ChannelMode/preserve``.
+    /// a ready-to-write WAV byte buffer. Mono out unless ``Options/channelMode``
+    /// is ``ChannelMode/preserve``.
     public func enhance(bytes: [UInt8], options: Options = .default,
                         progress: ProgressHandler? = nil) async throws
         -> (result: Result, wav: [UInt8]) {

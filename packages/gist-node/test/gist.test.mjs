@@ -89,9 +89,8 @@ test("channel roll-up drops topics under the floor", () => {
   assert.deepEqual(rolled.map((t) => t.slug), ["a"]);
 });
 
-// The bug this migration fixed: the standalone package read `post.timestamp` and
-// `options.now` while its types (and Swift) said `timestampMillis`/`nowMillis`,
-// so decay silently never applied to anyone following the types.
+// Decay reads `timestampMillis`/`nowMillis`, the names the types and Swift use;
+// reading `timestamp`/`now` instead would silently never apply decay.
 test("recency decay uses timestampMillis and nowMillis", () => {
   const now = 10 * 86_400_000;
   const old = post({ a: 1 }, 0);

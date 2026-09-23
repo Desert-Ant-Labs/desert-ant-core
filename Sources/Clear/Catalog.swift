@@ -1,7 +1,3 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behavior (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The clear model: on-device speech enhancement (DeepFilterNet3).
@@ -9,16 +5,13 @@ public enum ClearModel: ModelDeclaration {
     public static let id = "clear"
     public static let product = "Clear"
     public static let revision = "v0.3.0"
-    /// Matches packages/clear-node/package.json and packages/clear-kotlin/build.gradle.kts
-    /// (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
-    /// The variant this declaration describes: the SDK default. The repo also
-    /// publishes `clear-natural`, which a caller selects per instance
-    /// (`Clear(variant:)`) and which downloads through ``ModelVariant`` rather
-    /// than through this manifest - the catalog entry stays one model's default
-    /// artifact, which is what tooling and the shared test fixture expect.
+    /// The SDK default. The repo also publishes `clear-natural`, which a caller
+    /// selects with `Clear(variant:)` and which downloads through ``ModelVariant``:
+    /// tooling and the shared test fixture expect the catalog entry to describe
+    /// one default artifact.
     public static let variant = ModelVariant.default
     /// Core ML export (a directory on the Hub): Apple. Already ANE-friendly and
     /// 6-bit palettized, so no per-platform export shaping is needed.
@@ -26,9 +19,8 @@ public enum ClearModel: ModelDeclaration {
     /// LiteRT export: Android/Linux/Windows, and LiteRT.js on the web.
     public static let tflite = variant.tflite
 
-    /// Unlike the text models, clear has no sidecars: the DSP front end
-    /// (`DSP.swift`/`Features.swift`) carries the constants that would otherwise
-    /// be a metadata file, so a platform ships exactly one artifact.
+    /// No sidecars: the DSP front end (`DSP.swift`/`Features.swift`) carries the
+    /// constants that would otherwise be a metadata file.
     public static let files: [ModelPlatform: [String]] = variant.files
     /// Core AI export: preferred on iOS 27 and macOS 27, with `files` as the fallback.
     public static let coreAI = variant.coreAI

@@ -1,11 +1,8 @@
 // NFKC via the Android host's java.text.Normalizer through CHostBridge, so the
-// pure-Swift core links no ICU. Using the platform libicu natively would force
-// the minSdk up to API 31 (that is when its NDK headers became public), and
-// bundling Foundation's ICU would add tens of megabytes; delegating to the host
-// (java.text.Normalizer exists since API 1) keeps the library small and lets the
-// SDK support older Android. The runtime shim (the JNI HostBridge) installs the
-// callback; until it does, text passes through unchanged, matching how the other
-// host-delegated primitives (Regex/JSON) behave without a host.
+// Swift core links no ICU. The platform libicu would force minSdk 31 (when its
+// NDK headers became public), and bundling Foundation's ICU would add tens of
+// megabytes; java.text.Normalizer exists since API 1. Until the JNI HostBridge
+// installs the callback, text passes through unchanged, like Regex and JSON.
 #if os(Android)
 import CHostBridge
 import CStrings

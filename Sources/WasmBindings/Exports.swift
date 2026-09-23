@@ -23,10 +23,9 @@ import JavaScriptKit
 /// What this module's model is, for the JS SDK that wraps it.
 ///
 /// `artifact` and `sidecars` are what a `modelBaseUrl` has to serve: the file the
-/// host compiles itself, and the files that cross into wasm. They used to be
-/// restated in each npm package's `codec.js` as `MODEL_FILES`, mirroring
-/// `Catalog.swift` with nothing checking the two agreed - so renaming an artifact
-/// broke the self-hosted path for consumers and nothing caught it.
+/// host compiles itself, and the files that cross into wasm. Reported from
+/// `Catalog.swift` rather than restated in each npm package's `codec.js`, where
+/// a renamed artifact would silently break the self-hosted path.
 @JS public struct ModelInfo {
     public var id: String
     public var sdkVersion: String

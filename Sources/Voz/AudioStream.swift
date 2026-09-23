@@ -138,8 +138,8 @@ final class FileAudioStream: AudioStream {
     ///
     /// Rate conversion keeps a tail internally, and telling it "no data right
     /// now" between chunks correctly does not release that. Only end-of-stream
-    /// does, and without this the last few hundred samples of every file were
-    /// silently lost - 40 ms of an eleven-second clip, which is a whole word.
+    /// does, and without this the last few hundred samples of every file are
+    /// silently lost: 40 ms of an eleven-second clip, which is a whole word.
     private func drain(into buffer: inout [Float]) throws -> Int {
         guard !drained else { return 0 }
         drained = true

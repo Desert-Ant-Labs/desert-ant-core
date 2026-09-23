@@ -1,20 +1,9 @@
-// How Clear obtains and shapes its model: the download/adopt sources and the
-// `ModelAssets` the pipeline consumes. (Running the model is `Enhancer.swift`.)
-// All platform variation is data (which artifact ships where, declared in
-// `Catalog.swift`); building the platform's session is DesertAnt's
-// `inferenceSession` factory - Core ML on Apple, LiteRT on Android/Linux, the JS
-// host on the web.
 import DesertAnt
-
-// The SDK's usage identity (`ClearModel.sdkInfo`) is derived from the catalog
-// declaration's `product` + `sdkVersion`, so it cannot drift from the published
-// package version or be forgotten on a session.
 
 /// Ready inference sessions for the enhancement model. A pool (one per worker)
 /// lets the chunk loop use multiple cores on native platforms; usually one.
 ///
-/// Also the entry point for the cross-language bindings and custom deployments
-/// (not part of the Swift SDK's public API, which loads the model for you).
+/// The entry point for custom deployments; the public Swift API loads the model itself.
 @_spi(ClearBindings)
 public struct ModelAssets: Sendable {
     let sessions: [any InferenceSession]
@@ -80,12 +69,3 @@ public extension Clear {
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { ClearModel.revision }
 }
-
-// MARK: shipping the model with your app
-
-// This package bundles no model artifact and has no resource bundle to load one
-// from. The model is downloaded on demand: to a managed cache location by
-// default, or to the `directory` you pass. Shipping the model with your app is
-// therefore just pointing `directory` at a folder that already holds this
-// platform's artifact - it is then used offline, with no download. (Android's
-// equivalent is classpath resources, and wasm always downloads.)

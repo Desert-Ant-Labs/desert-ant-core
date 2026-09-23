@@ -1,10 +1,7 @@
 import DesertAnt
 
 /// The neural stage plus geometry verification: preprocess a stroke into the
-/// model's feature vectors, classify it through the shared `InferenceSession`
-/// (Core ML | LiteRT | JS host, chosen by the core), then fit and gate the
-/// proposed shape. This file only knows shapes' tensor layout; the runtime is
-/// oblivious.
+/// model's feature vectors, classify it, then fit and gate the proposed shape.
 final class Model: @unchecked Sendable {
     private let session: any InferenceSession
     private let meta: ShapeMeta
@@ -41,8 +38,6 @@ final class Model: @unchecked Sendable {
         if Float(residual) > gate.resid { return nil }
         return shape
     }
-
-    // MARK: inference
 
     /// Run the classifier over one stroke's features, returning the top class
     /// index and its probability.

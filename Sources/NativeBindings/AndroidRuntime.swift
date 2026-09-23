@@ -48,9 +48,7 @@ public func androidDownload(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?
 }
 
 /// Run the model over the input and options payloads Kotlin wrote. Both cross as
-/// byte arrays, so this is one entry for every modality: the audio path used to
-/// decode samples here only to hand them to a typed `nativeRunAudio`, which the
-/// model then re-read - the payload now goes straight through.
+/// byte arrays, so this is one entry for every modality.
 public func androidRun(
     _ env: UnsafeMutablePointer<JNIEnv?>,
     _ cls: jclass?,

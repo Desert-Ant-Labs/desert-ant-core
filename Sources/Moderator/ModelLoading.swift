@@ -1,12 +1,7 @@
-// How Moderator obtains its model: the `ModelAssets` the pipeline consumes.
-// (Running the model is `Model.swift`.) All platform variation is data here
-// (which artifact ships where, in `Catalog.swift`); building the platform's
-// session is DesertAnt's `inferenceSession` factory.
 import DesertAnt
 
-/// A ready inference session for the classifier. Also the entry point for the
-/// cross-language bindings and custom deployments (not part of the Swift SDK's
-/// public API, which loads the model for you).
+/// A ready inference session for the classifier. The entry point for custom
+/// deployments; the public Swift API loads the model itself.
 @_spi(ModeratorBindings)
 public struct ModelAssets: Sendable {
     let session: any InferenceSession
@@ -32,10 +27,3 @@ public extension Moderator {
     /// The model revision this SDK is built against (pinned; not configurable).
     static var modelRevision: String { ModeratorModel.revision }
 }
-
-// MARK: shipping the model with your app
-
-// This package bundles no model artifact. The model is downloaded on demand: to
-// a managed cache location by default, or to the `directory` you pass. Shipping
-// the model with your app is pointing `directory` at a folder that already holds
-// this platform's artifact; it is then used offline, with no download.

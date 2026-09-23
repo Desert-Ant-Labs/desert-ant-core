@@ -1,9 +1,8 @@
 // Redact's FFI payload schemas: the options a run takes and the result it
 // returns.
 //
-// These are the only model-specific part of talking to the core, and both cores
-// speak the same payloads - the native `dal_run` (node.js) and the WebAssembly
-// `run` (browser.js) - so they live here once instead of in each entry point.
+// Both cores (the native `dal_run` and the WebAssembly `run`) speak the same
+// payloads, so they live here once.
 // Mirrors the reader/writer in Sources/Redact/Binding.swift.
 import { FfiWriter } from "@desert-ant-labs/core";
 
@@ -13,14 +12,14 @@ export const MODEL_ID = "redact";
 
 export const PACKAGE_NAME = "@desert-ant-labs/redact";
 
-/** Options payload: `f64 minimumConfidence`, then a `u32` label count and that
- *  many length-prefixed names (an empty list means every label). */
 /** Input payload: the text, length-prefixed UTF-8. Mirrors Redact's
  *  `run(input:options:)` in Sources/Redact/Binding.swift. */
 export function encodeInput(text) {
   return new FfiWriter().str(text).done();
 }
 
+/** Options payload: `f64 minimumConfidence`, then a `u32` label count and that
+ *  many length-prefixed names (an empty list means every label). */
 export function encodeOptions({ minimumConfidence, labels }) {
   return new FfiWriter().f64(minimumConfidence).strings(labels ?? []).done();
 }

@@ -1,26 +1,14 @@
 #if canImport(CoreML)
-// The usage turnstile, wired directly.
-//
-// emo, redact and clear never write this: they reach Core ML through
-// `Inference`, whose session factory wraps everything it builds in a
-// `TrackedSession`, so there is no untracked path. This model does not use that
-// factory - Catalog.swift explains why, and it costs roughly 127x on load and a
-// third of decode throughput to go back - so until now it was the one SDK that
-// reported nothing at all. The client is opened here instead, exactly as
-// `Tongue` does for the same reason.
-//
-// Same guarantees, reached differently: one turnstile per `Voz`, opened on the
-// first transcription, a call recorded per transcription, and a debounced flush that
-// coalesces a burst into one send. The state machine, storage keys and wire
-// format all come from core's `Usage`, so a device counts identically however it
-// reached the endpoint.
+// The usage turnstile, wired directly. Other models get usage from `Inference`,
+// which wraps every session in a `TrackedSession`; this model drives Core ML
+// directly (Catalog.swift explains why; the factory costs roughly 127x on load
+// and a third of decode throughput), so the client is opened here, as `Tongue`
+// does. The state machine, storage keys and wire format come from core's `Usage`.
 //
 // A call is one transcription, not one `predict`. Ten minutes of speech is about
 // 370 dispatches across three Core ML programs, and billing those individually
-// would count one user-facing operation hundreds of times, at a rate that varies
-// with the length of the audio. Core has the same rule for the same reason:
-// `InferenceContext.callGroup` makes a multi-run operation bill as one. This is
-// that rule, reached without the session.
+// would count one user-facing operation hundreds of times. This is the rule
+// `InferenceContext.callGroup` applies, reached without the session.
 
 import DesertAnt
 

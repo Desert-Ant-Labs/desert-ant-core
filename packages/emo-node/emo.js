@@ -1,13 +1,10 @@
-// Emo's public API, over whichever core the entry point bound: the browser's
-// WebAssembly + LiteRT.js core (browser.js) or the prebuilt native core
-// (node.js). Both expose the same ABI, and @desert-ant-labs/core turns either
-// one into the same `LoadedModel`, so the API is written once here instead of
-// once per runtime.
+// Emo's public API, written once over whichever core the entry point bound
+// (browser.js's WebAssembly core or node.js's native core); @desert-ant-labs/core
+// turns either into the same `LoadedModel`.
 import { decodeSuggestions, encodeInput, encodeOptions, SKIN_TONES } from "./codec.js";
 
 /**
  * Build the `Emo` class over a bound SDK (`createWasmSdk` / `createNativeSdk`).
- * The entry points do nothing but call this.
  */
 export function makeEmo(sdk) {
   /**

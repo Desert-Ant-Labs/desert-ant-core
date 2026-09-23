@@ -2,11 +2,8 @@ import DesertAnt
 import Transcript
 
 /// The neural stage: tokenize sentences and spans into the exports' fixed
-/// batch-16 x 128-token buckets, run them through the shared
-/// `InferenceSession` (Core ML | LiteRT, chosen by desert-ant-core), and read
-/// the per-sentence signals and per-span scores. This file only knows clip's
-/// tensor layout; the runtime is oblivious. Choosing which spans to keep is
-/// `Pipeline.swift`.
+/// batch-16 buckets and read the per-sentence signals and per-span scores.
+/// Choosing which spans to keep is `Pipeline.swift`.
 ///
 /// The exported signatures:
 ///
@@ -14,65 +11,49 @@ import Transcript
 ///               -> saliency[16], start_p[16], end_p[16]
 ///     scorer:   ids[16,128] int32, mask[16,128] int32 -> score[16]
 ///
-/// The two functions CAN run at different sequence lengths — the package format
-/// supports it and the exporters build it — but the shipping artifact runs both
-/// at 128. See ``Model/scoreSeqLen`` for why that is not the window the scorer
-/// trained at, and what it would cost to change.
+/// The signatures above are the 128 package's. The two functions can run at
+/// different sequence lengths, so widths are read from the loaded graph (see
+/// ``Model/scoreSeqLen``).
 ///
 /// Fixed shapes throughout: sessions cache their input buffers per shape and
 /// rebuild whenever one changes, so feeding arbitrary lengths would trade
-/// padding waste for buffer churn. Two fixed shapes, one per function, keeps
-/// that property - each session still sees exactly one shape for its lifetime.
+/// padding waste for buffer churn. Each session sees exactly one shape.
 final class Model: @unchecked Sendable {
-    /// Batch 16 is optimal and throughput DEGRADES above it: 2.92 ms/candidate
+    /// Batch 16 is optimal and throughput degrades above it: 2.92 ms/candidate
     /// at 16, 3.18 at 32, 3.73 at 64. Opposite to GPU intuition; do not raise it.
     static let batch = 16
 
-    /// The SELECTOR graph's buffer width. A property of the compiled artifact, and NOT the
-    /// point at which a sentence is truncated — see ``sentenceTokens``.
+    /// Fallback selector buffer width. A property of the compiled artifact, not the point
+    /// at which a sentence is truncated (see ``sentenceTokens``).
     static let seqLen = 128
 
-    /// Where a SENTENCE is cut for the selector, and the window its heads were TRAINED at.
+    /// Where a sentence is cut for the selector: the window its heads were trained at.
     ///
     /// Not `seqLen`. `train_selector.py:195` pools sentence embeddings at `heads.MAXTOK` = 64,
     /// `train_spans.py:70` tokenizes at the same constant, and every checkpoint's
-    /// `run_manifest.json` records `"sentence_window": 64` as a first-class config field. The
-    /// saliency, start and end heads have never seen a sentence pooled over more than 64
-    /// tokens.
+    /// `run_manifest.json` records `"sentence_window": 64`. Cutting at 128 runs the heads
+    /// off-distribution on 3.47% of sentences and 76% of the frozen holdout's videos, and
+    /// changes the emitted clip set on 30% of a 20-video quantile sample (micro-IoU 0.901).
     ///
-    /// This was `seqLen`, i.e. 128, because one constant served as both the buffer width and
-    /// the truncation point. That ran the heads off-distribution on 3.47% of sentences and
-    /// **76% of the frozen holdout's videos**, and changed the emitted clip set on 30% of a
-    /// 20-video quantile sample (micro-IoU 0.901 against the trained path).
-    ///
-    /// It needs no re-export: masked-mean pooling plus the additive attention mask means a
-    /// 128-wide buffer fed a mask zeroed past token 64 is bit-identical to a 64-wide graph.
+    /// Masked-mean pooling plus the additive attention mask make a 128-wide buffer fed a
+    /// mask zeroed past token 64 bit-identical to a 64-wide graph, so no re-export is needed.
     static let sentenceTokens = 64
 
-    /// Fallback SCORER window, used only when a runtime cannot report its own shape.
+    /// Fallback scorer window, used only when a runtime cannot report its own shape.
     ///
-    /// The real width is read from the loaded graph — see ``scoreWidth`` — because it is the
-    /// axis the model arms vary and the two candidate packages differ in exactly this number:
-    /// the 128 package serves `score` at [16,128] and the 256 package at [16,256], identical
-    /// in every other respect of their I/O. Hardcoding it truncates every candidate to 128 on
-    /// a 256 artifact and returns a null by construction, which is what `bench_latency.py` was
-    /// retired for.
-    ///
-    /// A 256 build was promoted and unwound on 2026-08-10 for want of evidence. That evidence
-    /// now exists and is in `docs/export.md`: measured end to end on real transcripts rather
-    /// than extrapolated from a scorer multiplier, 256 costs +75% to +134% and buys +0.068
-    /// Likert, which the product owner has accepted.
+    /// The real width is read from the loaded graph (``scoreWidth``) because it is the axis
+    /// the model arms vary: the 128 package serves `score` at [16,128] and the 256 package at
+    /// [16,256], identical otherwise. Hardcoding it would truncate every candidate to 128 on a
+    /// 256 artifact. `docs/export.md` has the end-to-end cost of 256: +75% to +134% for
+    /// +0.068 Likert.
     static let scoreSeqLen = 128
 
     private let selector: any InferenceSession
     private let scorer: any InferenceSession
     private let tokenizer: Tokenizer
 
-    /// Buffer widths taken from the LOADED GRAPHS, falling back to the constants above only
-    /// when a runtime cannot report shapes. This is what lets one binary serve the 128 package
-    /// and the 256 package without a rebuild, and what stops a 256 artifact being silently
-    /// truncated to 128 — which would make a window comparison return no difference by
-    /// construction.
+    /// Buffer widths taken from the loaded graphs, so one binary serves the 128 and 256
+    /// packages without a rebuild and a 256 artifact is never silently truncated to 128.
     private var selectWidth: Int { selector.inputWidth("ids") ?? Self.seqLen }
     private var scoreWidth: Int { scorer.inputWidth("ids") ?? Self.scoreSeqLen }
 
@@ -92,8 +73,6 @@ final class Model: @unchecked Sendable {
         let saliency = try await perSentenceSaliency(transcript)
         // Computed once and threaded through: the anchor count is `budget * 4`, so enumeration
         // and ranking must size from one number or the pool is not the one the ranker expects.
-        // This is also where a caller's limit earns its latency: a smaller ceiling means a
-        // smaller pool and fewer scorer passes, which is most of the runtime.
         let candidates = Pipeline.enumerateCandidates(
             count: transcript.count, saliency: saliency,
             budget: Pipeline.budget(for: transcript, limit: limit))
@@ -104,11 +83,8 @@ final class Model: @unchecked Sendable {
                              limit: limit)
     }
 
-    // MARK: inference
-
-    /// Per-sentence saliency, batched. `start_p`/`end_p` are read off the same
-    /// pass because the export emits all three, but only saliency picks anchors
-    /// today - the span boundaries come from the scorer's ranking instead.
+    /// Per-sentence saliency, batched. The export also emits `start_p`/`end_p`,
+    /// but only saliency picks anchors; span boundaries come from the scorer's ranking.
     private func perSentenceSaliency(_ sentences: [String]) async throws -> [Double] {
         var saliency: [Double] = []
         saliency.reserveCapacity(sentences.count)
@@ -169,16 +145,13 @@ final class Model: @unchecked Sendable {
     /// final batch stay all-zero, and are dropped by the caller rather than read
     /// back.
     ///
-    /// `width` is the buffer STRIDE and is a parameter rather than a constant because the two
-    /// graphs run at different lengths. Truncating to one width and indexing with another
-    /// silently interleaves rows - every row after the first lands at the wrong offset, the
+    /// `width` is the buffer stride. Truncating to one width and indexing with another
+    /// silently interleaves rows: every row after the first lands at the wrong offset, the
     /// mask stops matching the ids, and the model returns finite numbers for a scrambled batch.
     ///
-    /// `truncateAt` is where the TEXT is cut, and it defaults to the stride because for the
-    /// scorer the two are the same number. For the selector they are not: the buffer is the
-    /// graph's 128 and the cut is the heads' trained 64. Keeping them as one parameter is what
-    /// ran the selector off-distribution on 76% of holdout videos, so they are two parameters
-    /// now and the caller states both.
+    /// `truncateAt` is where the text is cut. It defaults to the stride, which is right for the
+    /// scorer; the selector's buffer is 128 but its cut is the heads' trained 64
+    /// (``sentenceTokens``).
     private func write(_ text: String, row r: Int, ids: inout [Int32], mask: inout [Int32],
                        width: Int = Model.seqLen, truncateAt: Int? = nil) {
         let cut = min(truncateAt ?? width, width)

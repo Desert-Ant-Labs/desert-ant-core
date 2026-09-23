@@ -1,7 +1,7 @@
 /// A category of personal information that ``Redact`` can detect.
 ///
 /// The raw value is the stable public label string (e.g. `"GIVEN_NAME"`) used in
-/// the default redaction placeholder `[GIVEN_NAME]`.
+/// redaction placeholders like `[GIVEN_NAME_1]`.
 public enum Label: String, Sendable, Hashable, CaseIterable {
     case givenName = "GIVEN_NAME"
     case surname = "SURNAME"
@@ -24,7 +24,7 @@ public enum Label: String, Sendable, Hashable, CaseIterable {
     case taxID = "TAX_ID"
     case ssn = "SSN"
     case imei = "IMEI"
-    /// An organisation or company name. **Not redacted by default** — a company
+    /// An organisation or company name. **Not redacted by default**: a company
     /// is not a natural person. Detected so it can be identified rather than
     /// mislabelled as a `SURNAME`; opt in via ``Options/labels``.
     case org = "ORG"

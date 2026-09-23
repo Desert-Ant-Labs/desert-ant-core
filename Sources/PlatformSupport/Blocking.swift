@@ -11,9 +11,8 @@ private final class BlockingBox<Value: Sendable>: @unchecked Sendable {
 /// thread blocks until the operation finishes, so the value is touched by exactly
 /// one thread at a time. A model is not Sendable (a LiteRT interpreter is not
 /// thread-safe, which is why Clear pools sessions), and two host threads calling
-/// one handle concurrently is the host's contract to avoid - as it was before the
-/// language could say so. Keeping the assertion here means no FFI entry point has
-/// to make it.
+/// one handle concurrently is the host's contract to avoid. Keeping the assertion
+/// here means no FFI entry point has to make it.
 private struct Transferred<Value>: @unchecked Sendable {
     let value: Value
 }

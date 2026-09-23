@@ -7,7 +7,7 @@ import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 /**
- * `ai.desertant.jvm-model-sdk`: the convention for a pure-Kotlin model module —
+ * `ai.desertant.jvm-model-sdk`: the convention for a pure-Kotlin model module:
  * a plain JVM jar rather than an AAR, because the model is a direct Kotlin port
  * with no native library, no LiteRT and no Android-only surface. The same
  * bytecode serves Android and the JVM, so the module deliberately takes no

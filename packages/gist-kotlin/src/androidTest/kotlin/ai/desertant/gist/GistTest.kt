@@ -63,7 +63,7 @@ class GistTest {
         assertTrue(gist.scores("").isEmpty())
     }
 
-    /** The roll-up is pure Kotlin, so it needs no model — but it must agree with
+    /** The roll-up is pure Kotlin, so it needs no model, but it must agree with
      *  the Swift and JS implementations on the same posts. */
     @Test fun channelRollupRanksByShare() {
         val posts = listOf(

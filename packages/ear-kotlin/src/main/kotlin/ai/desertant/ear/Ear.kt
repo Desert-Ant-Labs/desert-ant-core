@@ -33,8 +33,8 @@ data class Detection(
      * reveal the problem and a margin test cannot catch it. Branch on this
      * rather than on [confidence].
      *
-     * Decided natively rather than recomputed here: the rule behind it is
-     * measured, and three SDKs reimplementing it is three chances to differ.
+     * Decided natively rather than recomputed here; see
+     * Sources/Ear/Binding.swift.
      */
     val isReliable: Boolean,
 ) {
@@ -69,10 +69,6 @@ class EarException(message: String) : Exception(message)
  * if (d.isReliable) route(d.language)
  * ear.close()
  * ```
- *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Ear's API and
- * its payload schemas.
  *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),

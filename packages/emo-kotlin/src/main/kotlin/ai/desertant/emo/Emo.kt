@@ -30,10 +30,6 @@ class EmoException(message: String) : Exception(message)
  * emo.close()
  * ```
  *
- * Creating, downloading, running, and releasing the model are the shared
- * `ai.desertant:core` shell ([LoadedModel]); what lives here is Emo's API and
- * its payload schemas.
- *
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model just points at the folder it unpacked it into),
  *   otherwise the model is downloaded into it. Omit to use the app cache.
@@ -44,8 +40,8 @@ class Emo(
 ) : AutoCloseable {
     private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::EmoException, EmoNative)
 
-    // The old handle factory lived here. Keep the marker so the generated JVM
-    // `Emo.Companion` field remains binary-compatible.
+    // Kept so the generated JVM `Emo.Companion` field stays binary-compatible
+    // with earlier releases.
     companion object
 
     /** Whether the model is available for this suggester with no network. */
@@ -67,9 +63,6 @@ class Emo(
         text: String, limit: Int = 3, skinTone: EmojiSkinTone = EmojiSkinTone.DEFAULT,
     ): List<EmoSuggestion> {
         if (text.isBlank()) return emptyList()
-        // Options payload: u32 limit, u32 skinTone; result payload: a count, then
-        // per suggestion an emoji string and an f64 confidence. Must match
-        // Sources/Emo/Binding.swift.
         // Input payload: the phrase. Options payload: u32 limit, u32 skinTone.
         // Result payload: a count, then per suggestion an emoji string and an f64
         // confidence. All three must match Sources/Emo/Binding.swift.

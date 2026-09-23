@@ -9,7 +9,7 @@ import TestSupport
 #if !os(WASI)
 
 /// The Swift Unigram tokenizer must reproduce the training (model2vec) tokenizer's
-/// ids exactly — the whole semantic stream depends on identical token ids.
+/// ids exactly - the whole semantic stream depends on identical token ids.
 @Suite(.modelBacked)
 struct TokenizerTests {
     struct Case: Decodable { let text: String; let ids: [Int] }

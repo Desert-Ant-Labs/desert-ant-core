@@ -1,16 +1,15 @@
 // A model's declaration of what it needs, provided by each model SDK.
 //
-// Foundation-free on purpose: the orchestration (this file, ModelStore,
-// FileMetadata) must build on Android and wasm, where Foundation is avoided.
+// Foundation-free: the orchestration (this file and ModelStore) must build on
+// Android and wasm, where Foundation is avoided.
 // Platform I/O lives behind the `ModelTransport` and `FileSystem` seams; only
 // their Apple/Linux backends touch Foundation.
 
 /// What a model is and where its files come from.
 ///
-/// `files` are repo-relative paths; a compiled artifact that is a directory on
-/// the Hub (e.g. a Core ML `.mlmodelc`) is listed as its individual files
-/// (`redact.mlmodelc/model.mil`, `redact.mlmodelc/weights/weight.bin`, …), so
-/// the store fetches, verifies, and checks them per file with no special-casing.
+/// `files` are repo-relative paths. A directory on the Hub (e.g. a Core ML
+/// `.mlmodelc`) ends in `/`; the store expands it through the Hub tree and
+/// fetches, verifies, and checks it per file.
 public struct ModelSpec: Sendable, Equatable {
     /// Hugging Face repo id, e.g. `"desert-ant-labs/redact"`.
     public let repo: String

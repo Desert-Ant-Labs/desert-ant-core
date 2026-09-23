@@ -98,7 +98,7 @@ struct AudioDSPTests {
 
     // MARK: limiter
 
-    /// The regression the limiter exists to fix. A signal that is quiet apart
+    /// The case the limiter exists for. A signal that is quiet apart
     /// from one loud transient cannot be mastered by a single static gain: to
     /// keep the transient under the ceiling the whole file has to come down,
     /// landing well below the requested loudness. The limiter takes the gain
@@ -115,7 +115,7 @@ struct AudioDSPTests {
         let after = try #require(Loudness.integratedLUFS(y, sampleRate: sr))
         let ceiling = Float(pow(10, -1.0 / 20))
 
-        // What the static backoff this replaced would have produced: one gain
+        // What a static backoff would produce: one gain
         // for the whole signal, scaled down until the transient fits.
         let staticGain = Float(pow(10, min(-19 - measured!, 30) / 20))
         var scaled = x.map { $0 * staticGain }
@@ -127,7 +127,7 @@ struct AudioDSPTests {
         // and cannot: the transient inflates the *input* measurement, so the
         // gain is chosen for a signal whose energy the limiter then removes.
         #expect(abs(after - (-19)) <= 1.5)
-        // The backoff misses by far more - that is the regression being fixed.
+        // The backoff misses by far more.
         #expect(staticAfter < after - 5)
 
         // And the ceiling still holds, which is all the backoff ever bought.
@@ -209,8 +209,8 @@ struct AudioDSPTests {
 
     // MARK: multi-channel loudness
 
-    /// The mono path must not have moved: a one-channel meter has to agree with
-    /// the mono entry point exactly, or every existing measurement shifted.
+    /// A one-channel meter has to agree with the mono entry point exactly, or
+    /// every existing measurement shifts.
     @Test func oneChannelMatchesTheMonoMeter() throws {
         let sr = 48_000.0
         let x = (0..<Int(3 * sr)).map { Float(0.1 * sin(2 * .pi * 1000 * Double($0) / sr)) }

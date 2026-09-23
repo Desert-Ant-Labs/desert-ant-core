@@ -50,9 +50,6 @@ public enum EmoError: MessageError, Sendable {
 /// // "🏃🏽"
 /// ```
 public final class Emo: @unchecked Sendable {
-    // Resolving the files, loading once, sharing that load, and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Emo adds only how a resolved directory becomes its model.
     private let model: LoadedModel<Model>
 
     /// Creates a suggester. Construction does no work and starts no download;

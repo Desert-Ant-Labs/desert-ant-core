@@ -2,8 +2,8 @@
  * Node half of the platform split. See platform.browser.ts for why this exists.
  *
  * Everything that touches a Node builtin lives here, and the `browser` condition
- * in package.json means a browser build never resolves this file — so `node:fs`
- * and friends cannot break a webpack or esbuild build the way they used to.
+ * in package.json means a browser build never resolves this file, so `node:fs`
+ * and friends cannot break a webpack or esbuild build.
  */
 import type { Metadata } from "./model.js";
 import { setUsageStorage } from "./usage.js";
@@ -11,10 +11,10 @@ import { setUsageStorage } from "./usage.js";
 /**
  * Give the usage turnstile somewhere durable to keep its device id.
  *
- * Node has no `localStorage`, so without this every process minted a fresh id
- * and billing counts distinct devices — a server-side customer was billed once
- * per process start. Best-effort: an unwritable home directory just leaves the
- * turnstile in memory.
+ * Node has no `localStorage`, so without this every process would mint a fresh
+ * id, and since billing counts distinct devices, a server-side caller would be
+ * billed once per process start. Best-effort: an unwritable home directory
+ * leaves the turnstile in memory.
  */
 export async function installUsageStorage(): Promise<void> {
   try {

@@ -1,4 +1,4 @@
-// NFKC via the JS host's String.prototype.normalize on WebAssembly, keeping ICU
+// Normalization via the JS host's String.prototype.normalize, keeping ICU
 // out of the wasm payload.
 #if os(WASI)
 import JavaScriptKit

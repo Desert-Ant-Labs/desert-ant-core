@@ -12,13 +12,9 @@ import TestSupport
 /// language it returns means nothing. It exercises the seam that accuracy tests
 /// never reach: downloading the pinned revision, finding the files the catalog
 /// names, binding the tensors each runtime names differently, and getting a
-/// distribution back.
-///
-/// That seam is where every bug in this SDK has been. The catalog asked for
-/// `detector.mlmodelc` after the artifact was renamed to `ear.mlmodelc`; the
-/// LiteRT graph declared `serving_default_args_0` where the code passed `mel`;
-/// its output is `output_0` where Core ML's is `logits`. All three were found by
-/// reading files by hand. None of them would have survived this test.
+/// distribution back. File names and tensor names (LiteRT's
+/// `serving_default_args_0`/`output_0` against Core ML's `mel`/`logits`) only
+/// meet the code here.
 //
 // `.serialized` and the shared fixture, which is the house pattern: swift-testing
 // runs a suite in parallel by default, and several instances resolving the same

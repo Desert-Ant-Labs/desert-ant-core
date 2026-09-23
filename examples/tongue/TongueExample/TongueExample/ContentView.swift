@@ -34,7 +34,7 @@ struct ContentView: View {
 
     /// Recomputed on every keystroke, on the main thread, deliberately: showing
     /// that no debounce and no background queue are needed is half the point.
-    /// `nil` while the field is empty — there is nothing to identify.
+    /// `nil` while the field is empty - there is nothing to identify.
     private var detection: Detection? {
         guard let tongue, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return tongue.detect(text)

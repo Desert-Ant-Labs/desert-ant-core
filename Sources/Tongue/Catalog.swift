@@ -1,9 +1,8 @@
-// This model's catalog declaration. Tongue is bundled, not downloaded: the
-// whole model is 2 MB of int8 weights plus a metadata JSON, shipped inside
-// every package (a SwiftPM target resource, the npm package's dist/, the jar's
-// resources). The Hub repo desert-ant-labs/tongue mirrors the same bytes for
-// the website demo, but no ModelStore path in any SDK resolves this manifest,
-// and there is no HubDownloadTests here on purpose.
+// Tongue is bundled, not downloaded: 2 MB of int8 weights plus a metadata JSON,
+// shipped inside every package (a SwiftPM target resource, the npm package's
+// dist/, the jar's resources). The Hub repo mirrors the same bytes for the
+// website demo, but no SDK resolves this manifest, so there are no Hub download
+// tests for it.
 
 import DesertAnt
 
@@ -15,8 +14,6 @@ public enum TongueModel: ModelDeclaration {
     /// bundled copies). The SDKs never download them; the website demo does,
     /// and pins this tag rather than trailing main.
     public static let revision = "v1.0.0"
-    /// Matches packages/tongue-node/package.json and
-    /// packages/tongue-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "On-device language identification for short text across 84 languages."
 
@@ -25,10 +22,8 @@ public enum TongueModel: ModelDeclaration {
     /// Vocabulary hashing constants, the language list, and calibration.
     public static let meta = "tongue_meta.json"
 
-    /// The same two files everywhere: every platform bundles them rather than
-    /// downloading them. The Kotlin port covers Android and the JVM, the
-    /// TypeScript port covers web and Node, and the Swift target covers Apple
-    /// platforms and Linux.
+    /// The same two bundled files everywhere. The Kotlin port covers Android and
+    /// the JVM, the TypeScript port web and Node, the Swift target Apple and Linux.
     public static let files: [ModelPlatform: [String]] = [
         .apple: [weights, meta],
         .android: [weights, meta],

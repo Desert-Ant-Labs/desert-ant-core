@@ -80,9 +80,8 @@ struct AudioIOTests {
     }
 
     #if canImport(AVFoundation)
-    /// The regression this whole change is about: an `.m4a` destination used to
-    /// receive RIFF/WAVE bytes. It must now be a real MPEG-4 AAC file that
-    /// decodes back to the same audio, and be far smaller than the PCM.
+    /// An `.m4a` destination must receive a real MPEG-4 AAC file, not RIFF/WAVE
+    /// bytes, that decodes back to the same audio and is far smaller than the PCM.
     @Test func m4aExtensionProducesAAC() async throws {
         // 48 kHz mono is what Clear emits, and the rate the explicit AAC bit
         // rate applies at.
@@ -98,7 +97,7 @@ struct AudioIOTests {
             try? FileManager.default.removeItem(at: wav)
         }
 
-        // Not a RIFF container: the old behaviour would have written one.
+        // Not a RIFF container.
         let head = try [UInt8](Data(contentsOf: m4a).prefix(12))
         #expect(Array(head[0..<4]) != Array("RIFF".utf8))
         #expect(Array(head[4..<8]) == Array("ftyp".utf8), "expected an MPEG-4 box")
@@ -136,13 +135,9 @@ struct AudioIOTests {
     // should keep proving it.
     #if !os(WASI)
     @Test func fourteenChannelMixdown() async throws {
-        // A real 14-channel field capture found two bugs in the Apple decode
-        // path: beyond stereo AVAudioConverter has no downmix matrix and
-        // silently returned channel 0 as the "mixdown", and the whole-file
-        // single-buffer convert died with std::overflow_error once the file
-        // was large enough (2.2 GB) to overflow AVFoundation's 32-bit byte
-        // counts. The size half cannot be reproduced at fixture scale and is
-        // fixed by chunking; this guards the correctness half. Channel c
+        // Beyond stereo AVAudioConverter has no downmix matrix and silently
+        // returns channel 0 as the "mixdown". (The size hazard of large
+        // multichannel files is the long-running test below.) Channel c
         // carries a constant c/14, so the mono mixdown must be the average of
         // 0/14...13/14 = 6.5/14, not channel 0's flat zero.
         let sr = 16000
@@ -161,14 +156,12 @@ struct AudioIOTests {
 
     #if canImport(AVFoundation)
     @Test(.longRunning) func multiGigabyteDecodeDoesNotOverflow() async throws {
-        // The crash half of the 14-channel story (the mixdown half is above):
-        // decoding a 2.2 GB capture died with std::overflow_error because the
-        // whole-file convert allocated input buffers for every frame at once,
-        // and frames x channels x 4 bytes crossed AVFoundation's 32-bit byte
-        // counts. The threshold is real (about 2.15 GB of 16-bit source), so a
+        // A whole-file convert allocates input buffers for every frame at once,
+        // and once frames x channels x 4 bytes crosses AVFoundation's 32-bit
+        // byte counts it dies with std::overflow_error. The threshold is real (about 2.15 GB of 16-bit source), so a
         // dense fixture cannot carry it; a sparse file of implicit zeros can,
         // at no disk cost. Apple-gated: the portable path reads whole files
-        // into memory by design and never had the 32-bit limit.
+        // into memory by design and has no 32-bit limit.
         let channels = 14, sr = 48000
         let frames = 78_000_000  // x 14ch x 4B float32 = 4.37 GB > UInt32.max
         let dataSize = frames * channels * 2

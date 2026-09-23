@@ -1,12 +1,10 @@
 import DesertAnt
 
-/// XLM-R / bge-m3 SentencePiece **Unigram** tokenizer, ported to pure Swift and
-/// verified to reproduce the training tokenizer's ids exactly (NFKC normalization,
-/// no lowercasing, `▁` metaspace, Viterbi over the vocab with a `min_score − 10`
+/// XLM-R / bge-m3 SentencePiece **Unigram** tokenizer (NFKC normalization, no
+/// lowercasing, `▁` metaspace, Viterbi over the vocab with a `min_score − 10`
 /// unknown penalty). Backed by a compact `gist_tokenizer.bin` whose vocab is
-/// per-script pruned across the 101 languages gist supports. gist uses the
-/// content sub-words directly (no `<s>`/`</s>`),
-/// which it mean-pools into the semantic embedding.
+/// per-script pruned across the 101 languages. Gist mean-pools the content
+/// sub-words directly (no `<s>`/`</s>`).
 struct Tokenizer {
     struct Token {
         let id: Int
@@ -101,7 +99,7 @@ struct Tokenizer {
         // `parsedIndex` may be slightly smaller than `count`: Swift `String`
         // keys compare by Unicode canonical equivalence, so a few canonically-
         // equivalent pieces in the 101-language vocab collapse to one key. That
-        // is correct here — input is NFKC-normalized before matching, so those
+        // is correct here: input is NFKC-normalized before matching, so those
         // pieces are indistinguishable anyway. `offset == bytes.count` is the
         // real integrity check.
         guard offset == bytes.count, (0..<count).contains(unk) else { return nil }

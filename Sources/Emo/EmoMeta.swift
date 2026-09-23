@@ -30,7 +30,6 @@ struct EmoMeta: Sendable, Decodable {
         case smax
     }
 
-    /// Parse the JSON sidecar with the platform's native decoder (Codable).
     init(json: String) throws {
         self = try JSONDecoder().decode(EmoMeta.self, from: json)
     }

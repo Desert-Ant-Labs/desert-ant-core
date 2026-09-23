@@ -90,8 +90,6 @@ struct ShapesTests {
     }
 #endif
 
-    // MARK: strokes
-
     /// A traced circle, dense enough to look hand-drawn to the preprocessor.
     static func circle(center: Point = Point(x: 100, y: 100), radius: Double = 80,
                        samples: Int = 64) -> [Point] {

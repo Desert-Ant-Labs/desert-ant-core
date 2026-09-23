@@ -4,13 +4,13 @@ import java.util.UUID
 import java.util.prefs.Preferences
 
 /**
- * Cross-session persistence for the turnstile — the device id and the re-emit
- * state. A port of desert-ant-core's `Sources/Usage/Storage.swift`, with one
+ * Cross-session persistence for the turnstile (the device id and the re-emit
+ * state). A port of desert-ant-core's `Sources/Usage/Storage.swift`, with one
  * difference forced by this artifact being a plain jar rather than an AAR.
  *
  * Core reaches Android's SharedPreferences through its JNI host bridge. There is
- * no native layer here, and the jar does not compile against the Android SDK — it
- * has to keep working on a bare JVM — so an Android caller passes its `Context` in
+ * no native layer here, and the jar does not compile against the Android SDK (it
+ * has to keep working on a bare JVM), so an Android caller passes its `Context` in
  * and it is used reflectively. No Android types appear in the signature and the
  * jar declares nothing beyond kotlin-stdlib.
  *
@@ -107,7 +107,7 @@ internal class AndroidPreferencesStorage private constructor(private val prefs: 
                     "getSharedPreferences", String::class.java, Int::class.javaPrimitiveType,
                 )
                 // "desert-ant" is the file desert-ant-core's HostBridge documents, and the
-                // device id key is shared across SDKs — using a different file would make
+                // device id key is shared across SDKs; using a different file would make
                 // an app embedding tongue and a core-based SDK count as two devices.
                 val prefs = method.invoke(context, "desert-ant", 0)!!
                 AndroidPreferencesStorage(prefs) as UsageStorage
@@ -120,12 +120,11 @@ internal class AndroidPreferencesStorage private constructor(private val prefs: 
  * JVM backend. Not used on Android, where the backing store is unreliable.
  *
  * `Preferences` rejects keys longer than [Preferences.MAX_KEY_LENGTH] (80), and
- * the state key is `ai.desertant.usage.<appKey>.<deviceId>.state` — with a 36-char
- * UUID device id that is over the limit before the app key is even counted. The
- * write threw, `runCatching` swallowed it, and the turnstile silently never
- * persisted: every process looked like a new day and re-emitted. Long keys are
- * folded to a stable digest instead. Only this backend does it; the keys on the
- * wire and on Android still match core exactly.
+ * the state key is `ai.desertant.usage.<appKey>.<deviceId>.state`; with a 36-char
+ * UUID device id that is over the limit before the app key is even counted, and
+ * the write would throw inside `runCatching`, so the turnstile would silently
+ * never persist. Long keys are folded to a stable digest instead. Only this
+ * backend does it; the keys on the wire and on Android still match core exactly.
  */
 internal class JvmPreferencesStorage : UsageStorage {
     private val node: Preferences = Preferences.userRoot().node("ai/desertant/usage")
@@ -152,7 +151,7 @@ internal fun isAndroid(): Boolean =
 /**
  * The best available store. A Context (Android) wins; otherwise JVM preferences,
  * unless we are on Android without a Context, where nothing persists and every
- * process would otherwise look like a new device — in-memory is the honest answer
+ * process would otherwise look like a new device; in-memory is the honest answer
  * there, and [makeClient] warns once.
  */
 internal fun defaultStorage(context: Any? = null): UsageStorage =

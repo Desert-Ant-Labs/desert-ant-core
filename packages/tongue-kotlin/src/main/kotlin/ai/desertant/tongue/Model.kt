@@ -5,7 +5,7 @@ import kotlin.math.exp
 /**
  * The head. No inference runtime and none needed: a detection is an int8
  * embedding gather, a sum over the n-grams present, one small matmul and a masked
- * softmax — a few thousand multiply-adds.
+ * softmax, a few thousand multiply-adds.
  *
  * Byte layout of tongue_int8.bin, written by scripts/build_release.py:
  *
@@ -79,7 +79,7 @@ internal class Weights(bytes: ByteArray, private val metadata: Metadata) {
             )
         }
         // int8 values are already signed bytes on the JVM, so the embedding table
-        // needs no conversion — just a view of the prefix.
+        // needs no conversion, just a copy of the prefix.
         embedding = bytes.copyOfRange(0, embeddingCount)
         var offset = embeddingCount
         linearWeight = FloatArray(weightCount) {

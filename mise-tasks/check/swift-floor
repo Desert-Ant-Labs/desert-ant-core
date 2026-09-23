@@ -4,18 +4,15 @@
 #MISE tools={swift={version="6.2.1", os=["linux"]}}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# The README promises a minimum Swift, and nothing used to check it, so the claim
-# drifted twice without anyone noticing: it said 5.9 while `nonisolated(unsafe)`
-# (5.10) and later typed throws (6.0) were already in code every consumer parses.
-# Both would have failed a consumer's build on the toolchain we advertised.
-#
-# This is the same idea as pinning the Linux jobs to ubuntu-22.04 for glibc and
-# the darwin native to macos-14: build where you promise, not where it is easy.
+# The README promises a minimum Swift; this builds on exactly that toolchain,
+# because newer syntax in code every consumer parses (`nonisolated(unsafe)` is
+# 5.10, typed throws 6.0) fails a consumer's build on an older one. Same idea as
+# pinning the Linux jobs to ubuntu-22.04 for glibc and the darwin native to
+# macos-14: build where you promise, not where it is easy.
 #
 # What it covers: every file in the package is parsed here, including the
 # `#if canImport(CoreML)` and `#if os(Android)` branches, because Swift parses
-# inactive conditional blocks. That is the class of breakage that actually
-# happened. What it does not cover: type-checking the Apple-only branches, which
+# inactive conditional blocks. What it does not cover: type-checking the Apple-only branches, which
 # needs a Mac; the `apple` job builds those, on a newer Xcode.
 floor=$(grep -oE 'version="[0-9.]+"' "$MISE_PROJECT_ROOT/mise-tasks/check/swift-floor" | head -1 | grep -oE '[0-9.]+')
 claimed=$(grep -oE 'Swift [0-9]+\.[0-9]+\+' "$MISE_PROJECT_ROOT/README.md" | head -1 | grep -oE '[0-9]+\.[0-9]+')

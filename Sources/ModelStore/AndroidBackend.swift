@@ -1,6 +1,6 @@
 // Android transport: the host (Kotlin, java.net/OkHttp) performs HTTP via the
 // CHostBridge callbacks; Swift keeps the filesystem (POSIX) and verification.
-// A runtime shim installs `host_set_http_head` / `host_set_http_download`.
+// A runtime shim installs `host_set_http_tree` / `host_set_http_download`.
 #if os(Android)
 import CHostBridge
 import CStrings

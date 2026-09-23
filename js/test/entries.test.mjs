@@ -39,8 +39,8 @@ test("node entry exports the native loader, and only that", async () => {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }
   assert.equal("installAudioHost" in node, false);
-  // The `#platform` seam moved to ./platform-node.js: re-exporting it here put
-  // koffi in every SSR bundle (see ssr-graph.test.mjs).
+  // The `#platform` seam lives in ./platform-node.js: re-exporting it here would
+  // put koffi in every SSR bundle (see ssr-graph.test.mjs).
   for (const name of ["nodeSetup", "nodeWasmDir", "nodeReadModelSource", "nodeCacheRoot"]) {
     assert.equal(name in node, false, `node entry no longer exports ${name}`);
   }

@@ -154,7 +154,7 @@ public func hostProvidedApiKey() -> String? {
 }
 
 /// `key` without surrounding whitespace, or nil when nothing is left. A key
-/// read from a secret file often ends in a newline: the body tolerated it (the
+/// read from a secret file often ends in a newline: the body tolerates it (the
 /// endpoint trims), but an `Authorization` header with one is dropped or refused.
 func trimmedKey(_ key: String?) -> String? {
     guard let key else { return nil }
@@ -180,7 +180,7 @@ public func hostProvidedDeviceId() -> String? {
 /// A host-provided ingest endpoint, overriding the built-in one. On WASI reads
 /// `globalThis.__dalIngestEndpoint` (string or function); elsewhere reads the
 /// `DAL_INGEST_ENDPOINT` environment variable. `nil` when unset. Intended for
-/// tests, local capture, and diagnostics — production uses the built-in default.
+/// tests, local capture, and diagnostics; production uses the built-in default.
 public func hostProvidedIngestEndpoint() -> String? {
 #if os(WASI)
     return jsHostString("__dalIngestEndpoint")

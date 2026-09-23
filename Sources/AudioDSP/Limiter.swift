@@ -7,8 +7,8 @@
 // limiter pulls gain down only around the peaks that need it, so a delivery
 // spec like -16 LUFS at -1.5 dBTP is met rather than approximated.
 //
-// Attack is instantaneous - the look-ahead window is what buys the time to
-// reach the required gain before the peak arrives - and release is exponential.
+// Attack is instantaneous (the look-ahead window buys the time to reach the
+// required gain before the peak arrives) and release is exponential.
 
 #if canImport(Darwin)
 import Darwin
@@ -149,7 +149,7 @@ public enum Limiter {
         }
 
         /// Emit the held-back tail. Past the end of the signal there is nothing
-        /// left to look ahead at, so the window simply shrinks.
+        /// left to look ahead at, so the window shrinks.
         public func flush() -> [[Float]] {
             let nCh = pending.count
             let n = pending.first?.count ?? 0
@@ -164,8 +164,8 @@ public enum Limiter {
         ///
         /// The window maximum comes from a monotonic-decreasing deque, which is
         /// O(n) overall rather than O(n * lookahead). Its ring buffer holds
-        /// `lookahead + 2` slots because that is all that can be live at once -
-        /// sizing it to the signal cost ~115 MB on a five-minute stereo file.
+        /// `lookahead + 2` slots because that is all that can be live at once;
+        /// sizing it to the signal would cost ~115 MB on a five-minute stereo file.
         private func run(_ buf: [[Float]], count: Int, horizon: Int) -> [[Float]] {
             let nCh = buf.count
             let absX = Limiter.jointMagnitude(buf, count: horizon)

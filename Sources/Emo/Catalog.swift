@@ -1,7 +1,3 @@
-// This model's catalog declaration: coordinates, file names, and which of them
-// each platform ships. The shared behaviour (distribution, resolve, availability)
-// comes from `ModelDeclaration` in the catalog's shared half.
-
 import DesertAnt
 
 /// The emo model: on-device emoji suggestion.
@@ -9,8 +5,6 @@ public enum EmoModel: ModelDeclaration {
     public static let id = "emo"
     public static let product = "Emo"
     public static let revision = "v0.7.0"
-    /// Matches packages/emo-node/package.json and packages/emo-kotlin/build.gradle.kts
-    /// (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"
     public static let summary = "Multilingual on-device emoji suggestion."
 

@@ -34,18 +34,16 @@ public protocol InferenceSession: Sendable {
     /// Run the model. `deviceId` attributes usage to a specific end-user device
     /// for multi-tenant hosts (e.g. a server serving many users); `nil` uses the
     /// default device (the app's persisted id, or a host-provided one). The
-    /// concrete backends ignore it — only the usage-tracking wrapper uses it.
+    /// concrete backends ignore it; only the usage-tracking wrapper uses it.
     /// Most callers use the two-argument convenience below.
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor]
 
-    /// The last-dimension extent this graph was compiled at for a named input — its sequence
-    /// width — or `nil` when the runtime cannot report shapes.
+    /// The last-dimension extent this graph was compiled at for a named input (its sequence
+    /// width), or `nil` when the runtime cannot report shapes.
     ///
-    /// Exists so a caller can size buffers from the ARTIFACT rather than from a constant. The
-    /// clips scorer forced it: two candidate packages differ in exactly this number (`score` at
-    /// [16,128] against [16,256]) and in nothing else about their I/O, so a hardcoded width
-    /// silently truncates every candidate on the wider one and reports no difference between
-    /// them — a null by construction rather than a measurement.
+    /// Lets a caller size buffers from the artifact rather than from a constant: two clips
+    /// packages differ only in this number (`score` at [16,128] against [16,256]), so a
+    /// hardcoded width would silently truncate every candidate on the wider one.
     func inputWidth(_ name: String) -> Int?
 
     /// Whether two runs on this session overlap, or queue.
@@ -58,8 +56,7 @@ public protocol InferenceSession: Sendable {
 }
 
 public extension InferenceSession {
-    /// Assume a run holds the session, which is the answer that is never wrong
-    /// by more than the parallelism it declines to use.
+    /// Assume a run holds the session: at worst that forgoes some parallelism.
     var runsConcurrently: Bool { false }
 
     /// Runtimes that cannot introspect their own shapes report nothing, and callers fall back
@@ -69,11 +66,11 @@ public extension InferenceSession {
 
     /// Run, resolving the device id for usage attribution without the SDK having
     /// to pass one. Precedence:
-    ///   1. `InferenceContext.deviceId` — a per-call task-local the host binds
+    ///   1. `InferenceContext.deviceId`: a per-call task-local the host binds
     ///      around this call (the correct path for concurrent multi-tenant hosts).
-    ///   2. `hostProvidedDeviceId()` — a host default (`globalThis.__dalDeviceId`
+    ///   2. `hostProvidedDeviceId()`: a host default (`globalThis.__dalDeviceId`
     ///      on WASI; native host id elsewhere).
-    ///   3. `nil` — the app's persisted/default device, resolved downstream.
+    ///   3. `nil`: the app's persisted/default device, resolved downstream.
     func run(inputs: [String: Tensor], outputs: [String]) async throws -> [Tensor] {
         let deviceId = InferenceContext.deviceId ?? hostProvidedDeviceId()
         return try await run(inputs: inputs, outputs: outputs, deviceId: deviceId)

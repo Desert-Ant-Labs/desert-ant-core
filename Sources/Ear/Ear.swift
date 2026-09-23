@@ -25,8 +25,7 @@ public struct Detection: Sendable, Equatable {
     ///
     /// False when the top two candidates are too close to separate, and false
     /// for the Nordic languages, which the detector confuses with each other
-    /// confidently rather than uncertainly - so their probability does not
-    /// reveal the problem and a margin test cannot catch it.
+    /// confidently rather than uncertainly, so a margin test cannot catch it.
     public var isReliable: Bool {
         guard let top = candidates.first else { return false }
         if confusableLanguages.contains(top.language) { return false }
@@ -37,8 +36,8 @@ public struct Detection: Sendable, Equatable {
     /// How far ahead the top candidate must be before the answer is worth
     /// routing on.
     ///
-    /// Calibrated on 162 recordings - 49 YouTube uploads and 113 continuous
-    /// parliamentary recordings - by sweeping the threshold against routing
+    /// Calibrated on 162 recordings (49 YouTube uploads and 113 continuous
+    /// parliamentary recordings) by sweeping the threshold against routing
     /// accuracy:
     ///
     /// | margin | answered | of those, correct |
@@ -51,8 +50,7 @@ public struct Detection: Sendable, Equatable {
     /// 0.25 is where precision reaches 98.5% while still answering four files
     /// in five, and on files in a language the product actually offers it is
     /// 100% correct at 85.9% coverage. Raising it to 0.80 buys the last 1.5
-    /// points by declining a fifth of the corpus, which is a worse trade for a
-    /// caller who has to do something with the remainder.
+    /// points by declining a fifth of the corpus.
     public static let reliableMargin = 0.25
 }
 
@@ -95,19 +93,14 @@ public enum EarError: MessageError, Sendable {
 /// is downloaded into it and reused offline afterwards. With no `directory` a
 /// managed cache location is used. Nothing is bundled with this package.
 public final class Ear: @unchecked Sendable {
-    // Resolving the files, loading once, sharing that load and reporting
-    // availability are the same for every model, so they live in the core's
-    // `LoadedModel`; Ear adds only how a resolved directory becomes its model.
     private let model: LoadedModel<Model>
 
     /// How many windows are listened to when the caller does not say.
     ///
-    /// Measured, and the honest answer is that it barely matters. Across 162
-    /// recordings, one window and six windows both misroute 11 files; every
-    /// count between them lands on 11 to 14. Averaging does not help because a
-    /// file is one speaker in one room, so when the detector is wrong it is
-    /// wrong in every window of that file - the errors are unanimous, not
-    /// independent, and there is nothing for an average to cancel.
+    /// Measured, it barely matters: across 162 recordings, one window and six
+    /// both misroute 11 files, and every count between lands on 11 to 14. A file
+    /// is one speaker in one room, so the detector's errors on it are unanimous,
+    /// not independent, and there is nothing for an average to cancel.
     ///
     /// Three is kept because it costs about 45 ms in total on the Neural
     /// Engine and covers the one case a single window cannot: a recording whose

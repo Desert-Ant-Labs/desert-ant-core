@@ -9,7 +9,6 @@ import Foundation
 /// gated on their presence. The gate is a trait on the suite rather than an
 /// early `return` inside it, because a suite that returns early reports a pass,
 /// and a pass that verified nothing is indistinguishable from one that did.
-/// Three suites here reported passing in CI while doing exactly nothing.
 ///
 /// It lives outside the suites because a suite's own trait cannot refer to the
 /// type it is defining.
@@ -18,8 +17,7 @@ enum EarFixtures {
     ///
     /// Checked against the artifact the catalog names for the platform in hand,
     /// not against the Core ML one: on Linux the file is `ear.tflite`, and
-    /// hardcoding `ear.mlmodelc` silently skipped every accuracy test off Apple
-    /// while reporting that the suite had run.
+    /// hardcoding `ear.mlmodelc` would silently skip every accuracy test off Apple.
     static var modelDirectory: String? {
         let path = ProcessInfo.processInfo.environment["EAR_MODEL_DIR"]
             ?? NSHomeDirectory() + "/work/ear/model"

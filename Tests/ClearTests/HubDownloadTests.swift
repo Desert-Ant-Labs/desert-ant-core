@@ -12,7 +12,7 @@ struct HubDownloadTests {
             isDownloaded: { $0.isDownloaded() },
             download: { try await $0.download(progress: $1) }
         ) { clear, cached in
-            // A second of tone plus noise: enough frames for several model
+            // 2.5 s of tone plus noise: enough frames for several model
             // chunks, cheap enough for a network-gated test.
             let noisy = noisyTone()
             let result = try await clear.enhance(samples: noisy, sampleRate: 48_000)

@@ -1,8 +1,3 @@
-// Moderator's side of the cross-language binding: construction, plus the payload
-// schemas that are model-specific (the image a run takes, its options, and the
-// result). The handle lifecycle and exported symbols live in NativeBindings and
-// Native.swift.
-
 import DesertAnt
 
 extension Moderator: BoundModel {

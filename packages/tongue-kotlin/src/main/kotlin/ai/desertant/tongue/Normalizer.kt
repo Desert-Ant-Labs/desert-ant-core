@@ -31,9 +31,9 @@ public object Normalizer {
     //
     // Every class is spelled out. `\w`, `\d`, `\s` and `\S` are engine-defined and
     // the three engines behind this spec disagree. java.util.regex is the worst
-    // offender: without UNICODE_CHARACTER_CLASS they are ASCII-only, so this port
-    // used to leave Cyrillic hashtags and Devanagari digits in place and answered
-    // `ky` where Swift and JavaScript answered `en`. Python's definitions are the
+    // offender: without UNICODE_CHARACTER_CLASS they are ASCII-only, which would
+    // leave Cyrillic hashtags and Devanagari digits in place and answer `ky`
+    // where Swift and JavaScript answer `en`. Python's definitions are the
     // spec, so they are written out and the same three strings appear in all three
     // ports.
     //
@@ -56,8 +56,8 @@ public object Normalizer {
      *
      * From [DiscardTable] rather than `Character.getType`, because that answers
      * from the host JDK's Unicode version and the model was trained on 13.0.0.
-     * The same jar used to give different answers on JDK 17 and JDK 26 — and on
-     * Android, on two phones with different platform ICU.
+     * Otherwise the same jar would answer differently on JDK 17 and JDK 26, and
+     * on Android, on two phones with different platform ICU.
      */
     private fun isDiscarded(codePoint: Int): Boolean {
         val ranges = DiscardTable.ranges

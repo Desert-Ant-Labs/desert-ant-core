@@ -1,15 +1,13 @@
-// Clear's public API, over whichever core the entry point bound: the browser's
-// WebAssembly + LiteRT.js core (browser.js) or the prebuilt native core
-// (node.js). Both expose the same ABI, and @desert-ant-labs/core turns either
-// one into the same `LoadedModel`, so the API is written once here instead of
-// once per runtime.
+// Clear's public API, written once over whichever core the entry point bound
+// (browser.js's WebAssembly core or node.js's native core); @desert-ant-labs/core
+// turns either into the same `LoadedModel`.
 import { decodeResult, encodeInput, encodeOptions, LOUDNESS_PRESETS } from "./codec.js";
 
 export { LOUDNESS_PRESETS };
 
 /**
  * Build the `Clear` class over a bound SDK (`createWasmSdk` /
- * `createNativeSdk`). The entry points do nothing but call this.
+ * `createNativeSdk`).
  */
 export function makeClear(sdk) {
   /**
@@ -40,7 +38,7 @@ export function makeClear(sdk) {
 
     /**
      * Enhance mono `samples` at `sampleRate`: denoise, dereverb, then master to
-     * a delivery target. Returns 48 kHz mono, whatever the input rate.
+     * a delivery target. Returns 48 kHz audio, whatever the input rate.
      *
      * `options.targetLUFS` takes a number or a key of {@link LOUDNESS_PRESETS};
      * pass null to skip mastering and get the model's own level back.

@@ -1,5 +1,5 @@
-// Cross-session persistence for the usage turnstile — the device id and the
-// re-emit state — handled internally so hosts wire no storage. `UsageStorage` is
+// Cross-session persistence for the usage turnstile (the device id and the
+// re-emit state), handled internally so hosts wire no storage. `UsageStorage` is
 // a tiny string key/value seam; `makeClient` uses the platform-native backend:
 //
 //   Apple / Linux  UserDefaults (Foundation)

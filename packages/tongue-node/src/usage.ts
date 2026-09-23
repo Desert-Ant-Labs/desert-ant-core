@@ -1,5 +1,5 @@
 /**
- * The usage turnstile — a TypeScript port of desert-ant-core's `Sources/Usage`.
+ * The usage turnstile: a TypeScript port of desert-ant-core's `Sources/Usage`.
  *
  * emo's npm package gets this from the Swift core it wraps (native binding or
  * wasm). This package is a direct port with no core underneath, so the state
@@ -122,9 +122,9 @@ function defaultStorage(): UsageStorage {
 /**
  * A host-installed synchronous store, set by `Tongue.load()` on Node.
  *
- * Node has no `localStorage`, so without this every process minted a fresh device
- * id — and billing counts distinct devices, so a server-side customer was billed
- * per process start. `load()` is already async and already imports node builtins,
+ * Node has no `localStorage`, so without this every process would mint a fresh
+ * device id, billed as a new device per process start. `load()` is already async
+ * and already imports node builtins,
  * so it installs a file-backed store here before the model is constructed. Doing
  * it there rather than with a dynamic require keeps this module free of any
  * Node-only import, which is what lets the same file run in a browser.
@@ -209,10 +209,10 @@ function keyRidesInHeader(browserOrigin: boolean): boolean {
 /**
  * A host override, read from a JS global or the matching environment variable.
  *
- * The env name is passed in rather than derived. Deriving it with
- * `name.replace(/^__dal/,"DAL_").toUpperCase()` turned `__dalApiKey` into
- * `DAL_APIKEY`, so a Node customer who set `DAL_API_KEY` — the name core and the
- * Kotlin port document — got bodies with no `key` at all and no way to notice.
+ * The env name is passed in rather than derived: deriving it with
+ * `name.replace(/^__dal/,"DAL_").toUpperCase()` turns `__dalApiKey` into
+ * `DAL_APIKEY`, not the `DAL_API_KEY` core and the Kotlin port document, and a
+ * caller would silently send no `key`.
  */
 function hostString(name: string, envName: string): string | undefined {
   const value = (globalThis as Record<string, unknown>)[name];
@@ -271,7 +271,7 @@ function hostFlag(name: string, envName: string): boolean {
 
 /**
  * Attribution. A browser is identified by its Origin server-side, so it sends no
- * `app`; off-browser there is no Origin, so the host name stands in — matching
+ * `app`; off-browser there is no Origin, so the host name stands in, matching
  * core, which sends the bundle id or package name.
  */
 function defaultAppId(): string | undefined {
@@ -740,10 +740,9 @@ export class UsageClient {
   }
 
   private makeBody(events: IngestEvent[]): IngestBody {
-    // Built in one literal, in core's declaration order. Assigning `key` and
-    // `app` afterwards put them last, because JSON.stringify follows insertion
-    // order — so the two ports posted the same data under different byte
-    // sequences while Wire.kt claimed they were identical.
+    // Built in one literal, in core's declaration order: JSON.stringify follows
+    // insertion order, so assigning `key` and `app` afterwards would put them
+    // last and post the same data under different bytes than the other ports.
     return {
       platform: this.deps.platform,
       ...(this.deps.keyInBody && this.deps.key ? { key: this.deps.key } : {}),
@@ -759,8 +758,7 @@ export class UsageClient {
  * Exported so a test can drive the real transport at a local endpoint. The
  * default endpoint is overridable only through `__dalIngestEndpoint` /
  * `DAL_INGEST_ENDPOINT`, the same host override core offers, and `UsageTurnstile`
- * always goes through it. Without this the HTTP path was never executed by any
- * test: the state machine was covered, the send was not.
+ * always goes through it.
  *
  * A key rides an `Authorization` header rather than the body: every runtime this
  * package supports sets request headers, and the endpoint prefers the header. A
@@ -825,7 +823,7 @@ export function makeSend(
 
 /**
  * Owns the turnstile for one `Tongue`. The equivalent of core's `TrackedSession`,
- * which this package cannot use — there is no inference session here.
+ * which this package cannot use: there is no inference session here.
  */
 export class UsageTurnstile {
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -934,7 +932,7 @@ export class UsageTurnstile {
       client.start();
       // Deliver what was accrued when the host goes away. Without this a process
       // or tab that ends inside the 3 s debounce sends nothing at all, while
-      // `start()` has already stamped the window — so a short-lived Node script
+      // `start()` has already stamped the window, so a short-lived Node script
       // would report zero every day, permanently.
       if (browserOrigin && typeof addEventListener === "function") {
         addEventListener("pagehide", () => {

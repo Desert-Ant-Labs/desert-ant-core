@@ -136,7 +136,7 @@ struct RedactTests {
         }
     }
 
-    /// An IBAN followed by a word must still be caught — this leaked.
+    /// An IBAN followed by a word must still be caught.
     @Test func ibanInRunningProse() {
         for s in ["Mijn IBAN NL91ABNA0417164300 klopt niet",
                   "Please refund to DE89370400440532013000 today",

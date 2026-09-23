@@ -1,16 +1,7 @@
-// The shell every model SDK wraps: resolve the model's files, build the model
-// once, share that single load, and answer "is it available offline?".
-//
-// Each SDK used to write this itself - a `LazyLoader`, three initializers, an
-// availability closure, `isDownloaded`, `download`, `waitUntilLoaded`, and a
-// pair of resolve/availability helpers over its `ModelDistribution` - about 120
-// lines that differed only in the model type they built. It is also where a
-// model could go subtly wrong: forgetting the binding initializer that takes a
-// `cacheRoot` silently breaks Android and Node, where the platform has no cache
-// base of its own.
-//
-// So it lives here once, and an SDK keeps only what is genuinely its own: its
-// public API, and how a resolved directory becomes its runtime.
+// The shell every model SDK wraps, so an SDK keeps only its public API and how a
+// resolved directory becomes its runtime. Keeping it shared also means no SDK can
+// drop the `cacheRoot` initializer, which silently breaks Android and Node, where
+// the platform has no cache base of its own.
 //
 //     public final class Emo: @unchecked Sendable {
 //         private let model: LoadedModel<Model>
@@ -31,12 +22,6 @@ import Foundation
 import ModelStore
 import PlatformSupport
 
-/// A model SDK's loaded runtime: `StoredModel` is the files on disk, this is the
-/// thing built from them. Construction starts nothing; the first ``value()`` or
-/// ``download(progress:)`` resolves the files (adopting `directory`, else
-/// downloading into it or into the managed cache) and builds the runtime once,
-/// sharing that single load with every concurrent caller. A failed load is not
-/// cached, so a later call retries.
 /// Which stage a model load is in. `downloading` runs to completion before
 /// `preparing` starts, and the fraction resets at the transition.
 public enum ModelLoadPhase: Sendable, Equatable {
@@ -59,6 +44,12 @@ public struct ModelLoadProgress: Sendable, Equatable {
     }
 }
 
+/// A model SDK's loaded runtime: `StoredModel` is the files on disk, this is the
+/// thing built from them. Construction starts nothing; the first ``value()`` or
+/// ``download(progress:)`` resolves the files (adopting `directory`, else
+/// downloading into it or into the managed cache) and builds the runtime once,
+/// sharing that single load with every concurrent caller. A failed load is not
+/// cached, so a later call retries.
 public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     private let loader: LazyLoader<Runtime>
     private let availability: @Sendable () -> Bool
@@ -85,10 +76,9 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     }
 
     /// Load from an explicit distribution, for a model that publishes more than
-    /// one artifact set under the same catalog entry (clear's studio/natural
-    /// variants): the declaration names the default, and a caller selecting
-    /// another passes that variant's own slice of the repo, so choosing one
-    /// never downloads the other. Otherwise identical to the declaration form.
+    /// one artifact set under one catalog entry (clear's studio/natural variants).
+    /// Passing a variant's own slice of the repo means choosing one never
+    /// downloads the other.
     public init(
         _ distribution: ModelDistribution,
         directory: String? = nil,
@@ -96,8 +86,7 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
         build: @escaping @Sendable (StoredModel) async throws -> Runtime
     ) {
         // The loader's Double carries both phases: [0, 0.5) is the download
-        // fraction (halved), [0.5, 1] is preparing/build. `download` and `load`
-        // decode it back, so the Double API keeps its old meaning.
+        // fraction (halved), [0.5, 1] is preparing/build. `decode` splits them back.
         loader = LazyLoader { progress in
             try await Self.load(distribution, directory: directory, cacheRoot: cacheRoot,
                                 progress: progress) { files, _ in try await build(files) }
@@ -154,10 +143,9 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
         return try await build(files, chosen)
     }
 
-    /// Wrap a runtime the caller already has the inputs for (the cross-language
-    /// bindings' assets path, and the wasm host's self-hosted files): nothing to
-    /// resolve or download, but still built lazily and only once, so a failure
-    /// surfaces from the same calls as the downloading path.
+    /// Wrap a runtime the caller already has the inputs for, such as preloaded
+    /// assets or the wasm host's self-hosted files. Still built lazily and once, so a failure surfaces from
+    /// the same calls as the downloading path.
     public init(_ build: @escaping @Sendable () throws -> Runtime) {
         loader = LazyLoader { _ in try build() }
         availability = { true }

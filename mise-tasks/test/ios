@@ -9,7 +9,7 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # The newest available iPhone simulator, selected by udid rather than by name.
 # A bare name lets xcodebuild default the destination to `OS:latest`, which
-# means the *SDK's* iOS version — and if that runtime is not installed it is a
+# means the *SDK's* iOS version, and if that runtime is not installed it is a
 # hard "unable to find a destination" failure rather than a fallback to a
 # runtime that is. Picking the udid pins both the device and its runtime.
 device=$(xcrun simctl list devices available \
@@ -46,7 +46,7 @@ fi
 # xcodebuild clone the simulator and overlap them halves the phase (69 s -> 40 s
 # measured locally). The worker count is left to xcodebuild: pinning it to 8
 # measured no better than the default. Safe here because the model-backed tests
-# — the only ones that touch shared state, the model cache — are skipped on iOS.
+# (the only ones that touch shared state, the model cache) are skipped on iOS.
 # Release configuration, matching test:swift, see the comment there. Unlike
 # `swift test -c release`, xcodebuild only enables testability in Debug, so
 # without the override every @testable import fails with "module built

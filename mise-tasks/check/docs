@@ -5,7 +5,7 @@
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # Generated blocks that nothing checks go stale between releases. This fails the
-# PR instead of committing a fix behind your back.
+# PR rather than committing a fix silently.
 
 node --input-type=module <<'NODE'
 import { readFileSync } from "node:fs";

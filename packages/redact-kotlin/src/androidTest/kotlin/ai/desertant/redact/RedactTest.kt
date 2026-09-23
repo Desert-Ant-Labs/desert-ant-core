@@ -12,7 +12,7 @@ import org.junit.runner.RunWith
 
 /**
  * Instrumented tests for the Android binding, exercising the real on-device path
- * via JNI: java.util.regex, platform JSON via CHostBridge, system ICU for NFKC,
+ * via JNI: java.util.regex, platform JSON via CHostBridge, java.text.Normalizer for NFKC,
  * and the static-stdlib runtime. The AAR ships no model, so the suite downloads
  * the pinned revision into the app cache once and reuses it.
  */

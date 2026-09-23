@@ -1,7 +1,7 @@
 import Foundation
 
 // The script router: a zero-parameter layer that answers before the model runs.
-// Ported from src/tongue_training/script.py; semantics are load-bearing and the
+// Ported from src/tongue_training/script.py; semantics are load-bearing and
 // the script_vectors.json copied into Tests/TongueTests/Resources hold this file
 // to them (generated in the reference repo's golden/).
 
@@ -45,14 +45,13 @@ public enum Router {
     /// Presence beats dominance for non-Latin scripts: Latin brand names embed in
     /// Greek or Thai text constantly, while the reverse essentially never happens.
     /// So a script only some languages use decides the route even when Latin
-    /// characters outnumber it — provided the evidence is substantial: at least
+    /// characters outnumber it, provided the evidence is substantial: at least
     /// half the scripted characters, or at least two carrying a quarter of them.
     /// The floor keeps an English sentence quoting one Greek letter routed Latin.
     ///
     /// Ties break on the lexicographically greatest script name, matching
     /// Python's `max((count, name))`. Insertion order would diverge on
-    /// mixed-script input — this exact mismatch cost the JS port 2 of 119 golden
-    /// vectors before it was found.
+    /// mixed-script input (2 of the 119 golden vectors).
     static func presence(_ histogram: [Script: Int], among names: Set<Script>) -> Script? {
         let scripted = histogram.values.reduce(0, +)
         guard scripted > 0 else { return nil }

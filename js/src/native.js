@@ -142,9 +142,8 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     checkLibcurl(core, packageName);
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
-    // Export the generic call-group
-    // release symbol; bind it here so `withCallGroup` works without each SDK
-    // declaring it.
+    // Every core exports the generic call-group release symbol; bound here so
+    // `withCallGroup` works without each SDK declaring it.
     lib.dalCallGroupEnd ??= core.func(CALL_GROUP_END_SYMBOL);
     return lib;
   }
@@ -159,7 +158,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
 
   // Decode a native result pointer: a big-endian uint32 length prefix, then the
   // FFIBuffer payload. Returns a reader positioned at the payload start; the
-  // caller frees the pointer (e.g. via the core's *_string_free).
+  // caller frees the pointer (via `dal_buffer_free`).
   function decodeResult(ptr) {
     const koffi = koffiModule();
     const head = Uint8Array.from(koffi.decode(ptr, koffi.array("uint8", 4)));
@@ -172,10 +171,9 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     return path.join(os.homedir(), ".cache");
   }
 
-  // The single managed cache layout - <cacheRoot>/desert-ant-models/<repo>/<revision>
-  // - is owned by desert-ant-core's Swift ModelStore. The Node entry passes
-  // cacheRoot (defaultCacheRoot below) and a null directory, so there is no
-  // JS-side model-path computation.
+  // The managed cache layout (<cacheRoot>/desert-ant-models/<repo>/<revision>)
+  // is owned by desert-ant-core's Swift ModelStore, so there is no JS-side
+  // model-path computation.
 
   // Reusable call-group API: mint an id, run the body, release the native group.
   // A logical operation wraps several `{ group }` calls to bill them as one.

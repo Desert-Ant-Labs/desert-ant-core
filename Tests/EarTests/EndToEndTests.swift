@@ -5,22 +5,20 @@ import Testing
 
 @testable import Ear
 
+// Reads model files and audio from disk, which wasm has no backing for
+// in this harness. The pieces it composes are covered on every platform.
+#if !os(WASI)
 /// The whole path: a file on disk to a language, through the shipped artifact.
 ///
 /// Everything else in this suite tests a piece. The frontend is checked against
 /// golden vectors, the artifacts against their own headers, the decision rules
 /// against constructed inputs. None of that exercises loading the model,
-/// binding its tensors, or running a real recording through it, and two tensor
-/// names were wrong in exactly that gap - caught by reading the files, not by a
-/// test.
+/// binding its tensors, or running a real recording through it.
 ///
 /// Skipped when the model and audio are absent, because both are downloads
 /// rather than fixtures. Point `EAR_MODEL_DIR` and `EAR_AUDIO_DIR` at them:
 ///
 ///     EAR_MODEL_DIR=~/work/ear/model EAR_AUDIO_DIR=~/work/e2e swift test
-// Reads model files and audio from disk, which wasm has no backing for
-// in this harness. The pieces it composes are covered on every platform.
-#if !os(WASI)
 @Suite(.serialized, .modelBacked,
        .enabled(if: !EarFixtures.recordings.isEmpty,
                 "no labelled audio: set EAR_AUDIO_DIR to <language>__<name>.wav files"))

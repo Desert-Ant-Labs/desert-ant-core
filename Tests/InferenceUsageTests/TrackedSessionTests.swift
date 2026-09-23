@@ -88,7 +88,7 @@ struct TrackedSessionTests {
 
     /// The align cascade runs one operation over two sessions (coarse and fine), and each
     /// session has its own client for the same device. Grouping per device must still bill
-    /// once; grouping per client billed twice, which is what this pins.
+    /// once; grouping per client would bill twice.
     @Test func aCallGroupCollapsesRunsAcrossSessions() async throws {
         let sink = Sink()
         // A factory each, as production has: the session factory builds one per session.
@@ -112,7 +112,7 @@ struct TrackedSessionTests {
     }
 
     /// The flush emits one load per device, not one per session: the align
-    /// cascade is two sessions over one device, and forcing each of them posted that
+    /// cascade is two sessions over one device, and forcing each of them would post that
     /// device's usage twice. It reports the calls made, never an invented one, and the
     /// session that loses the claim carries its call rather than losing it.
     @Test func aTelemetryFlushForcesOneLoadPerDevice() async throws {

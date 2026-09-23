@@ -16,8 +16,8 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
     private let lock = NSLock()
     /// Input arrays, leased per run rather than shared.
     ///
-    /// One shared set is what this was, and it cannot overlap: the runtime
-    /// binds a buffer on first use, so a second run reaching `bind` would
+    /// A shared set cannot overlap: the runtime binds a buffer on first use,
+    /// so a second run reaching `bind` would
     /// overwrite the inputs of the first while it was still reading them. The
     /// lock covers taking a set out and putting it back, not the run.
     private var idle: [[String: NDArray]] = []

@@ -33,11 +33,8 @@ actor TrackedSession: InferenceSession {
     /// Forwarded, `nonisolated` so it satisfies the synchronous protocol requirement.
     ///
     /// Without this the wrapper silently inherits the protocol's `nil` default and every caller
-    /// falls back to its own constant — not a compile error, not a warning, just a wrong buffer
-    /// width. It cost a run: the clips scorer asked a 256-wide graph for its width, got `nil`
-    /// through this wrapper, sized buffers at the fallback 128, and Core ML rejected the batch.
-    /// A wrapper that drops an introspection method is the same defect class as one that drops
-    /// an error.
+    /// falls back to its own constant, with no compile error or warning: the clips scorer would
+    /// size a 256-wide graph's buffers at the fallback 128, and Core ML rejects the batch.
     nonisolated func inputWidth(_ name: String) -> Int? { wrapped.inputWidth(name) }
 
     /// Forwarded for the same reason `inputWidth` is: a wrapper that drops this
@@ -139,7 +136,7 @@ actor TrackedSession: InferenceSession {
         for client in clients.values { client.suspend() }
     }
 
-    /// Send any pending usage now. Optional — the debounce sends once runs idle.
+    /// Send any pending usage now. Optional: the debounce sends once runs idle.
     func flush() {
         guard started, !disabled() else { return }
         pendingFlush?.cancel()
@@ -177,9 +174,9 @@ actor TrackedSession: InferenceSession {
         started = true
         // Bind `self` before the Task rather than writing `self?.suspend()`
         // inside it: the weak capture is a var, and referencing a captured var
-        // from concurrently-executing code is an error on the Swift versions we
-        // build the published darwin native with. Holding it for the duration of
-        // the suspend is also what we want - the flush should finish.
+        // from concurrently-executing code is an error on the Swift versions the
+        // published darwin native is built with. Holding it for the duration of
+        // the suspend also lets the flush finish.
         lifecycle = LifecycleObserver(onBackground: { [weak self] in
             guard let self else { return }
             Task { await self.suspend() }
@@ -187,10 +184,10 @@ actor TrackedSession: InferenceSession {
     }
 
     /// Install the force-flush hook on the first run. Not in `init`: registering
-    /// from a detached Task there left the hook racing the flush, so an
-    /// immediate `flushTelemetry()` after an inference could find no hook at all
-    /// and send nothing. Awaiting it here means a flush after any awaited run
-    /// always sees the session. A session that never ran has nothing to send.
+    /// from a detached Task there would race the flush, so an immediate
+    /// `flushTelemetry()` after an inference could find no hook and send nothing.
+    /// Awaiting it here means a flush after any awaited run always sees the
+    /// session. A session that never ran has nothing to send.
     private func registerFlushHookIfNeeded() async {
         guard !registeredFlushHook else { return }
         registeredFlushHook = true
