@@ -16,7 +16,7 @@ On-device spoken language identification across 99 languages.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.4.0")
 ```
 
 Then add the `Ear` product to your target.
@@ -24,7 +24,7 @@ Then add the `Ear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:ear:3.3.1")
+implementation("ai.desertant:ear:3.4.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

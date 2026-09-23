@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/voz",
-  "version": "3.3.1",
+  "version": "3.4.0",
   "description": "On-device speech recognition for JavaScript: transcripts with word-level timestamps, 25 languages. Runs in the browser on WebAssembly + ONNX Runtime Web (WebGPU, with the decode step on WebNN where the browser has it), and server-side in Node from one import.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -70,7 +70,7 @@
   ],
   "dependencies": {
     "@bjorn3/browser_wasi_shim": "^0.3.0",
-    "@desert-ant-labs/core": "^3.3.1",
+    "@desert-ant-labs/core": "^3.4.0",
     "mediabunny": "^1.59.0"
   },
   "peerDependencies": {
