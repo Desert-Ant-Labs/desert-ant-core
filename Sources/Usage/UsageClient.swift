@@ -216,7 +216,9 @@ public final class UsageClient {
     }
 
     private func queue(context: [String: String]? = nil) {
-        pending = IngestEvent(deviceId: deps.deviceId, context: context != nil ? sanitizeContext(context) : currentContext())
+        // An explicit context obeys the opt-out as the provider's does.
+        let explicit = context.flatMap { deviceContextDisabled() ? nil : sanitizeContext($0) }
+        pending = IngestEvent(deviceId: deps.deviceId, context: context != nil ? explicit : currentContext())
         emitted = true
     }
 
