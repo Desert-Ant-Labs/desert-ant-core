@@ -29,4 +29,15 @@ public object DesertAnt {
     @JvmStatic
     @Volatile
     public var sendsDeviceContext: Boolean = true
+
+    /**
+     * Whether usage reporting is off. False by default. True stops Tongue from
+     * recording or sending usage, the in-code form of `DAL_USAGE_DISABLED`;
+     * either one switches it off. Read per detection and per send, so an app can
+     * hold it on until its user consents and clear it then. Mirrors core's
+     * `DesertAnt.usageDisabled`.
+     */
+    @JvmStatic
+    @Volatile
+    public var usageDisabled: Boolean = false
 }

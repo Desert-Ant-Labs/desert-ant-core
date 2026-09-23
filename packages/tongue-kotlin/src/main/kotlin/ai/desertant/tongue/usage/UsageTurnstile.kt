@@ -4,9 +4,14 @@ import java.util.Timer
 import java.util.TimerTask
 
 /**
- * Owns the turnstile for one `Tongue`: opened on construction, a call recorded per
- * detection, and a debounced flush that coalesces a burst of keystrokes into one
- * send.
+ * Owns the turnstile for one `Tongue`: opened on the first detection, a call
+ * recorded per detection, and a debounced flush that coalesces a burst of
+ * keystrokes into one send.
+ *
+ * `DAL_USAGE_DISABLED` is a consent switch an app may flip after load, so it is
+ * read per detection and per flush rather than once. While it is on nothing is
+ * recorded or sent, and until the first detection with it off no client is
+ * built, so no store is touched and no device id is minted.
  *
  * The equivalent of core's `TrackedSession`, which this SDK cannot use — that
  * wraps an `InferenceSession`, and there is no inference session here. See
@@ -16,13 +21,38 @@ import java.util.TimerTask
  * thread-safe, and the artifact takes no dependency on kotlinx-coroutines. The
  * critical section is a couple of integer comparisons.
  */
-internal class UsageTurnstile internal constructor(
-    private val client: UsageClient,
+internal class UsageTurnstile private constructor(
+    /** Builds and starts the client. Called once, under the lock. */
+    private val open: () -> UsageClient,
     /** The debounce. A parameter so a test can watch it fire without sleeping 3 s. */
-    private val flushAfterMs: Long = FLUSH_AFTER_MS,
+    private val flushAfterMs: Long,
+    /** The switch, read per call. `create` passes `usageDisabled`. */
+    private val disabled: () -> Boolean,
 ) {
+    /**
+     * A turnstile over a client already built, for tests. The switch defaults
+     * to off here: the test task runs with `DAL_USAGE_DISABLED` set.
+     */
+    internal constructor(
+        client: UsageClient,
+        flushAfterMs: Long = FLUSH_AFTER_MS,
+        disabled: () -> Boolean = { false },
+    ) : this({ client }, flushAfterMs, disabled)
 
     private val lock = Any()
+
+    /** Null until the first call recorded with the switch off, and for good if building it threw. */
+    private var client: UsageClient? = null
+    private var opened = false
+
+    /** The client, built on first use. Under the lock. */
+    private fun openClient(): UsageClient? {
+        if (!opened) {
+            opened = true
+            client = runCatching { open() }.getOrNull()
+        }
+        return client
+    }
     private var flushScheduled = false
     private var scheduledFlush: TimerTask? = null
 
@@ -35,9 +65,11 @@ internal class UsageTurnstile internal constructor(
      */
     private var lastSend: SendHandle? = null
 
-    /** One detection. */
+    /** One detection. Nothing at all while usage is switched off. */
     fun record() {
+        if (disabled()) return
         synchronized(lock) {
+            val client = openClient() ?: return
             client.recordCall()
             if (flushScheduled) return
             val task = object : TimerTask() {
@@ -45,7 +77,8 @@ internal class UsageTurnstile internal constructor(
                     synchronized(lock) {
                         flushScheduled = false
                         scheduledFlush = null
-                        runCatching { client.flush() }.getOrNull()?.let { lastSend = it }
+                        // Switched on while the call waited: held, not sent.
+                        if (!disabled()) runCatching { client.flush() }.getOrNull()?.let { lastSend = it }
                     }
                 }
             }
@@ -75,7 +108,8 @@ internal class UsageTurnstile internal constructor(
             scheduledFlush?.cancel()
             scheduledFlush = null
             flushScheduled = false
-            val forced = if (client.hasUsage()) client.load() else null
+            val client = client
+            val forced = if (client != null && !disabled() && client.hasUsage()) client.load() else null
             listOfNotNull(lastSend, forced).also { lastSend = forced ?: lastSend }
         }
         handles.awaitAll()
@@ -94,7 +128,8 @@ internal class UsageTurnstile internal constructor(
                 scheduledFlush?.cancel()
                 scheduledFlush = null
                 flushScheduled = false
-                val flushed = runCatching { client.flush() }.getOrNull()
+                val client = client
+                val flushed = if (client == null || disabled()) null else runCatching { client.flush() }.getOrNull()
                 listOfNotNull(lastSend, flushed).also { lastSend = flushed ?: lastSend }
             }
             handles.awaitAll()
@@ -109,31 +144,36 @@ internal class UsageTurnstile internal constructor(
         private val timer = Timer("tongue-usage-flush", true)
 
         /**
-         * The turnstile for a new `Tongue`, or null when usage is switched off.
+         * The turnstile for a new `Tongue`, built whether or not usage is switched
+         * off: the switch may be cleared later, so it is read per call instead.
          *
          * Never throws: a model must still load if the store is unwritable or the
-         * platform is unusual. A failure here means no reporting, not no detection.
-         * `storage` replaces the platform store (tests).
+         * platform is unusual. A failure building the client means no reporting,
+         * not no detection. `storage` replaces the platform store (tests).
          */
-        fun create(context: Any?, storage: UsageStorage? = null): UsageTurnstile? {
-            if (usageDisabled()) return null
-            return runCatching {
-                val client = makeClient(
-                    context = context,
-                    sdkVersion = SDK_VERSION,
-                    storage = storage ?: defaultStorage(context),
-                )
-                client.start()
-                val turnstile = UsageTurnstile(client)
-                // A process that exits inside the 3 s debounce would otherwise send
-                // nothing at all, while `start()` has already stamped the window —
-                // so a short-lived JVM would report zero every day, permanently.
-                // The hook flushes what it can on the way out.
-                runCatching {
-                    Runtime.getRuntime().addShutdownHook(Thread { turnstile.flushOnExit() })
-                }
-                turnstile
-            }.getOrNull()
+        fun create(context: Any?, storage: UsageStorage? = null): UsageTurnstile {
+            lateinit var turnstile: UsageTurnstile
+            turnstile = UsageTurnstile(
+                open = {
+                    val client = makeClient(
+                        context = context,
+                        sdkVersion = SDK_VERSION,
+                        storage = storage ?: defaultStorage(context),
+                    )
+                    client.start()
+                    // A process that exits inside the 3 s debounce would otherwise send
+                    // nothing at all, while `start()` has already stamped the window —
+                    // so a short-lived JVM would report zero every day, permanently.
+                    // The hook flushes what it can on the way out.
+                    runCatching {
+                        Runtime.getRuntime().addShutdownHook(Thread { turnstile.flushOnExit() })
+                    }
+                    client
+                },
+                flushAfterMs = FLUSH_AFTER_MS,
+                disabled = ::usageDisabled,
+            )
+            return turnstile
         }
     }
 }

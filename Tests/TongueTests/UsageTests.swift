@@ -59,6 +59,49 @@ struct TongueUsage {
         #expect(missed == 0, "\(missed) of 100 flushes ran before the recorded call")
     }
 
+    /// The switch is a consent flag a page flips after load. While it is on a
+    /// detection records nothing and opens no client, so no device id is minted;
+    /// the one after it is cleared reports, and one after it is set again does not.
+    @Test func theOptOutIsReadPerDetection() async {
+        final class Switch: @unchecked Sendable { var on = true; var opened = 0 }
+        let off = Switch()
+        let sink = Sink()
+        let telemetry = TelemetryDebug(sends: InflightSends())
+        let turnstile = UsageTurnstile(
+            client: {
+                off.opened += 1
+                return UsageClient(ClientDeps(
+                    deviceId: "tongue-consent",
+                    platform: "test",
+                    now: { 1_000_000_000_000 },
+                    loadState: { sink.state },
+                    saveState: { sink.state = $0 },
+                    send: { body, _ in sink.sent.append(body) }
+                ))
+            }(),
+            telemetry: telemetry, disabled: { off.on }
+        )
+        turnstile.recordInBackground()
+        await turnstile.record()
+        await telemetry.flushAndWait()
+        #expect(off.opened == 0, "a switched-off detection opened a client")
+        #expect(sink.sent.isEmpty)
+
+        off.on = false
+        turnstile.recordInBackground()
+        await telemetry.flushAndWait()
+        #expect(sink.sent.compactMap { $0.events.first?.callCount }.reduce(0, +) == 1,
+                "the detection after consent did not report")
+
+        off.on = true
+        turnstile.recordInBackground()
+        await turnstile.record()
+        await telemetry.flushAndWait()
+        #expect(sink.sent.compactMap { $0.events.first?.callCount }.reduce(0, +) == 1,
+                "a detection after the opt-out was recorded")
+        #expect(off.opened == 1)
+    }
+
     /// Tongue opens its own client rather than going through `Inference`, and it
     /// used to open it with no `sdk`, so every detection was reported as
     /// "desert-ant-core" at the package default version instead of as Tongue.

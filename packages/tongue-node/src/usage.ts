@@ -221,13 +221,38 @@ function hostApiKey(): string | undefined {
   return hostString("__dalApiKey", "DAL_API_KEY")?.trim() || undefined;
 }
 
-/** Whether usage reporting is switched off for this process. See docs/USAGE.md. */
+/**
+ * Whether usage reporting is switched off, right now: `globalThis.__dalUsageDisabled`
+ * (a string, a boolean, or a function returning either) or `DAL_USAGE_DISABLED`,
+ * under `flagIsSet`, as core reads it.
+ *
+ * The consent switch. A page keeps the beacon off until its visitor agrees, then
+ * clears the flag, so it is read on every detection and again on every send,
+ * never cached: set after load it stops the next send, and cleared it lets the
+ * next detection report. While it is on nothing is recorded, stored or sent, and
+ * no device id is made. See USAGE.md.
+ */
 export function usageDisabled(): boolean {
+  return hostFlag("__dalUsageDisabled", "DAL_USAGE_DISABLED");
+}
+
+/**
+ * A host flag: `globalThis[name]`, calling it when it is a function, then
+ * `process.env[envName]`, each under `flagIsSet`. A global whose getter or
+ * function throws (a consent manager not loaded yet, a request-scoped accessor)
+ * reads as unset, as core's `jsHostValue` does, rather than unwinding a detection.
+ */
+function hostFlag(name: string, envName: string): boolean {
+  let value: unknown;
+  try {
+    value = (globalThis as Record<string, unknown>)[name];
+    if (typeof value === "function") value = (value as () => unknown)();
+  } catch {
+    value = undefined;
+  }
+  if (flagIsSet(value)) return true;
   const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
-  const value =
-    env?.DAL_USAGE_DISABLED ??
-    ((globalThis as Record<string, unknown>).__dalUsageDisabled as string | undefined);
-  return Boolean(value) && value !== "0";
+  return flagIsSet(env?.[envName]);
 }
 
 /**
@@ -497,9 +522,9 @@ export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
 }
 
 /**
- * The truthiness rule for the context opt-outs, core's: set, and not "", "0"
- * or "false". A boolean `true` counts too, as it does in a page.
- * `usageDisabled()` keeps its older rule, as core's does.
+ * The truthiness rule for every opt-out flag, usage and context alike, core's:
+ * set, and not "", "0" or "false". A boolean `true` counts too, as it does in a
+ * page; a number does not.
  */
 export function flagIsSet(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -511,16 +536,7 @@ export function flagIsSet(value: unknown): boolean {
  * or `DAL_USAGE_CONTEXT_DISABLED`. Usage itself still reports.
  */
 export function deviceContextDisabled(): boolean {
-  const raw = (globalThis as Record<string, unknown>).__dalUsageContextDisabled;
-  let value: unknown = raw;
-  try {
-    if (typeof raw === "function") value = (raw as () => unknown)();
-  } catch {
-    value = undefined;
-  }
-  if (flagIsSet(value)) return true;
-  const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
-  return flagIsSet(env?.DAL_USAGE_CONTEXT_DISABLED);
+  return hostFlag("__dalUsageContextDisabled", "DAL_USAGE_CONTEXT_DISABLED");
 }
 
 /**
@@ -713,6 +729,10 @@ export class UsageClient {
  *
  * Returns the send's promise so `flushTelemetry()` can await the POST. The
  * debounced path ignores it, exactly as core's fire-and-forget send does.
+ *
+ * Sends nothing while `usageDisabled()` is on, read per send: an event queued
+ * before the opt-out, still waiting out the debounce, is dropped rather than
+ * posted after the visitor said no.
  */
 export function makeSend(
   endpoint = INGEST_ENDPOINT,
@@ -720,6 +740,7 @@ export function makeSend(
   keyInHeader: boolean = keyRidesInHeader(isBrowserOrigin()),
 ): (body: IngestBody) => Promise<void> {
   return (body) => {
+    if (usageDisabled()) return Promise.resolve();
     let json: string;
     try {
       json = buildBody(body);
@@ -786,16 +807,36 @@ export class UsageTurnstile {
     this.inflight.add(pending);
   }
 
-  private constructor(private client: UsageClient) {}
+  /**
+   * The client, built on the first detection recorded with usage on, so a
+   * turnstile made while the switch is on touches no store and mints no device
+   * id. `null` until then, and for good once building it has failed.
+   */
+  private client: UsageClient | null = null;
+  private broken = false;
+
+  private constructor(
+    private readonly version: string,
+    private readonly storage?: UsageStorage,
+  ) {}
 
   /**
-   * Returns null when usage is switched off. Never throws: a blocked store or an
-   * unusual runtime means no reporting, not no detection.
+   * A turnstile for one `Tongue`, built whether or not usage is switched off:
+   * the switch is a consent flag a host may clear after load, so it is read per
+   * detection instead. Never throws, and builds nothing yet.
    */
-  static create(version: string, storage?: UsageStorage): UsageTurnstile | null {
-    if (usageDisabled()) return null;
+  static create(version: string, storage?: UsageStorage): UsageTurnstile {
+    return new UsageTurnstile(version, storage);
+  }
+
+  /**
+   * The client, built and started on first use. Never throws: a blocked store
+   * or an unusual runtime means no reporting, not no detection.
+   */
+  private open(): UsageClient | null {
+    if (this.client || this.broken) return this.client;
     try {
-      const store = storage ?? defaultStorage();
+      const store = this.storage ?? defaultStorage();
       // A host-provided id wins, matching core's resolveDeviceId: a server that
       // knows its own device identity sets globalThis.__dalDeviceId.
       const hostDevice = hostString("__dalDeviceId", "DAL_DEVICE_ID");
@@ -820,7 +861,7 @@ export class UsageTurnstile {
         keyInBody: !keyInHeader,
         appId,
         platform,
-        version,
+        version: this.version,
         windowMs,
         now: () => Date.now(),
         loadState: () => {
@@ -840,38 +881,42 @@ export class UsageTurnstile {
         context: defaultContextProvider(platform, hostDevice !== undefined && hostDevice !== persisted),
       });
       client.start();
-      const turnstile = new UsageTurnstile(client);
       // Deliver what was accrued when the host goes away. Without this a process
       // or tab that ends inside the 3 s debounce sends nothing at all, while
       // `start()` has already stamped the window — so a short-lived Node script
       // would report zero every day, permanently.
       if (browserOrigin && typeof addEventListener === "function") {
-        addEventListener("pagehide", () => turnstile.client.suspend());
+        addEventListener("pagehide", () => client.suspend());
       } else {
         const proc = (globalThis as { process?: { once?: (e: string, f: () => void) => void } }).process;
         // `beforeExit` still allows work to be scheduled, unlike `exit`.
         proc?.once?.("beforeExit", () => {
           try {
-            turnstile.track(turnstile.client.flush());
+            this.track(client.flush());
           } catch {
             /* best effort */
           }
         });
       }
-      return turnstile;
+      this.client = client;
+      return client;
     } catch {
+      this.broken = true;
       return null;
     }
   }
 
-  /** One detection. */
+  /** One detection. Nothing at all while usage is switched off. */
   record(): void {
-    this.client.recordCall();
+    if (usageDisabled()) return;
+    const client = this.open();
+    if (!client) return;
+    client.recordCall();
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       try {
-        this.track(this.client.flush());
+        if (this.client) this.track(this.client.flush());
       } catch {
         /* best effort */
       }
@@ -890,7 +935,7 @@ export class UsageTurnstile {
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
     try {
-      if (this.client.hasUsage) this.track(this.client.load());
+      if (this.client?.hasUsage) this.track(this.client.load());
       await Promise.all([...this.inflight]);
       return true;
     } catch {

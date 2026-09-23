@@ -61,8 +61,9 @@
 DAL_GPU = ""
 # Our own suites run on networked CI; without this every model load would post a
 # real turnstile event, and a fire-and-forget send still in flight as a test
-# process exits raced Node's teardown into a SIGSEGV. Honoured natively in
-# Usage's `usageDisabled()`; set here so every `mise run` task inherits it.
+# process exits raced Node's teardown into a SIGSEGV. Honoured by Usage's
+# `usageDisabled()` on every platform, the wasm build under Node included; set
+# here so every `mise run` task inherits it.
 DAL_USAGE_DISABLED = "1"
 
 [tasks.build]

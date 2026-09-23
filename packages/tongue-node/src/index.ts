@@ -62,7 +62,7 @@ export interface LoadOptions {
 
 export class Tongue {
   /** One turnstile per instance. See usage.ts and docs/USAGE.md. */
-  private readonly usage: UsageTurnstile | null;
+  private readonly usage: UsageTurnstile;
 
   private constructor(
     private readonly metadata: Metadata,
@@ -106,7 +106,7 @@ export class Tongue {
 
   /** Identify the language of a short string. */
   detect(text: string, topK = 3): Detection {
-    this.usage?.record();
+    this.usage.record();
     const normalized = normalize(text);
     const routed = route(normalized);
     const finish = (
@@ -155,7 +155,6 @@ export class Tongue {
    * effort.
    */
   async flushTelemetry(): Promise<boolean> {
-    if (!this.usage) return true;
     return this.usage.flushTelemetry();
   }
 

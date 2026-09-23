@@ -24,6 +24,7 @@ import {
   nodeOSName,
   printableValue,
   sanitizeContext,
+  usageDisabled,
 } from "../dist/usage.js";
 
 process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
@@ -267,6 +268,39 @@ test("the opt-outs share one truthiness rule", async () => {
     assert.equal(deviceContextDisabled(), true);
     assert.equal(defaultContextProvider("server", false)(), undefined);
   });
+});
+
+test("the usage switch follows the same rule, and a throwing global reads as unset", async () => {
+  const off = { DAL_USAGE_DISABLED: undefined };
+  await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
+  for (const value of [true, "1", "true", () => true, () => "1"]) {
+    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
+      assert.equal(usageDisabled(), true, String(value)),
+    );
+  }
+  for (const value of [false, "", "0", "false", 1, () => false]) {
+    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
+      assert.equal(usageDisabled(), false, String(value)),
+    );
+  }
+  const throwing = () => {
+    throw new Error("no consent manager yet");
+  };
+  await withHost({ env: off, globals: { __dalUsageDisabled: throwing } }, () => assert.equal(usageDisabled(), false));
+  await withHost({ env: { DAL_USAGE_DISABLED: "1" }, globals: { __dalUsageDisabled: throwing } }, () =>
+    assert.equal(usageDisabled(), true, "a throwing global hid the environment"),
+  );
+  // An accessor whose getter throws, as a request-scoped host may define.
+  Object.defineProperty(globalThis, "__dalUsageDisabled", { configurable: true, get: throwing });
+  try {
+    await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
+  } finally {
+    delete globalThis.__dalUsageDisabled;
+  }
+  for (const value of ["0", "false", ""]) {
+    await withHost({ env: { DAL_USAGE_DISABLED: value } }, () => assert.equal(usageDisabled(), false, value));
+  }
+  await withHost({ env: { DAL_USAGE_DISABLED: "true" } }, () => assert.equal(usageDisabled(), true));
 });
 
 test("locales are language and region only", () => {

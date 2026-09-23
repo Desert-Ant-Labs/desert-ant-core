@@ -79,14 +79,33 @@ struct VozUsage {
         #expect(VozModel.sdkInfo.version == VozModel.sdkVersion)
     }
 
-    @Test func noTurnstileWhenUsageIsDisabled() {
-        // The suite runs with DAL_USAGE_DISABLED set (networked CI must not post
-        // a real event), which is exactly the case this asserts.
-        if usageDisabled() {
-            #expect(makeTurnstile() == nil)
-        } else {
-            #expect(makeTurnstile() != nil)
-        }
+    /// The switch is a consent flag an app may flip after load. While it is on
+    /// a transcription records nothing and opens no client; the one after it is
+    /// cleared reports, and one after it is set again does not.
+    @Test func theOptOutIsReadPerTranscription() async {
+        final class Switch: @unchecked Sendable { var on = true; var opened = 0 }
+        let off = Switch()
+        let sink = Sink()
+        let telemetry = TelemetryDebug(sends: InflightSends())
+        let turnstile = UsageTurnstile(
+            client: { off.opened += 1; return testClient(sink) }(),
+            telemetry: telemetry, disabled: { off.on }
+        )
+        await turnstile.record()
+        await telemetry.flushAndWait()
+        #expect(off.opened == 0, "a switched-off transcription opened a client")
+        #expect(sink.sent.isEmpty)
+
+        off.on = false
+        await turnstile.record()
+        await telemetry.flushAndWait()
+        #expect(sink.calls == 1, "the transcription after consent did not report")
+
+        off.on = true
+        await turnstile.record()
+        await telemetry.flushAndWait()
+        #expect(sink.calls == 1, "a transcription after the opt-out was recorded")
+        #expect(off.opened == 1)
     }
 }
 #endif

@@ -51,21 +51,27 @@ public func hostProvidedAppId() -> String? {
 #endif
 }
 
-/// Whether usage tracking is switched off before any client is built.
+/// Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
+/// set in code, or the host flag: `globalThis.__dalUsageDisabled` (a string, a
+/// boolean, or a function returning either) on WASI, then under Node
+/// `process.env.DAL_USAGE_DISABLED`; the `DAL_USAGE_DISABLED` environment
+/// variable elsewhere. The flag follows `flagIsSet`, as the context opt-out does.
 ///
-/// Core deliberately leaves no untracked path through `Inference`, and this does
-/// not weaken that for a shipped app: it exists because our own suites run on
-/// networked CI, where every model load would otherwise post a real turnstile
-/// event, and because a fire-and-forget send left in flight as a short-lived
-/// process exits (a test runner, a CLI) is what raced Node's teardown into a
-/// SIGSEGV. The wasm build does not read `DAL_USAGE_DISABLED`, in a page or
-/// under Node, so it always tracks.
+/// This is the consent switch, public on every platform: a page keeps the
+/// beacon off until its visitor agrees, then clears the flag. So it is read
+/// when a call is recorded and again when an event is sent, never cached: set
+/// after load it stops the next send, and cleared it lets the next call report.
+/// While it is on nothing is recorded, stored or sent, and no device id is made.
+/// Our own suites set it too, because networked CI would otherwise post a real
+/// event per model load.
 public func usageDisabled() -> Bool {
+    if DesertAnt.usageDisabled { return true }
 #if os(WASI)
-    return false
+    let value = jsHostValue("__dalUsageDisabled")
+    if value.boolean == true || flagIsSet(value.string) { return true }
+    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
 #else
-    guard let value = environmentVariable("DAL_USAGE_DISABLED") else { return false }
-    return !value.isEmpty && value != "0"
+    return flagIsSet(environmentVariable("DAL_USAGE_DISABLED"))
 #endif
 }
 
@@ -118,10 +124,8 @@ func nodeEnvironmentVariable(_ name: String) -> String? {
 }
 #endif
 
-/// The truthiness rule for the context opt-outs: set, and not "", "0" or
-/// "false". Only the context flags treat "false" as off: `usageDisabled()`
-/// keeps the older rule, under which it disables, as `DAL_USAGE_DISABLED` does
-/// in every port.
+/// The truthiness rule for every opt-out flag, usage and context alike: set,
+/// and not "", "0" or "false". A JS host may also pass the boolean `true`.
 func flagIsSet(_ value: String?) -> Bool {
     guard let value else { return false }
     return value != "" && value != "0" && value != "false"

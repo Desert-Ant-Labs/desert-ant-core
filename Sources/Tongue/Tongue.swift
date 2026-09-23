@@ -42,7 +42,7 @@ public struct Tongue: Sendable {
     private let metadata: Metadata
     /// One turnstile per instance, shared by copies of this value. See
     /// UsageTracking.swift and docs/USAGE.md.
-    private let usage: UsageTurnstile?
+    private let usage: UsageTurnstile
 
     /// Load from raw bytes. The core initializer: no file system, no Foundation,
     /// so the pipeline cross-compiles as pure Swift. `Tongue()` and
@@ -55,11 +55,9 @@ public struct Tongue: Sendable {
 
     /// Identify the language of a short string.
     public func detect(_ text: String, topK: Int = 3) -> Detection {
-        if let usage {
-            // Fire-and-forget: the turnstile must never sit between a keystroke
-            // and its answer.
-            usage.recordInBackground()
-        }
+        // Fire-and-forget: the turnstile must never sit between a keystroke
+        // and its answer.
+        usage.recordInBackground()
         let normalized = Normalizer.normalize(text)
         let route = Router.route(normalized)
 
