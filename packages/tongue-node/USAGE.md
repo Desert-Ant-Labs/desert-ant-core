@@ -25,6 +25,18 @@ the same way.
   same-named JVM system property on Kotlin), which replaces the generated id.
 - **`app.id`** is the bundle id or package name — the app, not the person.
 - **`callCount`** is how many detections happened, summed server-side.
+- **`context`** is a few coarse facts about where the SDK runs, sent by the
+  JavaScript port and by desert-ant-core (so the Swift SDK), not yet by the
+  Kotlin port. Here they are the ones core sends on the same host: in a
+  browser the browser name and major version, the OS, the form factor
+  (`desktop`, `mobile` or `tablet`) and the language-region locale; on Node the OS from `process.platform`. A
+  server, and any process that sets its own device id, sends only the OS and
+  `appVersion`, which comes from `DAL_APP_VERSION` (`globalThis.__dalAppVersion`)
+  when set. No OS version, screen size or time zone in a browser, and nothing
+  outside those keys: each value is cut to 64 bytes and the whole to 1 KB, and
+  a context that would still be larger is dropped while the event is sent.
+  `DAL_USAGE_CONTEXT_DISABLED=1` (`globalThis.__dalUsageContextDisabled`) turns
+  it off and leaves usage reporting on.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
 
@@ -158,7 +170,9 @@ One difference worth knowing before anyone diffs packet captures: Swift serializ
 through Foundation's `JSONEncoder` and emits **alphabetical** key order, while the
 two ports emit core's declaration order. JSON object order carries no meaning and
 the server parses either, but the bytes are not identical across all three — only
-Kotlin and JavaScript are, and that pair is asserted byte for byte.
+Kotlin and JavaScript are, and that pair is asserted byte for byte. The one
+exception is the event `context`, which the JavaScript port sends and the Kotlin
+port does not yet; the byte-for-byte tests build their clients without it.
 
 The one thing still unproven is delivery to the production endpoint itself. It
 resolves and completes a TLS handshake, but no event has been sent from here:
