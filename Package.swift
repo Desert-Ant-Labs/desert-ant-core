@@ -324,6 +324,10 @@ let libraryTargets: [Target] = [
             name: "CLiteRt",
             linkerSettings: [.linkedLibrary("LiteRt")]
         ),
+        .target(
+            name: "CBCrypt",
+            linkerSettings: [.linkedLibrary("bcrypt", .when(platforms: [.windows]))]
+        ),
         // NUL-terminated C string decoding (see the file). Dependency-free so
         // the Android core can link it without Foundation.
         .target(name: "CStrings"),
@@ -442,6 +446,7 @@ let libraryTargets: [Target] = [
             name: "ModelStore",
             dependencies: [
                 "CStrings",
+                .target(name: "CBCrypt", condition: .when(platforms: [.windows])),
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 "JSHost",  // unconditional: see Inference
             ] + jsWasi + jsEventLoop + xetProducts

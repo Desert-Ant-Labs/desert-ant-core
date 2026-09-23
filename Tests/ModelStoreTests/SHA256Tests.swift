@@ -51,7 +51,8 @@ struct SHA256Tests {
     }
 }
 
-/// `SHA256` is CryptoKit on Apple platforms and `SoftwareSHA256` elsewhere.
+/// `SHA256` is CryptoKit on Apple platforms, CNG on Windows, and
+/// `SoftwareSHA256` elsewhere.
 /// The software loop still ships (Linux, Android, wasm), so it must keep
 /// agreeing with whatever the public type resolves to on this platform.
 @Suite struct SHA256BackendTests {
@@ -78,6 +79,19 @@ struct SHA256Tests {
         let data = pseudoRandom(500)
         let lazyView = data.lazy.map { $0 }
         #expect(SHA256.hexDigest(lazyView) == SHA256.hexDigest(data))
+    }
+
+    @Test func copiedHasherIsIndependent() {
+        // The Windows backend shares one CNG handle between copies until a
+        // write, so a copy that diverges must not disturb the original.
+        let data = pseudoRandom(200)
+        var a = SHA256()
+        a.update(data[0..<100])
+        var b = a
+        b.update([0xFF])
+        a.update(data[100...])
+        #expect(SHA256.hex(a.finalize()) == SHA256.hexDigest(data))
+        #expect(SHA256.hex(b.finalize()) == SHA256.hexDigest(data[0..<100] + [0xFF]))
     }
 
     @Test func publicTypeHashesArraySlices() {
