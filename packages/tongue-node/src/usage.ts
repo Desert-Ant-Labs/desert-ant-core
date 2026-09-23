@@ -953,7 +953,7 @@ export class UsageTurnstile {
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
     try {
-      if (this.client?.hasUsage && !usageDisabled()) this.track(this.client.load());
+      if (!usageDisabled() && this.client?.hasUsage) this.track(this.client.load());
       await Promise.all([...this.inflight]);
       return true;
     } catch {

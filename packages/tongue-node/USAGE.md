@@ -45,7 +45,7 @@ the same way.
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
   the event is still sent. `DAL_USAGE_CONTEXT_DISABLED=1`
-  (see "Turning it off" for the in-code forms) turns it off and leaves usage
+  (see "Leaving out the device context" for the in-code forms) turns it off and leaves usage
   reporting on.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
