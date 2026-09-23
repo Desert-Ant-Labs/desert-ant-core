@@ -59,7 +59,7 @@ function bridgeHostIdentity() {
     } catch {
       continue;
     }
-    if (value === true) value = "1";
+    if (value === true && name === "__dalUsageContextDisabled") value = "1";
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
   }
 }
