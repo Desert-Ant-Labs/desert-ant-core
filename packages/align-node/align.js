@@ -24,12 +24,13 @@ export function makeAlign(sdk, sdkVersion) {
 
     /**
      * The same words with `start` and `end` replaced and `refined` added; unsupported languages pass through.
-     * Every `start` and `end` must be a finite number from -1 to 10,000,000 seconds and `sampleRate` finite and
-     * positive, or this rejects with a `RangeError`. Times past the end of the audio are accepted.
+     * Every `start` and `end` must be a finite number from -1 to 10,000,000 seconds, `sampleRate` finite and
+     * positive, and `samples` non-empty, or this rejects with a `RangeError`. A word past the end of the audio
+     * keeps its times, `refined: false`.
      */
     async refine(samples, sampleRate, words, options) {
       if (!options || typeof options.language !== "string") throw new Error("align: options.language is required");
-      validateInput(sampleRate, words);
+      validateInput(samples, sampleRate, words);
       const reader = await this.#model.run(encodeInput(samples, sampleRate, words),
                                            encodeOptions({ language: options.language }), options);
       return decodeResult(reader, words);

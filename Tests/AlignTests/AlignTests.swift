@@ -1,3 +1,4 @@
+import FFIBuffer
 import ModelStore
 import Foundation
 import Testing
@@ -68,15 +69,25 @@ func makeFrontend() async throws -> Frontend {
     }
 }
 
-// Word times become Int frame indices, so a time Int cannot hold used to trap the host process.
 // Validation runs before the model loads, so none of these need the weights.
 @Suite struct InputValidationTests {
     func refiner() -> Align {
         Align(directory: NSTemporaryDirectory() + "align-unloaded-\(UUID().uuidString)")
     }
 
-    @Test(arguments: [Double.nan, .infinity, -.infinity, 1e17, 1e308, -1e20, -5])
-    func invalidStartThrows(_ start: Double) async throws {
+    // Word times become Int frame indices, so a time Int cannot hold used to trap the host process.
+    @Test(arguments: [Double.nan, .infinity, -.infinity, 1e17, 1e308, -1e20])
+    func untrappableStartThrows(_ start: Double) async throws {
+        let words = [WordTiming(text: "one", start: start, end: 0.5)]
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "en")
+        }
+    }
+
+    // Rejected by policy, not because it traps: times in [-9.2e16, -1) and (1e7, 9.2e16] used to
+    // return a meaningless result and are now refused.
+    @Test(arguments: [-5.0, 1e8])
+    func outOfRangeStartThrows(_ start: Double) async throws {
         let words = [WordTiming(text: "one", start: start, end: 0.5)]
         await #expect(throws: AlignError.self) {
             try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "en")
@@ -91,13 +102,44 @@ func makeFrontend() async throws -> Frontend {
         }
     }
 
-    // Rejected even where refine would otherwise be a passthrough, so the rule does not depend on language.
-    @Test func invalidTimeThrowsForUnsupportedLanguage() async throws {
-        let words = [WordTiming(text: "one", start: .nan, end: 0.5)]
+    // Rejected even where refine would otherwise be a passthrough, so the rule does not depend on
+    // language. An unsupported language used to return these inputs unchanged.
+    @Test func invalidInputThrowsForUnsupportedLanguage() async throws {
+        let good = [WordTiming(text: "one", start: 0.2, end: 0.5)]
         await #expect(throws: AlignError.self) {
-            try await refiner().refine(words, audio: synthAudio(16000, 16000), languageCode: "xx")
+            try await refiner().refine([WordTiming(text: "one", start: .nan, end: 0.5)],
+                                       audio: synthAudio(16000, 16000), languageCode: "xx")
+        }
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(good, audio: synthAudio(16000, 16000), sampleRate: .nan, languageCode: "xx")
+        }
+        await #expect(throws: AlignError.self) {
+            try await refiner().refine(good, audio: [], languageCode: "xx")
         }
     }
+
+    // The path the Node and Kotlin bindings take: the thrown error must come back as nil, which
+    // the host reports as a failed call, rather than trapping.
+    @Test(arguments: [Double.nan, 1e17, -1e20])
+    func bindingRunReturnsNilForInvalidTime(_ start: Double) async throws {
+        var input = FFIWriter()
+        input.f32Array(synthAudio(16000, 16000))
+        input.f64(16000)
+        input.u32(1)
+        input.string("one"); input.f64(start); input.f64(0.5)
+        var options = FFIWriter()
+        options.string("en")
+        let out = await refiner().run(input: FFIReader(input.bytes), options: FFIReader(options.bytes))
+        #expect(out == nil)
+    }
+
+    #if canImport(Speech)
+    @Test(arguments: [Double.nan, -1])
+    func invalidBufferLengthThrows(_ seconds: Double) async throws {
+        let streaming = StreamingRefiner(align: refiner(), languageCode: "en", maxBufferedSeconds: seconds)
+        await #expect(throws: AlignError.self) { try await streaming.appendAudio(synthAudio(1600, 16000)) }
+    }
+    #endif
 
     @Test(arguments: [Double.nan, .infinity, 0, -16000])
     func invalidSampleRateThrows(_ rate: Double) async throws {
@@ -317,6 +359,26 @@ import Speech
         let out = try await refiner.refine(words, audio: audio, languageCode: "en")
         #expect(out == words)
     }
+
+    // More than a coarse half-window past the last frame there is only mirrored audio to search.
+    @Test func wordsPastTheAudioKeepTheirTimes() async throws {
+        let refiner = try await makeRefiner()
+        let words = [WordTiming(text: "late", start: 100, end: 101)]
+        let out = try await refiner.refine(words, audio: synthAudio(48000, 16000), languageCode: "en")
+        #expect(out == words)
+    }
+
+    #if canImport(Speech)
+    // Infinity means unbounded; Int() of it used to trap.
+    @Test func unboundedBufferKeepsEverySample() async throws {
+        let streaming = StreamingRefiner(align: try await makeRefiner(), languageCode: "en",
+                                         maxBufferedSeconds: .infinity)
+        try await streaming.appendAudio(synthAudio(16000, 16000))
+        try await streaming.appendAudio(synthAudio(16000, 16000))
+        let out = try await streaming.refine([WordTiming(text: "one", start: 0.3, end: 0.55)])
+        #expect(out.count == 1)
+    }
+    #endif
 
     // The old name still resolves for the asset init, with a deprecation warning.
     @Test func deprecatedNameStillResolves() async throws {

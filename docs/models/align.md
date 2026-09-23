@@ -128,9 +128,10 @@ rather than falling back. See Limitations.
 
 Input that cannot be a time is refused before any work, whatever the language. Every `start`
 and `end` must be finite and from -1 to 10,000,000 seconds, and the sample rate finite and
-positive. Swift throws `AlignError.invalidInput`, naming the word; JavaScript rejects with a
-`RangeError`. Empty audio throws too. Times past the end of the audio are accepted, but there
-is nothing there to refine against, so the result for those words is not meaningful.
+positive, and the audio must not be empty. Swift throws `AlignError.invalidInput`, naming the
+word; JavaScript rejects with a `RangeError`. A word more than about 1.2 seconds past the end
+of the audio has nothing to refine against, so it keeps its input times with `refined`
+false.
 
 ### Loading the model
 
