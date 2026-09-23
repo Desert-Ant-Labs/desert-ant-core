@@ -328,25 +328,25 @@
       "tagline": "Flag nudity before upload or display.",
       "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
       "category": "Content moderation",
-      "lifecycle": "closed-beta",
+      "lifecycle": "beta",
       "visibility": "public",
-      "home": null,
+      "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
+        "swift": { "status": "live", "package": "Moderator", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:moderator", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/moderator", "platforms": ["web", "node"] }
       },
       "weights": {
         "source": "hub",
         "repo": "desert-ant-labs/moderator",
         "url": "https://huggingface.co/desert-ant-labs/moderator",
-        "revision": "main",
+        "revision": "v1.0.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
-      "runtime": ["coreml"],
+      "runtime": ["coreml", "litert"],
       "variants": [],
       "hub": {
-        "tags": ["image", "image-classification", "content-moderation", "nsfw", "on-device", "core-ml", "onnx"],
+        "tags": ["image", "image-classification", "content-moderation", "nsfw", "on-device", "core-ml", "litert", "tflite"],
         "pipelineTag": "image-classification",
         "libraryName": null
       },

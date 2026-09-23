@@ -164,6 +164,15 @@ let models: [ModelPackage] = [
         name: "Shapes",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")]
     ),
+    // Image in, pure-Swift resampling (bit-exact with the Pillow eval pipeline),
+    // so it needs nothing beyond the core.
+    .init(
+        name: "Moderator",
+        testResources: [
+            .copy("Resources/moderator_golden.json"),
+            .copy("Resources/sfw_beach.png"),
+        ]
+    ),
     .init(
         name: "Align",
         dependencies: ["AudioDSP", .product(name: "RealModule", package: "swift-numerics"), "TextNormalization"],
