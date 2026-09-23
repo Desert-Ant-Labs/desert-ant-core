@@ -70,6 +70,9 @@ internal class UsageTurnstile private constructor(
         if (disabled()) return
         synchronized(lock) {
             val client = openClient() ?: return
+            // Every detection, not only when the client opens: one opened on a day that
+            // had already posted would otherwise carry its calls past midnight, forever.
+            runCatching { client.start() }
             client.recordCall()
             if (flushScheduled) return
             val task = object : TimerTask() {

@@ -78,7 +78,11 @@ a network log:
 
 - The **turnstile** — the billed event — opens once per window: a day on Apple,
   Android and Node, **30 minutes in a browser**, because a tab is ephemeral and
-  core uses a session-shaped window there.
+  core uses a session-shaped window there. The window runs from the last
+  turnstile, and in a browser also from the last `pagehide`, so a tab in
+  continuous use opens a new one every 30 minutes. It also opens on the first
+  use of every UTC day, however recently the device was active, so every month
+  the device is used in has one.
 - After it opens, further detections in that session ride **delta events**, which
   flush on a 3-second debounce. A burst of typing is one request, but a session
   that keeps detecting keeps sending small ones.
@@ -266,11 +270,12 @@ doing so would put a development machine into real billing data.
 
 ## Keeping the three honest
 
-`usage_vectors.json` is the contract, replayed by the Kotlin and JavaScript ports
-against their own clients — the same approach as the model's normalizer, hasher
-and router vectors. It covers the window, the carry, the delta load and
-double-start. The file is deliberately flat parallel arrays so both ports read it
-with their existing minimal readers rather than taking a JSON dependency.
+`usage_vectors.json` is the contract, replayed by core and by the Kotlin and
+JavaScript ports against their own clients, the same approach as the model's
+normalizer, hasher and router vectors. It covers the window, the carry, the
+delta load, double-start, and the turnstile on every UTC day of use. The file is
+deliberately flat parallel arrays so both ports read it with their existing
+minimal readers rather than taking a JSON dependency.
 
 This matters more than it looks. A wrong turnstile does not produce a visible bug:
 detection keeps working perfectly and the billing number is quietly wrong. The
@@ -283,13 +288,19 @@ it is handled. If it looks like this one (no runtime, direct ports rather than
 bridges):
 
 1. Add `.product(name: "Usage", package: "desert-ant-core")` to the Swift target
-   and open a client where the model is constructed. Core does the rest.
-2. Port `UsageClient` to each non-Swift platform. It is ~120 lines: the window
-   check, the pending event, the carry, and the delta path.
-3. Match core's storage keys exactly — `ai.desertant.usage.deviceId`, and
+   and open a client where the model is constructed. Call its `start()` on every
+   recorded call, not only when it opens, as Tongue's and Voz's `record()` do: a
+   client opened on a day that already posted otherwise never posts again.
+2. Port `UsageClient` to each non-Swift platform. It is ~120 lines: the gate (a
+   new UTC day, or the window elapsed), the pending event, the carry, and the
+   delta path. The port's turnstile calls `start()` per call too.
+3. Match core's storage keys exactly: `ai.desertant.usage.deviceId`,
    `ai.desertant.usage.<appKey>.<deviceId>.state` holding
-   `"<lastActiveAt>,<carryCallCount>"`. An app embedding two Desert Ant SDKs must
-   count as one device, and it only does if both read the same key.
+   `"<lastActiveAt>,<carryCallCount>"`, and `...<deviceId>.emitDay` holding the
+   UTC day (days since the epoch) of the last turnstile. An app embedding two
+   Desert Ant SDKs must count as one device, and it only does if both read the
+   same key. The day has a key of its own because older readers reset a
+   `.state` that is not exactly two fields.
 4. Copy `usage_vectors.json` and wire the replay test before trusting the port.
 5. Set `DAL_USAGE_DISABLED=1` across the repo's own tasks and CI, first, so no
    build ever bills.

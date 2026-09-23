@@ -37,10 +37,11 @@ async function withUsageOn(body) {
 test("turnstile matches the shared contract", () => {
   for (const c of vectors.cases) {
     let state = { lastActiveAt: c.stateLastActiveAt, carryCallCount: c.stateCarry };
+    if (c.stateEmitDay >= 0) state.lastEmitDay = c.stateEmitDay;
     let now = 0;
     const sends = [];
 
-    const client = new UsageClient({
+    const makeClient = () => new UsageClient({
       deviceId: "device-under-test",
       platform: "test",
       version: "0.0.0",
@@ -54,12 +55,15 @@ test("turnstile matches the shared contract", () => {
         sends.push(body);
       },
     });
+    let client = makeClient();
 
     c.stepKinds.forEach((kind, i) => {
       now = c.stepAt[i];
       if (kind === "start") client.start();
       else if (kind === "flush") client.flush();
       else if (kind === "record") client.recordCall(c.stepN[i]);
+      else if (kind === "suspend") client.suspend();
+      else if (kind === "relaunch") client = makeClient();
       else throw new Error(`unknown step ${kind}`);
     });
 
@@ -72,6 +76,7 @@ test("turnstile matches the shared contract", () => {
     });
     assert.equal(state.lastActiveAt, c.finalLastActiveAt, `${c.name}: final lastActiveAt`);
     assert.equal(state.carryCallCount, c.finalCarry, `${c.name}: final carry`);
+    assert.equal(state.lastEmitDay ?? -1, c.finalEmitDay, `${c.name}: final emit day`);
   }
 });
 
@@ -319,6 +324,217 @@ test("a flush with nothing recorded reports success and sends nothing", async ()
     assert.equal(await turnstile.flushTelemetry(), true);
     assert.equal(fetched, false, "an idle turnstile posted a load");
   } finally {
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
+test("start() reads storage again only once a turnstile could be due", () => {
+  // The turnstile calls start() on every detection, and Node's store reads a file.
+  let state = { lastActiveAt: 0, carryCallCount: 0 };
+  let reads = 0;
+  let now = 1_700_000_000_000; // 22:13:20Z
+  const sends = [];
+  const client = new UsageClient({
+    deviceId: "d",
+    platform: "test",
+    version: "0.0.0",
+    windowMs: vectors.windowMs,
+    now: () => now,
+    loadState: () => {
+      reads += 1;
+      return state;
+    },
+    saveState: (next) => {
+      state = next;
+    },
+    send: (body) => {
+      sends.push(body);
+    },
+  });
+  client.start();
+  client.flush();
+  const settled = reads;
+  for (let i = 0; i < 100; i++) client.start();
+  assert.equal(reads, settled, "a start inside the day read storage");
+
+  now += 2 * 60 * 60 * 1000; // past UTC midnight
+  client.start();
+  client.flush();
+  assert.equal(sends.length, 2, "the new UTC day opened no turnstile");
+});
+
+test("a wall clock stepped back past midnight still opens the day", () => {
+  // A host whose clock ran a day fast and was then corrected: the gate set on the
+  // fast clock must not hold start() shut until real time catches up.
+  let now = 1_700_000_000_000 + 86_400_000; // a day fast
+  let state = { lastActiveAt: 0, carryCallCount: 0 };
+  const sends = [];
+  const client = new UsageClient({
+    deviceId: "d",
+    platform: "test",
+    version: "0.0.0",
+    windowMs: vectors.windowMs,
+    now: () => now,
+    loadState: () => state,
+    saveState: (next) => {
+      state = next;
+    },
+    send: (body) => {
+      sends.push(body);
+    },
+  });
+  client.start();
+  client.flush();
+  now -= 86_400_000; // corrected, back onto the previous UTC day
+  client.start();
+  client.flush();
+  assert.equal(sends.length, 2, "the corrected day opened no turnstile");
+});
+
+test("in a 30-minute window, start() reads storage again once the window can have passed", () => {
+  // The day never bounds this gate here; the window does, from both branches.
+  const windowMs = 30 * 60 * 1000;
+  let now = 1_700_000_000_000 - 12 * 60 * 60 * 1000; // mid-day UTC
+  let reads = 0;
+  const sends = [];
+  const make = (state) => {
+    const client = new UsageClient({
+      deviceId: "d",
+      platform: "test",
+      version: "0.0.0",
+      windowMs,
+      now: () => now,
+      loadState: () => {
+        reads += 1;
+        return state;
+      },
+      saveState: (next) => {
+        state = next;
+      },
+      send: (body) => {
+        sends.push(body);
+      },
+    });
+    return client;
+  };
+
+  // After an emit: skipped until the window has run from it, then a new one.
+  const emitting = make({ lastActiveAt: 0, carryCallCount: 0 });
+  emitting.start();
+  emitting.flush();
+  let settled = reads;
+  now += windowMs - 1;
+  emitting.start();
+  assert.equal(reads, settled, "a start inside the window read storage");
+  now += 1;
+  emitting.start();
+  emitting.flush();
+  assert.equal(sends.length, 2, "the elapsed window opened no turnstile");
+
+  // After a skip: the gate is the stored lastActiveAt plus the window.
+  sends.length = 0;
+  const day = Math.floor(now / 86_400_000);
+  const skipping = make({ lastActiveAt: now - 10 * 60 * 1000, carryCallCount: 0, lastEmitDay: day });
+  skipping.start();
+  settled = reads;
+  now += 20 * 60 * 1000 - 1;
+  skipping.start();
+  assert.equal(reads, settled, "a start inside the stored window read storage");
+  now += 1;
+  skipping.start();
+  skipping.flush();
+  assert.equal(sends.length, 1, "the elapsed stored window opened no turnstile");
+});
+
+test("state stored before the emit day existed emits on the next start, and keeps its two-field shape", async (t) => {
+  // Core and the Kotlin port read the same keys and reset a `.state` that is not
+  // exactly two fields, so the day rides a key of its own. State an older release
+  // wrote has none, and the first start after the upgrade must emit, even inside
+  // the window, or a device used every day is never billed again. Through the
+  // debounce, not flushTelemetry(): a forced flush emits whatever start() decided.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_700_000_000_000 });
+  // Each client this opens adds an exit hook; removed after, so the file's
+  // turnstiles stay under Node's listener warning.
+  const exitHooks = process.listeners("beforeExit");
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  try {
+    const values = new Map();
+    const store = { get: (k) => values.get(k) ?? null, set: (k, v) => values.set(k, v) };
+    // The client opens on the first detection.
+    UsageTurnstile.create("9.9.9", store).record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts.length, 1);
+    const stateKey = [...values.keys()].find((k) => k.endsWith(".state"));
+    const emitDayKey = stateKey.replace(/\.state$/, ".emitDay");
+    assert.equal(values.get(emitDayKey), "19675");
+
+    values.delete(emitDayKey);
+    values.set(stateKey, `${Date.now()},2`);
+    const upgraded = UsageTurnstile.create("9.9.9", store);
+    upgraded.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts.length, 2, "the upgraded start opened no turnstile");
+    assert.equal(posts[1].events[0].callCount, 3, "the carried calls rode the turnstile");
+    assert.match(values.get(stateKey), /^\d+,0$/);
+    assert.equal(values.get(emitDayKey), "19675");
+  } finally {
+    for (const hook of process.listeners("beforeExit")) {
+      if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
+    }
+    globalThis.fetch = realFetch;
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+});
+
+test("a turnstile created on a day that already posted emits on its first detection of the next day", async (t) => {
+  // start() used to run only when the client opened, on the first detection, so
+  // one opened inside the window (a server redeployed the same day) carried every
+  // call for as long as it lived.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  // 2023-11-14T22:13:20Z, two hours before a UTC midnight.
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_700_000_000_000 });
+  // Each client this opens adds an exit hook; removed after, so the file's
+  // turnstiles stay under Node's listener warning.
+  const exitHooks = process.listeners("beforeExit");
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  try {
+    const values = new Map();
+    const store = { get: (k) => values.get(k) ?? null, set: (k, v) => values.set(k, v) };
+    const first = UsageTurnstile.create("9.9.9", store);
+    first.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts.length, 1);
+
+    const redeployed = UsageTurnstile.create("9.9.9", store);
+    redeployed.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts.length, 1, "a second turnstile the same day posted");
+
+    t.mock.timers.tick(2 * 60 * 60 * 1000);
+    redeployed.record();
+    t.mock.timers.tick(3_000);
+    assert.equal(posts.length, 2, "the new UTC day opened no turnstile");
+    assert.equal(posts[1].events[0].callCount, 2, "the carried call rode the turnstile");
+  } finally {
+    for (const hook of process.listeners("beforeExit")) {
+      if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
+    }
     globalThis.fetch = realFetch;
     if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }

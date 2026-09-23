@@ -14,7 +14,9 @@ import ai.desertant.tongue.usage.makeClient
 import ai.desertant.tongue.usage.makeSend
 import ai.desertant.tongue.usage.apiKey
 import ai.desertant.tongue.usage.await
+import ai.desertant.tongue.usage.loadState
 import ai.desertant.tongue.usage.readEnvironment
+import ai.desertant.tongue.usage.saveState
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.CountDownLatch
@@ -51,11 +53,12 @@ class UsageVectorTest {
             var state = UsageState(
                 numberField(case, "stateLastActiveAt") ?: 0,
                 (numberField(case, "stateCarry") ?: 0).toInt(),
+                numberField(case, "stateEmitDay")?.takeIf { it >= 0 },
             )
             var now = 0L
             val sends = mutableListOf<IngestBody>()
 
-            val client = UsageClient(
+            fun newClient() = UsageClient(
                 ClientDeps(
                     deviceId = "device-under-test",
                     platform = "test",
@@ -70,6 +73,7 @@ class UsageVectorTest {
                     },
                 ),
             )
+            var client = newClient()
 
             val kinds = stringArray(case, "stepKinds")
             val ats = numberArray(case, "stepAt")
@@ -80,6 +84,8 @@ class UsageVectorTest {
                     "start" -> client.start()
                     "flush" -> client.flush()
                     "record" -> client.recordCall(ns[i].toInt())
+                    "suspend" -> client.suspend()
+                    "relaunch" -> client = newClient()
                     else -> error("unknown step $kind")
                 }
             }
@@ -97,6 +103,9 @@ class UsageVectorTest {
             )
             assertEquals(
                 (numberField(case, "finalCarry") ?: 0).toInt(), state.carryCallCount, "$name: final carry",
+            )
+            assertEquals(
+                numberField(case, "finalEmitDay") ?: -1, state.lastEmitDay ?: -1, "$name: final emit day",
             )
         }
     }
@@ -368,6 +377,65 @@ class UsageVectorTest {
             if (previousProperty == null) System.clearProperty("DAL_DEVICE_ID")
             else System.setProperty("DAL_DEVICE_ID", previousProperty)
         }
+    }
+
+    /**
+     * The emit day rides a key of its own, so `.state` keeps the two fields that
+     * earlier releases of this port and of core require (they reset anything else,
+     * losing the carry). State an older release wrote has no day, which reads as
+     * not emitted today.
+     */
+    @Test
+    fun emitDayIsStoredBesideTheTwoFieldState() {
+        val store = InMemoryStorage()
+        store.saveState(UsageState(123, 4, 19754), "acme", "dev-1")
+        assertEquals("123,4", store.get("ai.desertant.usage.acme.dev-1.state"))
+        assertEquals("19754", store.get("ai.desertant.usage.acme.dev-1.emitDay"))
+        assertEquals(UsageState(123, 4, 19754), store.loadState("acme", "dev-1"))
+
+        val legacy = InMemoryStorage(mutableMapOf("ai.desertant.usage.acme.dev-1.state" to "123,4"))
+        assertEquals(UsageState(123, 4, null), legacy.loadState("acme", "dev-1"))
+    }
+
+    /**
+     * `start()` used to run only when the client opened, on the first detection,
+     * so one opened on a day that had already posted (a JVM redeployed the same
+     * day) carried every call for as long as it lived. Each detection re-checks
+     * the day now.
+     */
+    @Test
+    fun aTurnstileCreatedOnAPostedDayEmitsOnItsFirstDetectionOfTheNextDay() {
+        val created = 1_700_000_000_000L // 2023-11-14T22:13:20Z
+        var state = UsageState(created - 1_000, 0, created / DAY_MS)
+        var now = created
+        val sends = mutableListOf<IngestBody>()
+        val client = UsageClient(
+            ClientDeps(
+                deviceId = "d",
+                platform = "server",
+                sdkVersion = "0.0.0",
+                windowMs = DAY_MS,
+                now = { now },
+                loadState = { state },
+                saveState = { state = it },
+                send = {
+                    synchronized(sends) { sends.add(it) }
+                    SendHandle { }
+                },
+            ),
+        )
+        val turnstile = UsageTurnstile(client, flushAfterMs = 50)
+        client.start()
+
+        turnstile.record()
+        Thread.sleep(300)
+        assertEquals(0, synchronized(sends) { sends.size }, "a throttled turnstile posted")
+
+        now = created + 2 * 60 * 60 * 1000 // past UTC midnight
+        turnstile.record()
+        Thread.sleep(300)
+        assertEquals(1, synchronized(sends) { sends.size }, "the new UTC day opened no turnstile")
+        assertEquals(2, sends[0].events.first().callCount, "the carried call rode the turnstile")
     }
 
     /**

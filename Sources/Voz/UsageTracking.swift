@@ -69,9 +69,11 @@ actor UsageTurnstile {
     func record() async {
         // Read per call: a consent flow sets or clears it after load.
         if disabled() { return }
-        // `start()` on every call, as `TrackedSession` does per run: it is a
-        // no-op inside the window, and a switch set between the check above and
-        // the client's own would otherwise leave a start skipped for good.
+        // `start()` on every call, as `TrackedSession` does per run: the first
+        // call of a new UTC day must open a turnstile however recently the app
+        // was active, it is a no-op otherwise inside the window, and a switch set
+        // between the check above and the client's own would otherwise leave a
+        // start skipped for good.
         let client = openClient()
         client.start()
         client.recordCall()
