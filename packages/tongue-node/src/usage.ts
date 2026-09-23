@@ -244,6 +244,298 @@ function defaultAppId(): string | undefined {
   );
 }
 
+/** The keys the ingest accepts in an event's `context`. Anything else is dropped. */
+const CONTEXT_KEYS = new Set([
+  "appVersion", "osName", "osVersion", "deviceModel",
+  "browserName", "browserVersion", "formFactor", "locale",
+]);
+
+/** The values the ingest accepts for `formFactor`. */
+export const FORM_FACTORS = new Set(["desktop", "mobile", "tablet"]);
+
+/** The browser vocabulary the dashboard groups by. */
+export const BROWSER_NAMES = new Set(["Chrome", "Edge", "Safari", "Firefox", "Opera", "Samsung Internet", "Other"]);
+
+/** Per-value cap, in UTF-8 bytes. Core's, so both report the same values. */
+export const MAX_CONTEXT_VALUE_BYTES = 64;
+
+/**
+ * Cap on the encoded context. The ingest rejects the whole batch at 4096 bytes,
+ * so this stays well under it; over it, the event goes without context.
+ */
+export const MAX_CONTEXT_BYTES = 1024;
+
+const utf8Length = (value: string) => new TextEncoder().encode(value).length;
+
+/** Control and invisible formatting characters, which never belong in a value. */
+function isPrintable(code: number): boolean {
+  if (code < 0x20 || (code >= 0x7f && code <= 0x9f)) return false;
+  if ((code >= 0x200b && code <= 0x200f) || (code >= 0x2028 && code <= 0x202e)) return false;
+  if ((code >= 0x2060 && code <= 0x206f) || code === 0xfeff || (code >= 0xfff9 && code <= 0xfffb)) return false;
+  return true;
+}
+
+/** `raw` printable, trimmed, and cut to `MAX_CONTEXT_VALUE_BYTES` on a code point. */
+export function printableValue(raw: string): string {
+  let out = "";
+  let bytes = 0;
+  for (const char of [...raw].filter((c) => isPrintable(c.codePointAt(0)!)).join("").trim()) {
+    bytes += utf8Length(char);
+    if (bytes > MAX_CONTEXT_VALUE_BYTES) break;
+    out += char;
+  }
+  return out.trim();
+}
+
+/**
+ * `context` reduced to what the ingest accepts without rejecting the batch, as
+ * core's `sanitizeContext` does: allowlisted keys, printable capped values, a
+ * known formFactor, and at most `MAX_CONTEXT_BYTES` encoded. Undefined when
+ * nothing is left or the whole is still too big.
+ */
+export function sanitizeContext(
+  context: Record<string, unknown> | undefined,
+): Record<string, string> | undefined {
+  if (!context) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(context)) {
+    if (!CONTEXT_KEYS.has(key) || typeof raw !== "string") continue;
+    const value = printableValue(raw);
+    if (!value) continue;
+    if (key === "formFactor" && !FORM_FACTORS.has(value)) continue;
+    out[key] = value;
+  }
+  if (Object.keys(out).length === 0) return undefined;
+  return utf8Length(JSON.stringify(out)) <= MAX_CONTEXT_BYTES ? out : undefined;
+}
+
+/**
+ * Browser name and major version. User-Agent Client Hints first (Chromium
+ * browsers), then the user agent string, which is all Safari and Firefox have.
+ * A Chromium browser whose brands name none we know (Brave, Vivaldi) is
+ * "Other": its user agent string claims Chrome.
+ */
+export function browserIdentity(
+  brands: { brand: string; version: string }[],
+  userAgent: string,
+): { name: string; version?: string } {
+  if (brands.length > 0) {
+    const named = brands.filter((b) => !b.brand.includes("Brand") && b.brand !== "Chromium");
+    for (const [prefix, name] of [
+      ["Microsoft Edge", "Edge"], ["Opera", "Opera"],
+      ["Samsung Internet", "Samsung Internet"], ["Google Chrome", "Chrome"],
+    ] as const) {
+      const hit = named.find((b) => b.brand.startsWith(prefix));
+      if (hit) return { name, version: leadingDigits(hit.version) };
+    }
+    return { name: "Other" };
+  }
+  for (const [token, name] of [
+    ["SamsungBrowser/", "Samsung Internet"],
+    ["OPR/", "Opera"], ["OPiOS/", "Opera"], ["OPT/", "Opera"],
+    ["Edg/", "Edge"], ["EdgA/", "Edge"], ["EdgiOS/", "Edge"], ["Edge/", "Edge"],
+    ["FxiOS/", "Firefox"], ["Firefox/", "Firefox"],
+    ["CriOS/", "Chrome"], ["Chrome/", "Chrome"],
+  ] as const) {
+    const version = versionAfter(token, userAgent);
+    if (version) return { name, version };
+  }
+  const safari = userAgent.includes("Safari/") ? versionAfter("Version/", userAgent) : undefined;
+  return safari ? { name: "Safari", version: safari } : { name: "Other" };
+}
+
+/**
+ * The OS a page runs on. Client Hints' platform first, then the user agent.
+ * iPadOS 13+ Safari sends a Mac user agent; touch points give it away.
+ */
+export function browserOSName(
+  hintPlatform: string | undefined,
+  userAgent: string,
+  maxTouchPoints: number,
+): string | undefined {
+  switch (hintPlatform) {
+    case "Windows": return "Windows";
+    case "macOS": return maxTouchPoints > 1 ? "iPadOS" : "macOS";
+    case "Linux": return "Linux";
+    case "Android": return "Android";
+    case "Chrome OS":
+    case "ChromeOS": return "ChromeOS";
+    case "iOS": return "iOS";
+  }
+  if (userAgent.includes("iPad")) return "iPadOS";
+  if (userAgent.includes("iPhone") || userAgent.includes("iPod")) return "iOS";
+  if (userAgent.includes("Android")) return "Android";
+  if (userAgent.includes("CrOS")) return "ChromeOS";
+  if (userAgent.includes("Windows")) return "Windows";
+  if (userAgent.includes("Macintosh") || userAgent.includes("Mac OS X")) {
+    return maxTouchPoints > 1 ? "iPadOS" : "macOS";
+  }
+  if (userAgent.includes("Linux")) return "Linux";
+  return undefined;
+}
+
+/**
+ * Always one of `FORM_FACTORS`. An Android user agent without "Mobile" is a
+ * tablet by Google's own convention, and a Mac user agent with touch is an iPad.
+ */
+export function browserFormFactor(
+  userAgent: string,
+  mobileHint: boolean | undefined,
+  maxTouchPoints: number,
+): string {
+  if (userAgent.includes("iPad")) return "tablet";
+  if (userAgent.includes("Macintosh") && maxTouchPoints > 1) return "tablet";
+  if (userAgent.includes("iPhone") || userAgent.includes("iPod")) return "mobile";
+  if (userAgent.includes("Android")) return userAgent.includes("Mobile") ? "mobile" : "tablet";
+  if (mobileHint === true) return "mobile";
+  return "desktop";
+}
+
+/**
+ * A BCP 47 tag reduced to language and region: "zh-Hant-TW" -> "zh-TW",
+ * "en_US" -> "en-US", "fr" -> "fr". Undefined when it does not start with a language.
+ */
+export function languageRegion(tag: string | undefined): string | undefined {
+  if (!tag) return undefined;
+  const parts = tag.split(/[-_@.]/).filter(Boolean);
+  const first = parts[0];
+  if (!first || !/^[A-Za-z]{2,3}$/.test(first)) return undefined;
+  const language = first.toLowerCase();
+  for (const part of parts.slice(1)) {
+    if (/^[A-Za-z]{2}$/.test(part)) return `${language}-${part.toUpperCase()}`;
+    if (/^[0-9]{3}$/.test(part)) return `${language}-${part}`;
+    // The region follows the script; an extension or a variant means none came.
+    if (part.length !== 4) break;
+  }
+  return language;
+}
+
+/** Node's `process.platform` in the vocabulary the other hosts use. */
+export function nodeOSName(platform: string | undefined): string | undefined {
+  switch (platform) {
+    case undefined:
+    case "": return undefined;
+    case "darwin": return "macOS";
+    case "linux": return "Linux";
+    case "win32": return "Windows";
+    case "android": return "Android";
+    default: return platform;
+  }
+}
+
+function versionAfter(token: string, userAgent: string): string | undefined {
+  const at = userAgent.indexOf(token);
+  return at === -1 ? undefined : leadingDigits(userAgent.slice(at + token.length));
+}
+
+function leadingDigits(value: string): string | undefined {
+  return /^[0-9]+/.exec(value)?.[0];
+}
+
+/** Host facts, read once. Only what core reads on the same host. */
+export interface DeviceFacts {
+  osName?: string;
+  browserName?: string;
+  browserVersion?: string;
+  formFactor?: string;
+  locale?: string;
+}
+
+let cachedFacts: DeviceFacts | undefined;
+
+function deviceFacts(): DeviceFacts {
+  if (cachedFacts) return cachedFacts;
+  try {
+    cachedFacts = isBrowserOrigin() ? browserFacts((globalThis as { navigator?: BrowserNavigator }).navigator) : {
+      osName: nodeOSName((globalThis as { process?: { platform?: string } }).process?.platform),
+    };
+  } catch {
+    cachedFacts = {};
+  }
+  return cachedFacts;
+}
+
+/** The parts of `navigator` the facts come from. */
+export interface BrowserNavigator {
+  userAgent?: string;
+  language?: string;
+  maxTouchPoints?: number;
+  userAgentData?: { brands?: { brand: string; version: string }[]; mobile?: boolean; platform?: string };
+}
+
+/** A page's facts. No OS version, screen size or time zone, as in core. */
+export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
+  if (!nav) return {};
+  const userAgent = nav.userAgent ?? "";
+  const touch = nav.maxTouchPoints ?? 0;
+  const hints = nav.userAgentData;
+  const browser = browserIdentity(Array.isArray(hints?.brands) ? hints.brands : [], userAgent);
+  return {
+    osName: browserOSName(hints?.platform, userAgent, touch),
+    browserName: browser.name,
+    browserVersion: browser.version,
+    formFactor: browserFormFactor(userAgent, hints?.mobile, touch),
+    locale: languageRegion(nav.language),
+  };
+}
+
+/**
+ * The one truthiness rule for a string opt-out flag, core's: set, and not "",
+ * "0" or "false". A boolean `true` counts too, as it does in a page.
+ */
+export function flagIsSet(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+  return typeof value === "string" && value !== "" && value !== "0" && value !== "false";
+}
+
+/**
+ * Whether the event `context` is switched off: `globalThis.__dalUsageContextDisabled`
+ * or `DAL_USAGE_CONTEXT_DISABLED`. Usage itself still reports.
+ */
+export function deviceContextDisabled(): boolean {
+  const raw = (globalThis as Record<string, unknown>).__dalUsageContextDisabled;
+  let value: unknown = raw;
+  try {
+    if (typeof raw === "function") value = (raw as () => unknown)();
+  } catch {
+    value = undefined;
+  }
+  if (flagIsSet(value)) return true;
+  const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
+  return flagIsSet(env?.DAL_USAGE_CONTEXT_DISABLED);
+}
+
+/**
+ * The per-event `context` provider a turnstile wires by default: core's rules
+ * on the same host. A server, or a turnstile whose device id the host supplied,
+ * sends only osName and appVersion; that device is not this process's to
+ * describe. The facts are cached; the opt-out and the appVersion override
+ * (`globalThis.__dalAppVersion` / `DAL_APP_VERSION`) are read per event.
+ */
+export function defaultContextProvider(
+  platform: string,
+  deviceIdSupplied: boolean,
+): () => Record<string, string> | undefined {
+  const minimal = platform === "server" || deviceIdSupplied;
+  return () => {
+    if (deviceContextDisabled()) return undefined;
+    const facts = deviceFacts();
+    const context: Record<string, string | undefined> = {
+      appVersion: hostString("__dalAppVersion", "DAL_APP_VERSION"),
+      osName: facts.osName,
+    };
+    if (!minimal) {
+      context.browserName = facts.browserName;
+      context.browserVersion = facts.browserVersion;
+      context.formFactor = facts.formFactor;
+      context.locale = facts.locale;
+    }
+    return Object.fromEntries(
+      Object.entries(context).filter((entry): entry is [string, string] => entry[1] !== undefined),
+    );
+  };
+}
+
 /** Serialize exactly as core does: declaration order, nulls omitted. */
 function buildBody(body: IngestBody): string {
   return JSON.stringify(body);
@@ -272,6 +564,8 @@ export class UsageClient {
       loadState: () => UsageState;
       saveState: (state: UsageState) => void;
       send: (body: IngestBody) => Promise<void> | void;
+      /** Per-event `context`, sanitized before it is sent. None when omitted. */
+      context?: () => Record<string, string> | undefined;
     },
   ) {}
 
@@ -316,6 +610,7 @@ export class UsageClient {
       this.pending = null;
       const count = this.resolveCount(st.carryCallCount + this.sessionCalls);
       if (count !== undefined) event.callCount = count;
+      this.attachContext(event);
       this.deps.saveState({ lastActiveAt: st.lastActiveAt, carryCallCount: 0 });
       this.sessionCalls = 0;
       return this.deps.send(this.makeBody([event]));
@@ -325,6 +620,7 @@ export class UsageClient {
       const count = this.resolveCount(this.sessionCalls);
       const event: IngestEvent = { name: "load", deviceId: this.deps.deviceId };
       if (count !== undefined) event.callCount = count;
+      this.attachContext(event);
       this.sessionCalls = 0;
       return this.deps.send(this.makeBody([event]));
     }
@@ -336,6 +632,18 @@ export class UsageClient {
       });
       this.sessionCalls = 0;
     }
+  }
+
+  // After callCount, so the event keeps core's declaration order. A provider
+  // that throws costs the context, never the event.
+  private attachContext(event: IngestEvent): void {
+    let context: Record<string, string> | undefined;
+    try {
+      context = sanitizeContext(this.deps.context?.());
+    } catch {
+      context = undefined;
+    }
+    if (context) event.context = context;
   }
 
   private resolveCount(accumulated: number): number | undefined {
@@ -465,7 +773,8 @@ export class UsageTurnstile {
       const store = storage ?? defaultStorage();
       // A host-provided id wins, matching core's resolveDeviceId: a server that
       // knows its own device identity sets globalThis.__dalDeviceId.
-      let device = hostString("__dalDeviceId", "DAL_DEVICE_ID") ?? store.get(DEVICE_ID_KEY);
+      const hostDevice = hostString("__dalDeviceId", "DAL_DEVICE_ID");
+      let device = hostDevice ?? store.get(DEVICE_ID_KEY);
       if (!device) {
         device = uuid();
         store.set(DEVICE_ID_KEY, device);
@@ -501,6 +810,7 @@ export class UsageTurnstile {
         saveState: (state) =>
           store.set(stateKey(namespace, device!), `${state.lastActiveAt},${state.carryCallCount}`),
         send: makeSend(ingestEndpoint(), key, keyInHeader),
+        context: defaultContextProvider(platform, hostDevice !== undefined),
       });
       client.start();
       const turnstile = new UsageTurnstile(client);
