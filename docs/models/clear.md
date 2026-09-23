@@ -16,7 +16,7 @@ On-device speech enhancement: denoise, dereverb, and loudness-normalize.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.4.0")
 ```
 
 Then add the `Clear` product to your target.
@@ -24,7 +24,7 @@ Then add the `Clear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:clear:3.3.1")
+implementation("ai.desertant:clear:3.4.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

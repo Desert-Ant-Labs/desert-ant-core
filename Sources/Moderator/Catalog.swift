@@ -13,7 +13,7 @@ public enum ModeratorModel: ModelDeclaration {
     public static let revision = "v1.0.0"
     /// Matches packages/moderator-node/package.json and
     /// packages/moderator-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
-    public static let sdkVersion = "3.3.1"
+    public static let sdkVersion = "3.4.0"
     public static let summary = "On-device NSFW image detection, trained only on licensed and synthetic data."
 
     /// LiteRT export (int8, ~9.2 MB): Android/Linux/Windows + wasm.

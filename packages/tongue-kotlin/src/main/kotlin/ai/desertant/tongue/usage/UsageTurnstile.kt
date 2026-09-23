@@ -139,4 +139,4 @@ internal class UsageTurnstile internal constructor(
 }
 
 /** Kept in step with the version in build.gradle.kts by `mise run set-version`. */
-internal const val SDK_VERSION: String = "3.3.1"
+internal const val SDK_VERSION: String = "3.4.0"

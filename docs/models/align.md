@@ -16,7 +16,7 @@ Word-timestamp refinement for any transcript, on device.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.3.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.4.0")
 ```
 
 Then add the `Align` product to your target.
