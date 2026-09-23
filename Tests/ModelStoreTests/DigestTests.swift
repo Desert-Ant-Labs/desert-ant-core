@@ -12,11 +12,15 @@ import Foundation
     }
 
     /// Both streaming digests: Foundation (Apple, Linux, Windows) and POSIX
-    /// (Android, exercised here because POSIX is identical on the host).
-    private static let filesystems: [any FileSystem] = [
-        FoundationFileSystem(),
-        POSIXFileSystem(cacheRoot: NSTemporaryDirectory()),
-    ]
+    /// (Android, exercised on POSIX hosts because the code is identical there;
+    /// the type does not exist on Windows).
+    private static let filesystems: [any FileSystem] = {
+        var fs: [any FileSystem] = [FoundationFileSystem()]
+        #if os(Android) || canImport(Glibc) || canImport(Darwin)
+        fs.append(POSIXFileSystem(cacheRoot: NSTemporaryDirectory()))
+        #endif
+        return fs
+    }()
 
     @Test(arguments: 0..<filesystems.count) func digestMatchesWholeFileHash(_ i: Int) throws {
         let fs = Self.filesystems[i]
