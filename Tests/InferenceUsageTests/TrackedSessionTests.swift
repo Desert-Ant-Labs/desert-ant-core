@@ -157,6 +157,39 @@ struct TrackedSessionTests {
         #expect(sink.events.isEmpty)
     }
 
+    /// The switch is a consent flag a host flips after load: while it is on a
+    /// run records nothing and opens no client (so no store write and no device
+    /// id), and the run after it is cleared reports.
+    @Test func theOptOutIsReadPerRun() async throws {
+        final class Switch: @unchecked Sendable { var on = true; var opened = 0 }
+        let off = Switch()
+        let sink = Sink()
+        let counting = CountingSession()
+        let factory = testClientFactory(sink)
+        let tracked = TrackedSession(
+            wrapping: counting, flushAfter: 60,
+            clientFactory: { off.opened += 1; return factory($0) },
+            disabled: { off.on }
+        )
+
+        _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "d")
+        await tracked.flush()
+        #expect(counting.runs == 1, "a switched-off run must still run")
+        #expect(off.opened == 0, "a switched-off run opened a client")
+        #expect(sink.events.isEmpty)
+
+        off.on = false
+        _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "d")
+        await tracked.flush()
+        #expect(sink.events.compactMap(\.callCount).reduce(0, +) == 1, "the run after consent did not report")
+
+        off.on = true
+        _ = try await tracked.run(inputs: [:], outputs: [], deviceId: "d")
+        await tracked.flush()
+        #expect(counting.runs == 3)
+        #expect(sink.events.compactMap(\.callCount).reduce(0, +) == 1, "a run after the opt-out was recorded")
+    }
+
     @Test func forwardsRunErrors() async throws {
         struct Boom: Error {}
         final class Failing: InferenceSession, @unchecked Sendable {

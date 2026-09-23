@@ -107,15 +107,68 @@ the same method, and it is what a short-lived caller should await before exiting
 This is billing metering, not product analytics: the licence is free below a
 threshold and commercial above it, and monthly active devices is the measure.
 
-## Turning it off
+## Opting out
 
-Set `DAL_USAGE_DISABLED=1` (env var, or a JVM system property on Kotlin, or
-`globalThis.__dalUsageDisabled` in a browser). No client is constructed at all, so
-nothing is stored and no request is made.
+Usage reporting has one switch, public on every platform, and it is meant to be
+used: a site or an app can keep it on until its user consents, and clear it then.
 
-Every task in this repository sets `DAL_USAGE_DISABLED`; see `mise.toml` and `.github/workflows/ci.yml`.
-A CI runner is not a billable device, and without the guard each push would count
-as one.
+| Host | In code | From the host |
+|---|---|---|
+| Swift (every model SDK on core) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1` |
+| A page (every JavaScript SDK, wasm or not) | `globalThis.__dalUsageDisabled = true` | |
+| Node | `globalThis.__dalUsageDisabled = true` | `DAL_USAGE_DISABLED=1` |
+| Kotlin (tongue) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1`, or the same-named JVM system property |
+
+The global may also be a function returning the flag, called each time it is
+read, and a global whose getter or function throws reads as unset. A flag counts
+as set when it is the boolean `true` or a string other than `""`, `"0"` and
+`"false"`; a number does not count. Either form turns reporting off: code cannot
+clear a flag the environment sets.
+
+While the switch is on nothing is recorded, nothing is stored and no request is
+made. A model loaded with it on does not even create the device id until the
+first call made with it off. It is read on every call and again on every send,
+never cached, so it can change at any time:
+
+- **Set after load**, it stops the next send. An event already queued behind the
+  3-second debounce is dropped, not posted after the user said no.
+- **Cleared after load**, the next call reports as usual. Calls made while it
+  was on are not counted afterwards.
+
+Two hosts read it less often. The native Node build (`/native`) copies the
+global into the environment only until its first model loads, because a native
+thread reading the environment while it is written can crash on glibc; set it
+before that, or start the process with `DAL_USAGE_DISABLED` set. An Android app
+on the core's AAR has no launch environment and no in-code switch yet;
+`android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)` is read on the next
+call.
+
+### A consent banner
+
+Set the flag before any model loads, then follow the visitor's choice. The SDK
+posts nothing and writes nothing to `localStorage` until consent is given:
+
+```html
+<script>
+  // Before any Desert Ant SDK loads: no usage until the visitor agrees.
+  globalThis.__dalUsageDisabled = true;
+</script>
+```
+
+```js
+consentManager.onChange((consent) => {
+  // Whichever category your site files usage metering under.
+  globalThis.__dalUsageDisabled = !consent.statistics;
+});
+```
+
+A function works as well, if the consent manager can answer on demand:
+
+```js
+globalThis.__dalUsageDisabled = () => !consentManager.has("statistics");
+```
+
+### Leaving out the device context
 
 To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1`
 (env var, or a JVM system property on Kotlin), or in code:
@@ -123,7 +176,15 @@ To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1
 `DesertAnt.sendsDeviceContext = false` in Swift and in this SDK's Kotlin
 (`ai.desertant.tongue.DesertAnt`), and `HostBridge.sendsDeviceContext = false`
 (`ai.desertant.core.HostBridge`) for the Android SDKs built on desert-ant-core,
-such as emo and redact.
+such as emo and redact. It follows the same rule for what counts as set, and it
+too is read per event. Usage is still reported, with no facts about the host
+attached.
+
+### In this repository
+
+Every task in this repository sets `DAL_USAGE_DISABLED` through `mise.toml`,
+and every CI job runs through mise. A CI runner is not a billable device, and
+without the guard each push would count as one.
 
 ## Why this SDK had to implement it
 
@@ -154,9 +215,9 @@ inherit from. The result is three implementations of one state machine.
 | Kotlin | `usage/UsageClient.kt`, a port | SharedPreferences via a `Context`, else `java.util.prefs`, else memory | `HttpURLConnection` on one daemon thread |
 | JavaScript | `usage.ts`, a port | `__dalUsageStore` → `localStorage` → a JSON file under `~/.desert-ant` on Node → memory | `fetch(keepalive)`, `sendBeacon` on unload |
 
-Each opens the turnstile when the model is constructed, records a call per
-`detect`, and flushes on a 3-second debounce so a burst of keystrokes becomes one
-send. That mirrors core's `TrackedSession`.
+Each opens the turnstile on the first `detect` made with usage on, records a
+call per `detect`, and flushes on a 3-second debounce so a burst of keystrokes
+becomes one send. That mirrors core's `TrackedSession`.
 
 Two constraints shaped the ports:
 

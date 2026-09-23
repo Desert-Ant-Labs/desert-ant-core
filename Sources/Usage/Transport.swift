@@ -36,18 +36,25 @@ private var keyRidesInHeader: Bool {
 /// The HTTP client is async, so every flush is dispatched fire-and-forget on a
 /// detached task. (The `beacon` flag is retained for API parity; there is no
 /// separate unload-safe path now that the client is fully async.)
+///
+/// Sends nothing while `usageDisabled()` is on, read per send: an event queued
+/// before the opt-out, still waiting out the debounce, is dropped rather than
+/// posted after the visitor said no.
 public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
     makeSend(endpoint: endpoint, bearerKey: bearerKey, registry: .shared)
 }
 
 /// `registry` is a seam for tests: a send must be in it by the time the
 /// returned closure returns, which only a private registry lets a test observe.
+/// `disabled` is one too, since the suites run with the switch on.
 func makeSend(
     endpoint: String,
     bearerKey: String? = nil,
-    registry: InflightSends
+    registry: InflightSends,
+    disabled: @escaping @Sendable () -> Bool = usageDisabled
 ) -> @Sendable (IngestBody, SendOptions) -> Void {
     { body, opts in
+        if disabled() { return }
         // Best-effort: a body we cannot serialize is dropped rather than thrown
         // (the transport is fire-and-forget). These types always encode.
         guard let json = try? buildBody(body) else { return }

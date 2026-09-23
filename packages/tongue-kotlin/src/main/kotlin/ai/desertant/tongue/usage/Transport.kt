@@ -189,11 +189,19 @@ internal fun defaultAppIdentifier(context: Any? = null): String {
     return System.getProperty("java.vm.name")?.takeIf { it.isNotEmpty() } ?: "unknown"
 }
 
-/** Whether usage reporting is switched off for this process. See docs/USAGE.md. */
-internal fun usageDisabled(): Boolean {
-    val value = readEnvironment("DAL_USAGE_DISABLED") ?: System.getProperty("DAL_USAGE_DISABLED")
-    return !value.isNullOrEmpty() && value != "0"
-}
+/**
+ * Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
+ * set in code, or `DAL_USAGE_DISABLED` in the environment or as a system
+ * property, under `flagIsSet`. Read per call, so an app can hold it on until its
+ * user consents and clear it then. See packages/tongue-node/USAGE.md.
+ */
+internal fun usageDisabled(): Boolean =
+    ai.desertant.tongue.DesertAnt.usageDisabled ||
+        flagIsSet(readEnvironment("DAL_USAGE_DISABLED")) ||
+        flagIsSet(System.getProperty("DAL_USAGE_DISABLED"))
+
+/** The truthiness rule every port's opt-out flags share: set, and not "", "0" or "false". */
+internal fun flagIsSet(value: String?): Boolean = value != null && value != "" && value != "0" && value != "false"
 
 /**
  * Build a client wired to the shared endpoint, the system clock, a POST transport,

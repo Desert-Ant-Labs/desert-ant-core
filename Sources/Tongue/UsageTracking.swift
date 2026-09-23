@@ -7,7 +7,7 @@
 // is no session factory to hook, and the client is opened here instead.
 //
 // Same guarantees, reached differently: one turnstile per `Tongue`, opened on
-// construction, a call recorded per `detect`, and a debounced flush that coalesces
+// the first detection, a call recorded per `detect`, and a debounced flush that coalesces
 // a burst of keystrokes into one send. The state machine, storage keys and wire
 // format all come from core's `Usage`, so a device counts identically however it
 // reached the endpoint.
@@ -25,7 +25,13 @@ import Usage
 /// Android by design, no threads at all on WASI). Core's `TrackedSession` is an
 /// actor for the same reason.
 actor UsageTurnstile {
-    private let client: UsageClient
+    /// Built on the first call recorded with usage on, so a turnstile made
+    /// while it is off touches no store and mints no device id.
+    private var client: UsageClient?
+    private let makeClient: () -> UsageClient
+    /// The opt-out, read per call. `makeTurnstile` passes `usageDisabled`; the
+    /// default is for tests, whose suites run with the switch on.
+    private let disabled: @Sendable () -> Bool
     private var flushScheduled = false
     private var registeredFlushHook = false
     /// Where the flush hook registers. A test passes its own, so its flush pass
@@ -35,15 +41,30 @@ actor UsageTurnstile {
     /// Debounce before flushing, matching core's `TrackedSession`.
     private static let flushAfterSeconds: UInt64 = 3
 
-    init(client: UsageClient, telemetry: TelemetryDebug = .shared) {
-        self.client = client
+    init(
+        client: @autoclosure @escaping () -> UsageClient,
+        telemetry: TelemetryDebug = .shared,
+        disabled: @escaping @Sendable () -> Bool = { false }
+    ) {
+        self.makeClient = client
         self.telemetry = telemetry
-        client.start()
+        self.disabled = disabled
+    }
+
+    /// The client, opened (`start()`) the first time it is needed.
+    private func openClient() -> UsageClient {
+        if let client { return client }
+        let opened = makeClient()
+        opened.start()
+        client = opened
+        return opened
     }
 
     /// One detection. Records the call and arranges a single flush for the burst.
     func record() async {
-        client.recordCall()
+        // Read per call: a consent flow sets or clears it after load.
+        if disabled() { return }
+        openClient().recordCall()
         await registerFlushHookIfNeeded()
         guard !flushScheduled else { return }
         flushScheduled = true
@@ -56,19 +77,21 @@ actor UsageTurnstile {
     /// `record()` for a caller that cannot await it. The pending call is
     /// registered before this returns, so a flush right after still counts it.
     nonisolated func recordInBackground() {
+        // Checked here as well, so a switched-off keystroke starts no task.
+        if disabled() { return }
         telemetry.recordInBackground { await self.record() }
     }
 
     private func flushNow() {
         flushScheduled = false
-        client.flush()
+        client?.flush()
     }
 
     /// Emit now, ignoring the debounce and the re-emit window: this turnstile's
     /// part of `flushAndWait()`. Claims the device the way core's
     /// `TrackedSession` does, so a device shared with another session posts once.
     func forceFlush() async {
-        guard client.hasUsage else { return }
+        guard let client, client.hasUsage else { return }
         guard await telemetry.claimForcedEmit(device: client.deviceId) else {
             client.carryUnsent()
             return
@@ -95,10 +118,12 @@ actor UsageTurnstile {
     }
 }
 
-/// The turnstile for a new `Tongue`, or `nil` when usage is switched off. Keeps
-/// `import Usage` to this file, so the pipeline stays free of it.
-func makeTurnstile() -> UsageTurnstile? {
-    usageDisabled() ? nil : UsageTurnstile(client: makeTongueClient())
+/// The turnstile for a new `Tongue`. Keeps `import Usage` to this file, so the
+/// pipeline stays free of it. Built even while usage is switched off, since the
+/// switch may be cleared later; it opens no client until a call is recorded
+/// with usage on.
+func makeTurnstile() -> UsageTurnstile {
+    UsageTurnstile(client: makeTongueClient(), disabled: usageDisabled)
 }
 
 /// The client every `Tongue` turnstile is built on. `TongueModel.sdkInfo` is the

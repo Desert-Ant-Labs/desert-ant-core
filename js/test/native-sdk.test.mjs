@@ -116,3 +116,35 @@ test("a host getter that throws does not fail the load", async () => {
     fs.rmSync(here, { recursive: true, force: true });
   }
 });
+
+test("the usage switch reaches the native core under the core's truthiness rule", async () => {
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  const saved = process.env.DAL_USAGE_DISABLED;
+  const open = async (global, env) => {
+    if (env === undefined) delete process.env.DAL_USAGE_DISABLED;
+    else process.env.DAL_USAGE_DISABLED = env;
+    globalThis.__dalUsageDisabled = global;
+    const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+    await assert.rejects(sdk.open(), "there is no native library here to load");
+    return process.env.DAL_USAGE_DISABLED;
+  };
+  try {
+    assert.equal(await open(true, undefined), "1");
+    assert.equal(await open(() => "1", undefined), "1", "a function-valued global is called");
+    assert.equal(await open("false", undefined), undefined, '"false" is off');
+    assert.equal(await open(1, undefined), undefined, "a number is not a flag");
+    // Either side opts out: a global set turns on a flag the environment has off.
+    assert.equal(await open(true, "0"), "1");
+    assert.equal(await open(false, "1"), "1", "a global cannot clear the environment's opt-out");
+    const throwing = () => {
+      throw new Error("no consent manager yet");
+    };
+    assert.equal(await open(throwing, undefined), undefined, "a throwing global reads as unset");
+  } finally {
+    delete globalThis.__dalUsageDisabled;
+    if (saved === undefined) delete process.env.DAL_USAGE_DISABLED;
+    else process.env.DAL_USAGE_DISABLED = saved;
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});

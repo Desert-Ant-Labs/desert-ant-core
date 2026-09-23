@@ -17,6 +17,20 @@ process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
 // Replays the shared turnstile contract. The Kotlin port replays the identical
 // file against its own hand-ported client; the Swift SDK uses desert-ant-core's
 // client directly, which is where this behaviour comes from. See docs/USAGE.md.
+/**
+ * Run `body` with the usage switch off, then put it back. The suite runs with
+ * DAL_USAGE_DISABLED=1, and the transport reads it per send.
+ */
+async function withUsageOn(body) {
+  const disabled = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  try {
+    return await body();
+  } finally {
+    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
+  }
+}
+
 const here = dirname(fileURLToPath(import.meta.url));
 const vectors = JSON.parse(readFileSync(join(here, "usage_vectors.json"), "utf8"));
 
@@ -62,7 +76,7 @@ test("turnstile matches the shared contract", () => {
 });
 
 test("detection still works with reporting switched off", async () => {
-  // The suite runs with DAL_USAGE_DISABLED=1, so no client is wired up at all.
+  // The suite runs with DAL_USAGE_DISABLED=1, so no client is ever opened.
   const tongue = await Tongue.load();
   assert.equal(tongue.detect("kann ich das haben").language, "de");
 });
@@ -118,7 +132,9 @@ test("DAL_USAGE_DISABLED suppresses every send and every store write", async () 
   // billing every CI runner.
   const { UsageTurnstile } = await import("../dist/usage.js");
   assert.equal(process.env.DAL_USAGE_DISABLED, "1", "suite must run with the switch on");
-  assert.equal(UsageTurnstile.create("9.9.9"), null);
+  let touches = 0;
+  const store = { get: () => (touches++, null), set: () => void touches++ };
+  const turnstile = UsageTurnstile.create("9.9.9", store);
 
   let fetched = false;
   const realFetch = globalThis.fetch;
@@ -127,10 +143,65 @@ test("DAL_USAGE_DISABLED suppresses every send and every store write", async () 
     return Promise.reject(new Error("must not be called"));
   };
   try {
+    for (let i = 0; i < 5; i++) turnstile.record();
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(touches, 0, "a switched-off turnstile touched its store");
     const tongue = await Tongue.load();
     for (let i = 0; i < 20; i++) tongue.detect("kann ich das haben");
     await new Promise((r) => setTimeout(r, 50));
     assert.equal(fetched, false, "a detection posted despite DAL_USAGE_DISABLED");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("the switch is read per detection and per send, as a consent flow flips it", async () => {
+  // A page keeps the beacon off until its visitor agrees, so the switch is on
+  // when the turnstile is built and cleared later; withdrawing consent sets it
+  // again, and must also stop an event already waiting out the debounce.
+  const { UsageTurnstile } = await import("../dist/usage.js");
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  let touches = 0;
+  const values = new Map();
+  const store = {
+    get: (k) => (touches++, values.get(k) ?? null),
+    set: (k, v) => (touches++, values.set(k, v)),
+  };
+  try {
+    const turnstile = UsageTurnstile.create("9.9.9", store);
+    turnstile.record();
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(touches, 0, "the turnstile opened a client before consent");
+    assert.equal(posts.length, 0);
+
+    await withUsageOn(async () => {
+      turnstile.record();
+      await turnstile.flushTelemetry();
+      assert.equal(posts.length, 1, "the detection after consent did not report");
+      assert.equal(posts[0].events[0].callCount, 1, "a detection before consent was counted");
+
+      // Consent withdrawn by the page's global, the form a banner uses.
+      globalThis.__dalUsageDisabled = true;
+      try {
+        turnstile.record();
+        await turnstile.flushTelemetry();
+        assert.equal(posts.length, 1, "a detection after the opt-out was sent");
+
+        // Queued while on, withdrawn before the flush: dropped, not sent.
+        globalThis.__dalUsageDisabled = false;
+        turnstile.record();
+        globalThis.__dalUsageDisabled = () => true;
+        await turnstile.flushTelemetry();
+        assert.equal(posts.length, 1, "an event queued before the opt-out was sent after it");
+      } finally {
+        delete globalThis.__dalUsageDisabled;
+      }
+    });
   } finally {
     globalThis.fetch = realFetch;
   }
@@ -354,7 +425,7 @@ test("a send is bounded, and a timed-out one is not sent again by beacon", async
     configurable: true,
   });
   try {
-    await makeSend("http://127.0.0.1:9/ingest")({ events: [] });
+    await withUsageOn(() => makeSend("http://127.0.0.1:9/ingest")({ events: [] }));
     assert.ok(signal instanceof AbortSignal, "the POST carried no timeout signal");
     assert.equal(beacons, 0, "a timed-out POST was sent again by beacon");
   } finally {
@@ -391,13 +462,15 @@ test("the transport actually posts the body over HTTP", async () => {
     // Awaiting the returned promise is the contract `flushTelemetry()` rests on:
     // it resolves once the server has answered, not when the request is queued.
     // The key goes in the header, so the body built here must not carry one.
-    await makeSend(`http://127.0.0.1:${port}/api/v1/ingest`, "dal_test")({
-      platform: "server",
-      app: { id: "com.acme.app" },
-      sdk: { name: "tongue-js", version: "9.9.9" },
-      sentAt: "2023-11-14T22:13:20.000Z",
-      events: [{ name: "load", deviceId: "d", callCount: 2 }],
-    });
+    await withUsageOn(() =>
+      makeSend(`http://127.0.0.1:${port}/api/v1/ingest`, "dal_test")({
+        platform: "server",
+        app: { id: "com.acme.app" },
+        sdk: { name: "tongue-js", version: "9.9.9" },
+        sentAt: "2023-11-14T22:13:20.000Z",
+        events: [{ name: "load", deviceId: "d", callCount: 2 }],
+      }),
+    );
 
     assert.equal(received.length, 1, "the transport never reached the server");
     assert.equal(received[0].method, "POST");
@@ -440,8 +513,8 @@ test("the turnstile a host builds puts the key in exactly one place", async () =
     DAL_API_KEY: process.env.DAL_API_KEY,
     DAL_DEVICE_ID: process.env.DAL_DEVICE_ID,
   };
-  // `mise run test:node` sets DAL_USAGE_DISABLED=1 for every task, and create()
-  // returns null when reporting is off.
+  // `mise run test:node` sets DAL_USAGE_DISABLED=1 for every task, and a
+  // switched-off turnstile records nothing.
   delete process.env.DAL_USAGE_DISABLED;
   process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${port}/api/v1/ingest`;
   process.env.DAL_API_KEY = "dal_test";

@@ -10,12 +10,11 @@ import Usage
 /// Wrap a session so usage is recorded and sent automatically. Called by the
 /// session factory; the derived app identity + native storage come from
 /// `makeClient`.
+///
+/// Wrapped even while usage is off: the switch is a consent flag a host may
+/// clear after load, so `TrackedSession` reads it per run instead.
 func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
-    // Off means the raw session: no client, no debounce task, and no
-    // fire-and-forget send that could still be in flight when a short-lived
-    // process exits (which is what raced the node test runner's teardown into
-    // a SIGSEGV). See `usageDisabled()`.
-    usageDisabled() ? session : TrackedSession(wrapping: session, sdk: sdk)
+    TrackedSession(wrapping: session, sdk: sdk, disabled: usageDisabled)
 }
 
 /// An `InferenceSession` that records a usage call per `run` and batches sends.
@@ -48,6 +47,9 @@ actor TrackedSession: InferenceSession {
 
     private let storage: UsageStorage
     private let makeDeviceClient: (String) -> UsageClient
+    /// The opt-out, read on every run. `tracked` passes `usageDisabled`; the
+    /// default is for tests, whose suites run with the switch on.
+    private let disabled: @Sendable () -> Bool
     private let debounceNanos: UInt64
     private let maxDevices = 512
 
@@ -74,11 +76,13 @@ actor TrackedSession: InferenceSession {
         storage: UsageStorage? = nil,
         windowMs: Int64 = dayMs,
         flushAfter: Double = 3,
-        clientFactory: ((String) -> UsageClient)? = nil
+        clientFactory: ((String) -> UsageClient)? = nil,
+        disabled: @escaping @Sendable () -> Bool = { false }
     ) {
         let resolvedAppId = appId
         let resolvedStorage = storage ?? defaultStorage()
         self.wrapped = session
+        self.disabled = disabled
         self.storage = resolvedStorage
         self.debounceNanos = UInt64(max(0, flushAfter) * 1_000_000_000)
         self.makeDeviceClient = clientFactory ?? { deviceId in
@@ -102,6 +106,13 @@ actor TrackedSession: InferenceSession {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
+        // Off means the bare run: no client, no device id, no store write, no
+        // debounce task, and no fire-and-forget send that could still be in
+        // flight when a short-lived process exits (which is what raced the node
+        // test runner's teardown into a SIGSEGV). Read per run, so a consent
+        // given after load reports from the next run on. A send already queued
+        // when it is set is dropped at the transport (`makeSend`).
+        if disabled() { return try await wrapped.run(inputs: inputs, outputs: outputs) }
         startIfNeeded()
         await registerFlushHookIfNeeded()
         let resolvedDevice = device(deviceId)
