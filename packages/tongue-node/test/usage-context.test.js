@@ -25,6 +25,9 @@ import {
 } from "../dist/usage.js";
 
 process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
+// An opt-out in the calling shell would turn every provider here off.
+delete process.env.DAL_USAGE_CONTEXT_DISABLED;
+delete globalThis.__dalUsageContextDisabled;
 
 const KEYS = [
   "appVersion", "osName", "osVersion", "deviceModel",
@@ -86,7 +89,9 @@ test("a formFactor outside the vocabulary is dropped", () => {
 });
 
 test("values are printable, trimmed and cut on a code point", () => {
-  assert.equal(printableValue("  \u0007ab\u202Ec\n\t "), "abc");
+  assert.equal(printableValue("  \u0007ab\u202Ec\u00AD\uFE0F\u{E0041}\uD800\n\t "), "abc");
+  // Never splits a character: a decomposed é is three bytes and stays whole.
+  assert.equal(printableValue("e\u0301".repeat(40)), "e\u0301".repeat(21));
   assert.equal(bytes(printableValue("é".repeat(100))), MAX_CONTEXT_VALUE_BYTES);
   assert.equal(bytes(printableValue("語".repeat(100))), 63);
   assert.equal(bytes(printableValue("😀".repeat(100))), 64);
@@ -181,9 +186,31 @@ test("a page's facts come from Client Hints, then the user agent", () => {
   assert.deepEqual(browserFacts(undefined), {});
 });
 
-test("a device id the host supplied gets only the server set, even in a page", () => {
-  const context = defaultContextProvider("web", true)();
-  assert.deepEqual(Object.keys(context).filter((k) => !["osName", "appVersion"].includes(k)), []);
+test("a page sends its facts unless the device id was supplied or it is a server", () => {
+  const page = () =>
+    browserFacts({
+      userAgent: chromeWinUA,
+      language: "de-DE",
+      maxTouchPoints: 0,
+      userAgentData: { brands: chrome, mobile: false, platform: "Windows" },
+    });
+  assert.deepEqual(defaultContextProvider("web", false, page)(), {
+    osName: "Windows", browserName: "Chrome", browserVersion: "131", formFactor: "desktop", locale: "de-DE",
+  });
+  assert.deepEqual(defaultContextProvider("web", true, page)(), { osName: "Windows" });
+  assert.deepEqual(defaultContextProvider("server", false, page)(), { osName: "Windows" });
+});
+
+test("a throwing appVersion getter costs appVersion, not the context", async () => {
+  await withHost({ globals: { __dalAppVersion: () => { throw new Error("getter"); } } }, () => {
+    assert.deepEqual(defaultContextProvider("server", false, () => ({ osName: "Linux" }))(), { osName: "Linux" });
+  });
+});
+
+test("a malformed brand list falls back instead of losing the facts", () => {
+  assert.deepEqual(browserIdentity([{ brand: 7, version: null }, { brand: "Google Chrome", version: "131" }], chromeWinUA), {
+    name: "Chrome", version: "131",
+  });
 });
 
 test("the turnstile a host builds sends the server set, and nothing when opted out", async () => {
