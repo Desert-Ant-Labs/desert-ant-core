@@ -84,7 +84,8 @@ struct DeviceContext: Sendable, Equatable {
 
 /// The default `context` provider `makeClient` wires. The host facts are cached;
 /// the opt-outs and the appVersion override are read per event, so a host that
-/// sets them after the first client is built is still honoured.
+/// sets them after the first client is built is still honoured. The native Node
+/// entry bridges its globals to the environment only until a model first loads.
 func defaultContextProvider(platform: String, deviceIdSupplied: Bool) -> () -> [String: String]? {
     let minimal = platform == "server" || deviceIdSupplied
     return {
