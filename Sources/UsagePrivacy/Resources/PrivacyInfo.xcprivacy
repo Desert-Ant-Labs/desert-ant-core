@@ -56,9 +56,10 @@
 			     name and version, the model identifier (such as iPhone16,2),
 			     the form factor (desktop, mobile or tablet) and the
 			     language-region locale; on the web, the browser name and major
-			     version instead of the model. A server, or a caller-supplied
-			     device id, sends only the OS name, its major version and the
-			     app version. No name, serial, screen or time zone. -->
+			     version instead of the model. A native macOS app (reported as
+			     a server), or an app given a device id by its caller or
+			     DAL_DEVICE_ID, sends only the OS name, its major version and
+			     the app version. No name, serial, screen or time zone. -->
 			<key>NSPrivacyCollectedDataTypeLinked</key>
 			<false/>
 			<key>NSPrivacyCollectedDataTypeTracking</key>

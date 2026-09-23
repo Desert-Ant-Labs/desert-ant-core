@@ -211,8 +211,10 @@ public final class UsageClient {
 
     // Every context is sanitized before it is queued, because the ingest
     // rejects the whole batch over an oversized one (see `sanitizeContext`).
+    // The opt-out is checked here too, so a caller's own provider obeys it.
     private func currentContext() -> [String: String]? {
-        sanitizeContext(deps.context.flatMap { $0() })
+        if deviceContextDisabled() { return nil }
+        return sanitizeContext(deps.context.flatMap { $0() })
     }
 
     private func queue(context: [String: String]? = nil) {
