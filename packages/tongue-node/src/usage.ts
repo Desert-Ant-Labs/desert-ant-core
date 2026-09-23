@@ -227,9 +227,9 @@ function hostApiKey(): string | undefined {
  * under `flagIsSet`, as core reads it.
  *
  * The consent switch. A page keeps the beacon off until its visitor agrees, then
- * clears the flag, so it is read on every detection and again on every send,
- * never cached: set after load it stops the next send, and cleared it lets the
- * next detection report. While it is on nothing is recorded, stored or sent, and
+ * clears the flag, so it is read on every detection and again on every flush,
+ * never cached: set after load it holds what was recorded unsent, and cleared
+ * it lets reporting resume. While it is on nothing is recorded, stored or sent, and
  * no device id is made. See USAGE.md.
  */
 export function usageDisabled(): boolean {
@@ -730,9 +730,8 @@ export class UsageClient {
  * Returns the send's promise so `flushTelemetry()` can await the POST. The
  * debounced path ignores it, exactly as core's fire-and-forget send does.
  *
- * Sends nothing while `usageDisabled()` is on, read per send: an event queued
- * before the opt-out, still waiting out the debounce, is dropped rather than
- * posted after the visitor said no.
+ * Sends nothing while `usageDisabled()` is on, read per send. The turnstile
+ * already holds its flushes while it is on; this is the backstop.
  */
 export function makeSend(
   endpoint = INGEST_ENDPOINT,
@@ -886,13 +885,15 @@ export class UsageTurnstile {
       // `start()` has already stamped the window — so a short-lived Node script
       // would report zero every day, permanently.
       if (browserOrigin && typeof addEventListener === "function") {
-        addEventListener("pagehide", () => client.suspend());
+        addEventListener("pagehide", () => {
+          if (!usageDisabled()) client.suspend();
+        });
       } else {
         const proc = (globalThis as { process?: { once?: (e: string, f: () => void) => void } }).process;
         // `beforeExit` still allows work to be scheduled, unlike `exit`.
         proc?.once?.("beforeExit", () => {
           try {
-            this.track(client.flush());
+            if (!usageDisabled()) this.track(client.flush());
           } catch {
             /* best effort */
           }
@@ -916,7 +917,8 @@ export class UsageTurnstile {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       try {
-        if (this.client) this.track(this.client.flush());
+        // Held while switched off: neither stored nor sent until it is cleared.
+        if (this.client && !usageDisabled()) this.track(this.client.flush());
       } catch {
         /* best effort */
       }
@@ -935,7 +937,7 @@ export class UsageTurnstile {
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
     try {
-      if (this.client?.hasUsage) this.track(this.client.load());
+      if (this.client?.hasUsage && !usageDisabled()) this.track(this.client.load());
       await Promise.all([...this.inflight]);
       return true;
     } catch {

@@ -33,7 +33,7 @@ actor UsageTurnstile {
     /// Built on the first call recorded with usage on, so a turnstile made
     /// while it is off touches no store and mints no device id.
     private var client: UsageClient?
-    private let makeClient: () -> UsageClient
+    private let buildClient: () -> UsageClient
     /// The opt-out, read per call. `makeTurnstile` passes `usageDisabled`; the
     /// default is for tests, whose suites run with the switch on.
     private let disabled: @Sendable () -> Bool
@@ -51,7 +51,7 @@ actor UsageTurnstile {
         telemetry: TelemetryDebug = .shared,
         disabled: @escaping @Sendable () -> Bool = { false }
     ) {
-        self.makeClient = client
+        self.buildClient = client
         self.telemetry = telemetry
         self.disabled = disabled
     }
@@ -59,7 +59,7 @@ actor UsageTurnstile {
     /// The client, opened (`start()`) the first time it is needed.
     private func openClient() -> UsageClient {
         if let client { return client }
-        let opened = makeClient()
+        let opened = buildClient()
         opened.start()
         client = opened
         return opened
@@ -80,8 +80,11 @@ actor UsageTurnstile {
         }
     }
 
+    /// Held while usage is switched off: the calls stay unsent and unstored,
+    /// and the next call recorded with it cleared schedules a flush again.
     private func flushNow() {
         flushScheduled = false
+        if disabled() { return }
         client?.flush()
     }
 
@@ -89,7 +92,7 @@ actor UsageTurnstile {
     /// part of `flushAndWait()`. Claims the device the way core's
     /// `TrackedSession` does, so a device shared with another session posts once.
     func forceFlush() async {
-        guard let client, client.hasUsage else { return }
+        guard let client, !disabled(), client.hasUsage else { return }
         guard await telemetry.claimForcedEmit(device: client.deviceId) else {
             client.carryUnsent()
             return

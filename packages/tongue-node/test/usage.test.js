@@ -17,6 +17,9 @@ process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
 // Replays the shared turnstile contract. The Kotlin port replays the identical
 // file against its own hand-ported client; the Swift SDK uses desert-ant-core's
 // client directly, which is where this behaviour comes from. See docs/USAGE.md.
+const here = dirname(fileURLToPath(import.meta.url));
+const vectors = JSON.parse(readFileSync(join(here, "usage_vectors.json"), "utf8"));
+
 /**
  * Run `body` with the usage switch off, then put it back. The suite runs with
  * DAL_USAGE_DISABLED=1, and the transport reads it per send.
@@ -30,9 +33,6 @@ async function withUsageOn(body) {
     if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 }
-
-const here = dirname(fileURLToPath(import.meta.url));
-const vectors = JSON.parse(readFileSync(join(here, "usage_vectors.json"), "utf8"));
 
 test("turnstile matches the shared contract", () => {
   for (const c of vectors.cases) {
@@ -192,15 +192,21 @@ test("the switch is read per detection and per send, as a consent flow flips it"
         await turnstile.flushTelemetry();
         assert.equal(posts.length, 1, "a detection after the opt-out was sent");
 
-        // Queued while on, withdrawn before the flush: dropped, not sent.
+        // Recorded while on, withdrawn before the flush: held, neither stored
+        // nor sent, and delivered once consent is given again.
         globalThis.__dalUsageDisabled = false;
         turnstile.record();
         globalThis.__dalUsageDisabled = () => true;
+        const before = touches;
         await turnstile.flushTelemetry();
-        assert.equal(posts.length, 1, "an event queued before the opt-out was sent after it");
+        assert.equal(posts.length, 1, "a call recorded before the opt-out was sent after it");
+        assert.equal(touches, before, "a flush after the opt-out wrote the store");
       } finally {
         delete globalThis.__dalUsageDisabled;
       }
+      await turnstile.flushTelemetry();
+      assert.equal(posts.length, 2, "the held call was lost when consent returned");
+      assert.equal(posts[1].events[0].callCount, 1);
     });
   } finally {
     globalThis.fetch = realFetch;

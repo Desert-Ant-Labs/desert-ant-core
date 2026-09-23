@@ -96,6 +96,7 @@ actor TrackedSession: InferenceSession {
     /// rather than once per session. The session that loses the claim carries its
     /// calls to storage instead of posting, so they ride the next emit.
     func forceFlush() async {
+        if disabled() { return }
         for (deviceId, client) in clients where client.hasUsage {
             guard await TelemetryDebug.shared.claimForcedEmit(device: deviceId) else {
                 client.carryUnsent()
@@ -110,8 +111,9 @@ actor TrackedSession: InferenceSession {
         // debounce task, and no fire-and-forget send that could still be in
         // flight when a short-lived process exits (which is what raced the node
         // test runner's teardown into a SIGSEGV). Read per run, so a consent
-        // given after load reports from the next run on. A send already queued
-        // when it is set is dropped at the transport (`makeSend`).
+        // given after load reports from the next run on. Every flush reads it
+        // too: calls recorded before it was set are held, neither stored nor
+        // sent, until it is cleared.
         if disabled() { return try await wrapped.run(inputs: inputs, outputs: outputs) }
         startIfNeeded()
         await registerFlushHookIfNeeded()
@@ -131,7 +133,7 @@ actor TrackedSession: InferenceSession {
     /// Stamp the idle clock and send pending usage for every tracked device (e.g.
     /// on app background / page hide). No-op if inference never ran.
     func suspend() {
-        guard started else { return }
+        guard started, !disabled() else { return }
         pendingFlush?.cancel()
         pendingFlush = nil
         for client in clients.values { client.suspend() }
@@ -139,7 +141,7 @@ actor TrackedSession: InferenceSession {
 
     /// Send any pending usage now. Optional — the debounce sends once runs idle.
     func flush() {
-        guard started else { return }
+        guard started, !disabled() else { return }
         pendingFlush?.cancel()
         pendingFlush = nil
         for client in clients.values { client.flush() }
@@ -214,11 +216,14 @@ actor TrackedSession: InferenceSession {
         }
     }
 
-    private func emitFlush() { for client in clients.values { client.flush() } }
+    private func emitFlush() {
+        if disabled() { return }
+        for client in clients.values { client.flush() }
+    }
 
     deinit {
         // Best-effort: only if inference ran. The idle-clock stamp (synchronous
         // storage) lands; the network send is best-effort.
-        if started { for client in clients.values { client.suspend() } }
+        if started && !disabled() { for client in clients.values { client.suspend() } }
     }
 }
