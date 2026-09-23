@@ -138,13 +138,27 @@ public struct HostPreferencesStorage: UsageStorage {
 /// A Node host provides persistence by setting, before creating the client:
 ///   globalThis.__dalUsageStore = { getItem: (k) => string|null, setItem: (k, v) => {} }
 public struct JSKeyValueStorage: UsageStorage {
-    public init() {}
+    private let fixed: JSObject?
+    public init() { fixed = nil }
+    /// A store over `object` alone, for tests: the global ones are process-wide.
+    init(object: JSObject) { fixed = object }
     // Resolved at access time so a host store installed after init still applies.
     private var storage: JSObject? {
+        if let fixed { return fixed }
         if let injected = JSObject.global.__dalUsageStore.object { return injected }
         return jsHostIsNode() ? nil : JSObject.global.localStorage.object
     }
-    public func get(_ key: String) -> String? { storage?.getItem?(key).string }
-    public func set(_ key: String, _ value: String) { _ = storage?.setItem?(key, value) }
+    // Through the throwing form: a full origin's `setItem` (QuotaExceededError)
+    // or a host store's error must not unwind through a flush that has already
+    // taken its event off the queue. A failed read is unset; a failed write is
+    // dropped, as reporting is best effort.
+    public func get(_ key: String) -> String? {
+        guard let storage else { return nil }
+        return (try? storage.throwing.getItem?(key))?.string
+    }
+    public func set(_ key: String, _ value: String) {
+        guard let storage else { return }
+        _ = try? storage.throwing.setItem?(key, value)
+    }
 }
 #endif
