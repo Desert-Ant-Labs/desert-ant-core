@@ -42,6 +42,9 @@ internal fun UsageStorage.persistentDeviceId(): String {
     return id
 }
 
+/** The persisted device id, without minting one. */
+internal fun UsageStorage.storedDeviceId(): String? = get(DEVICE_ID_KEY)?.takeIf { it.isNotEmpty() }
+
 /** The turnstile state for an (app key, device): "lastActiveAt,carryCallCount". */
 internal fun UsageStorage.loadState(appKey: String, deviceId: String): UsageState {
     val raw = get(stateKey(appKey, deviceId)) ?: return UsageState()

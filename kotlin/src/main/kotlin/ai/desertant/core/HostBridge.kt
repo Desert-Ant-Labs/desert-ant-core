@@ -2,6 +2,9 @@ package ai.desertant.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
+import android.os.Build
+import android.os.LocaleList
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -12,6 +15,7 @@ import java.nio.ByteOrder
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
+import java.util.Locale
 import java.util.regex.Pattern
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -150,7 +154,7 @@ object HostBridge {
      */
     @JvmStatic
     fun attach(context: Context) {
-        attach(context.packageName) {
+        attach(context.packageName, { androidDeviceFacts(context) }) {
             context.getSharedPreferences(PREFERENCES_FILE, Context.MODE_PRIVATE)
         }
     }
@@ -158,14 +162,20 @@ object HostBridge {
     /**
      * [attach] without a Context, so its rules are testable on the JVM. [store]
      * is only opened when no store is set yet, and a RuntimeException from it
-     * (the pre-unlock IllegalStateException) leaves the store unset.
+     * (the pre-unlock IllegalStateException) leaves the store unset. [facts] is
+     * read once per process, by the first attach.
      */
     @Synchronized
-    internal fun attach(packageName: String, store: () -> SharedPreferences) {
+    internal fun attach(
+        packageName: String,
+        facts: () -> String = { "" },
+        store: () -> SharedPreferences,
+    ) {
         if (applicationId == null) applicationId = packageName
         if (preferences == null) {
             preferences = try { store() } catch (_: RuntimeException) { null }
         }
+        if (deviceFacts == null) deviceFacts = facts()
     }
 
     private const val PREFERENCES_FILE = "desert-ant"
@@ -206,6 +216,97 @@ object HostBridge {
 
     @JvmStatic
     fun appId(): ByteArray = (applicationId ?: "").toByteArray(Charsets.UTF_8)
+
+    /**
+     * Whether usage events carry the device context: the app version, OS
+     * version, device model, form factor and locale [attach] reads (see
+     * desert-ant-core's Sources/Usage/DeviceContext.swift). `true` by default.
+     * Setting it to `false` sends usage without any context, the Android form
+     * of Swift's `DesertAnt.sendsDeviceContext`. Read per event, so it applies
+     * from the next send on.
+     */
+    @JvmStatic
+    @Volatile
+    var sendsDeviceContext: Boolean = true
+
+    /** The facts [attach] read, as [deviceContext] returns them. Null until then. */
+    @Volatile
+    internal var deviceFacts: String? = null
+
+    /**
+     * The device facts for the usage context as `key=value` lines, empty before
+     * [attach] or while [sendsDeviceContext] is off. The native side caps and
+     * filters them, and sends fewer (none of the model or locale) for a server
+     * or a host-supplied device id.
+     */
+    @JvmStatic
+    fun deviceContext(): ByteArray =
+        (if (sendsDeviceContext) deviceFacts.orEmpty() else "").toByteArray(Charsets.UTF_8)
+
+    /**
+     * The facts from [context]. Nothing here needs a permission, and nothing
+     * identifies the device: no serial, ANDROID_ID or build fingerprint.
+     */
+    @Suppress("DEPRECATION") // getPackageInfo(String, Int): the flags overload is API 33+.
+    private fun androidDeviceFacts(context: Context): String = deviceFactLines(
+        appVersion = { context.packageManager.getPackageInfo(context.packageName, 0).versionName },
+        osRelease = { Build.VERSION.RELEASE },
+        model = { Build.MODEL },
+        smallestWidthDp = { context.resources.configuration.smallestScreenWidthDp },
+        locale = { LocaleList.getDefault().get(0) },
+    )
+
+    /**
+     * The context lines from each fact's reader. A reader that throws, or
+     * returns nothing usable, leaves its key out rather than failing the
+     * model's constructor.
+     */
+    internal fun deviceFactLines(
+        appVersion: () -> String?,
+        osRelease: () -> String?,
+        model: () -> String?,
+        smallestWidthDp: () -> Int,
+        locale: () -> Locale?,
+    ): String {
+        val facts = linkedMapOf<String, String?>("osName" to "Android")
+        facts["appVersion"] = read(appVersion)
+        facts["osVersion"] = read(osRelease)?.let(::majorMinor)
+        facts["deviceModel"] = read(model)
+        facts["formFactor"] = read(smallestWidthDp)?.let(::formFactor)
+        facts["locale"] = read(locale)?.let(::languageRegion)
+        return facts.entries
+            .mapNotNull { (key, raw) ->
+                // A line break would split the value into a line of its own.
+                val value = raw?.trim()
+                if (value.isNullOrEmpty() || value.any { it == '\n' || it == '\r' }) null else "$key=$value"
+            }
+            .joinToString("\n")
+    }
+
+    private fun <T> read(fact: () -> T?): T? = try { fact() } catch (_: Exception) { null }
+
+    /** "8.1.0" -> "8.1", "14" -> "14". Null when it does not start with a number. */
+    internal fun majorMinor(release: String): String? {
+        val numeric = release.trim().takeWhile { it.isDigit() || it == '.' }
+        return numeric.split('.').filter { it.isNotEmpty() }.take(2).joinToString(".").ifEmpty { null }
+    }
+
+    /** Google's own tablet line: a smallest width of 600dp or more. */
+    internal fun formFactor(smallestWidthDp: Int): String? = when {
+        smallestWidthDp == Configuration.SMALLEST_SCREEN_WIDTH_DP_UNDEFINED -> null
+        smallestWidthDp >= 600 -> "tablet"
+        else -> "mobile"
+    }
+
+    /**
+     * Language and region only: "zh-Hant-TW" -> "zh-TW", "fr" -> "fr". Through
+     * the language tag, so Hebrew reads "he" rather than the legacy "iw".
+     */
+    internal fun languageRegion(locale: Locale): String? {
+        val language = locale.toLanguageTag().substringBefore('-')
+        if (language.isEmpty() || language == "und") return null
+        return if (locale.country.isEmpty()) language else "$language-${locale.country}"
+    }
 
     /**
      * Flush pending usage for all active sessions. The host calls this from an

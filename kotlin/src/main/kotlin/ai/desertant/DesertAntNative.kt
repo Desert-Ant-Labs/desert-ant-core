@@ -40,4 +40,11 @@ object DesertAntNative {
 
     @JvmStatic
     fun appId(): ByteArray = HostBridge.appId()
+
+    // The usage context's device facts, and whether the host lets them go out.
+    @JvmStatic
+    fun deviceContext(): ByteArray = HostBridge.deviceContext()
+
+    @JvmStatic
+    fun sendsDeviceContext(): Boolean = HostBridge.sendsDeviceContext
 }

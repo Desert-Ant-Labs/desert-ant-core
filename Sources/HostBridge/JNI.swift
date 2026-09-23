@@ -33,6 +33,8 @@ private nonisolated(unsafe) var gPrefsGet: jmethodID?
 private nonisolated(unsafe) var gPrefsSet: jmethodID?
 private nonisolated(unsafe) var gAppId: jmethodID?
 private nonisolated(unsafe) var gAudioDecode: jmethodID?
+private nonisolated(unsafe) var gDeviceContext: jmethodID?
+private nonisolated(unsafe) var gSendsDeviceContext: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -185,6 +187,34 @@ private func hostAppId() -> UnsafeMutablePointer<CChar>? {
     }
 }
 
+// Device context: the host's "key=value" device facts for the usage context.
+private func hostDeviceContext() -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gDeviceContext, nil)
+        return resultBytes(env, result)
+    }
+}
+
+// The host's context opt-out: 1 sends the context, 0 opted out, -1 unknown.
+private func hostSendsDeviceContext() -> Int32 {
+    guard let vm = gVM else { return -1 }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+
+    let sends = env.pointee!.pointee.CallStaticBooleanMethodA(env, gHostClass, gSendsDeviceContext, nil)
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
+    return sends == JNI_TRUE ? 1 : 0
+}
+
 private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<CChar>?) {
     guard let vm = gVM else { return }
     var raw: UnsafeMutableRawPointer?
@@ -290,6 +320,16 @@ public func installDesertAntHostBridge(_ env: HostEnv) {
     if let cls { env.pointee!.pointee.DeleteLocalRef(env, cls) }
 }
 
+/// A static method the host class may lack. A failed lookup leaves a
+/// NoSuchMethodError pending, and a JNI call made with one pending aborts under
+/// CheckJNI (on by default in a debuggable app), so it is cleared per lookup:
+/// DesertAntNative has no `audioDecode`, and later lookups follow it.
+private func optionalStaticMethod(_ env: HostEnv, _ cls: jclass?, _ name: String, _ signature: String) -> jmethodID? {
+    let method = env.pointee!.pointee.GetStaticMethodID(env, cls, name, signature)
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+    return method
+}
+
 public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gHostClass != nil { return }
     _ = env.pointee!.pointee.GetJavaVM(env, &gVM)
@@ -298,15 +338,18 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gJSONParse = env.pointee!.pointee.GetStaticMethodID(env, cls, "jsonParseTree", "([B)[B")
     gNormalize = env.pointee!.pointee.GetStaticMethodID(env, cls, "normalizeNfkc", "([B)[B")
     // Optional: only wired if the host class provides them (ModelStore download).
-    gHttpTree = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpTree", "([B)[B")
-    gHttpDownload = env.pointee!.pointee.GetStaticMethodID(env, cls, "httpDownload", "([B[B)I")
+    gHttpTree = optionalStaticMethod(env, cls, "httpTree", "([B)[B")
+    gHttpDownload = optionalStaticMethod(env, cls, "httpDownload", "([B[B)I")
     // Optional: UsageState persistence via SharedPreferences.
-    gPrefsGet = env.pointee!.pointee.GetStaticMethodID(env, cls, "prefsGet", "([B)[B")
-    gPrefsSet = env.pointee!.pointee.GetStaticMethodID(env, cls, "prefsSet", "([B[B)V")
+    gPrefsGet = optionalStaticMethod(env, cls, "prefsGet", "([B)[B")
+    gPrefsSet = optionalStaticMethod(env, cls, "prefsSet", "([B[B)V")
     // Optional: the app identity used as the usage turnstile key.
-    gAppId = env.pointee!.pointee.GetStaticMethodID(env, cls, "appId", "()[B")
+    gAppId = optionalStaticMethod(env, cls, "appId", "()[B")
     // Optional: audio decode (AudioIO on Android) via MediaExtractor/MediaCodec.
-    gAudioDecode = env.pointee!.pointee.GetStaticMethodID(env, cls, "audioDecode", "([B[BD)[B")
+    gAudioDecode = optionalStaticMethod(env, cls, "audioDecode", "([B[BD)[B")
+    // Optional: the usage context's device facts and the host's opt-out.
+    gDeviceContext = optionalStaticMethod(env, cls, "deviceContext", "()[B")
+    gSendsDeviceContext = optionalStaticMethod(env, cls, "sendsDeviceContext", "()Z")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
@@ -317,5 +360,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gPrefsSet != nil { host_set_prefs_set(hostPrefsSet) }
     if gAppId != nil { host_set_app_id(hostAppId) }
     if gAudioDecode != nil { host_set_audio_decode(hostAudioDecode) }
+    if gDeviceContext != nil { host_set_device_context(hostDeviceContext) }
+    if gSendsDeviceContext != nil { host_set_sends_device_context(hostSendsDeviceContext) }
 }
 #endif

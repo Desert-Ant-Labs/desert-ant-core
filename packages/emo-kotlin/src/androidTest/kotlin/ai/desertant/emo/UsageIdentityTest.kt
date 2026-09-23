@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -33,6 +34,36 @@ class UsageIdentityTest {
 
         assertEquals(context.packageName, HostBridge.applicationId)
         assertEquals(context.packageName, HostBridge.appId().decodeToString())
+    }
+
+    /**
+     * Building a model reads the device facts for the usage context from the
+     * Context, and the bridge hands them to the native side as key=value lines.
+     * The test APK may carry no versionName, so appVersion is not required.
+     */
+    @Test fun loadingAModelSuppliesTheDeviceContext() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        Emo(context).close()
+
+        val facts = HostBridge.deviceContext().decodeToString().lines()
+            .filter { it.isNotEmpty() }
+            .associate { it.substringBefore('=') to it.substringAfter('=') }
+        assertEquals("Android", facts["osName"])
+        for (key in listOf("osVersion", "deviceModel", "formFactor", "locale")) {
+            assertFalse("no $key in $facts", facts[key].isNullOrEmpty())
+        }
+        assertTrue(facts["formFactor"] in setOf("mobile", "tablet"))
+        assertTrue("an unexpected key in $facts", facts.keys.all {
+            it in setOf("appVersion", "osName", "osVersion", "deviceModel", "formFactor", "locale")
+        })
+
+        HostBridge.sendsDeviceContext = false
+        try {
+            assertEquals(0, HostBridge.deviceContext().size)
+            assertFalse(ai.desertant.DesertAntNative.sendsDeviceContext())
+        } finally {
+            HostBridge.sendsDeviceContext = true
+        }
     }
 
     /** Build an Emo, run it once (the device id is resolved on the first run),

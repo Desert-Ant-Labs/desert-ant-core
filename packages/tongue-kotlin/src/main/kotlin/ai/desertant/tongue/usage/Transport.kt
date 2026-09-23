@@ -55,7 +55,7 @@ internal fun hostProvidedDeviceId(): String? = setting("DAL_DEVICE_ID")
 internal var readEnvironment: (String) -> String? = System::getenv
 
 /** An environment variable, then the same-named system property, then null. */
-private fun setting(name: String): String? =
+internal fun setting(name: String): String? =
     readEnvironment(name)?.takeIf { it.isNotEmpty() }
         ?: System.getProperty(name)?.takeIf { it.isNotEmpty() }
 
@@ -196,8 +196,9 @@ internal fun usageDisabled(): Boolean {
 }
 
 /**
- * Build a client wired to the shared endpoint, the system clock, a POST transport
- * and the best available storage. Mirrors core's `makeClient`.
+ * Build a client wired to the shared endpoint, the system clock, a POST transport,
+ * the best available storage and the default device context. Mirrors core's
+ * `makeClient`.
  */
 internal fun makeClient(
     context: Any? = null,
@@ -209,13 +210,23 @@ internal fun makeClient(
     val appId = defaultAppIdentifier(context)
     val key = apiKey()
     val namespace = key ?: appId
-    val device = hostProvidedDeviceId() ?: storage.persistentDeviceId()
+    val hostDevice = hostProvidedDeviceId()
+    // Read before the persisted id is minted: a host id equal to the stored one
+    // is still this device's own, as core and the Node port count it.
+    val stored = if (hostDevice != null) storage.storedDeviceId() else null
+    val device = hostDevice ?: storage.persistentDeviceId()
+    val platform = defaultPlatform()
     return UsageClient(
         ClientDeps(
             deviceId = device,
             appId = appId,
-            platform = defaultPlatform(),
+            platform = platform,
             sdkVersion = sdkVersion,
+            context = defaultContextProvider(
+                platform,
+                deviceIdSupplied = hostDevice != null && hostDevice != stored,
+                facts = runCatching { detectDeviceFacts(context) }.getOrDefault(DeviceFacts()),
+            ),
             now = now,
             loadState = { storage.loadState(namespace, device) },
             saveState = { storage.saveState(it, namespace, device) },

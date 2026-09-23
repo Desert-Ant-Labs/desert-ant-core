@@ -6,13 +6,17 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.Locale
 
 class HostBridgeTest {
     @Before @After fun reset() {
         HostBridge.applicationId = null
         HostBridge.preferences = null
+        HostBridge.deviceFacts = null
+        HostBridge.sendsDeviceContext = true
     }
 
     /** Unattached, the native side reads an empty app id and store, which is
@@ -79,6 +83,104 @@ class HostBridgeTest {
         var opened = 0
         HostBridge.attach("com.example.app") { opened++; FakePreferences() }
         assertEquals(0, opened)
+    }
+
+    @Test fun theContextCarriesEveryFactAsLines() {
+        val lines = HostBridge.deviceFactLines(
+            appVersion = { "2.4.1" },
+            osRelease = { "8.1.0" },
+            model = { "Pixel 8 Pro" },
+            smallestWidthDp = { 411 },
+            locale = { Locale("pt", "BR") },
+        )
+        assertEquals(
+            "osName=Android\nappVersion=2.4.1\nosVersion=8.1\ndeviceModel=Pixel 8 Pro\nformFactor=mobile\nlocale=pt-BR",
+            lines,
+        )
+    }
+
+    /** A fact that throws (a missing package, a locale list the OEM broke) or
+     *  reads as nothing leaves its key out, and the rest still go. */
+    @Test fun aFactThatFailsIsLeftOut() {
+        val lines = HostBridge.deviceFactLines(
+            appVersion = { throw RuntimeException("NameNotFoundException") },
+            osRelease = { null },
+            model = { "  " },
+            smallestWidthDp = { throw IllegalStateException() },
+            locale = { Locale.ROOT },
+        )
+        assertEquals("osName=Android", lines)
+    }
+
+    /** A value with a line break would be read as a line of its own. */
+    @Test fun aValueWithALineBreakIsLeftOut() {
+        val lines = HostBridge.deviceFactLines(
+            appVersion = { "1.0\nlocale=xx" },
+            osRelease = { "14" },
+            model = { "Model\rX" },
+            smallestWidthDp = { 0 },
+            locale = { null },
+        )
+        assertEquals("osName=Android\nosVersion=14", lines)
+    }
+
+    @Test fun theFormFactorFollowsTheSmallestWidth() {
+        assertEquals("mobile", HostBridge.formFactor(599))
+        assertEquals("tablet", HostBridge.formFactor(600))
+        assertEquals("tablet", HostBridge.formFactor(800))
+        assertNull("undefined is not a phone", HostBridge.formFactor(0))
+    }
+
+    @Test fun theOSVersionIsMajorMinor() {
+        assertEquals("14", HostBridge.majorMinor("14"))
+        assertEquals("8.1", HostBridge.majorMinor("8.1.0"))
+        assertEquals("15", HostBridge.majorMinor("15-beta"))
+        assertNull(HostBridge.majorMinor("Baklava"))
+    }
+
+    @Test fun theLocaleIsLanguageAndRegionOnly() {
+        assertEquals("pt-BR", HostBridge.languageRegion(Locale("pt", "BR")))
+        assertEquals("zh-TW", HostBridge.languageRegion(Locale.forLanguageTag("zh-Hant-TW")))
+        assertEquals("es-419", HostBridge.languageRegion(Locale.forLanguageTag("es-419")))
+        assertEquals("fr", HostBridge.languageRegion(Locale.FRENCH))
+        assertEquals("he-IL", HostBridge.languageRegion(Locale.forLanguageTag("he-IL")))
+        assertEquals("de-DE", HostBridge.languageRegion(Locale.forLanguageTag("de-DE-u-co-phonebk")))
+        assertNull(HostBridge.languageRegion(Locale.ROOT))
+    }
+
+    @Test fun attachReadsTheFactsOnceAndTheBridgeReturnsThem() {
+        assertArrayEquals("unattached, there are no facts", ByteArray(0), HostBridge.deviceContext())
+        var reads = 0
+        HostBridge.attach("com.example.app", { reads++; "osName=Android\nosVersion=14" }) { FakePreferences() }
+        HostBridge.attach("com.example.app", { reads++; "osName=Android\nosVersion=15" }) { FakePreferences() }
+
+        assertEquals(1, reads)
+        assertEquals("osName=Android\nosVersion=14", HostBridge.deviceContext().decodeToString())
+    }
+
+    /** The opt-out empties the facts too, so a native side that predates the
+     *  opt-out callback still sends none of them. */
+    @Test fun theOptOutEmptiesTheContextUntilItIsTurnedBackOn() {
+        HostBridge.attach("com.example.app", { "osName=Android\nosVersion=14" }) { FakePreferences() }
+        assertTrue(HostBridge.sendsDeviceContext)
+
+        HostBridge.sendsDeviceContext = false
+        assertArrayEquals(ByteArray(0), HostBridge.deviceContext())
+
+        HostBridge.sendsDeviceContext = true
+        assertEquals("osName=Android\nosVersion=14", HostBridge.deviceContext().decodeToString())
+    }
+
+    /** The JNI lookup names and types Sources/HostBridge/JNI.swift wires. */
+    @Test fun theNativeClassExposesTheCallbacksJNILooksUp() {
+        val native = ai.desertant.DesertAntNative::class.java
+        assertEquals(ByteArray::class.java, native.getMethod("deviceContext").returnType)
+        assertEquals(Boolean::class.javaPrimitiveType, native.getMethod("sendsDeviceContext").returnType)
+        assertTrue(java.lang.reflect.Modifier.isStatic(native.getMethod("deviceContext").modifiers))
+        assertTrue(java.lang.reflect.Modifier.isStatic(native.getMethod("sendsDeviceContext").modifiers))
+
+        HostBridge.sendsDeviceContext = false
+        assertEquals(false, ai.desertant.DesertAntNative.sendsDeviceContext())
     }
 
     private fun bytes(s: String) = s.toByteArray(Charsets.UTF_8)

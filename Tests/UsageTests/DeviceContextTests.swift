@@ -147,6 +147,55 @@ struct ContextFieldsTests {
     }
 }
 
+/// The facts Kotlin's `HostBridge.deviceContext` hands the Android core.
+struct AndroidHostContextTests {
+    private let lines = """
+        osName=Android
+        appVersion=2.4.1
+        osVersion=14
+        deviceModel=Pixel 8 Pro
+        formFactor=mobile
+        locale=pt-BR
+        """
+
+    @Test func everyFactTheBridgeSendsIsRead() {
+        #expect(hostDeviceContext(lines) == DeviceContext(
+            appVersion: "2.4.1", osName: "Android", osVersion: "14",
+            deviceModel: "Pixel 8 Pro", formFactor: "mobile", locale: "pt-BR"
+        ))
+    }
+
+    @Test func aHostWithNothingStillSendsTheOS() {
+        #expect(hostDeviceContext("") == DeviceContext(osName: "Android"))
+        #expect(hostDeviceContext("\n\n").fields(minimal: false) == ["osName": "Android"])
+    }
+
+    @Test func unknownKeysEmptyValuesAndStrayLinesAreSkipped() {
+        let context = hostDeviceContext("serial=R58M123\nlocale=\ngarbage\r\ndeviceModel=a=b\nosName=Linux")
+        #expect(context == DeviceContext(osName: "Android", deviceModel: "a=b"))
+    }
+
+    @Test func theLocaleIsCutToLanguageAndRegion() {
+        #expect(hostDeviceContext("locale=zh-Hant-TW").locale == "zh-TW")
+        #expect(hostDeviceContext("locale=*").locale == nil)
+    }
+
+    /// A supplied device id (or a server tag) drops the model, form factor and
+    /// locale on Android too, and cuts the version to its major.
+    @Test func theMinimalSetHoldsForAnAndroidHost() {
+        let context = hostDeviceContext(lines).fields(minimal: true)
+        #expect(context == ["appVersion": "2.4.1", "osName": "Android", "osVersion": "14"])
+        #expect(hostDeviceContext("osVersion=8.1").fields(minimal: true)["osVersion"] == "8")
+    }
+
+    @Test func anOversizedModelIsCutByTheSanitizer() {
+        let model = String(repeating: "M", count: 300)
+        let context = sanitizeContext(hostDeviceContext("deviceModel=\(model)\nformFactor=phablet").fields(minimal: false))
+        #expect(context?["deviceModel"]?.utf8.count == maxContextValueBytes)
+        #expect(context?["formFactor"] == nil)
+    }
+}
+
 /// One row of the browser vocabulary: what a page reports, and what we send.
 private struct BrowserCase: CustomTestStringConvertible, Sendable {
     let label: String
