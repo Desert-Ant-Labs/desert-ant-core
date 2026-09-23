@@ -33,8 +33,9 @@ the same way.
   locale; a macOS app, as a `server`, sends only the OS, a major-only version
   and the app version. In a browser: the browser name and major
   version, the OS, the form factor (`desktop`, `mobile` or `tablet`) and the
-  language-region locale. On Node: the OS from `process.platform`. A server, and
-  any process that sets its own device id, sends only the OS. Every host adds
+  language-region locale. On Node: the OS from `process.platform`. In
+  JavaScript, a server, and any page that sets its own device id, sends only
+  the OS. Every host adds
   `appVersion` when `DAL_APP_VERSION` (`globalThis.__dalAppVersion`) is set. No
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
@@ -107,13 +108,13 @@ Set `DAL_USAGE_DISABLED=1` (env var, or a JVM system property on Kotlin, or
 `globalThis.__dalUsageDisabled` in a browser). No client is constructed at all, so
 nothing is stored and no request is made.
 
+Every task in this repository sets `DAL_USAGE_DISABLED`; see `mise.toml` and `.github/workflows/ci.yml`.
+A CI runner is not a billable device, and without the guard each push would count
+as one.
+
 To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1`
 (`globalThis.__dalUsageContextDisabled` in JavaScript, or
 `DesertAnt.sendsDeviceContext = false` in Swift).
-
-Every task in this repository sets it — see `mise.toml` and `.github/workflows/ci.yml`.
-A CI runner is not a billable device, and without the guard each push would count
-as one.
 
 ## Why this SDK had to implement it
 

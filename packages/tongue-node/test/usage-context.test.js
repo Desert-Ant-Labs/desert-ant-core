@@ -90,10 +90,12 @@ test("a formFactor outside the vocabulary is dropped", () => {
   for (const value of FORM_FACTORS) assert.equal(sanitizeContext({ formFactor: value }).formFactor, value);
 });
 
-test("values are printable, trimmed and cut on a code point", () => {
+test("values are printable, trimmed and cut on a character", () => {
   assert.equal(printableValue("  \u0007ab\u202Ec\u00AD\uFE0F\u{E0041}\uD800\n\t "), "abc");
   // Never splits a character: a decomposed é is three bytes and stays whole.
   assert.equal(printableValue("e\u0301".repeat(40)), "e\u0301".repeat(21));
+  // Slicing for the segmenter comes after the filter, as core never slices.
+  assert.equal(printableValue("\u200B".repeat(1100) + "abc"), "abc");
   assert.equal(bytes(printableValue("é".repeat(100))), MAX_CONTEXT_VALUE_BYTES);
   assert.equal(bytes(printableValue("語".repeat(100))), 63);
   assert.equal(bytes(printableValue("😀".repeat(100))), 64);
@@ -214,6 +216,7 @@ test("a throwing appVersion getter costs appVersion, not the context", async () 
 });
 
 test("a malformed brand list falls back instead of losing the facts", () => {
+  assert.deepEqual(browserIdentity([null], chromeWinUA), { name: "Chrome", version: "131" });
   assert.deepEqual(browserIdentity([{ brand: 7, version: null }, { brand: "Google Chrome", version: "131" }], chromeWinUA), {
     name: "Chrome", version: "131",
   });
