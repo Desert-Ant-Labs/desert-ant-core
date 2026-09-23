@@ -234,9 +234,14 @@ jobs:
           # matched files, i.e. packages/, so this is <model>-node/native/... .
           cp -a /tmp/natives/. packages/
           find packages/*-node/native -type f | sort
-          for dir in packages/*-node; do
-            # A pure package (dal_node_pure in Tools/dal.sh) ships no native core.
-            grep -q '"pure"[[:space:]]*:[[:space:]]*true' "$dir/package.json" && continue
+          # The same helpers build:node-native uses to skip a model, so the
+          # check expects exactly the natives that job was asked to build: a
+          # pure package (tongue) and a wasm-only one (voz) ship none.
+          source Tools/dal.sh
+          for model in $(dal_models_with node); do
+            dal_node_pure "$model" && continue
+            dal_node_wasm_only "$model" && continue
+            dir="packages/$model-node"
             for target in linux-x64 linux-arm64 darwin-arm64; do
               [ -d "$dir/native/$target" ] || { echo "::error::$dir is missing the $target native"; exit 1; }
             done
