@@ -9,6 +9,7 @@
 #   mise run test:android        the on-device suites (needs an emulator/device)
 #   mise run test:js             the @desert-ant-labs/core unit tests
 #   mise run test:node           each model's npm package against its native core
+#   mise run test:node-old-glibc the linux-x64 tarballs on Ubuntu 20.04 (docker)
 #   mise run test:browser        each model's browser path in headless Chromium
 #   mise run test:bundles        every npm package through the real bundlers
 #   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
@@ -17,6 +18,7 @@
 #   mise run build:swift [model] Swift targets, all at once or one model
 #   mise run build:wasm  [model] the browser core -> packages/<model>-node/dist
 #   mise run build:node-native   the server-side native core, for this host
+#   mise run build:node-native-linux  the Linux cores in the release's image (docker)
 #   mise run build:android       ai.desertant:core plus every model AAR
 #
 # Model arguments accept a model name or `all` (the default). The model list is

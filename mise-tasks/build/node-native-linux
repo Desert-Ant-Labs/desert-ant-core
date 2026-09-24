@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+#MISE description="Build the Linux native cores inside the Amazon Linux 2 image the release publishes from"
+#MISE dir="{{config_root}}"
+#USAGE arg "<model>" help="Model to build, or 'all'" default="all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# glibc 2.26 and GLIBCXX_3.4.24 keep the natives under the floor build:node-native checks; the image also supplies Swift.
+image=swift:6.3.3-amazonlinux2
+
+if [ "$(dal_host_os)" != linux ]; then
+    echo "skip: the Linux natives build on a Linux host with docker"
+    exit 0
+fi
+
+# LiteRT vendors on the host, where uv is; the image finds it already in place.
+dal_vendor_litert
+# safe.directory because the checkout belongs to the invoking user, not the image's root; the chown hands the output back to them.
+docker run --rm -v "$PWD:/w" -w /w -e MISE_PROJECT_ROOT=/w -e usage_model="${usage_model:-all}" \
+    -e owner="$(id -u):$(id -g)" "$image" bash -c '
+    set -euo pipefail
+    git config --global --add safe.directory "*"
+    status=0
+    bash mise-tasks/build/node-native || status=$?
+    find /w -xdev -user 0 -exec chown -h "$owner" {} +
+    exit $status'

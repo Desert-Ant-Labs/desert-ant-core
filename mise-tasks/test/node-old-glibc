@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#MISE description="Install every native npm package from its tarball on Ubuntu 20.04 (glibc 2.31) and load its linux-x64 core"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+if [ "$(dal_host_os)" != linux ] || [ "$(dal_arch)" != x64 ]; then
+    echo "skip: this checks the linux-x64 natives"
+    exit 0
+fi
+
+models=() dirs=(./js)
+for model in $(dal_select all node); do
+    dal_node_pure "$model" || dal_node_wasm_only "$model" && continue
+    [ -d "packages/$model-node/native/linux-x64" ] || {
+        echo "error: packages/$model-node/native/linux-x64 is missing; run 'mise run build:node-native-linux' first" >&2
+        exit 1
+    }
+    models+=("$model") dirs+=("./packages/$model-node")
+done
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+npm pack --silent --pack-destination "$work" "${dirs[@]}"
+cp Tools/old-glibc.mjs "$work/"
+node_home=$(dirname "$(dirname "$(command -v node)")")
+
+# Without libcurl every load() must reject after the core and LiteRT link; with it, align downloads and refines.
+docker run --rm -v "$work:/pkgs:ro" -v "$node_home:/opt/node:ro" \
+    -e DAL_INGEST_ENDPOINT=http://127.0.0.1:9/ingest -e DEBIAN_FRONTEND=noninteractive -e MODELS="${models[*]}" ubuntu:20.04 bash -c '
+    set -euo pipefail
+    export PATH=/opt/node/bin:$PATH
+    mkdir /app && cd /app
+    npm init -y > /dev/null
+    npm install --no-audit --no-fund --loglevel=error /pkgs/*.tgz
+    cp /pkgs/old-glibc.mjs .
+    node old-glibc.mjs --no-libcurl $MODELS
+    for attempt in 1 2 3; do
+        timeout -k 10 120 apt-get update -qq \
+            && timeout -k 10 180 apt-get install -y -qq --no-install-recommends libcurl4 ca-certificates > /dev/null \
+            && break
+        [ "$attempt" = 3 ] && { echo "apt failed after 3 attempts" >&2; exit 1; }
+        sleep $((attempt * 10))
+    done
+    node old-glibc.mjs align'

@@ -336,45 +336,13 @@ jobs:
 
   js-node:
     name: JavaScript (Node native)
-    # glibc 2.35. The published Linux natives build on an older floor (2.26) in
-    # release.yml; this job proves the native path, not that floor.
-    runs-on: ubuntu-22.04
+    # The natives build in the release's image, so the host only runs docker and the suites.
+    runs-on: ubuntu-24.04
+    env:
+      # The durable guard if DAL_USAGE_DISABLED is ever narrowed to debug and test builds.
+      DAL_INGEST_ENDPOINT: http://127.0.0.1:9/ingest
     steps:
       - uses: actions/checkout@v5
-      - name: Build deps (static Foundation autolinks these)
-        run: |
-          # These three are already on the ubuntu-22.04 runner image, so the
-          # common path installs nothing and never touches the network. That
-          # matters: apt can wedge on a bad mirror, sitting on `update` until the
-          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
-          # seconds and a retry instead of the run. Retrying rather than just
-          # `timeout-minutes`: that would still lose the run to a manual re-run,
-          # which is the toil this is here to remove.
-          #
-          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
-          # runner user, which cannot signal the root apt-get it is trying to
-          # stop (EPERM), so the hang survives its own timeout. -k follows up
-          # with SIGKILL for an apt wedged past SIGTERM.
-          pkgs="libcurl4-openssl-dev libxml2-dev zlib1g-dev"
-          missing=""
-          for p in $pkgs; do
-            dpkg -s "$p" > /dev/null 2>&1 || missing="$missing $p"
-          done
-          if [ -z "$missing" ]; then
-            echo "already on the runner image: $pkgs"
-            exit 0
-          fi
-          echo "missing:$missing"
-          for attempt in 1 2 3; do
-            if sudo timeout -k 10 120 apt-get update -qq \
-              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends $missing; then
-              exit 0
-            fi
-            echo "::warning::apt attempt $attempt timed out or failed; retrying"
-            sleep $((attempt * 10))
-          done
-          echo "::error::apt failed after 3 attempts"
-          exit 1
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2
@@ -397,15 +365,15 @@ jobs:
         with:
           enable-cache: false
 
-      # build:node-native builds into .build-host from scratch otherwise.
-      # Per-commit key, same reasoning as js-browser's wasm cache: file-hash
-      # keys exact-hit stale snapshots and never re-save.
+      - id: image
+        run: echo "tag=$(sed -n 's/^image=swift://p' mise-tasks/build/node-native-linux)" >> "$GITHUB_OUTPUT"
+      # Per-commit key, same reasoning as js-browser's wasm cache; the image tag keeps a toolchain bump from restoring stale objects.
       - name: Cache the Swift native build
         uses: actions/cache@v6
         with:
           path: .build-host
-          key: js-native-build-${{ runner.os }}-${{ github.sha }}
-          restore-keys: js-native-build-${{ runner.os }}-
+          key: js-native-build-${{ steps.image.outputs.tag }}-${{ github.sha }}
+          restore-keys: js-native-build-${{ steps.image.outputs.tag }}-
 
       # The node package suites run npm ci; a warm ~/.npm turns those into
       # cache reads.
@@ -437,16 +405,10 @@ jobs:
       # real dist is exercised in js-browser.
       - run: mise run build:wasm-stub
 
-      # These natives only feed test:node and are never published; the real
-      # distribution floor (manylinux_2_28: glibc 2.28, GLIBCXX_3.4.25) is
-      # enforced by the release workflow, which builds inside an Amazon Linux 2
-      # image. This host is newer, so state its own floor instead of tripping
-      # the guard.
-      - run: mise run build:node-native
-        env:
-          DAL_GLIBC_CEILING: "2.35"
-          DAL_GLIBCXX_CEILING: "3.4.30"
+      # The release's own build task and image, with build:node-native's default glibc ceilings.
+      - run: mise run build:node-native-linux
       - run: mise run test:node
+      - run: mise run test:node-old-glibc
 
       # A container with /sys/devices/system/cpu masked, the shape Lambda
       # presents: the read must fail without the preload and succeed with it.
