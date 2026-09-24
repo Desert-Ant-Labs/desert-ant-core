@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Publish @desert-ant-labs/core and every model package to npm"
 #MISE dir="{{config_root}}"
-#MISE depends=["check:version"]
+#MISE depends=["check:version", "check:npm-repo"]
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 

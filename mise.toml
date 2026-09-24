@@ -70,6 +70,7 @@ depends = ["build:swift", "build:wasm", "build:node-native", "build:android"]
 description = "Run every check and test suite that needs no device or simulator"
 depends = [
     "check:version",
+    "check:npm-repo",
     "check:manifest",
     "check:links",
     "check:docs",

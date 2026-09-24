@@ -39,6 +39,8 @@ jobs:
       # One version across the repo is only a property if something checks it
       # before release day.
       - run: mise run check:version
+      # npm rejects a trusted publish whose repository.url names another repo.
+      - run: mise run check:npm-repo
       - run: mise run check:manifest
       - run: mise run check:links
       - run: mise run check:docs
