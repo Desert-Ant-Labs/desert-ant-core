@@ -79,6 +79,12 @@ public final class Align: Sendable {
     /// starts, lies past the end of the audio, or, when streaming, has no forward context
     /// buffered yet.
     ///
+    /// Wherever a word ends at or before the next one starts in `words`, it still does in the
+    /// result, and every refined word has `start < end`. Two refined words that would overlap meet
+    /// at the midpoint of their estimates; a refined word that would overlap an unrefined neighbor
+    /// stops at that neighbor's input time; a refined word left empty keeps its input times.
+    /// Words that already overlap in `words` are left in that relation.
+    ///
     /// Every `start` and `end` must be finite and within `-1...10_000_000` seconds, `sampleRate`
     /// must be finite and positive, and `samples` must not be empty; anything else throws
     /// ``AlignError/invalidInput(_:)``, even for an unsupported language. A word whose `start`
@@ -205,7 +211,29 @@ public final class Align: Sendable {
                 out[i] = WordTiming(text: words[i].text, start: newStart, end: newEnd, refined: true)
             }
         }
-        return out
+        return resolvingOverlaps(out, input: words)
+    }
+
+    /// Keeps words the input had in order from overlapping, exactly as the Python reference does.
+    static func resolvingOverlaps(_ output: [WordTiming], input: [WordTiming]) -> [WordTiming] {
+        var refined = output.map(\.refined)
+        while true {
+            var times = input.indices.map { refined[$0] ? output[$0] : input[$0] }
+            for i in times.indices.dropLast()
+            where input[i].end <= input[i + 1].start && times[i].end > times[i + 1].start {
+                switch (refined[i], refined[i + 1]) {
+                case (true, true):
+                    let meet = (times[i].end + times[i + 1].start) / 2
+                    times[i].end = meet
+                    times[i + 1].start = meet
+                case (true, false): times[i].end = times[i + 1].start
+                default: times[i + 1].start = times[i].end
+                }
+            }
+            let collapsed = times.indices.filter { refined[$0] && times[$0].start >= times[$0].end }
+            if collapsed.isEmpty { return times }
+            for i in collapsed { refined[i] = false }
+        }
     }
 
     static func calibrationFeatures(

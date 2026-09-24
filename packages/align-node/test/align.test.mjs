@@ -69,6 +69,30 @@ test("refines a transcript through the native core", modelOpts, async () => {
   assert.ok(out.some((w) => w.refined), "no word was refined: the native core ran nothing");
 });
 
+// Back-to-back words on shared seams, where the two boundary estimates of one seam can cross.
+test("refined words keep the input order on shared seams", modelOpts, async () => {
+  const texts = "the cat sat on a mat and then it ran to the door of the old red barn by a tree".split(" ");
+  const seamed = texts.map((text, i) => ({ text, start: 0.3 + i * 0.18, end: 0.3 + (i + 1) * 0.18 }));
+  const n = Math.ceil((0.3 + texts.length * 0.18 + 1) * 16000);
+  const audio = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const t = i / 16000;
+    audio[i] = 0.3 * Math.sin(2 * Math.PI * 200 * t) + 0.2 * Math.sin(2 * Math.PI * 350 * t)
+      + 0.1 * Math.sin(2 * Math.PI * 61 * t) * Math.sin(2 * Math.PI * 3 * t);
+  }
+  for (const language of ["en", "es"]) {
+    const out = await align.refine(audio, 16000, seamed, { language });
+    assert.ok(out.some((w) => w.refined), `nothing was refined in ${language}`);
+    for (let i = 0; i + 1 < out.length; i++) {
+      assert.ok(out[i].end <= out[i + 1].start, `${language}: words ${i} and ${i + 1} overlap`);
+    }
+    for (const [i, w] of out.entries()) {
+      if (w.refined) assert.ok(w.start < w.end, `${language}: refined word ${i} is empty`);
+      else assert.deepEqual([w.start, w.end], [seamed[i].start, seamed[i].end]);
+    }
+  }
+});
+
 test("an unsupported language is a passthrough, not an error", modelOpts, async () => {
   const out = await align.refine(tone(), 16000, words, { language: "xx" });
   assert.deepEqual(out.map((w) => [w.start, w.end]), words.map((w) => [w.start, w.end]));

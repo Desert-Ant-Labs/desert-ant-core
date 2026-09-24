@@ -37,6 +37,8 @@ align.dispose(); // release the model
 
 `refined` is per word. It is `false` when the search ran into the edge of the audio or the corrected range would end before it starts, and that word keeps the times you passed in. That fallback is a check on structure, not on accuracy: a correction that looks plausible but is wrong still lands, and spoken numbers are the known weak case. Validate per word if your pipeline depends on it. A stage that fails outright throws instead.
 
+Words keep their order. Wherever a word ended at or before the next one started in your input, it still does in the result, and every word with `refined: true` has `start < end`. The model corrects each boundary on its own, so where two words share a boundary their estimates can cross; `refine` then has them meet at the midpoint of the two estimates, stops a refined word at a neighbor that kept its input times, and returns a word left with no duration at its input times with `refined: false`. Words that already overlap in your input are left as they are. The guarantee covers one call, so a transcript refined in pieces is not checked where the pieces meet.
+
 ## Languages
 
 Nine: `de`, `en`, `es`, `fr`, `it`, `ja`, `ko`, `pt`, `zh`. Read them from `Align.languages`, and check a code before you call:

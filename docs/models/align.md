@@ -30,6 +30,11 @@ npm i @desert-ant-labs/align
 
 ## Changes in this release
 
+- Refined words no longer overlap where the input had them in order. The model corrects each
+  boundary on its own, so at a seam two words share (one word ends where the next begins,
+  which is how Whisper emits most words) the two estimates could cross, and a short word could
+  end up inside its neighbor. `refine` now resolves each crossing as described under
+  [Inputs and outputs](#inputs-and-outputs).
 - `refine` is `async` and takes `languageCode`; it works on any transcript's words, not only
   `SpeechAnalyzer` output.
 - The handle is `Align`. `SpeechTimestampRefiner` remains as a deprecated alias for the name
@@ -126,6 +131,12 @@ context is not buffered yet. Those fallbacks are checks on structure, not on acc
 correction that looks plausible but is wrong still lands. A stage that fails outright throws
 rather than falling back. See Limitations.
 
+After those checks, `refine` resolves words that would overlap a neighbor they did not overlap
+in the input. Two refined words meet at the midpoint of their two estimates. A refined word
+next to one that kept its input times stops at that neighbor's input time and stays `refined`.
+A refined word left with no duration keeps its input times with `refined` false, and its
+neighbors are resolved against those times in turn.
+
 Input that cannot be a time is refused before any work, whatever the language. Every `start`
 and `end` must be finite and from -1 to 10,000,000 seconds, and the sample rate finite and
 positive, and the audio must not be empty. Audio at another rate that resamples to more than
@@ -168,8 +179,14 @@ directories on Linux, Windows and Node.
 ## Inputs and outputs
 
 - **Input:** mono audio plus any transcript's words with their proposed start/end times.
-- **Output:** the same words with corrected start/end times, or the original time when a
-  correction is not structurally safe.
+- **Output:** the same words in the same order, each with corrected start/end times and
+  `refined` true, or its input times and `refined` false when a correction is not structurally
+  safe.
+- **Order:** wherever a word ends at or before the next word starts in the input, it still does
+  in the output, and every refined word has `start < end`. Words that already overlap in the
+  input keep their input relation and are not forced apart. The guarantee covers one call:
+  `StreamingRefiner` refines each finalized result on its own, so the last word of one result
+  and the first word of the next are not checked against each other.
 
 ## Accuracy
 
@@ -209,6 +226,11 @@ outside this set is passed through unchanged.
   reproduces it where it was measured (0.0 ms, against a 25 ms tolerance) while LiteRT drifts
   10.4 ms from it (linux-arm64, 2026-09-17). Treat the two runtimes as able to disagree by around
   10 ms on the same audio, not as agreeing to sub-millisecond.
+- Order is enforced after the model, not learned by it. Where two estimates of one seam
+  disagree, the meeting point is their midpoint, which can land between two wrong estimates,
+  and a word squeezed by both neighbors can come out a few milliseconds long rather than
+  falling back. With `StreamingRefiner`, two separately finalized results can still overlap
+  where they meet.
 - No browser build: the cascade is two graphs, and the WebAssembly host compiles one model per
   module.
 - No Android SDK.

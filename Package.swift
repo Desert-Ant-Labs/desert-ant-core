@@ -206,6 +206,7 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/golden.json"),
             .copy("Resources/calibration_golden.json"),
+            .copy("Resources/overlap_golden.json"),
         ],
         androidLibrary: false
     ),

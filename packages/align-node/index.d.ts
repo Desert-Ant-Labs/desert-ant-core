@@ -36,7 +36,8 @@ export declare class Align {
   /**
    * Every word's `start` and `end` must be a finite number from -1 to 10,000,000 seconds, `sampleRate` finite and
    * positive, and `samples` non-empty; otherwise this rejects with a `RangeError`. A word more than about 1.2 s past
-   * the end of the audio keeps its times, `refined: false`.
+   * the end of the audio keeps its times, `refined: false`. Where a word ends at or before the next one starts in
+   * `words`, it still does in the result, and a word with `refined: true` has `start < end`.
    */
   refine<W extends Word>(samples: Float32Array | number[], sampleRate: number, words: W[],
                          options: RefineOptions): Promise<(W & { refined: boolean })[]>;
