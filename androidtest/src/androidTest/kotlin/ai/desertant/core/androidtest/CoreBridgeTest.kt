@@ -60,9 +60,13 @@ class CoreBridgeTest {
     @Test
     fun aPostFromTheSwiftCoreReachesTheServer() {
         ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { server ->
+            // Bounded, so a POST that never arrives fails the test with its
+            // error rather than leaving accept() and join() waiting forever.
+            server.soTimeout = 10_000
             var request = listOf<String>()
             val serving = thread {
                 server.accept().use { socket ->
+                    socket.soTimeout = 10_000
                     val input = socket.getInputStream().bufferedReader()
                     val head = generateSequence { input.readLine() }.takeWhile { it.isNotEmpty() }.toList()
                     val length = head.first { it.startsWith("Content-Length:", ignoreCase = true) }
@@ -73,10 +77,13 @@ class CoreBridgeTest {
                 }
             }
 
-            val result = CoreBridge.post(DesertAntNative::class.java, "http://127.0.0.1:${server.localPort}/ingest".toByteArray())
-            serving.join()
-
+            var result = "error: post did not return within 30 s"
+            thread {
+                result = CoreBridge.post(DesertAntNative::class.java, "http://127.0.0.1:${server.localPort}/ingest".toByteArray())
+            }.join(30_000)
             assertEquals("202 ok", result)
+            serving.join(10_000)
+
             assertEquals("POST /ingest HTTP/1.1", request.first())
             assertEquals(listOf("Content-Type: application/json"), request.filter { it.startsWith("Content-Type:", ignoreCase = true) })
             assertEquals(listOf("Authorization: Bearer pk_test"), request.filter { it.startsWith("Authorization:", ignoreCase = true) })
