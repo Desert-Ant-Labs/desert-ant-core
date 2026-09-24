@@ -32,6 +32,7 @@ private nonisolated(unsafe) var gHttpDownload: jmethodID?
 private nonisolated(unsafe) var gPrefsGet: jmethodID?
 private nonisolated(unsafe) var gPrefsSet: jmethodID?
 private nonisolated(unsafe) var gAppId: jmethodID?
+private nonisolated(unsafe) var gApiKey: jmethodID?
 private nonisolated(unsafe) var gAudioDecode: jmethodID?
 private nonisolated(unsafe) var gDeviceContext: jmethodID?
 private nonisolated(unsafe) var gSendsDeviceContext: jmethodID?
@@ -183,6 +184,14 @@ private func hostPrefsGet(_ key: UnsafePointer<CChar>?) -> UnsafeMutablePointer<
 private func hostAppId() -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gAppId, nil)
+        return resultBytes(env, result)
+    }
+}
+
+// API key: the key the host app set in code (Kotlin's DesertAnt.apiKey).
+private func hostApiKey() -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gApiKey, nil)
         return resultBytes(env, result)
     }
 }
@@ -345,6 +354,8 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gPrefsSet = optionalStaticMethod(env, cls, "prefsSet", "([B[B)V")
     // Optional: the app identity used as the usage turnstile key.
     gAppId = optionalStaticMethod(env, cls, "appId", "()[B")
+    // Optional: the API key the host app set in code.
+    gApiKey = optionalStaticMethod(env, cls, "apiKey", "()[B")
     // Optional: audio decode (AudioIO on Android) via MediaExtractor/MediaCodec.
     gAudioDecode = optionalStaticMethod(env, cls, "audioDecode", "([B[BD)[B")
     // Optional: the usage context's device facts and the host's opt-out.
@@ -359,6 +370,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gPrefsGet != nil { host_set_prefs_get(hostPrefsGet) }
     if gPrefsSet != nil { host_set_prefs_set(hostPrefsSet) }
     if gAppId != nil { host_set_app_id(hostAppId) }
+    if gApiKey != nil { host_set_api_key(hostApiKey) }
     if gAudioDecode != nil { host_set_audio_decode(hostAudioDecode) }
     if gDeviceContext != nil { host_set_device_context(hostDeviceContext) }
     if gSendsDeviceContext != nil { host_set_sends_device_context(hostSendsDeviceContext) }

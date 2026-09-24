@@ -113,27 +113,4 @@ let androidUsageRegistry = UsageRegistry()
 public func Java_ai_desertant_core_HostBridge_flushUsage(_ env: UnsafeMutablePointer<JNIEnv?>, _ clazz: jclass?) {
     androidUsageRegistry.flushAll()
 }
-
-/// JNI entry behind Kotlin's `DesertAnt.apiKey` setter. UTF-8 bytes rather
-/// than jstring for the same reason as every other crossing here (modified
-/// UTF-8); nil clears the key. Copied inline because Inference does not link
-/// HostBridge's marshalling helpers.
-@_cdecl("Java_ai_desertant_core_DesertAnt_setApiKey")
-public func Java_ai_desertant_core_DesertAnt_setApiKey(
-    _ env: UnsafeMutablePointer<JNIEnv?>, _ clazz: jclass?, _ key: jbyteArray?
-) {
-    guard let key else {
-        DesertAnt.apiKey = nil
-        return
-    }
-    let len = env.pointee!.pointee.GetArrayLength(env, key)
-    var bytes = [UInt8](repeating: 0, count: Int(len))
-    if len > 0 {
-        bytes.withUnsafeMutableBytes { raw in
-            env.pointee!.pointee.GetByteArrayRegion(env, key, 0, len,
-                raw.baseAddress!.assumingMemoryBound(to: jbyte.self))
-        }
-    }
-    DesertAnt.apiKey = String(decoding: bytes, as: UTF8.self)
-}
 #endif
