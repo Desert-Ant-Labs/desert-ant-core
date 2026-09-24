@@ -7,7 +7,7 @@ name: CI
 #   apple    Swift on macOS (Core ML) and on an iOS Simulator
 #   darwin-native  the prebuilt native the npm package ships, on the release runner
 #   linux    Swift on Linux (LiteRT)
-#   windows  Swift on Windows (LiteRT), every model the manifest declares for it
+#   windows  Swift on Windows, every model the manifest declares for it
 #   js       wasm + native cores, then every npm package: Node, browser, SSR
 #   android  the Swift JNI natives, both AARs, and the on-device suites
 #   checks   version consistency and the core JS unit tests
@@ -473,7 +473,7 @@ jobs:
     # from the win_amd64 ai-edge-litert wheel. Every model whose manifest entry
     # declares a `windows` Swift platform builds and tests here; Apple-only
     # models (Core ML or MLX runtimes) never enter this job.
-    name: Windows (Swift + LiteRT)
+    name: Windows (Swift)
     runs-on: windows-latest
     # The one job that runs swift directly rather than through mise, so it does
     # not inherit mise.toml's switch: without it every model test posts a real

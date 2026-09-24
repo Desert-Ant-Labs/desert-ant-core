@@ -113,15 +113,31 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
 // The ONNX Runtime C shim lives in its own package. Windows only, because that
 // is where the NPU execution providers live: Linux and Android stay on LiteRT,
 // and adding a second runtime there would ship two copies of the same
-// capability. The `.windows` condition sits on the edges, not here, because
-// SwiftPM resolves every declared package on every platform.
+// capability. SwiftPM resolves every declared package whatever the target, so
+// `#if os(Windows)` keeps it out of the graph entirely on macOS and Linux
+// hosts. That check is the host running the manifest, not the build target,
+// so the edges below also keep `.when(platforms: [.windows])` for a Windows
+// host building for another platform.
 //
 // The package links `-lonnxruntime` without saying where to look; the import
 // library and DLL are vendored under Vendor/onnxruntime by Tools/dal.sh, and
 // the headers in the shim must come from the same release (DAL_ORT_VERSION).
+//
+// Pinned to a revision because the repo has no tags yet. SwiftPM refuses a
+// revision (or branch) dependency under a package that is itself resolved by
+// version, so this has to become `from:` a tag before a release ships it.
+#if os(Windows)
 let onnxDependencies: [Package.Dependency] = [
-    .package(name: "COnnxRuntime", path: "../COnnxRuntime"),
+    .package(url: "https://github.com/Desert-Ant-Labs/COnnxRuntime.git",
+             revision: "8bcd6d134e996ef457bd1180407e2fed3061dd82"),
 ]
+let onnxProducts: [Target.Dependency] = [
+    .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
+]
+#else
+let onnxDependencies: [Package.Dependency] = []
+let onnxProducts: [Target.Dependency] = []
+#endif
 
 // This is the only SwiftPM model list. Target-specific differences live here.
 struct ModelPackage {
@@ -347,14 +363,13 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "ModelStore", "Usage", "CStrings",
                 .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android, .windows])),
-                .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
                 // Unconditional even though JSHost is empty off wasm: PackageToJS
                 // walks target dependencies to collect the BridgeJS skeletons it
                 // must generate glue from, and a platform-conditional edge is
                 // invisible to that walk, so the module would import "JSHost"
                 // functions the JS side was never told to supply.
                 "JSHost",
-            ] + jsWasi + jsEventLoop
+            ] + jsWasi + jsEventLoop + onnxProducts
         ),
         .target(
             name: "Regex",
@@ -532,28 +547,29 @@ let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
 ] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
 
+// Typed on their own: concatenated inline, these lists sit inside the
+// `vozTargets` expression below, and Swift 6.2 (check:swift-floor) gives up
+// type-checking the whole thing.
+let vozDependencies: [Target.Dependency] = [
+    .byName(name: "DesertAnt"),
+    .byName(name: "AudioIO"),
+] + onnxProducts
+// AudioIO for the portable WAV decoder the ONNX end-to-end test reads its
+// fixture with; COnnxRuntime so `canImport` can gate that test.
+let vozTestDependencies: [Target.Dependency] = [
+    "Voz", "DesertAnt", "TestSupport", "AudioIO",
+] + onnxProducts
+
 let vozTargets: [Target] = [
     .target(
         name: "Voz",
-        dependencies: [
-            .byName(name: "DesertAnt"),
-            .byName(name: "AudioIO"),
-            .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
-        ],
+        dependencies: vozDependencies,
         // The wasm entry point is excluded from the library for the same reason
         // every other model's is: it is an executable target of its own, and a
         // `main.swift` inside a library target turns it into an executable.
         exclude: ["Web"]
     ),
-    .testTarget(
-        name: "VozTests",
-        // AudioIO for the portable WAV decoder the ONNX end-to-end test reads
-        // its fixture with; COnnxRuntime so `canImport` can gate that test.
-        dependencies: [
-            "Voz", "DesertAnt", "TestSupport", "AudioIO",
-            .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
-        ]
-    ),
+    .testTarget(name: "VozTests", dependencies: vozTestDependencies),
 ] + (noJavaScriptKit ? [] : [
     .executableTarget(
         name: "VozWeb",
