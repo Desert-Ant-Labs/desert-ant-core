@@ -140,8 +140,9 @@ object HostBridge {
         contentTypeUtf8: ByteArray?,
         headersUtf8: ByteArray? = null,
     ): ByteArray? {
+        var conn: HttpURLConnection? = null
         return try {
-            val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
+            conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
             conn.requestMethod = methodUtf8.toString(Charsets.UTF_8)
             conn.connectTimeout = HTTP_TIMEOUT_MS
             conn.readTimeout = HTTP_TIMEOUT_MS
@@ -158,10 +159,11 @@ object HostBridge {
             val status = conn.responseCode
             val stream = if (status >= 400) conn.errorStream else conn.inputStream
             val response = stream?.use { it.readBytes() } ?: ByteArray(0)
-            conn.disconnect()
             ByteBuffer.allocate(8 + response.size).putInt(status).putInt(response.size).put(response).array()
         } catch (e: Exception) {
             null
+        } finally {
+            conn?.disconnect()
         }
     }
 

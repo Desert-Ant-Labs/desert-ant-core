@@ -105,10 +105,9 @@ struct UsageClientTests {
         #endif
         // Where the build cannot set an `Authorization` header, the key must ride
         // the body instead, or the event arrives unattributed. The wasm build (its
-        // unload flush is a header-less `sendBeacon`) and the Android host bridge
-        // (which passes no headers) are those cases. The header half of this
-        // pairing is proved on the wire in `HTTPTests`.
-        #if os(WASI) || os(Android)
+        // unload flush is a header-less `sendBeacon`) is that case. The header half
+        // of this pairing is proved on the wire in `HTTPTests`.
+        #if os(WASI)
         #expect(body.key == "dal_test")
         #else
         #expect(body.key == nil)

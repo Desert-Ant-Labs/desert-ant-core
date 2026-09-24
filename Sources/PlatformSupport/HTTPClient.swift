@@ -50,6 +50,12 @@ public enum HTTPClientError: Error, Sendable {
     case requestFailed(String)
 }
 
+/// Whether this build's transport can set request headers. Every build can,
+/// Android included since its host bridge took headers; kept for source
+/// compatibility.
+@available(*, deprecated, message: "Every transport sets request headers.")
+public var httpSupportsRequestHeaders: Bool { true }
+
 /// Perform a `GET` and return the full response.
 public func httpGET(_ url: String) async throws -> HTTPResponse {
     try await performHTTPRequest(method: "GET", url: url, body: nil, contentType: nil)
@@ -212,6 +218,11 @@ private func performHTTPRequest(
 ) async throws -> HTTPResponse {
     // The host (java.net/OkHttp) performs the request via CHostBridge and returns
     // a malloc'd buffer: 4-byte BE status, 4-byte BE body length, then the body.
+    // Headers cross as newline-separated lines, so a line break inside one would
+    // split it into a second header; refuse it, as the other transports do.
+    for (name, value) in headers where (name + value).contains(where: { $0 == "\n" || $0 == "\r" }) {
+        throw HTTPClientError.requestFailed("header \(name) contains a line break")
+    }
     let headerLines = headers.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
     let raw: UnsafeMutablePointer<CChar>? = method.withCString { m in
         url.withCString { u in
