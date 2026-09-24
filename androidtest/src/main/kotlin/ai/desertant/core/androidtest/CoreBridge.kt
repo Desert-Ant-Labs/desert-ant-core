@@ -24,8 +24,8 @@ object CoreBridge {
     @JvmStatic external fun usageContext(host: Class<*>): String
 
     /**
-     * Installs the callbacks against [host] and POSTs a small JSON body to
-     * [url] (UTF-8) through the Swift HTTP client, the path every usage send
+     * Installs the callbacks against [host] and POSTs a small JSON body with
+     * `Authorization: Bearer pk_test` to [url] (UTF-8) through the Swift HTTP client, the path every usage send
      * takes. Returns `"<status> <body>"`, or `"error: ..."` with no response.
      */
     @JvmStatic external fun post(host: Class<*>, url: ByteArray): String

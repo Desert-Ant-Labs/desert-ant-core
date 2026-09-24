@@ -319,16 +319,18 @@ private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointe
 // buffer (see CHostBridge.h); null, a transport failure, reads as NULL.
 private func hostHttpRequest(_ method: UnsafePointer<CChar>?, _ url: UnsafePointer<CChar>?,
                              _ body: UnsafePointer<UInt8>?, _ bodyLength: Int32,
-                             _ contentType: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+                             _ contentType: UnsafePointer<CChar>?,
+                             _ headers: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let m = hostMakeBytes(env, cStringBytes(method!)),
               let u = hostMakeBytes(env, cStringBytes(url!)) else { return nil }
         let b = body.flatMap { hostMakeBytes(env, Array(UnsafeBufferPointer(start: $0, count: Int(bodyLength)))) }
         let c = contentType.flatMap { hostMakeBytes(env, cStringBytes($0)) }
+        let h = headers.flatMap { hostMakeBytes(env, cStringBytes($0)) }
         defer {
-            for ref in [m, u, b, c] { if let ref { env.pointee!.pointee.DeleteLocalRef(env, ref) } }
+            for ref in [m, u, b, c, h] { if let ref { env.pointee!.pointee.DeleteLocalRef(env, ref) } }
         }
-        let args = [jvalue(l: m), jvalue(l: u), jvalue(l: b), jvalue(l: c)]
+        let args = [jvalue(l: m), jvalue(l: u), jvalue(l: b), jvalue(l: c), jvalue(l: h)]
         let result = args.withUnsafeBufferPointer {
             env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gHttpRequest, $0.baseAddress)
         }
@@ -372,7 +374,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gHttpTree = optionalStaticMethod(env, cls, "httpTree", "([B)[B")
     gHttpDownload = optionalStaticMethod(env, cls, "httpDownload", "([B[B)I")
     // Optional: generic requests (the usage POST).
-    gHttpRequest = optionalStaticMethod(env, cls, "httpRequest", "([B[B[B[B)[B")
+    gHttpRequest = optionalStaticMethod(env, cls, "httpRequest", "([B[B[B[B[B)[B")
     // Optional: UsageState persistence via SharedPreferences.
     gPrefsGet = optionalStaticMethod(env, cls, "prefsGet", "([B)[B")
     gPrefsSet = optionalStaticMethod(env, cls, "prefsSet", "([B[B)V")

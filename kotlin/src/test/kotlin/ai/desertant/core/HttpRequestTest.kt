@@ -41,17 +41,20 @@ class HttpRequestTest {
         return status to body.decodeToString()
     }
 
-    @Test fun postSendsTheBodyAndContentTypeAndReturnsTheResponse() {
+    @Test fun postSendsTheBodyContentTypeAndHeadersAndReturnsTheResponse() {
         val serving = serve(202, """{"ok":true}""")
 
         val result = HostBridge.httpRequest(
             "POST".toByteArray(), url.toByteArray(), """{"events":[]}""".toByteArray(), "application/json".toByteArray(),
+            "Authorization: Bearer pk_test\nX-Extra: 1".toByteArray(),
         )
         serving.join()
 
         val lines = request.lines()
         assertEquals("POST /ingest HTTP/1.1", lines.first())
         assertEquals(listOf("Content-Type: application/json"), lines.filter { it.startsWith("Content-Type:") })
+        assertEquals(listOf("Authorization: Bearer pk_test"), lines.filter { it.startsWith("Authorization:") })
+        assertEquals(listOf("X-Extra: 1"), lines.filter { it.startsWith("X-Extra:") })
         assertEquals("""{"events":[]}""", lines.last())
         assertEquals(202 to """{"ok":true}""", decode(result!!))
     }

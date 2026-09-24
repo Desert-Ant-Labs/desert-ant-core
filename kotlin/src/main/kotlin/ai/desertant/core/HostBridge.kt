@@ -124,8 +124,9 @@ object HostBridge {
     }
 
     /**
-     * Perform [methodUtf8] on [urlUtf8] with an optional [body] and content
-     * type, for desert-ant-core's HTTP client (the usage POST). Returns the
+     * Perform [methodUtf8] on [urlUtf8] with an optional [body], content type
+     * and headers (`Name: value` lines), for desert-ant-core's HTTP client (the
+     * usage POST, whose key rides `Authorization`). Returns the
      * 4-byte big-endian status, the 4-byte big-endian body length, then the
      * body; an error status comes back the same way, with its body. Null on a
      * transport failure. Bounded by [HTTP_TIMEOUT_MS] per connect and read, as
@@ -137,6 +138,7 @@ object HostBridge {
         urlUtf8: ByteArray,
         body: ByteArray?,
         contentTypeUtf8: ByteArray?,
+        headersUtf8: ByteArray? = null,
     ): ByteArray? {
         return try {
             val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
@@ -144,6 +146,10 @@ object HostBridge {
             conn.connectTimeout = HTTP_TIMEOUT_MS
             conn.readTimeout = HTTP_TIMEOUT_MS
             contentTypeUtf8?.let { conn.setRequestProperty("Content-Type", it.toString(Charsets.UTF_8)) }
+            headersUtf8?.toString(Charsets.UTF_8)?.lineSequence()?.forEach { line ->
+                val colon = line.indexOf(':')
+                if (colon > 0) conn.setRequestProperty(line.substring(0, colon).trim(), line.substring(colon + 1).trim())
+            }
             if (body != null) {
                 conn.doOutput = true
                 conn.setFixedLengthStreamingMode(body.size)

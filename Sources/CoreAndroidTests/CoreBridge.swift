@@ -76,7 +76,7 @@ public func coreBridgeUsageContext(_ env: HostEnv, _ clazz: jclass?, _ host: jcl
 
 private final class Outcome: @unchecked Sendable { var text = "" }
 
-// One POST to `url` through the path a usage send takes: PlatformSupport's
+// One POST to `url`, key in `Authorization`, through the path a usage send takes: PlatformSupport's
 // httpPOST, the host's httpRequest callback, HttpURLConnection. Returns
 // "<status> <body>", or "error: ..." when no response came back.
 @_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_post")
@@ -87,7 +87,9 @@ public func coreBridgePost(_ env: HostEnv, _ clazz: jclass?, _ host: jclass?, _ 
     let done = DispatchSemaphore(value: 0)
     Task {
         do {
-            let response = try await httpPOST(target, body: Array(#"{"events":[]}"#.utf8))
+            let response = try await httpPOST(
+                target, body: Array(#"{"events":[]}"#.utf8), headers: ["Authorization": "Bearer pk_test"]
+            )
             outcome.text = "\(response.status) \(String(decoding: response.body, as: UTF8.self))"
         } catch {
             outcome.text = "error: \(error)"

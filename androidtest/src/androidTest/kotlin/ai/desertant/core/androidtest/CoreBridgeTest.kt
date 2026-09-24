@@ -53,8 +53,8 @@ class CoreBridgeTest {
     }
 
     /**
-     * A POST from the Swift core reaches a server and its response comes back:
-     * the host's httpRequest callback is installed. Without it every usage send
+     * A POST from the Swift core reaches a server, headers included, and its
+     * response comes back: the host's httpRequest callback is installed. Without it every usage send
      * on Android failed before leaving the device.
      */
     @Test
@@ -79,6 +79,7 @@ class CoreBridgeTest {
             assertEquals("202 ok", result)
             assertEquals("POST /ingest HTTP/1.1", request.first())
             assertEquals(listOf("Content-Type: application/json"), request.filter { it.startsWith("Content-Type:", ignoreCase = true) })
+            assertEquals(listOf("Authorization: Bearer pk_test"), request.filter { it.startsWith("Authorization:", ignoreCase = true) })
             assertEquals("""{"events":[]}""", request.last())
         }
     }

@@ -55,23 +55,8 @@ public func httpGET(_ url: String) async throws -> HTTPResponse {
     try await performHTTPRequest(method: "GET", url: url, body: nil, contentType: nil)
 }
 
-/// Whether this build's transport can set request headers.
-///
-/// Android's host bridge (`CHostBridge`) takes a body and a content type and
-/// nothing else, so a caller with credentials to send has to put them in the
-/// body there. Every other build sets a header.
-public var httpSupportsRequestHeaders: Bool {
-    #if os(Android)
-    return false
-    #else
-    return true
-    #endif
-}
-
 /// Perform a `POST` with a raw request body (default `application/json`).
 ///
-/// `headers` are sent only where `httpSupportsRequestHeaders` is true; an
-/// Android caller with a credential to send has to put it in the body.
 /// `timeout` (seconds) replaces the platform default, which is 60 s on
 /// Foundation and none at all under `fetch`; the Android host bridge sets its own.
 public func httpPOST(
@@ -87,9 +72,6 @@ public func httpPOST(
 }
 
 /// Perform an arbitrary request. A `nil` body sends no entity.
-///
-/// `headers` are sent only where `httpSupportsRequestHeaders` is true; an
-/// Android caller with a credential to send has to put it in the body.
 public func httpRequest(
     method: String,
     url: String,
@@ -228,20 +210,22 @@ private func performHTTPRequest(
     method: String, url: String, body: [UInt8]?, contentType: String?, headers: [String: String] = [:],
     timeout: Double? = nil
 ) async throws -> HTTPResponse {
-    // `headers` has nowhere to go: the host bridge takes a body and a content type
-    // only. Callers check `httpSupportsRequestHeaders`.
     // The host (java.net/OkHttp) performs the request via CHostBridge and returns
     // a malloc'd buffer: 4-byte BE status, 4-byte BE body length, then the body.
+    let headerLines = headers.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
     let raw: UnsafeMutablePointer<CChar>? = method.withCString { m in
         url.withCString { u in
-            func call(_ ct: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
-                if let body {
-                    return body.withUnsafeBufferPointer { host_http_request(m, u, $0.baseAddress, Int32(body.count), ct) }
+            headerLines.withCString { h in
+                let hs = headers.isEmpty ? nil : h
+                func call(_ ct: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+                    if let body {
+                        return body.withUnsafeBufferPointer { host_http_request(m, u, $0.baseAddress, Int32(body.count), ct, hs) }
+                    }
+                    return host_http_request(m, u, nil, 0, ct, hs)
                 }
-                return host_http_request(m, u, nil, 0, ct)
+                if let contentType { return contentType.withCString { call($0) } }
+                return call(nil)
             }
-            if let contentType { return contentType.withCString { call($0) } }
-            return call(nil)
         }
     }
     guard let raw else { throw HTTPClientError.requestFailed("host_http_request(\(url)) (no host)") }

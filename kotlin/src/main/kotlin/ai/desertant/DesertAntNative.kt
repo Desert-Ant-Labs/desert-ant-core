@@ -34,8 +34,13 @@ object DesertAntNative {
 
     // HTTP request callback the Swift usage transport POSTs through.
     @JvmStatic
-    fun httpRequest(methodUtf8: ByteArray, urlUtf8: ByteArray, body: ByteArray?, contentTypeUtf8: ByteArray?): ByteArray? =
-        HostBridge.httpRequest(methodUtf8, urlUtf8, body, contentTypeUtf8)
+    fun httpRequest(
+        methodUtf8: ByteArray,
+        urlUtf8: ByteArray,
+        body: ByteArray?,
+        contentTypeUtf8: ByteArray?,
+        headersUtf8: ByteArray?,
+    ): ByteArray? = HostBridge.httpRequest(methodUtf8, urlUtf8, body, contentTypeUtf8, headersUtf8)
 
     // Usage state persistence + app identity (SharedPreferences via the host app).
     @JvmStatic
