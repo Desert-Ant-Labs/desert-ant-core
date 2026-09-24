@@ -24,6 +24,12 @@ typealias Element = Float16
 /// uses: it removes the Cast nodes at every graph edge, worth ~0.3 s, and costs
 /// ~0.56 s, because wasm has no hardware float16 and every Element operation on
 /// this side - staging audio, the splice, the timing - converts around itself.
+///
+/// The ONNX exports on Windows declare float32 edges too, with float16 weights
+/// inside, because that is what `torch.onnx.export` writes. Binding float32
+/// buffers to them means a dispatch converts nothing; the cost is twice the
+/// bytes, which on a discrete-memory path would matter and on an integrated
+/// GPU does not.
 typealias Element = Float
 #endif
 
@@ -54,14 +60,20 @@ final class Buffer {
         ptr.update(repeating: 0, count: count)
     }
     #else
+    /// Plain owned storage off Apple. The ONNX shim binds a base pointer and a
+    /// byte count per tensor, and the wasm path copies through `bytes`, so
+    /// neither needs a runtime type to wrap it in.
     init(_ shape: [Int]) throws {
         count = shape.reduce(1, *)
         self.shape = shape
-        ptr = UnsafeMutablePointer<Element>.allocate(capacity: count)
-        ptr.initialize(repeating: 0, count: count)
+        ptr = UnsafeMutablePointer<Element>.allocate(capacity: max(count, 1))
+        ptr.initialize(repeating: 0, count: max(count, 1))
     }
 
-    deinit { ptr.deallocate() }
+    deinit {
+        ptr.deinitialize(count: max(count, 1))
+        ptr.deallocate()
+    }
     #endif
 
     func zero() { ptr.update(repeating: 0, count: count) }

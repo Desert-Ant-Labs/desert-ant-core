@@ -520,13 +520,14 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz runs on Apple (Core ML, AVFoundation) and in the browser (VozWeb), and
-// gets no Android/Node products and no NativeBindings. It bundles nothing: its
-// Core ML models are downloaded on demand via Sources/Voz/Catalog.swift. It
-// drives Core ML directly rather than going through `InferenceSession`, because
-// preallocated buffers, `outputBackings` and a lane-batched decode loop are not
-// expressible through a generic run(inputs:outputs:) call, and dropping them
-// costs roughly 127x on load and about a third of decode throughput.
+// Voz runs on Apple (Core ML), in the browser and Node (VozWeb, wasm), and on
+// Windows (ONNX Runtime on DirectML), and gets no Android products and no
+// NativeBindings. It bundles nothing: its models are downloaded on demand via
+// Sources/Voz/Catalog.swift. It drives each runtime directly rather than going
+// through `InferenceSession`, because preallocated buffers, output binding and
+// a lane-batched decode loop are not expressible through a generic
+// run(inputs:outputs:) call, and dropping them costs roughly 127x on load and
+// about a third of decode throughput. Sources/Voz/Engine.swift is the seam.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
 ] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
@@ -537,6 +538,7 @@ let vozTargets: [Target] = [
         dependencies: [
             .byName(name: "DesertAnt"),
             .byName(name: "AudioIO"),
+            .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
         ],
         // The wasm entry point is excluded from the library for the same reason
         // every other model's is: it is an executable target of its own, and a
@@ -545,7 +547,12 @@ let vozTargets: [Target] = [
     ),
     .testTarget(
         name: "VozTests",
-        dependencies: ["Voz", "DesertAnt", "TestSupport"]
+        // AudioIO for the portable WAV decoder the ONNX end-to-end test reads
+        // its fixture with; COnnxRuntime so `canImport` can gate that test.
+        dependencies: [
+            "Voz", "DesertAnt", "TestSupport", "AudioIO",
+            .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
+        ]
     ),
 ] + (noJavaScriptKit ? [] : [
     .executableTarget(
