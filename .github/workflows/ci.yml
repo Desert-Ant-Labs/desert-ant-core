@@ -88,7 +88,7 @@ jobs:
       # Package.resolved keys the dependency graph; restore-keys accept a stale
       # DerivedData, which xcodebuild then patches incrementally.
       - name: Cache iOS DerivedData
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .build/ios-deriveddata
           # Per-commit keyed for the same reason as the scratch cache below: an
@@ -102,7 +102,7 @@ jobs:
       # patched to the current graph rather than trusted whole; restore-keys
       # hand over the previous clone and xcodebuild fetches whatever drifted.
       - name: Cache iOS SPM clones
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .build/ios-packages
           key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
@@ -114,9 +114,12 @@ jobs:
       # hashes miss inputs that change the build (task flags live in
       # mise-tasks/), and an exact hit never re-saves, freezing the snapshot at
       # its first save. Per-commit keys always miss, restore the newest snapshot
-      # via restore-keys, and save their own.
+      # via restore-keys, and save their own - on pushes to main only (the Save
+      # steps at the end of the job, here and in every per-commit cache). PR
+      # snapshots filled the 10 GB repo cache limit and evicted main's, which
+      # is the one snapshot every PR can restore, so most runs started cold.
       - name: Cache Swift scratch paths
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             .build-host
@@ -129,6 +132,30 @@ jobs:
       - run: mise run build:swift
       - run: mise run test:swift
       - run: mise run test:ios
+
+      - name: Save iOS DerivedData
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .build/ios-deriveddata
+          key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
+
+      - name: Save iOS SPM clones
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .build/ios-packages
+          key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
+
+      - name: Save Swift scratch paths
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            .build-host
+            .build-mlx
+            .build-xet
+          key: swift-scratch-v2-${{ runner.os }}-${{ github.sha }}
 
   darwin-native:
     name: darwin native (npm)
@@ -271,7 +298,7 @@ jobs:
       # hash keys an exact hit; restore-keys accept a stale cache SwiftPM then
       # patches incrementally.
       - name: Cache the Swift wasm build
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .build
           # Per-commit key, same reasoning as the Apple scratch cache: file
@@ -333,6 +360,13 @@ jobs:
       # Then the packages through the real bundlers, against the real dist.
       # SSR breaks pass the unit tests and fail in a consumer's `next build`.
       - run: mise run test:bundles
+
+      - name: Save the Swift wasm build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .build
+          key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
 
   js-node:
     name: JavaScript (Node native)
@@ -401,7 +435,7 @@ jobs:
       # Per-commit key, same reasoning as js-browser's wasm cache: file-hash
       # keys exact-hit stale snapshots and never re-save.
       - name: Cache the Swift native build
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: .build-host
           key: js-native-build-${{ runner.os }}-${{ github.sha }}
@@ -467,6 +501,13 @@ jobs:
                   node:22-slim node -e "process.stdout.write($read_cpu.trim())")
           echo "with shim, /sys/devices/system/cpu/possible = '$got'"
           [[ "$got" =~ ^0(-[0-9]+)?$ ]] || { echo "::error::unexpected cpu range '$got'"; exit 1; }
+
+      - name: Save the Swift native build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .build-host
+          key: js-native-build-${{ runner.os }}-${{ github.sha }}
 
   windows:
     # Experimental: the same LiteRT lane as Linux, with the runtime vendored
@@ -698,7 +739,7 @@ jobs:
       # to the pinned release toolchain (test:android). Sharing one dir would
       # poison the restored state across toolchains (CHostBridge: stdlib.h not found).
       - name: Cache the Android Swift builds
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: |
             .build-android
@@ -760,3 +801,12 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
           script: mise run test:android --no-stage
+
+      - name: Save the Android Swift builds
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            .build-android
+            .build-androidtest
+          key: android-swift-build-v2-${{ github.sha }}
