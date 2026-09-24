@@ -41,6 +41,7 @@ android {
 kotlin.sourceSets.named("main") {
     kotlin.srcDir("../kotlin/src/main/kotlin")
     kotlin.include("ai/desertant/core/HostBridge.kt")
+    kotlin.include("ai/desertant/core/DesertAnt.kt")
     kotlin.include("ai/desertant/DesertAntNative.kt")
     kotlin.include("ai/desertant/core/androidtest/**")
 }
