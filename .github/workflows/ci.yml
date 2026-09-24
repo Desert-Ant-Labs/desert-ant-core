@@ -491,6 +491,12 @@ jobs:
       - name: Vendor LiteRT (win_amd64 wheel)
         shell: pwsh
         run: Tools/windows/vendor-litert.ps1
+      # Voz links onnxruntime.lib on Windows. Straight through the mise task's
+      # own helper rather than a PowerShell twin of it: dal.sh needs only Git
+      # Bash, pip, and the llvm-readobj/llvm-lib the Swift toolchain ships.
+      - name: Vendor ONNX Runtime (DirectML wheel)
+        shell: bash
+        run: source Tools/dal.sh && dal_vendor_onnxruntime
       # The manifest is the registry (see AGENTS.md): a model tests on Windows
       # exactly when its Swift SDK declares the platform. Products are the
       # capitalized ids, matching Tools/dal.sh's dal_product.
@@ -517,7 +523,7 @@ jobs:
             # (including -Xswiftc -O, see there) or the build plan forks into a
             # second full compile, and debug already enables testability, so
             # neither passes -enable-testing.
-            swift build --target $p -c debug -Xswiftc -O -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+            swift build --target $p -c debug -Xswiftc -O -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 -Xlinker /LIBPATH:Vendor/onnxruntime/lib/windows-x64
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -566,7 +572,13 @@ jobs:
       # runner, and both still reported their full test count.
       - name: Build tests
         shell: pwsh
-        run: swift build --build-tests -c debug -Xswiftc -O -v -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64
+        run: swift build --build-tests -c debug -Xswiftc -O -v -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 -Xlinker /LIBPATH:Vendor/onnxruntime/lib/windows-x64
+
+      # Next to the test runners, not on PATH: Windows ML's own, older
+      # System32\onnxruntime.dll outranks PATH (see dal_stage_onnxruntime).
+      - name: Stage ONNX Runtime
+        shell: bash
+        run: source Tools/dal.sh && dal_stage_onnxruntime .build/out/Products/Debug-windows-x86_64
 
       # One invocation per model, timed, so a slow target is named in the log
       # instead of hiding in one lump (swift-testing output buffers apart from
@@ -582,7 +594,7 @@ jobs:
             Write-Host "== $p == start $((Get-Date).ToString('HH:mm:ss'))"
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $log = "test-$p.log"
-            swift test --skip-build -c debug -Xswiftc -O --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
+            swift test --skip-build -c debug -Xswiftc -O --filter "$($p)Tests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 -Xlinker /LIBPATH:Vendor/onnxruntime/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
             if ($LASTEXITCODE -ne 0) { $failed = $true }
             # A suite that discovers nothing still exits 0, and prints "Test run
             # with 0 tests in 0 suites" (see Build tests for why that happens in
