@@ -7,11 +7,14 @@
 // `runChecks` installs the bridge, exercises the host-backed paths (Regex, JSON
 // decode, NFKC), and returns a failure summary; an empty string means every
 // check passed. `usageContext` returns the usage context the core builds from
-// the host's device facts. Android-only; empty elsewhere.
+// the host's device facts. `post` sends one request through the real HTTP
+// transport. Android-only; empty elsewhere.
 
 #if os(Android)
 import Android
+import Dispatch
 import HostBridge
+import PlatformSupport
 import Regex
 import JSON
 import TextNormalization
@@ -69,5 +72,29 @@ public func coreBridgeUsageContext(_ env: HostEnv, _ clazz: jclass?, _ host: jcl
     let context = sent.first?.events.first?.context ?? [:]
     let lines = context.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
     return lines.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
+}
+
+private final class Outcome: @unchecked Sendable { var text = "" }
+
+// One POST to `url` through the path a usage send takes: PlatformSupport's
+// httpPOST, the host's httpRequest callback, HttpURLConnection. Returns
+// "<status> <body>", or "error: ..." when no response came back.
+@_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_post")
+public func coreBridgePost(_ env: HostEnv, _ clazz: jclass?, _ host: jclass?, _ url: jbyteArray?) -> jstring? {
+    installHostBridge(env, host)
+    let target = String(decoding: hostCopyBytes(env, url) ?? [], as: UTF8.self)
+    let outcome = Outcome()
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        do {
+            let response = try await httpPOST(target, body: Array(#"{"events":[]}"#.utf8))
+            outcome.text = "\(response.status) \(String(decoding: response.body, as: UTF8.self))"
+        } catch {
+            outcome.text = "error: \(error)"
+        }
+        done.signal()
+    }
+    done.wait()
+    return outcome.text.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
 }
 #endif

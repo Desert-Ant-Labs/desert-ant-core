@@ -124,6 +124,44 @@ object HostBridge {
     }
 
     /**
+     * Perform [methodUtf8] on [urlUtf8] with an optional [body] and content
+     * type, for desert-ant-core's HTTP client (the usage POST). Returns the
+     * 4-byte big-endian status, the 4-byte big-endian body length, then the
+     * body; an error status comes back the same way, with its body. Null on a
+     * transport failure. Bounded by [HTTP_TIMEOUT_MS] per connect and read, as
+     * the Swift side's timeout does not cross the bridge.
+     */
+    @JvmStatic
+    fun httpRequest(
+        methodUtf8: ByteArray,
+        urlUtf8: ByteArray,
+        body: ByteArray?,
+        contentTypeUtf8: ByteArray?,
+    ): ByteArray? {
+        return try {
+            val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
+            conn.requestMethod = methodUtf8.toString(Charsets.UTF_8)
+            conn.connectTimeout = HTTP_TIMEOUT_MS
+            conn.readTimeout = HTTP_TIMEOUT_MS
+            contentTypeUtf8?.let { conn.setRequestProperty("Content-Type", it.toString(Charsets.UTF_8)) }
+            if (body != null) {
+                conn.doOutput = true
+                conn.setFixedLengthStreamingMode(body.size)
+                conn.outputStream.use { it.write(body) }
+            }
+            val status = conn.responseCode
+            val stream = if (status >= 400) conn.errorStream else conn.inputStream
+            val response = stream?.use { it.readBytes() } ?: ByteArray(0)
+            conn.disconnect()
+            ByteBuffer.allocate(8 + response.size).putInt(status).putInt(response.size).put(response).array()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private const val HTTP_TIMEOUT_MS = 5_000
+
+    /**
      * Fill in the app identity and the usage store from [context], so usage is
      * keyed by the real package and the device id survives the process. Every
      * [LoadedModel] built from a Context calls this before creating its native

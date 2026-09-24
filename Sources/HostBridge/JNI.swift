@@ -29,6 +29,7 @@ private nonisolated(unsafe) var gJSONParse: jmethodID?
 private nonisolated(unsafe) var gNormalize: jmethodID?
 private nonisolated(unsafe) var gHttpTree: jmethodID?
 private nonisolated(unsafe) var gHttpDownload: jmethodID?
+private nonisolated(unsafe) var gHttpRequest: jmethodID?
 private nonisolated(unsafe) var gPrefsGet: jmethodID?
 private nonisolated(unsafe) var gPrefsSet: jmethodID?
 private nonisolated(unsafe) var gAppId: jmethodID?
@@ -314,6 +315,27 @@ private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointe
     return rc
 }
 
+// The host performs the request and returns status, length and body as one
+// buffer (see CHostBridge.h); null, a transport failure, reads as NULL.
+private func hostHttpRequest(_ method: UnsafePointer<CChar>?, _ url: UnsafePointer<CChar>?,
+                             _ body: UnsafePointer<UInt8>?, _ bodyLength: Int32,
+                             _ contentType: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+    withHostEnv { env in
+        guard let m = hostMakeBytes(env, cStringBytes(method!)),
+              let u = hostMakeBytes(env, cStringBytes(url!)) else { return nil }
+        let b = body.flatMap { hostMakeBytes(env, Array(UnsafeBufferPointer(start: $0, count: Int(bodyLength)))) }
+        let c = contentType.flatMap { hostMakeBytes(env, cStringBytes($0)) }
+        defer {
+            for ref in [m, u, b, c] { if let ref { env.pointee!.pointee.DeleteLocalRef(env, ref) } }
+        }
+        let args = [jvalue(l: m), jvalue(l: u), jvalue(l: b), jvalue(l: c)]
+        let result = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gHttpRequest, $0.baseAddress)
+        }
+        return resultBytes(env, result)
+    }
+}
+
 // MARK: install
 
 /// Wire the CHostBridge regex/JSON/normalize callbacks to the host class's
@@ -349,6 +371,8 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     // Optional: only wired if the host class provides them (ModelStore download).
     gHttpTree = optionalStaticMethod(env, cls, "httpTree", "([B)[B")
     gHttpDownload = optionalStaticMethod(env, cls, "httpDownload", "([B[B)I")
+    // Optional: generic requests (the usage POST).
+    gHttpRequest = optionalStaticMethod(env, cls, "httpRequest", "([B[B[B[B)[B")
     // Optional: UsageState persistence via SharedPreferences.
     gPrefsGet = optionalStaticMethod(env, cls, "prefsGet", "([B)[B")
     gPrefsSet = optionalStaticMethod(env, cls, "prefsSet", "([B[B)V")
@@ -367,6 +391,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gNormalize != nil { host_set_normalize(hostNormalize) }
     if gHttpTree != nil { host_set_http_tree(hostHttpTree) }
     if gHttpDownload != nil { host_set_http_download(hostHttpDownload) }
+    if gHttpRequest != nil { host_set_http_request(hostHttpRequest) }
     if gPrefsGet != nil { host_set_prefs_get(hostPrefsGet) }
     if gPrefsSet != nil { host_set_prefs_set(hostPrefsSet) }
     if gAppId != nil { host_set_app_id(hostAppId) }
