@@ -160,12 +160,19 @@ object HostBridge {
             val stream = if (status >= 400) conn.errorStream else conn.inputStream
             val response = stream?.use { it.readBytes() } ?: ByteArray(0)
             ByteBuffer.allocate(8 + response.size).putInt(status).putInt(response.size).put(response).array()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Throwable, not Exception: an Error would only reach JNI, which
+            // clears it and reads null all the same.
+            lastHttpRequestError = e
             null
         } finally {
             conn?.disconnect()
         }
     }
+
+    /** Why the last [httpRequest] returned null; the native side sees only null. */
+    @Volatile
+    internal var lastHttpRequestError: Throwable? = null
 
     private const val HTTP_TIMEOUT_MS = 5_000
 

@@ -80,11 +80,16 @@ class CoreBridgeTest {
             assertNotNull("HostBridge.httpRequest failed: ${connectError(url)}", kotlinResult)
 
             val (serving, request) = serveOnce(server)
+            HostBridge.lastHttpRequestError = null
             var result = "error: post did not return within 30 s"
             thread { result = CoreBridge.post(DesertAntNative::class.java, url.toByteArray()) }.join(30_000)
             serving.join(10_000)
 
-            assertEquals("202 ok", result)
+            // Null error and no request means the host callback was never called.
+            assertEquals(
+                "Kotlin error: ${HostBridge.lastHttpRequestError}, request seen: $request",
+                "202 ok", result,
+            )
             assertEquals("POST /ingest HTTP/1.1", request.first())
             assertEquals(listOf("Content-Type: application/json"), request.filter { it.startsWith("Content-Type:", ignoreCase = true) })
             assertEquals(listOf("Authorization: Bearer pk_test"), request.filter { it.startsWith("Authorization:", ignoreCase = true) })
