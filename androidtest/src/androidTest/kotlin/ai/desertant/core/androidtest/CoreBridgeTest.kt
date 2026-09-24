@@ -64,7 +64,9 @@ class CoreBridgeTest {
      */
     @Test
     fun aPostFromTheSwiftCoreReachesTheServer() {
-        ServerSocket(0, 2, InetAddress.getLoopbackAddress()).use { server ->
+        // 127.0.0.1 explicitly: Android's getLoopbackAddress() is ::1, and the
+        // requests below go to http://127.0.0.1.
+        ServerSocket(0, 2, InetAddress.getByName("127.0.0.1")).use { server ->
             // Bounded, so a request that never arrives fails the test with its
             // error rather than leaving accept() and join() waiting forever.
             server.soTimeout = 10_000
