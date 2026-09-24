@@ -9,10 +9,8 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
-import java.net.HttpURLConnection
 import java.net.InetAddress
 import java.net.ServerSocket
-import java.net.URL
 import kotlin.concurrent.thread
 
 /**
@@ -81,8 +79,8 @@ class CoreBridgeTest {
             )
             direct.join(10_000)
             assertNotNull(
-                "HostBridge.httpRequest failed: ${HostBridge.lastHttpRequestError?.stackTraceToString()}, " +
-                    "request seen: $directRequest, plain connect: ${connectError(url)}",
+                "request seen: $directRequest | Kotlin error: " +
+                    HostBridge.lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
                 kotlinResult,
             )
 
@@ -92,7 +90,6 @@ class CoreBridgeTest {
             thread { result = CoreBridge.post(DesertAntNative::class.java, url.toByteArray()) }.join(30_000)
             serving.join(10_000)
 
-            // Null error and no request means the host callback was never called.
             // One line: Gradle's console drops a failure message after its first lines.
             assertEquals(
                 "request seen: $request | Kotlin error: " +
@@ -139,13 +136,5 @@ class CoreBridgeTest {
             }
         }
         return serving to request
-    }
-
-    /** Why a plain connection to [url] fails, since httpRequest reports only null. */
-    private fun connectError(url: String): String = try {
-        (URL(url).openConnection() as HttpURLConnection).apply { connectTimeout = 5_000 }.connect()
-        "a plain connection succeeds"
-    } catch (e: Exception) {
-        e.toString()
     }
 }
