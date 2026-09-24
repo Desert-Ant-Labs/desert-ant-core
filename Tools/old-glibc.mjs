@@ -20,7 +20,7 @@ for (const id of models) {
   const Model = await modelClass(id);
   if (noLibcurl) {
     await assert.rejects(Model.load({}), /libcurl is required/, id);
-    console.log(`${id} ${Model.sdkVersion}: core and LiteRT linked, load() rejected for the missing libcurl`);
+    console.log(`${id}: core and LiteRT linked, load() rejected for the missing libcurl`);
     continue;
   }
   assert.equal(id, "align", "only align runs a full load here");
