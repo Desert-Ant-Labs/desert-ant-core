@@ -72,12 +72,19 @@ class CoreBridgeTest {
             server.soTimeout = 10_000
             val url = "http://127.0.0.1:${server.localPort}/ingest"
 
-            val (direct, _) = serveOnce(server)
+            // The same request the Swift side sends, from Kotlin directly.
+            val (direct, directRequest) = serveOnce(server)
+            HostBridge.lastHttpRequestError = null
             val kotlinResult = HostBridge.httpRequest(
-                "POST".toByteArray(), url.toByteArray(), "{}".toByteArray(), "application/json".toByteArray(),
+                "POST".toByteArray(), url.toByteArray(), """{"events":[]}""".toByteArray(),
+                "application/json".toByteArray(), "Authorization: Bearer pk_test".toByteArray(),
             )
             direct.join(10_000)
-            assertNotNull("HostBridge.httpRequest failed: ${connectError(url)}", kotlinResult)
+            assertNotNull(
+                "HostBridge.httpRequest failed: ${HostBridge.lastHttpRequestError?.stackTraceToString()}, " +
+                    "request seen: $directRequest, plain connect: ${connectError(url)}",
+                kotlinResult,
+            )
 
             val (serving, request) = serveOnce(server)
             HostBridge.lastHttpRequestError = null
@@ -87,10 +94,10 @@ class CoreBridgeTest {
 
             // Null error and no request means the host callback was never called.
             assertEquals(
-                "Kotlin error: ${HostBridge.lastHttpRequestError}, request seen: $request",
+                "Kotlin error: ${HostBridge.lastHttpRequestError?.stackTraceToString()}, request seen: $request",
                 "202 ok", result,
             )
-            assertEquals("POST /ingest HTTP/1.1", request.first())
+            assertEquals("POST /ingest HTTP/1.1", request[1])  // after "accepted"
             assertEquals(listOf("Content-Type: application/json"), request.filter { it.startsWith("Content-Type:", ignoreCase = true) })
             assertEquals(listOf("Authorization: Bearer pk_test"), request.filter { it.startsWith("Authorization:", ignoreCase = true) })
             assertEquals("""{"events":[]}""", request.last())
@@ -103,17 +110,26 @@ class CoreBridgeTest {
      * this thread would crash the test process and hide the assertion message.
      */
     private fun serveOnce(server: ServerSocket): Pair<Thread, List<String>> {
-        val request = mutableListOf<String>()
+        val request = java.util.Collections.synchronizedList(mutableListOf<String>())
         val serving = thread {
             try {
                 server.accept().use { socket ->
                     socket.soTimeout = 10_000
+                    request += "accepted"
                     val input = socket.getInputStream().bufferedReader()
-                    val head = generateSequence { input.readLine() }.takeWhile { it.isNotEmpty() }.toList()
+                    // Recorded as read, so a request that stalls shows how far it got.
+                    val head = generateSequence { input.readLine()?.also { request += it } }.takeWhile { it.isNotEmpty() }.toList()
                     val length = head.first { it.startsWith("Content-Length:", ignoreCase = true) }
                         .substringAfter(':').trim().toInt()
-                    val body = CharArray(length).also { var read = 0; while (read < length) read += input.read(it, read, length - read) }
-                    request += head + String(body)
+                    val body = CharArray(length).also {
+                        var read = 0
+                        while (read < length) {
+                            val n = input.read(it, read, length - read)
+                            if (n < 0) break
+                            read += n
+                        }
+                    }
+                    request += String(body)
                     socket.getOutputStream().write("HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".toByteArray())
                 }
             } catch (_: Exception) {
