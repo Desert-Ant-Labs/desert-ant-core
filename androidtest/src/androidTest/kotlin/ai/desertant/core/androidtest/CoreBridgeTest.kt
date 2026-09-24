@@ -93,8 +93,10 @@ class CoreBridgeTest {
             serving.join(10_000)
 
             // Null error and no request means the host callback was never called.
+            // One line: Gradle's console drops a failure message after its first lines.
             assertEquals(
-                "Kotlin error: ${HostBridge.lastHttpRequestError?.stackTraceToString()}, request seen: $request",
+                "request seen: $request | Kotlin error: " +
+                    HostBridge.lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
                 "202 ok", result,
             )
             assertEquals("POST /ingest HTTP/1.1", request[1])  // after "accepted"
@@ -111,11 +113,12 @@ class CoreBridgeTest {
      */
     private fun serveOnce(server: ServerSocket): Pair<Thread, List<String>> {
         val request = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val started = System.currentTimeMillis()
         val serving = thread {
             try {
                 server.accept().use { socket ->
                     socket.soTimeout = 10_000
-                    request += "accepted"
+                    request += "accepted after ${System.currentTimeMillis() - started} ms"
                     val input = socket.getInputStream().bufferedReader()
                     // Recorded as read, so a request that stalls shows how far it got.
                     val head = generateSequence { input.readLine()?.also { request += it } }.takeWhile { it.isNotEmpty() }.toList()
