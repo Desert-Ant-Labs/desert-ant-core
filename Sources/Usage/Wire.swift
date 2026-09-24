@@ -19,7 +19,7 @@ import JavaScriptKit
 /// that reaches core without a model: the package itself, at the version in
 /// `VERSION`. `mise run set-version` rewrites it and `check:version` holds it.
 public let defaultSDKName = "desert-ant-core"
-public let defaultSDKVersion = "3.4.0"
+public let defaultSDKVersion = "3.5.0"
 
 /// The platform tag put on the wire's `platform` field, derived from the build
 /// target. `IngestBody` defaults to this, so callers never pass it by hand.
