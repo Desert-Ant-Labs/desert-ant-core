@@ -3,6 +3,7 @@
 //
 //   Apple      appVersion, osName, osVersion, deviceModel, formFactor, locale
 //   Linux      osName, osVersion (kernel major.minor; major under "server")
+//   Windows    osName
 //   Android    appVersion, osName, osVersion, deviceModel, formFactor, locale
 //              (read by the Kotlin host bridge, `HostBridge.deviceContext`)
 //   WASI page  browserName, browserVersion, osName, formFactor, locale
@@ -315,6 +316,10 @@ extension DeviceContext {
         return androidContext()
 #elseif os(WASI)
         return jsHostIsNode() ? nodeContext() : browserContext()
+#elseif os(Windows)
+        // The name alone, as Node on win32 reports it: GetVersionEx answers 6.2
+        // to any process without a compatibility manifest, so it is no version.
+        return DeviceContext(osName: "Windows")
 #else
         return DeviceContext()
 #endif
