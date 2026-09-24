@@ -60,6 +60,11 @@ static HostAppIdFn g_app_id = 0;
 void host_set_app_id(HostAppIdFn fn) { g_app_id = fn; }
 char *host_app_id(void) { return g_app_id ? g_app_id() : 0; }
 
+static HostApiKeyFn g_api_key = 0;
+
+void host_set_api_key(HostApiKeyFn fn) { g_api_key = fn; }
+char *host_api_key(void) { return g_api_key ? g_api_key() : 0; }
+
 static HostDeviceContextFn g_device_context = 0;
 static HostSendsDeviceContextFn g_sends_device_context = 0;
 

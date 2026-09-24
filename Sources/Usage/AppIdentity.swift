@@ -141,11 +141,18 @@ func jsFlagIsSet(_ value: JSValue) -> Bool {
 }
 #endif
 
-/// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins;
+/// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins
+/// (on Android, Kotlin's `DesertAnt.apiKey`, read through the host bridge);
 /// otherwise on WASI reads `globalThis.__dalApiKey` (string or function), and
 /// elsewhere reads the `DAL_API_KEY` environment variable. `nil` when unset.
 public func hostProvidedApiKey() -> String? {
     if let key = trimmedKey(DesertAnt.apiKey) { return key }
+#if os(Android)
+    if let raw = host_api_key() {
+        defer { host_free(raw) }
+        if let key = trimmedKey(decodeCString(raw)) { return key }
+    }
+#endif
 #if os(WASI)
     return trimmedKey(jsHostString("__dalApiKey"))
 #else

@@ -83,6 +83,13 @@ typedef char *(*HostAppIdFn)(void);
 void host_set_app_id(HostAppIdFn fn);
 char *host_app_id(void);
 
+// API key (Android): the key the host app set in code (Kotlin's
+// DesertAnt.apiKey), as a malloc'd string, empty when unset (NULL if not
+// installed). Read when a usage client is built.
+typedef char *(*HostApiKeyFn)(void);
+void host_set_api_key(HostApiKeyFn fn);
+char *host_api_key(void);
+
 // Device context (Android): the coarse device facts the usage `context` carries,
 // which the pure-Swift core cannot read itself there. device_context returns a
 // malloc'd string of "key=value" lines (NULL if not installed); the host

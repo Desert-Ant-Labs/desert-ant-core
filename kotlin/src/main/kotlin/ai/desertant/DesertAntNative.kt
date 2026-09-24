@@ -1,5 +1,6 @@
 package ai.desertant
 
+import ai.desertant.core.DesertAnt
 import ai.desertant.core.HostBridge
 
 /**
@@ -40,6 +41,9 @@ object DesertAntNative {
 
     @JvmStatic
     fun appId(): ByteArray = HostBridge.appId()
+
+    @JvmStatic
+    fun apiKey(): ByteArray = (DesertAnt.apiKey ?: "").toByteArray(Charsets.UTF_8)
 
     // The usage context's device facts, and whether the host lets them go out.
     @JvmStatic

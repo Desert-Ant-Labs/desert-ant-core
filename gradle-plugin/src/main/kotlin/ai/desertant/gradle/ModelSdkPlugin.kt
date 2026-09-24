@@ -51,8 +51,9 @@ class ModelSdkPlugin : Plugin<Project> {
         // clean checkout with nothing published yet. The generated POM still
         // carries ai.desertant:core:<version>, because that is core's identity.
         // Core also owns LoadedModel's coroutine runtime, so there is no second
-        // direct dependency here.
-        deps.add("implementation", project.project(":core"))
+        // direct dependency here. `api` so an app reaches core's DesertAnt
+        // settings through any model it depends on.
+        deps.add("api", project.project(":core"))
         deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
         deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
         deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
