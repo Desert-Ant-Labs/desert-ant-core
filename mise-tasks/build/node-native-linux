@@ -14,12 +14,16 @@ fi
 
 # LiteRT vendors on the host, where uv is; the image finds it already in place.
 dal_vendor_litert
-# safe.directory because the checkout belongs to the invoking user, not the image's root; the chown hands the output back to them.
+# Rootless Docker or Podman maps the image's root to the caller already, and a chown would land on a subuid.
+owner=""
+security=$(docker info -f '{{println .SecurityOptions}}' 2> /dev/null || echo rootless)
+[[ "$security" == *rootless* ]] || owner="$(id -u):$(id -g)"
+# safe.directory because the checkout belongs to the invoking user, not the image's root.
 docker run --rm -v "$PWD:/w" -w /w -e MISE_PROJECT_ROOT=/w -e usage_model="${usage_model:-all}" \
-    -e owner="$(id -u):$(id -g)" "$image" bash -c '
+    -e owner="$owner" "$image" bash -c '
     set -euo pipefail
     git config --global --add safe.directory "*"
     status=0
     bash mise-tasks/build/node-native || status=$?
-    find /w -xdev -user 0 -exec chown -h "$owner" {} +
+    [ -z "$owner" ] || find /w -xdev -user 0 -exec chown -h "$owner" {} +
     exit $status'

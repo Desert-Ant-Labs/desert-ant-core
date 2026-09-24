@@ -146,8 +146,7 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
         run: mise run publish:maven
 
-  # One prebuilt native core per server-side target, gathered by the npm job.
-  # Linux builds in build:node-native-linux's image under `docker run`, not `container:`: the runner's Node needs glibc 2.28.
+  # One native core per server-side target; Linux uses `docker run` via build:node-native-linux, since the runner's Node needs glibc 2.28.
   natives:
     name: native ${{ matrix.target }}
     needs: gate

@@ -365,16 +365,6 @@ jobs:
         with:
           enable-cache: false
 
-      - id: image
-        run: echo "tag=$(sed -n 's/^image=swift://p' mise-tasks/build/node-native-linux)" >> "$GITHUB_OUTPUT"
-      # Per-commit key, same reasoning as js-browser's wasm cache; the image tag keeps a toolchain bump from restoring stale objects.
-      - name: Cache the Swift native build
-        uses: actions/cache@v6
-        with:
-          path: .build-host
-          key: js-native-build-${{ steps.image.outputs.tag }}-${{ github.sha }}
-          restore-keys: js-native-build-${{ steps.image.outputs.tag }}-
-
       # The node package suites run npm ci; a warm ~/.npm turns those into
       # cache reads.
       - name: Cache the npm store
