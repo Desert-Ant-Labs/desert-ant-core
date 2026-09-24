@@ -53,7 +53,7 @@ export interface Detection {
 }
 
 /** Kept in step with package.json by `mise run set-version`. */
-const SDK_VERSION = "3.4.0";
+const SDK_VERSION = "3.5.0";
 
 export interface LoadOptions {
   /** Directory or base URL holding tongue_int8.bin and tongue_meta.json. */
