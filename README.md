@@ -1,6 +1,6 @@
 # Desert Ant Core
 
-![Swift](https://img.shields.io/badge/Swift-iOS%20%7C%20macOS%20%7C%20Linux-F05138?logo=swift&logoColor=white)
+![Swift](https://img.shields.io/badge/Swift-iOS%20%7C%20macOS%20%7C%20Linux%20%7C%20Windows-F05138?logo=swift&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?logo=kotlin&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Node%20%7C%20Browser%20%7C%20WASM-3178C6?logo=typescript&logoColor=white)
 
@@ -46,7 +46,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | Apple | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) [Model](https://huggingface.co/desert-ant-labs/title) |
 | **Tongue** | On-device language identification for short text across 84 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) [Model](https://huggingface.co/desert-ant-labs/tongue) |
 | **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | Apple | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) [Model](https://huggingface.co/desert-ant-labs/uhm) |
-| **Voz** | On-device speech recognition: transcripts with word-level timestamps, 25 languages. | Apple · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md) [Model](https://huggingface.co/desert-ant-labs/voz) |
+| **Voz** | On-device speech recognition: transcripts with word-level timestamps, 25 languages. | Apple · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md) [Model](https://huggingface.co/desert-ant-labs/voz) |
 
 ### In closed beta
 
