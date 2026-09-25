@@ -106,3 +106,49 @@ import Testing
         #expect(e["a"].isNull)
     }
 }
+
+@Suite struct Levers11 {
+
+    private func snap(_ text: String, _ piece: String) -> String {
+        let s = Array(text.unicodeScalars)
+        let r = text.range(of: piece)!
+        let lo = text.unicodeScalars.distance(from: text.unicodeScalars.startIndex, to: r.lowerBound)
+        let (a, b) = Levers.snapToWords(s, lo: lo, hi: lo + piece.unicodeScalars.count)
+        return String(String.UnicodeScalarView(s[a..<b]))
+    }
+
+    @Test("a span cut inside a word grows to the whole word")
+    func wordEdges() {
+        #expect(snap("Invoice from Figma, Inc.", "Fig") == "Figma")
+        #expect(snap("ref b82a9-f12 today", "b82a9-f") == "b82a9-f12")
+        #expect(snap("Class: Vinyasa Flow", "Viny") == "Vinyasa")
+        // No word separators in Han: nothing to grow to.
+        #expect(snap("\u{8d22}\u{52a1}\u{90e8}\u{95e8}", "\u{8d22}\u{52a1}") == "\u{8d22}\u{52a1}")
+    }
+
+    @Test("dates the text writes out, in several languages and orders")
+    func textDates() {
+        func one(_ t: String) -> Levers.TextDate? { Levers.textDates(t).first }
+        #expect(one("Inicio el 3 de abril de 2025.") == .init(year: 2025, month: 4, day: 3))
+        #expect(one("Receipt 03 Jan 2026, total 12.00") == .init(year: 2026, month: 1, day: 3))
+        #expect(one("Paid on January 3, 2026 by card") == .init(year: 2026, month: 1, day: 3))
+        #expect(one("PADARIA DO BAIRRO 12/05 - 2 p\u{e3}es") == .init(year: nil, month: 5, day: 12))
+        #expect(one("Due 2026-08-05.") == .init(year: 2026, month: 8, day: 5))
+        #expect(one("2025\u{5e74}12\u{6708}3\u{65e5}") == .init(year: 2025, month: 12, day: 3))
+        #expect(Levers.textDates("Total 3.50 EUR").isEmpty)
+    }
+
+    @Test("digits inside dates, times and card fragments are not quantities")
+    func nonQuantities() {
+        let text = "Paid January 3, 2026 at 14:05 with Amex .... 3003, total $42.10"
+        let ranges = Levers.nonQuantityRanges(text)
+        func inside(_ piece: String) -> Bool {
+            let r = text.range(of: piece)!
+            let a = text.unicodeScalars.distance(from: text.unicodeScalars.startIndex, to: r.lowerBound)
+            return Levers.insideNonQuantity(a, a + piece.unicodeScalars.count, ranges)
+        }
+        #expect(inside("3, 2026"))
+        #expect(inside("3003"))
+        #expect(!inside("42.10"))
+    }
+}

@@ -19,6 +19,10 @@ final class Model: @unchecked Sendable {
     private let queryCache = QueryCache(capacity: 256)
     /// Decode outputs, in the order the graph declares them.
     let decodeOutputs: [String]
+    /// Whether the decode graph also has the 1.1 presence gates
+    /// (`num_presence`, `dt_presence`). Found out on the first run: a 1.0
+    /// graph rejects the names, and then the 1.0 list is used from there on.
+    private let gates = GateProbe()
 
     /// Separator between the anchor, the schema summary and the text in the
     /// joint input. Part of the trained contract, not a formatting choice.
@@ -148,14 +152,28 @@ final class Model: @unchecked Sendable {
         let decode = try await session("dec\(window)") {
             try await assets.makeDecoder(window)
         }
-        let outs = try await decode.run(
-            inputs: ["text_states": states, "query_states": queryStates,
-                     "query_bias": queryBias, "pool_w": poolW,
-                     "dt_query": dtStates, "dt_bias": dtBias,
-                     "num_query": numStates, "num_bias": numBias],
-            outputs: decodeOutputs)
+        let inputs = ["text_states": states, "query_states": queryStates,
+                      "query_bias": queryBias, "pool_w": poolW,
+                      "dt_query": dtStates, "dt_bias": dtBias,
+                      "num_query": numStates, "num_bias": numBias]
+        var names = decodeOutputs
+        var outs: [Tensor]
+        if await gates.known != false {
+            let gated = (decodeOutputs + Self.gateOutputNames).sorted()
+            do {
+                outs = try await decode.run(inputs: inputs, outputs: gated)
+                names = gated
+                await gates.set(true)
+            } catch {
+                if await gates.known == true { throw error }
+                await gates.set(false)
+                outs = try await decode.run(inputs: inputs, outputs: decodeOutputs)
+            }
+        } else {
+            outs = try await decode.run(inputs: inputs, outputs: decodeOutputs)
+        }
 
-        return Stage(heads: try Heads(names: decodeOutputs, tensors: outs),
+        return Stage(heads: try Heads(names: names, tensors: outs),
                      tokens: textTokens, shift: textStart - 1,
                      textStart: textStart, validEnd: validEnd, window: window,
                      truncated: truncated)
@@ -309,8 +327,9 @@ final class Model: @unchecked Sendable {
 
     /// Slice a joint-token run out of the source text.
     private func slice(_ s: Stage, _ text: String, _ run: ClosedRange<Int>) -> String? {
-        Harness.slice(text, tokens: s.tokens,
-                      run: (run.lowerBound - s.shift)...(run.upperBound - s.shift))
+        Levers.slice(text, tokens: s.tokens,
+                     run: (run.lowerBound - s.shift)...(run.upperBound - s.shift),
+                     snap: Levers.on("word_snap"))
     }
 
     private func string(_ s: Stage, _ text: String, _ field: Field,
@@ -327,10 +346,12 @@ final class Model: @unchecked Sendable {
         // Highest mean B/I probability, not longest: `_bio_best_span` scores
         // runs by tag confidence, and picking by length prefers a long
         // low-confidence span over the short confident one the model meant.
-        guard let best = Harness.bestRun(s.heads["string_bio"], window: s.window,
-                                         runs: runs),
-              let raw = slice(s, text, best)
-        else { return .null }
+        var best = Harness.bestRun(s.heads["string_bio"], window: s.window, runs: runs)
+        if best == nil, Levers.on("forced_span") {
+            best = Levers.forcedRun(s.heads["string_bio"], window: s.window,
+                                    start: s.textStart, end: s.validEnd)
+        }
+        guard let best, let raw = slice(s, text, best) else { return .null }
         let v = Harness.trimSpanTail(raw, temporalSiblings: hasDatetimeSibling)
         // Format gate: a hard violation on a format-named field means the
         // value is not in the text (an email span in a phone field).
@@ -363,22 +384,44 @@ final class Model: @unchecked Sendable {
         // it does not read the digits (learned digits mis-scale: 950000 as
         // 9500).
         let startLogits = s.heads["span_start"], endLogits = s.heads["span_end"]
-        var ps = s.textStart
-        for t in s.textStart..<s.validEnd where startLogits[t] > startLogits[ps] { ps = t }
-        // End is the best within a SHORT window after the start, not the
-        // global argmax, which pairs the start with whatever scores highest
-        // anywhere in the document.
-        var be = ps
-        for j in ps..<min(ps + 12, s.validEnd) where endLogits[j] > endLogits[be] { be = j }
-
-        if let raw = slice(s, text, ps...be) {
-            // Space-separated thousands: "950 000 kr" is cut at "950" because
-            // the space is a token boundary. NBSP/thin space are normal in
-            // nb/fr/sv formatting.
-            if let v = Harness.parseLiteral(Harness.extendThousands(raw, in: text),
-                                            min: field.minimum, max: field.maximum) {
-                return .number(v)
+        // Absence. A 1.1 graph has a trained presence gate; a 1.0 graph only
+        // the digit decoder's null logit, which still beats composing a
+        // value for a field the text never states (measured +0.06 on number).
+        let np = s.heads["num_presence"]
+        if np.count == 2, Levers.on("num_presence_gate") {
+            if Harness.softmax2(np[1], np[0]) >= 0.5 { return .null }
+        } else if Levers.on("num_null_gate"), field.nullable,
+                  1 / (1 + expf(-(s.heads["num_null"].first ?? 0))) > 0.5 {
+            return .null
+        }
+        // Candidate starts, best first. The first is the reference's argmax;
+        // the others are only consulted when a start lands inside a date, a
+        // time, a card fragment, a phone number or an identifier, which are
+        // digits but never the quantity a number field asks for.
+        let skip = Levers.on("num_skip_nonquantity")
+        let order = (s.textStart..<s.validEnd).sorted { startLogits[$0] > startLogits[$1] }
+        let nonQ = skip ? Levers.nonQuantityRanges(text) : []
+        for ps in order.prefix(skip ? 5 : 1) {
+            // End is the best within a SHORT window after the start, not the
+            // global argmax, which pairs the start with whatever scores highest
+            // anywhere in the document.
+            var be = ps
+            for j in ps..<min(ps + 12, s.validEnd) where endLogits[j] > endLogits[be] { be = j }
+            let run = (ps - s.shift)...(be - s.shift)
+            if skip, let (a, b) = Levers.range(tokens: s.tokens, run: run),
+               Levers.insideNonQuantity(a, b, nonQ) {
+                continue
             }
+            if let raw = Harness.slice(text, tokens: s.tokens, run: run) {
+                // Space-separated thousands: "950 000 kr" is cut at "950" because
+                // the space is a token boundary. NBSP/thin space are normal in
+                // nb/fr/sv formatting.
+                if let v = Harness.parseLiteral(Harness.extendThousands(raw, in: text),
+                                                min: field.minimum, max: field.maximum) {
+                    return .number(v)
+                }
+            }
+            break
         }
         // Strategy B: nothing parseable at the located span.
         return compose(s, field)
@@ -422,6 +465,10 @@ final class Model: @unchecked Sendable {
         }
 
         if 1 / (1 + expf(-(s.heads["dt_null"].first ?? 0))) > 0.5 { return .null }
+        let dp = s.heads["dt_presence"]
+        if dp.count == 2, Levers.on("dt_presence_gate"), Harness.softmax2(dp[1], dp[0]) >= 0.5 {
+            return .null
+        }
         let y = anchor.year ?? 2026
         guard var iso = Harness.datetime(
             year: Harness.year(fromClass: s.heads.argmax("dt_year", 256), anchorYear: y),
@@ -448,6 +495,24 @@ final class Model: @unchecked Sendable {
         } else if trustedAnchor,
                   Harness.anyDateYear.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) == nil {
             iso = String(format: "%04d", y) + iso.dropFirst(4)
+        }
+
+        // A date the text writes out beats the head's month and day when the
+        // text writes exactly one; its year, when written, beats the head's.
+        if Levers.on("text_date") {
+            let dates = Levers.textDates(text)
+            let md = Set(dates.map { $0.month * 100 + $0.day })
+            let cm2 = Int(iso.dropFirst(5).prefix(2))!, cd2 = Int(iso.dropFirst(8).prefix(2))!
+            var target: Levers.TextDate? = nil
+            if let hit = dates.first(where: { $0.month == cm2 && $0.day == cd2 && $0.year != nil }) {
+                target = hit
+            } else if md.count == 1, let only = dates.first {
+                target = dates.first(where: { $0.year != nil }) ?? only
+            }
+            if let t = target {
+                let yy = t.year ?? Int(iso.prefix(4))!
+                iso = String(format: "%04d-%02d-%02d", yy, t.month, t.day) + iso.dropFirst(10)
+            }
         }
 
         // A relative-day expression replaces the DATE.
@@ -519,6 +584,9 @@ final class Model: @unchecked Sendable {
     /// short by one (`dt_dow`, which nothing reads) until the LiteRT export
     /// wrote `decode_outputs.json` beside the artifacts and the two were
     /// compared. Generated from that file; do not hand-edit.
+    /// The presence gates a 1.1 decode graph adds (see `gates`).
+    static let gateOutputNames = ["dt_presence", "num_presence"]
+
     static let decodeOutputNames: [String] = [
         "array_bio", "array_presence", "bool_logits", "dt_day", "dt_dow",
         "dt_hour", "dt_is_rel", "dt_minute", "dt_month", "dt_null",
@@ -527,6 +595,12 @@ final class Model: @unchecked Sendable {
         "num_magnitude", "num_null", "num_sign", "proto_text", "reader_rep",
         "span_end", "span_start", "string_bio", "string_presence",
     ]
+}
+
+/// Whether the decode graph has the presence gates, once a run has said.
+private actor GateProbe {
+    private(set) var known: Bool? = nil
+    func set(_ v: Bool) { known = v }
 }
 
 /// Session cache. An actor rather than a lock because the loads it guards are

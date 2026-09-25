@@ -71,6 +71,15 @@ enum RelativeDates {
         "twee": 2, "drie": 3,
         "to": 2, "fire": 4, "fem": 5,
         "tv\u{e5}": 2, "dwa": 2, "trzy": 3, "duas": 2, "dois": 2, "tr\u{ea}s": 3,
+        "fyra": 4, "seks": 6, "sex": 6, "syv": 7, "sju": 7,
+        "\u{e5}tte": 8, "\u{e5}tta": 8, "otte": 8, "ni": 9, "nio": 9, "ti": 10, "tio": 10,
+        "vijf": 5, "zes": 6, "zeven": 7, "acht": 8, "negen": 9, "tien": 10,
+        "sechs": 6, "sieben": 7, "neun": 9, "zehn": 10,
+        "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+        "sept": 7, "huit": 8, "neuf": 9, "dix": 10,
+        "cinque": 5, "sei": 6, "sette": 7, "otto": 8, "nove": 9, "dieci": 10,
+        "quatro": 4, "sete": 7, "oito": 8, "dez": 10,
+        "cztery": 4, "pi\u{119}\u{107}": 5, "sze\u{15b}\u{107}": 6, "siedem": 7,
     ]
 
     static let oneWords = "a|an|una|une|un|en|ein|einer|ett|uma|um"

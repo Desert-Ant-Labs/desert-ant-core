@@ -74,6 +74,12 @@ public final class Schemer: @unchecked Sendable {
         model = LoadedModel { try Model(assets: assets) }
     }
 
+    /// Switch named harness rules off (`Levers.swift`), so an evaluation can
+    /// measure each one. Not for apps: every rule is on by default because
+    /// each was measured to help.
+    @_spi(SchemerEval)
+    public static func disableHarnessRules(_ names: Set<String>) { Levers.disabled = names }
+
     /// Whether the model is available with no network.
     public func isDownloaded() -> Bool { model.isDownloaded() }
 
