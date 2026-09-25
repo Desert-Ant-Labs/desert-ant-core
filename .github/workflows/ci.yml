@@ -197,7 +197,7 @@ jobs:
       - run: mise run build:node-native
 
   linux:
-    name: Linux (Swift + LiteRT)
+    name: Linux (Swift)
     runs-on: ubuntu-22.04 # glibc 2.35; the *published* natives build on 2.26 in release.yml
     steps:
       - uses: actions/checkout@v5
