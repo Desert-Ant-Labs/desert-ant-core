@@ -645,11 +645,16 @@
           "package": "Voz",
           "platforms": [
             "apple",
+            "linux",
             "windows"
           ]
         },
         "kotlin": {
-          "status": "none"
+          "status": "live",
+          "package": "ai.desertant:voz",
+          "platforms": [
+            "android"
+          ]
         },
         "js": {
           "status": "live",
@@ -669,6 +674,7 @@
       },
       "runtime": [
         "coreml",
+        "litert",
         "onnx"
       ],
       "variants": [],
@@ -680,6 +686,7 @@
           "word-timestamps",
           "on-device",
           "core-ml",
+          "litert",
           "apple-neural-engine",
           "multilingual"
         ],

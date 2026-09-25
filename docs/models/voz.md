@@ -7,7 +7,7 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Windows, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 25 |
 | **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/voz) |
 
@@ -21,6 +21,12 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 
 Then add the `Voz` product to your target.
 
+**Kotlin** ([requirements](../../README.md#android))
+
+```kotlin
+implementation("ai.desertant:voz:3.5.0")
+```
+
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
 
 ```bash
@@ -32,6 +38,8 @@ npm i @desert-ant-labs/voz onnxruntime-web
 
 `Voz` turns speech into text, with a start and an end on every word. Create one
 and reuse it; the model downloads on first use and is cached.
+
+### Swift
 
 ```swift
 import Voz
@@ -50,11 +58,31 @@ Samples work too, mono at `voz.sampleRate`:
 let result = try await voz.transcribe(samples: samples)
 ```
 
+### Kotlin
+
+```kotlin
+val voz = Voz(context)                       // downloads on first use
+val t = voz.transcribe(samples, 16_000.0)
+
+t.text                    // the transcript
+t.words.first().start     // 80 ms resolution
+voz.close()
+```
+
+On Android the graphs run through LiteRT (XNNPACK on CPU, the GPU when its
+accelerator library is bundled with the app), so expect real-time factors far
+below the Neural Engine's; transcribe off the main thread and keep the
+recogniser around rather than recreating it.
+
 ### Downloading ahead of time
 
 The first load after a download pays a one-time Neural Engine specialization of
-roughly 20 seconds; every load after it takes about 0.2 s. Doing both during
-onboarding keeps that cost off the first transcription.
+roughly 20 seconds on Apple platforms; every load after it takes about 0.2 s.
+Doing both during onboarding keeps that cost off the first transcription.
+
+```kotlin
+if (!voz.isDownloaded()) voz.download()
+```
 
 ```swift
 if !Voz.isDownloaded() {
@@ -139,12 +167,11 @@ the [model card](https://huggingface.co/desert-ant-labs/voz).
 
 ## Limits
 
-- **Apple platforms and the browser.** On Apple the runtime drives Core ML
-  directly, because the things that make it fast (preallocated buffers,
-  `outputBackings`, a lane-batched decode loop) are not expressible through the
-  generic inference shape the other models share. The JavaScript SDK runs the
-  same pipeline on ONNX Runtime, in a browser or in Node. There is no Android
-  or Linux build.
+- **One pipeline, three runtimes.** The runtime drives its backend directly
+  (Core ML on Apple platforms, LiteRT on Android and Linux, ONNX Runtime in a
+  browser or in Node), because the things that make it fast (preallocated
+  buffers, `outputBackings`, a lane-batched decode loop) are not expressible
+  through the generic inference shape the other models share.
 - **The browser bundle is a separate download**: 390 MB, because a GPU wants the
   weights in a different layout than the Neural Engine does. Resident cost is
   about 1.2 GB, most of it what ONNX Runtime keeps for the compiled session
@@ -152,6 +179,9 @@ the [model card](https://huggingface.co/desert-ant-labs/voz).
 - **Node transcribes on the CPU.** `onnxruntime-node`'s default execution
   provider reaches no accelerator, so a server is slower per second of audio
   than a browser on the same machine.
+- **The speed figures are Apple's.** The Neural Engine numbers in the table do
+  not transfer to LiteRT on a phone CPU; measure on your target device before
+  promising real-time factors.
 - **25 languages**, and it does not know which one it is hearing. Feeding it a
   language it does not cover produces confident nonsense rather than an error.
   See [Ear](ear.md).

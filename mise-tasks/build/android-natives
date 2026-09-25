@@ -103,7 +103,7 @@ fi
 
 # LiteRT android libs, used only while linking each ABI. ai.desertant:core owns
 # the copies that are actually packaged into an app.
-litert_version="${DAL_LITERT_VERSION:-2.1.6}"
+litert_version="${DAL_LITERT_VERSION:-2.2.0}"
 if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
     || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ]; then
     echo "Fetching the LiteRT $litert_version android libs (one-time)..."
@@ -138,6 +138,13 @@ if [ -z "$strip_bin" ]; then
 fi
 
 for model in $(dal_select "${usage_model:-all}" kotlin); do
+    # Deferred models cross-compile only when a lane opts in (see dal.sh);
+    # naming one explicitly (which is what a model module's preBuild does)
+    # still builds it.
+    if [ "${usage_model:-all}" = all ] && dal_android_deferred "$model"; then
+        echo "== $model deferred (set DAL_LONG_TESTS=1 to include) =="
+        continue
+    fi
     # A pure-Kotlin module (no AndroidManifest.xml) is a plain JVM jar: no JNI
     # library to cross-compile.
     if [ ! -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then

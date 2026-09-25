@@ -132,6 +132,11 @@ fi # end of staging
 # the device, and nothing else runs them.
 tasks=(":core:testDebugUnitTest")
 for model in $(dal_select "${usage_model:-all}" kotlin); do
+    # Deferred models run on a device only when a lane opts in (see dal.sh).
+    if [ "${usage_model:-all}" = all ] && dal_android_deferred "$model"; then
+        echo "== $model deferred (set DAL_LONG_TESTS=1 to include) =="
+        continue
+    fi
     # A pure-Kotlin module (no AndroidManifest.xml) has no instrumented suite:
     # its bytecode is what runs on the device, so its JVM tests are the check.
     if [ -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then

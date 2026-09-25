@@ -71,6 +71,11 @@ jobs:
     # picks the matching tarball, and the cache key below follows the runner).
     runs-on: ubuntu-22.04
     environment: maven-central
+    # A release ships every AAR whole: this opts the Android tasks into the
+    # models CI defers (dal_android_deferred in Tools/dal.sh), so voz's natives
+    # are cross-compiled here even though the CI matrix never builds them.
+    env:
+      DAL_LONG_TESTS: "1"
     steps:
       - uses: actions/checkout@v5
       - name: Free disk space
@@ -130,7 +135,7 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
+          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.2.0
 
       # Its own step: Gradle's Exec task swallows the underlying mise stderr,
       # which makes a failure in the cross-compile undiagnosable.
