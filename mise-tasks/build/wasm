@@ -37,41 +37,27 @@ sdk=$(dal_wasm_sdk)
 # product that stops compiling should fail here rather than the first time
 # someone packages it.
 #
-# Four phases rather than one loop: one plugin build in the default scratch
-# path to bring the shared graph and the host tooling up to date, then the
-# rest of the plugin builds fanned out over worker scratch paths, then the
-# wasm-opt passes (independent single-threaded jobs of about a minute each),
-# then staging.
+# Each product is a serial wasm-ld link of the whole static core, about half
+# a minute on a CI runner, and any edit to a shared module relinks every
+# product, so a warm .build does not help. The plugin builds therefore fan
+# out over worker scratch paths after one build in the default .build warms
+# the shared graph. No whole-package prebuild instead: the js plugin adds
+# its own global flags to every build it drives, and SwiftPM keys its build
+# database on the exact command line, so a prebuild in any other
+# configuration churns the graph.
 #
-# No whole-package prebuild: the js plugin adds its own global flags to every
-# build it drives (-static-stdlib, the reactor exec model, the
-# __main_argc_argv export), and SwiftPM keys its build database on the exact
-# command line, so a prebuild in any other configuration churns the graph.
-# The fan-out sidesteps that: every invocation is the same plugin build, just
-# against its own scratch path.
-#
-# The workers exist because the per-product cost is a serial wasm-ld link of
-# the whole static core, about half a minute each on a CI runner, which for a
-# dozen products is minutes of one core linking while the rest idle. Any edit
-# to a shared module relinks every product, so a warm .build does not help.
-# Each worker scratch is seeded once by copying .build; the copy's first
-# build rebuilds the host tools (llbuild keys on absolute paths, and clang's
-# precompiled modules record the cache path they were built under), so the
-# seed costs about a minute, once, after which the worker is incremental like
-# any scratch path. CI caches the worker dirs alongside .build so that price
-# is paid per cache miss, not per run.
-#
-# --scratch-path is safe here: the js plugin's known mislocation under a
-# custom scratch path is in its `test` subcommand, and the build path
-# resolves the artifact from SwiftPM's own build result. The --output dir
-# stays under the default .build for every worker, which the staging and
-# wasm-opt phases below rely on.
+# A worker is seeded once by copying .build; the copy's first build redoes
+# the host tools (llbuild and clang's precompiled modules both key on
+# absolute paths), about a minute, after which the worker is incremental
+# like any scratch path. CI caches the workers so that price is per cache
+# miss. The js plugin's known mislocation under --scratch-path is in its
+# `test` subcommand only; --output stays under the default .build for every
+# lane, which the wasm-opt and staging phases below rely on.
 build_one() { # product scratch-args...
     local product=$1; shift
-    # jobs is set below once the lane count is known: concurrent lanes must
-    # split the cores, or the one-time seed rebuilds (swift-syntax for the
-    # BridgeJS host tools, about a gigabyte per frontend job) OOM a small
-    # runner when every lane spawns nproc frontends at once.
+    # Concurrent lanes must split the cores: the seed rebuilds compile
+    # swift-syntax at about a gigabyte per frontend job, and every lane
+    # spawning nproc frontends at once OOMs a small runner.
     set -- -j "${jobs:-1}" "$@"
     # --allow-writing-to-package-directory: the plugin writes its output under
     # .build/, which SwiftPM's plugin sandbox blocks on macOS without it.
@@ -106,9 +92,8 @@ built=""
 first=${queue# }
 first=${first%% *}
 if [ "$queued" -gt 0 ]; then
-    # The first product runs alone in the default scratch path: it builds the
-    # shared graph and the BridgeJS host tooling once, so the workers seed from
-    # a warm .build and the fan-out is links, not a compile stampede.
+    # Alone in the default scratch path first, so the workers seed from a
+    # warm .build and the fan-out is links, not a compile stampede.
     product=$(dal_product "$first")
     echo "== ${product}Web =="
     build_one "$product"
@@ -125,11 +110,10 @@ if [ "$queued" -gt 1 ]; then
         scratch="" # lane 1 reuses the default .build
         if [ "$lane" -gt 1 ]; then
             worker=.build-wasm-workers/$((lane - 1))
-            # CI stores the workers hardlinked against .build so the cache
-            # archive carries one copy of the shared bytes (tar keeps
-            # hardlinks). Shared inodes must not survive into a build: lanes
-            # rewrite outputs in place concurrently, so a linked file would
-            # corrupt its counterpart. Break the links with a plain copy.
+            # CI stores the workers hardlinked against .build (see ci.yml).
+            # A shared inode must not survive into a build: lanes rewrite
+            # outputs in place concurrently, so a linked file would corrupt
+            # its counterpart.
             if [ -d "$worker" ] && [ -n "$(find "$worker" -type f -links +1 -print -quit)" ]; then
                 echo "== unsharing worker scratch $worker =="
                 cp -a "$worker" "$worker.unshared"
@@ -147,8 +131,6 @@ if [ "$queued" -gt 1 ]; then
             fi
             scratch=$worker
         fi
-        # Round-robin over the remaining products: lane N takes the Nth, then
-        # every lanes-th after it.
         (
             i=0
             for m in $rest; do
