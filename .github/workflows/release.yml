@@ -16,13 +16,23 @@ name: Release
 # Every publish task is re-runnable: an artifact already live at this version is
 # skipped, so a half-failed tag can simply be re-run.
 #
-# Credentials are Desert-Ant-Labs organization secrets (visibility `all`):
+# Maven credentials are Desert-Ant-Labs organization secrets (visibility `all`):
 #   MAVEN_CENTRAL_USERNAME / MAVEN_CENTRAL_PASSWORD    Central portal token
 #   SIGNING_IN_MEMORY_KEY / SIGNING_IN_MEMORY_KEY_PASSWORD   GPG signing key
-#   NPM_TOKEN                                          npm automation token
-# The `maven-central` and `npm` environments below hold no secrets; they exist
-# only as optional approval gates and for deployment history. Never put a secret
-# in them - environment secrets shadow organization ones.
+# npm uses trusted publishing: each package on npmjs.com trusts this repo,
+# release.yml and the `npm` environment, and the npm job's OIDC token is the
+# credential. Renaming this file or that environment breaks every package's
+# trust. A trusted publisher must allow `npm publish` explicitly (the website
+# checkbox, or `npm trust github --allow-publish`); since 2026-09-03 the default
+# allows only `npm stage publish`, which is not what publish:npm runs.
+# NPM_TOKEN is the fallback while packages move over. It exists both as a
+# repository secret (a person's token, the one in use) and as an organization
+# secret; the repository one wins. npm tries OIDC first and silently falls back
+# to the token, so a green job does not prove a package published through OIDC.
+# The `maven-central` and `npm` environments below hold no secrets; they are
+# optional approval gates, deployment history and, for `npm`, part of the trust
+# identity. Never put a secret in them - environment secrets shadow repository
+# and organization ones.
 
 on:
   push:
@@ -228,6 +238,9 @@ jobs:
     needs: [gate, natives]
     runs-on: ubuntu-latest
     environment: npm
+    permissions:
+      contents: read
+      id-token: write # the OIDC token npm trusted publishing exchanges for publish rights
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4

@@ -7,7 +7,7 @@
   "homepage": "https://desertant.com/models/emo/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Desert-Ant-Labs/emo.git",
+    "url": "git+https://github.com/Desert-Ant-Labs/desert-ant-core.git",
     "directory": "packages/emo-node"
   },
   "keywords": [
