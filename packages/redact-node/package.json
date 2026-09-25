@@ -28,7 +28,7 @@
   "browser": "./browser.js",
   "types": "./index.d.ts",
   "scripts": {
-    "test": "DAL_USAGE_DISABLED=1 node --test test/redact.test.mjs test/browser-in-node.test.mjs"
+    "test": "DAL_INGEST_ENDPOINT=${DAL_INGEST_ENDPOINT:-http://127.0.0.1:9/api/v1/ingest} node --test test/redact.test.mjs test/browser-in-node.test.mjs"
   },
   "exports": {
     ".": {

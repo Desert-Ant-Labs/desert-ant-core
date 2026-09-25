@@ -8,27 +8,40 @@ import JavaScriptKit
 /// A switch a test flips while a transport or turnstile holds a reader of it.
 private final class Switch: @unchecked Sendable { var on = false }
 
-// Serialized: `DesertAnt.usageDisabled` and the host flags are process-wide.
+// Serialized: the host flags are process-wide.
 @Suite(.serialized) struct UsageOptOutTests {
-    @Test func offByDefault() {
-        #expect(!DesertAnt.usageDisabled)
-    }
-
-    /// Under mise the environment flag is on as well, so on its own this proves
-    /// little; `theHostGlobalIsRead` checks the switch with every host flag off.
-    @Test func theInCodeSwitchTurnsUsageOff() {
-        DesertAnt.usageDisabled = true
-        defer { DesertAnt.usageDisabled = false }
-        #expect(usageDisabled())
-    }
-
     #if !os(WASI)
-    /// The suites run with DAL_USAGE_DISABLED=1; `flagIsSet` covers the other values.
+    /// The suites run with DAL_USAGE_DISABLED=1 (mise.toml), and a test process
+    /// honors it in either configuration: test:swift runs release, the Windows
+    /// job debug.
     @Test(.enabled(if: environmentVariable("DAL_USAGE_DISABLED") == "1"))
-    func theEnvironmentFlagTurnsUsageOff() {
+    func theEnvironmentFlagIsHonoredInATestProcess() {
         #expect(usageDisabled())
     }
     #endif
+
+    #if canImport(Darwin) || canImport(Glibc) || canImport(Musl)
+    /// What lets a release test run honor the switch: Swift Testing is loaded.
+    @Test func thisProcessIsRecognizedAsATestProcess() {
+        #expect(testFrameworkIsLoaded)
+    }
+    #endif
+
+    /// `flagIsSet` decides for the test switch. A release build outside a test
+    /// process, the one a customer ships, ignores every value.
+    @Test func theTestSwitchIsIgnoredByAShippedBuild() {
+        for value in ["1", "true", "yes"] {
+            #expect(testSwitchIsSet(value, inTestProcess: true), "\(value) did not switch usage off")
+            #if DEBUG
+            #expect(testSwitchIsSet(value, inTestProcess: false), "a debug build ignored \(value)")
+            #else
+            #expect(!testSwitchIsSet(value, inTestProcess: false), "a shipped build honored \(value)")
+            #endif
+        }
+        for value in [nil, "", "0", "false"] as [String?] {
+            #expect(!testSwitchIsSet(value, inTestProcess: true), "\(value ?? "nil") switched usage off")
+        }
+    }
 
     /// The transport reads the switch per send, so an event queued before a
     /// consent was withdrawn is dropped, and one queued after it was given goes.
@@ -88,7 +101,7 @@ private final class Switch: @unchecked Sendable { var on = false }
     #if os(WASI)
     /// A page's consent banner sets `globalThis.__dalUsageDisabled` and clears it
     /// later; it is read the way the other host globals are.
-    @Test func theHostGlobalIsRead() throws {
+    @Test func aPageReadsTheHostGlobal() throws {
         let env = try #require(JSObject.global.process.object?.env.object)
         let savedEnv = env.DAL_USAGE_DISABLED
         let reflect = JSObject.global.Reflect.object!
@@ -100,70 +113,110 @@ private final class Switch: @unchecked Sendable { var on = false }
         // The suite runs with DAL_USAGE_DISABLED=1 under Node; out of the way,
         // so the global alone decides.
         _ = reflect.deleteProperty!(env, "DAL_USAGE_DISABLED")
-        #expect(!usageDisabled())
-
-        // With no host flag, the in-code switch alone decides.
-        DesertAnt.usageDisabled = true
-        #expect(usageDisabled())
-        DesertAnt.usageDisabled = false
-        #expect(!usageDisabled())
+        #expect(!usageDisabled(inPage: true))
 
         JSObject.global.__dalUsageDisabled = .boolean(true)
-        #expect(usageDisabled())
+        #expect(usageDisabled(inPage: true))
         JSObject.global.__dalUsageDisabled = .boolean(false)
-        #expect(!usageDisabled())
+        #expect(!usageDisabled(inPage: true))
         JSObject.global.__dalUsageDisabled = .string("1")
-        #expect(usageDisabled())
+        #expect(usageDisabled(inPage: true))
         for value in ["", "0", "false"] {
             JSObject.global.__dalUsageDisabled = .string(value)
-            #expect(!usageDisabled(), "\(value) switched usage off")
+            #expect(!usageDisabled(inPage: true), "\(value) switched usage off")
         }
         // A finite non-zero number opts out, failing closed, as older tongue-node
         // did; 0, NaN and infinity do not.
         for number in [1.0, -1, 0.5] {
             JSObject.global.__dalUsageDisabled = .number(number)
-            #expect(usageDisabled(), "\(number) did not switch usage off")
+            #expect(usageDisabled(inPage: true), "\(number) did not switch usage off")
         }
         for number in [0.0, .nan, .infinity] {
             JSObject.global.__dalUsageDisabled = .number(number)
-            #expect(!usageDisabled(), "\(number) switched usage off")
+            #expect(!usageDisabled(inPage: true), "\(number) switched usage off")
         }
         // A function, read on every call, as a consent manager may supply.
         let consent = Switch()
         JSObject.global.__dalUsageDisabled = .object(JSClosure { _ in .boolean(!consent.on) })
-        #expect(usageDisabled())
+        #expect(usageDisabled(inPage: true))
         consent.on = true
-        #expect(!usageDisabled())
+        #expect(!usageDisabled(inPage: true))
         // A function that throws reads as unset instead of unwinding the client.
         let throwing = JSObject.global.Function.function!.new("throw new Error('no consent manager')")
         JSObject.global.__dalUsageDisabled = .object(throwing)
-        #expect(!usageDisabled())
+        #expect(!usageDisabled(inPage: true))
         // So does an accessor property whose getter throws.
         _ = JSObject.global.Function.function!.new("""
             Object.defineProperty(globalThis, "__dalUsageDisabled", { configurable: true, get() { throw new Error("blocked") } })
             """)()
-        #expect(!usageDisabled())
-        // With the global unreadable, the Node environment still applies.
-        env.DAL_USAGE_DISABLED = .string("1")
-        #expect(usageDisabled())
+        #expect(!usageDisabled(inPage: true))
     }
 
-    /// Under Node the wasm core also reads process.env, as tongue-node does.
-    @Test func underNodeTheEnvironmentIsRead() throws {
+    /// The same wasm binary under Node is a server, and a server has no opt-out:
+    /// the global a page would set is ignored there. This suite runs under Node,
+    /// so the unparameterized reader must take the server path too.
+    @Test func underNodeTheHostGlobalIsIgnored() throws {
+        let env = try #require(JSObject.global.process.object?.env.object)
+        let savedEnv = env.DAL_USAGE_DISABLED
+        let reflect = JSObject.global.Reflect.object!
+        defer {
+            _ = reflect.deleteProperty!(JSObject.global, "__dalUsageDisabled")
+            if savedEnv.isUndefined { _ = reflect.deleteProperty!(env, "DAL_USAGE_DISABLED") }
+            else { env.DAL_USAGE_DISABLED = savedEnv }
+        }
+        _ = reflect.deleteProperty!(env, "DAL_USAGE_DISABLED")
+        #expect(jsHostIsNode())
+        #expect(defaultPlatform == "server")
+        for value: JSValue in [.boolean(true), .string("1"), .number(1)] {
+            JSObject.global.__dalUsageDisabled = value
+            #expect(!usageDisabled(), "Node honored the page's global")
+            #expect(!usageDisabled(inPage: false), "Node honored the page's global")
+        }
+    }
+
+    /// Under Node, process.env.DAL_USAGE_DISABLED is the test switch, as the
+    /// environment variable is natively. test:wasi builds debug, so it is
+    /// honored here; the release wasm the packages ship has no test framework
+    /// loaded and ignores it (`theTestSwitchIsIgnoredByAShippedBuild`).
+    @Test func underNodeTheEnvironmentIsTheTestSwitch() throws {
         let env = try #require(JSObject.global.process.object?.env.object)
         let saved = env.DAL_USAGE_DISABLED
         defer {
             if saved.isUndefined { _ = JSObject.global.Reflect.object!.deleteProperty!(env, "DAL_USAGE_DISABLED") }
             else { env.DAL_USAGE_DISABLED = saved }
         }
-        env.DAL_USAGE_DISABLED = .string("1")
-        #expect(usageDisabled())
-        env.DAL_USAGE_DISABLED = .string("false")
-        #expect(!usageDisabled())
-        env.DAL_USAGE_DISABLED = .string("0")
-        #expect(!usageDisabled())
-        env.DAL_USAGE_DISABLED = .string("true")
-        #expect(usageDisabled())
+        for value in ["1", "true"] {
+            env.DAL_USAGE_DISABLED = .string(value)
+            #if DEBUG
+            #expect(usageDisabled())
+            #else
+            #expect(!usageDisabled(), "a release wasm build honored DAL_USAGE_DISABLED")
+            #endif
+        }
+        for value in ["false", "0"] {
+            env.DAL_USAGE_DISABLED = .string(value)
+            #expect(!usageDisabled())
+        }
+    }
+
+    /// Release wasm under Node, in this repo's tests, is kept off the real
+    /// ingest by `DAL_INGEST_ENDPOINT` in the environment, since the debug
+    /// switch does not reach it. The global still wins, as it does in a page.
+    @Test func underNodeTheEnvironmentRedirectsTheIngest() throws {
+        let env = try #require(JSObject.global.process.object?.env.object)
+        let saved = env.DAL_INGEST_ENDPOINT
+        let reflect = JSObject.global.Reflect.object!
+        defer {
+            _ = reflect.deleteProperty!(JSObject.global, "__dalIngestEndpoint")
+            if saved.isUndefined { _ = reflect.deleteProperty!(env, "DAL_INGEST_ENDPOINT") }
+            else { env.DAL_INGEST_ENDPOINT = saved }
+        }
+        _ = reflect.deleteProperty!(env, "DAL_INGEST_ENDPOINT")
+        #expect(hostProvidedIngestEndpoint() == nil)
+        env.DAL_INGEST_ENDPOINT = .string("http://127.0.0.1:9/ingest")
+        #expect(hostProvidedIngestEndpoint() == "http://127.0.0.1:9/ingest")
+        JSObject.global.__dalIngestEndpoint = .string("http://127.0.0.1:10/ingest")
+        #expect(hostProvidedIngestEndpoint() == "http://127.0.0.1:10/ingest")
     }
     #endif
 }

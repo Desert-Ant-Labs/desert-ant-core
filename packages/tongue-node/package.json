@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "build": "tsc && cp src/tongue_int8.bin src/tongue_meta.json dist/",
-    "test": "npm run build && DAL_USAGE_DISABLED=1 node --test test/*.test.js",
+    "test": "npm run build && NODE_ENV=test DAL_USAGE_DISABLED=1 node --test test/*.test.js",
     "prepare": "npm run build"
   },
   "keywords": [

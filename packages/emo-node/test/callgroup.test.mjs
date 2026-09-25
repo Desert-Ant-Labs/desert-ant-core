@@ -38,6 +38,9 @@ function captureServer() {
 // run `body(emo)`, and return the emitted callCount (waits out the ~3s debounce).
 async function capturedCallCount(body) {
   const server = await captureServer();
+  // Put back, not deleted: the runner's own endpoint is what keeps later loads
+  // in this process off the real ingest.
+  const endpoint = process.env.DAL_INGEST_ENDPOINT;
   process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${server.port}/api/v1/ingest`;
   process.env.DAL_APP_ID = `ai.desertant.emo.callgroup.${randomUUID()}`;
   try {
@@ -49,7 +52,8 @@ async function capturedCallCount(body) {
     return ingest.events?.[0]?.callCount;
   } finally {
     server.close();
-    delete process.env.DAL_INGEST_ENDPOINT;
+    if (endpoint === undefined) delete process.env.DAL_INGEST_ENDPOINT;
+    else process.env.DAL_INGEST_ENDPOINT = endpoint;
     delete process.env.DAL_APP_ID;
   }
 }

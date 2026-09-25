@@ -36,7 +36,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "DAL_USAGE_DISABLED=1 node --test test/voz.test.mjs test/stream.test.mjs test/inference.test.mjs"
+    "test": "DAL_INGEST_ENDPOINT=${DAL_INGEST_ENDPOINT:-http://127.0.0.1:9/api/v1/ingest} node --test test/voz.test.mjs test/stream.test.mjs test/inference.test.mjs"
   },
   "exports": {
     ".": {

@@ -272,37 +272,71 @@ test("the opt-outs share one truthiness rule", async () => {
   });
 });
 
-test("the usage switch follows the same rule, and a throwing global reads as unset", async () => {
+// A page, as isBrowserOrigin sees one. The package's own usage module reads the
+// global per call, so defining `document` for the length of a test is enough.
+const page = { document: {} };
+
+test("in a page the usage switch follows the same rule, and a throwing global reads as unset", async () => {
   const off = { DAL_USAGE_DISABLED: undefined };
-  await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
+  await withHost({ env: off, globals: page }, () => assert.equal(usageDisabled(), false));
   for (const value of [true, 1, "1", "true", () => true, () => "1", () => 1]) {
-    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
+    await withHost({ env: off, globals: { ...page, __dalUsageDisabled: value } }, () =>
       assert.equal(usageDisabled(), true, String(value)),
     );
   }
   for (const value of [false, 0, NaN, "", "0", "false", () => false]) {
-    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
+    await withHost({ env: off, globals: { ...page, __dalUsageDisabled: value } }, () =>
       assert.equal(usageDisabled(), false, String(value)),
     );
   }
   const throwing = () => {
     throw new Error("no consent manager yet");
   };
-  await withHost({ env: off, globals: { __dalUsageDisabled: throwing } }, () => assert.equal(usageDisabled(), false));
-  await withHost({ env: { DAL_USAGE_DISABLED: "1" }, globals: { __dalUsageDisabled: throwing } }, () =>
-    assert.equal(usageDisabled(), true, "a throwing global hid the environment"),
+  await withHost({ env: off, globals: { ...page, __dalUsageDisabled: throwing } }, () =>
+    assert.equal(usageDisabled(), false),
   );
   // An accessor whose getter throws, as a request-scoped host may define.
   Object.defineProperty(globalThis, "__dalUsageDisabled", { configurable: true, get: throwing });
   try {
-    await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
+    await withHost({ env: off, globals: page }, () => assert.equal(usageDisabled(), false));
   } finally {
     delete globalThis.__dalUsageDisabled;
   }
-  for (const value of ["0", "false", ""]) {
-    await withHost({ env: { DAL_USAGE_DISABLED: value } }, () => assert.equal(usageDisabled(), false, value));
+});
+
+test("under Node the page's global is ignored: a server has no opt-out", async () => {
+  const off = { DAL_USAGE_DISABLED: undefined };
+  for (const value of [true, 1, "1", () => true]) {
+    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
+      assert.equal(usageDisabled(), false, String(value)),
+    );
   }
-  await withHost({ env: { DAL_USAGE_DISABLED: "true" } }, () => assert.equal(usageDisabled(), true));
+});
+
+test("DAL_USAGE_DISABLED is a test switch, honored only under NODE_ENV=test", async () => {
+  for (const value of ["1", "true"]) {
+    await withHost({ env: { NODE_ENV: "test", DAL_USAGE_DISABLED: value } }, () =>
+      assert.equal(usageDisabled(), true, value),
+    );
+  }
+  for (const value of ["0", "false", ""]) {
+    await withHost({ env: { NODE_ENV: "test", DAL_USAGE_DISABLED: value } }, () =>
+      assert.equal(usageDisabled(), false, value),
+    );
+  }
+  for (const nodeEnv of [undefined, "production", "development", ""]) {
+    await withHost({ env: { NODE_ENV: nodeEnv, DAL_USAGE_DISABLED: "1" } }, () =>
+      assert.equal(usageDisabled(), false, `NODE_ENV=${nodeEnv} honored the test switch`),
+    );
+  }
+  // A throwing page global does not hide the test switch.
+  const throwing = () => {
+    throw new Error("no consent manager yet");
+  };
+  await withHost(
+    { env: { NODE_ENV: "test", DAL_USAGE_DISABLED: "1" }, globals: { ...page, __dalUsageDisabled: throwing } },
+    () => assert.equal(usageDisabled(), true, "a throwing global hid the environment"),
+  );
 });
 
 test("locales are language and region only", () => {

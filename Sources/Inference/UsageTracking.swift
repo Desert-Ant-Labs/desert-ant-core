@@ -11,7 +11,7 @@ import Usage
 /// session factory; the derived app identity + native storage come from
 /// `makeClient`.
 ///
-/// Wrapped even while usage is off: the switch is a consent flag a host may
+/// Wrapped even while usage is off: a web page's switch is a consent flag it may
 /// clear after load, so `TrackedSession` reads it per run instead.
 func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
     TrackedSession(wrapping: session, sdk: sdk, disabled: usageDisabled)
@@ -45,7 +45,7 @@ actor TrackedSession: InferenceSession {
     private let storage: UsageStorage
     private let makeDeviceClient: (String) -> UsageClient
     /// The opt-out, read on every run. `tracked` passes `usageDisabled`; the
-    /// default is for tests, whose suites run with the switch on.
+    /// default is for tests, which may run with the debug switch on.
     private let disabled: @Sendable () -> Bool
     private let debounceNanos: UInt64
     private let maxDevices = 512

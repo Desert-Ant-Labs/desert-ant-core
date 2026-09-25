@@ -101,7 +101,7 @@ struct VozUsage {
         #expect(VozModel.sdkInfo.version == VozModel.sdkVersion)
     }
 
-    /// The switch is a consent flag an app may flip after load. While it is on
+    /// The switch is a consent flag a web page may flip after load. While it is on
     /// a transcription records nothing and opens no client; the one after it is
     /// cleared reports, and one after it is set again does not.
     @Test func theOptOutIsReadPerTranscription() async {

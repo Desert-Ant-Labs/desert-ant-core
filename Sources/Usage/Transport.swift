@@ -46,7 +46,7 @@ public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (I
 
 /// `registry` is a seam for tests: a send must be in it by the time the
 /// returned closure returns, which only a private registry lets a test observe.
-/// `disabled` is one too, since the suites run with the switch on.
+/// `disabled` is one too, since a debug suite may run with the switch on.
 func makeSend(
     endpoint: String,
     bearerKey: String? = nil,
@@ -136,8 +136,8 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///     one wins (tests), which is how a test reads the platform tag and the key's
 ///     placement that this function decides.
 ///   - disabled: the usage opt-out the client reads before every step. Defaults
-///     to `usageDisabled`; a test passes its own, since the suites run with the
-///     switch on.
+///     to `usageDisabled`; a test passes its own, since a debug suite may run
+///     with the switch on.
 public func makeClient(
     appId: String? = nil,
     key: String? = nil,

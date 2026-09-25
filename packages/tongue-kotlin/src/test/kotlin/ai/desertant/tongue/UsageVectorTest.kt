@@ -247,6 +247,10 @@ class UsageVectorTest {
         server.start()
         val previousEndpoint = System.getProperty("DAL_INGEST_ENDPOINT")
         val previousKey = System.getProperty("DAL_API_KEY")
+        val previousEnvironment = readEnvironment
+        // The test task's environment points the ingest at loopback, and the
+        // environment wins over the property this sets.
+        readEnvironment = { name -> if (name == "DAL_INGEST_ENDPOINT") null else previousEnvironment(name) }
         System.setProperty("DAL_INGEST_ENDPOINT", "http://127.0.0.1:${server.address.port}/api/v1/ingest")
         System.setProperty("DAL_API_KEY", "dal_test")
         try {
@@ -262,6 +266,7 @@ class UsageVectorTest {
             )
             assertFalse(sent.contains("\"key\""), "the key rode the body as well as the header: $sent")
         } finally {
+            readEnvironment = previousEnvironment
             if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
             else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
             if (previousKey == null) System.clearProperty("DAL_API_KEY")
@@ -291,6 +296,8 @@ class UsageVectorTest {
         val previousEndpoint = System.getProperty("DAL_INGEST_ENDPOINT")
         val previousKey = System.getProperty("DAL_API_KEY")
         val previousCodeKey = DesertAnt.apiKey
+        val previousEnvironment = readEnvironment
+        readEnvironment = { name -> if (name == "DAL_INGEST_ENDPOINT") null else previousEnvironment(name) }
         System.setProperty("DAL_INGEST_ENDPOINT", "http://127.0.0.1:${server.address.port}/api/v1/ingest")
         System.setProperty("DAL_API_KEY", "dal_from_property")
         DesertAnt.apiKey = "dal_from_code"
@@ -303,6 +310,7 @@ class UsageVectorTest {
             assertFalse(body!!.contains("\"key\""), "the key rode the body as well as the header: $body")
         } finally {
             DesertAnt.apiKey = previousCodeKey
+            readEnvironment = previousEnvironment
             if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
             else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
             if (previousKey == null) System.clearProperty("DAL_API_KEY")

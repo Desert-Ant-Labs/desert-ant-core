@@ -86,8 +86,8 @@ internal fun hostProvidedAppVersion(): String? = setting("DAL_APP_VERSION")
 /**
  * Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
  * set to false in code, or `DAL_USAGE_CONTEXT_DISABLED` under `flagIsSet` in the
- * environment or as the same-named system property. Either one opts out, as
- * with `usageDisabled()`. Usage itself still reports; only the context goes.
+ * environment or as the same-named system property. Either one opts out.
+ * Usage itself still reports; only the context goes.
  */
 internal fun deviceContextDisabled(): Boolean =
     !ai.desertant.tongue.DesertAnt.sendsDeviceContext ||

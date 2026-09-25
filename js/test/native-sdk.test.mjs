@@ -117,17 +117,17 @@ test("a host getter that throws does not fail the load", async () => {
   }
 });
 
-test("the usage switch reaches the native core under the core's truthiness rule", async () => {
+test("the context flag reaches the native core under the core's truthiness rule", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
-  const saved = process.env.DAL_USAGE_DISABLED;
+  const saved = process.env.DAL_USAGE_CONTEXT_DISABLED;
   const open = async (global, env) => {
-    if (env === undefined) delete process.env.DAL_USAGE_DISABLED;
-    else process.env.DAL_USAGE_DISABLED = env;
-    globalThis.__dalUsageDisabled = global;
+    if (env === undefined) delete process.env.DAL_USAGE_CONTEXT_DISABLED;
+    else process.env.DAL_USAGE_CONTEXT_DISABLED = env;
+    globalThis.__dalUsageContextDisabled = global;
     const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
     await assert.rejects(sdk.open(), "there is no native library here to load");
-    return process.env.DAL_USAGE_DISABLED;
+    return process.env.DAL_USAGE_CONTEXT_DISABLED;
   };
   try {
     assert.equal(await open(true, undefined), "1");
@@ -143,6 +143,26 @@ test("the usage switch reaches the native core under the core's truthiness rule"
       throw new Error("no consent manager yet");
     };
     assert.equal(await open(throwing, undefined), undefined, "a throwing global reads as unset");
+  } finally {
+    delete globalThis.__dalUsageContextDisabled;
+    if (saved === undefined) delete process.env.DAL_USAGE_CONTEXT_DISABLED;
+    else process.env.DAL_USAGE_CONTEXT_DISABLED = saved;
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});
+
+test("the page's usage switch is not bridged: a server has no opt-out", async () => {
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  const saved = process.env.DAL_USAGE_DISABLED;
+  delete process.env.DAL_USAGE_DISABLED;
+  try {
+    for (const global of [true, "1", 1, () => "1"]) {
+      globalThis.__dalUsageDisabled = global;
+      const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+      await assert.rejects(sdk.open(), "there is no native library here to load");
+      assert.equal(process.env.DAL_USAGE_DISABLED, undefined, `${String(global)} reached the native core`);
+    }
   } finally {
     delete globalThis.__dalUsageDisabled;
     if (saved === undefined) delete process.env.DAL_USAGE_DISABLED;

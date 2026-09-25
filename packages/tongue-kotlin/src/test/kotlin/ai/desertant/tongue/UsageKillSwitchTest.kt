@@ -10,6 +10,8 @@ import ai.desertant.tongue.usage.UsageStorage
 import ai.desertant.tongue.usage.UsageTurnstile
 import ai.desertant.tongue.usage.flagIsSet
 import ai.desertant.tongue.usage.readEnvironment
+import ai.desertant.tongue.usage.underTestRunner
+import ai.desertant.tongue.usage.usageDisabled
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
@@ -19,11 +21,13 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * `DAL_USAGE_DISABLED` as a JVM system property, the form a caller that cannot
- * set the environment uses. The Gradle test task sets the environment variable
- * for every test, and the environment wins, so this blanks the environment for
- * its duration; otherwise the switch would be on before the test touched it and
- * the property would prove nothing.
+ * `DAL_USAGE_DISABLED`, the SDK's own test switch, honored only under a JUnit
+ * runner: a shipped JVM or Android app has no usage opt-out. Mostly exercised
+ * as a JVM system property, the form a caller that cannot set the environment
+ * uses. The Gradle test task sets the environment variable for every test,
+ * and the environment wins, so this blanks the environment for its duration;
+ * otherwise the switch would be on before the test touched it and the property
+ * would prove nothing.
  *
  * That is process-wide state, as are the system properties `UsageVectorTest`
  * sets. Both are safe only because Gradle runs this module's test classes one
@@ -38,9 +42,9 @@ class UsageKillSwitchTest {
     }
 
     /**
-     * The switch is a consent flag an app flips after load: set before the
-     * first detection it builds nothing, cleared it lets the next detection
-     * report, and set again it stops the next send.
+     * The switch is read per call: set before the first detection it builds
+     * nothing, cleared it lets the next detection report, and set again it
+     * stops the next send.
      */
     @Test
     fun theSwitchIsReadPerCall() {
@@ -78,19 +82,10 @@ class UsageKillSwitchTest {
             assertTrue(turnstile.flushTelemetry())
             assertEquals(1, requests.get(), "a detection after the opt-out was sent")
 
-            // The in-code switch, which an Android app uses in place of either.
             System.clearProperty("DAL_USAGE_DISABLED")
-            DesertAnt.usageDisabled = true
-            try {
-                turnstile.record()
-                assertTrue(turnstile.flushTelemetry())
-                assertEquals(1, requests.get(), "DesertAnt.usageDisabled did not stop the send")
-            } finally {
-                DesertAnt.usageDisabled = false
-            }
             turnstile.record()
             assertTrue(turnstile.flushTelemetry())
-            assertEquals(2, requests.get(), "clearing DesertAnt.usageDisabled did not let usage report")
+            assertEquals(2, requests.get(), "clearing the switch did not let usage report")
         } finally {
             readEnvironment = previousEnvironment
             if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
@@ -189,6 +184,52 @@ class UsageKillSwitchTest {
             assertEquals(1, requests.get(), "the switch on still posted")
         } finally {
             readEnvironment = previousEnvironment
+            if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
+            else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
+            if (previousSwitch == null) System.clearProperty("DAL_USAGE_DISABLED")
+            else System.setProperty("DAL_USAGE_DISABLED", previousSwitch)
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun thisSuiteRunsUnderATestRunner() {
+        assertTrue(underTestRunner(), "JUnit was not found on the test classpath")
+    }
+
+    /** Without a test runner on the classpath the switch does nothing and usage still reports. */
+    @Test
+    fun outsideATestRunnerTheSwitchIsIgnored() {
+        val requests = AtomicInteger()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/api/v1/ingest") { exchange ->
+            requests.incrementAndGet()
+            exchange.requestBody.readBytes()
+            exchange.sendResponseHeaders(202, -1)
+            exchange.close()
+        }
+        server.start()
+        val previousEnvironment = readEnvironment
+        val previousRunner = underTestRunner
+        val previousEndpoint = System.getProperty("DAL_INGEST_ENDPOINT")
+        val previousSwitch = System.getProperty("DAL_USAGE_DISABLED")
+        readEnvironment = { name -> if (name == "DAL_USAGE_DISABLED") "1" else null }
+        underTestRunner = { false }
+        System.setProperty("DAL_INGEST_ENDPOINT", "http://127.0.0.1:${server.address.port}/api/v1/ingest")
+        System.setProperty("DAL_USAGE_DISABLED", "1")
+        try {
+            assertFalse(usageDisabled(), "a production classpath honored the test switch")
+            val storage = CountingStorage()
+            val turnstile = UsageTurnstile.create(null, storage)
+            turnstile.record()
+            assertTrue(turnstile.flushTelemetry())
+            assertEquals(1, requests.get(), "the test switch stopped a production send")
+
+            underTestRunner = { true }
+            assertTrue(usageDisabled(), "a test run did not honor the switch")
+        } finally {
+            readEnvironment = previousEnvironment
+            underTestRunner = previousRunner
             if (previousEndpoint == null) System.clearProperty("DAL_INGEST_ENDPOINT")
             else System.setProperty("DAL_INGEST_ENDPOINT", previousEndpoint)
             if (previousSwitch == null) System.clearProperty("DAL_USAGE_DISABLED")
