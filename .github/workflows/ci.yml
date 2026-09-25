@@ -4,7 +4,8 @@ name: CI
 # the same task you run locally. The question it answers is the only one that
 # matters here: does every model still work on every platform?
 #
-#   apple    Swift on macOS (Core ML) and on an iOS Simulator
+#   apple      Swift on macOS
+#   apple-ios  Swift on iOS
 #   darwin-native  the prebuilt native the npm package ships, on the release runner
 #   linux    Swift on Linux (LiteRT)
 #   windows  Swift on Windows, every model the manifest declares for it
@@ -60,7 +61,7 @@ jobs:
       - run: mise run test:js
 
   apple:
-    name: Apple (macOS + iOS Simulator)
+    name: Apple (macOS)
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v5
@@ -82,31 +83,6 @@ jobs:
           path: ~/Library/Caches/desert-ant-models
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
           restore-keys: models-${{ runner.os }}-
-
-      # test:ios pins DerivedData and the SPM clones to .build/ when $CI is set,
-      # so these caches turn the simulator build into an incremental one.
-      # Package.resolved keys the dependency graph; restore-keys accept a stale
-      # DerivedData, which xcodebuild then patches incrementally.
-      - name: Cache iOS DerivedData
-        uses: actions/cache/restore@v6
-        with:
-          path: .build/ios-deriveddata
-          # Per-commit keyed for the same reason as the scratch cache below: an
-          # exact hit never re-saves.
-          key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
-          restore-keys: ios-deriveddata-v2-${{ runner.os }}-
-
-      # Package.resolved is gitignored, so it cannot key this (hashFiles skips
-      # a missing file and the key silently collapses to Package.swift). test:ios
-      # resolves without -skipPackageUpdates, so a reused clone dir is
-      # patched to the current graph rather than trusted whole; restore-keys
-      # hand over the previous clone and xcodebuild fetches whatever drifted.
-      - name: Cache iOS SPM clones
-        uses: actions/cache/restore@v6
-        with:
-          path: .build/ios-packages
-          key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
-          restore-keys: ios-packages-v3-${{ runner.os }}-
 
       # build:swift and test:swift build into these scratch paths. Cold, they
       # rebuild every dependency (including swift-syntax via Title's MLX trait
@@ -131,6 +107,54 @@ jobs:
 
       - run: mise run build:swift
       - run: mise run test:swift
+
+      - name: Save Swift scratch paths
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            .build-host
+            .build-mlx
+            .build-xet
+          key: swift-scratch-v2-${{ runner.os }}-${{ github.sha }}
+
+  apple-ios:
+    name: Apple (iOS)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: 26.6
+      - uses: jdx/mise-action@v4
+        with:
+          version: 2026.9.2
+
+      # test:ios pins DerivedData and the SPM clones to .build/ when $CI is set,
+      # so these caches turn the simulator build into an incremental one.
+      # Package.resolved keys the dependency graph; restore-keys accept a stale
+      # DerivedData, which xcodebuild then patches incrementally.
+      - name: Cache iOS DerivedData
+        uses: actions/cache/restore@v6
+        with:
+          path: .build/ios-deriveddata
+          # Per-commit keyed, same reason as the apple job's scratch cache: an
+          # exact hit never re-saves.
+          key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ios-deriveddata-v2-${{ runner.os }}-
+
+      # Package.resolved is gitignored, so it cannot key this (hashFiles skips
+      # a missing file and the key silently collapses to Package.swift). test:ios
+      # resolves without -skipPackageUpdates, so a reused clone dir is
+      # patched to the current graph rather than trusted whole; restore-keys
+      # hand over the previous clone and xcodebuild fetches whatever drifted.
+      - name: Cache iOS SPM clones
+        uses: actions/cache/restore@v6
+        with:
+          path: .build/ios-packages
+          key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ios-packages-v3-${{ runner.os }}-
+
       - run: mise run test:ios
 
       - name: Save iOS DerivedData
@@ -146,16 +170,6 @@ jobs:
         with:
           path: .build/ios-packages
           key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
-
-      - name: Save Swift scratch paths
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            .build-host
-            .build-mlx
-            .build-xet
-          key: swift-scratch-v2-${{ runner.os }}-${{ github.sha }}
 
   darwin-native:
     name: darwin native (npm)
