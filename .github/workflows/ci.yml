@@ -311,10 +311,16 @@ jobs:
       # JavaScriptKit's BridgeJS plugin needs, minutes on its own. The source
       # hash keys an exact hit; restore-keys accept a stale cache SwiftPM then
       # patches incrementally.
+      #
+      # .build-wasm-workers holds build:wasm's parallel link lanes, each a
+      # seeded copy of .build. Caching them keeps the one-time seed rebuild
+      # (host tools re-key on the copied path) at cache-miss frequency.
       - name: Cache the Swift wasm build
         uses: actions/cache/restore@v6
         with:
-          path: .build
+          path: |
+            .build
+            .build-wasm-workers
           # Per-commit key, same reasoning as the Apple scratch cache: file
           # hashes exact-hit a stale snapshot and never re-save.
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
@@ -379,7 +385,9 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
         with:
-          path: .build
+          path: |
+            .build
+            .build-wasm-workers
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
 
   js-node:

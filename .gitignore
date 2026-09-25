@@ -4,6 +4,7 @@ mise.local.toml
 # swift.org, and Android snapshot toolchains produce incompatible artifacts.
 .build/
 .build-host/
+.build-wasm-workers/
 .build-android/
 .build-androidtest/
 .build-floor/

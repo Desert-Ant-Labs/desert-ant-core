@@ -37,40 +37,136 @@ sdk=$(dal_wasm_sdk)
 # product that stops compiling should fail here rather than the first time
 # someone packages it.
 #
-# Three phases rather than one loop: the Swift builds must run serially (the js
-# plugin needs the one default scratch path), but the wasm-opt passes are
-# independent single-threaded jobs of about a minute each, so they run in
-# parallel once every binary exists.
+# Four phases rather than one loop: one plugin build in the default scratch
+# path to bring the shared graph and the host tooling up to date, then the
+# rest of the plugin builds fanned out over worker scratch paths, then the
+# wasm-opt passes (independent single-threaded jobs of about a minute each),
+# then staging.
 #
-# No whole-package prebuild: the js plugin adds
-# its own global flags to every build it drives (-static-stdlib, the reactor
-# exec model, the __main_argc_argv export), and SwiftPM keys its build
-# database on the exact command line: a prebuild in any other configuration
-# is rebuilt by the plugin loop and rebuilds it back next run, the whole
-# graph twice per invocation. The flags cannot be matched from the CLI
-# either, -Xswiftc is global and -static-stdlib breaks the host macro tools.
-# With one configuration in the scratch path, the first plugin run builds
-# the shared graph once and the rest are incremental.
-built=""
-for model in $(dal_select "${usage_model:-all}"); do
-    product=$(dal_product "$model")
-    [ -d "Sources/$product/Web" ] || { echo "== $product has no wasm entry, skipping =="; continue; }
-    out=.build/wasm-package/$product
-    echo "== ${product}Web =="
-
-    # The default scratch path on purpose: the js packaging plugin mislocates
-    # its products under a custom --scratch-path.
-    #
-    # --allow-writing-to-package-directory: the plugin writes $out under .build/,
-    # which SwiftPM's plugin sandbox blocks on macOS without it.
+# No whole-package prebuild: the js plugin adds its own global flags to every
+# build it drives (-static-stdlib, the reactor exec model, the
+# __main_argc_argv export), and SwiftPM keys its build database on the exact
+# command line, so a prebuild in any other configuration churns the graph.
+# The fan-out sidesteps that: every invocation is the same plugin build, just
+# against its own scratch path.
+#
+# The workers exist because the per-product cost is a serial wasm-ld link of
+# the whole static core, about half a minute each on a CI runner, which for a
+# dozen products is minutes of one core linking while the rest idle. Any edit
+# to a shared module relinks every product, so a warm .build does not help.
+# Each worker scratch is seeded once by copying .build; the copy's first
+# build rebuilds the host tools (llbuild keys on absolute paths, and clang's
+# precompiled modules record the cache path they were built under), so the
+# seed costs about a minute, once, after which the worker is incremental like
+# any scratch path. CI caches the worker dirs alongside .build so that price
+# is paid per cache miss, not per run.
+#
+# --scratch-path is safe here: the js plugin's known mislocation under a
+# custom scratch path is in its `test` subcommand, and the build path
+# resolves the artifact from SwiftPM's own build result. The --output dir
+# stays under the default .build for every worker, which the staging and
+# wasm-opt phases below rely on.
+build_one() { # product scratch-args...
+    local product=$1; shift
+    # jobs is set below once the lane count is known: concurrent lanes must
+    # split the cores, or the one-time seed rebuilds (swift-syntax for the
+    # BridgeJS host tools, about a gigabyte per frontend job) OOM a small
+    # runner when every lane spawns nproc frontends at once.
+    set -- -j "${jobs:-1}" "$@"
+    # --allow-writing-to-package-directory: the plugin writes its output under
+    # .build/, which SwiftPM's plugin sandbox blocks on macOS without it.
     #
     # --no-optimize: the plugin would run its own wasm-opt pass per model,
     # serially; the parallel pass below covers every binary with a fuller flag
     # set, so the plugin's is wasted work.
-    swift package -Xswiftc -Osize --swift-sdk "$sdk" --allow-writing-to-package-directory \
-        js --product "${product}Web" -c release --no-optimize --output "$out"
-    built="$built $model"
+    swift package "$@" -Xswiftc -Osize --swift-sdk "$sdk" --allow-writing-to-package-directory \
+        js --product "${product}Web" -c release --no-optimize --output ".build/wasm-package/$product"
+}
+
+queue=""
+for model in $(dal_select "${usage_model:-all}"); do
+    product=$(dal_product "$model")
+    [ -d "Sources/$product/Web" ] || { echo "== $product has no wasm entry, skipping =="; continue; }
+    queue="$queue $model"
 done
+queued=$(echo "$queue" | wc -w | tr -d ' ')
+
+# Lane count: the links are single-threaded, so one lane per core up to 4,
+# where the duplicated recompiles across the worker scratches stop paying for
+# themselves. DAL_WASM_JOBS=1 restores the fully serial build.
+lanes=${DAL_WASM_JOBS:-$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)}
+[ "$lanes" -gt 4 ] && lanes=4
+[ "$lanes" -gt "$queued" ] && lanes=$queued
+[ "$lanes" -lt 1 ] && lanes=1
+
+cores=$(getconf _NPROCESSORS_ONLN 2> /dev/null || echo 1)
+jobs=$cores
+
+built=""
+first=${queue# }
+first=${first%% *}
+if [ "$queued" -gt 0 ]; then
+    # The first product runs alone in the default scratch path: it builds the
+    # shared graph and the BridgeJS host tooling once, so the workers seed from
+    # a warm .build and the fan-out is links, not a compile stampede.
+    product=$(dal_product "$first")
+    echo "== ${product}Web =="
+    build_one "$product"
+    built="$built $first"
+fi
+
+if [ "$queued" -gt 1 ]; then
+    rest=${queue#* "$first"}
+    jobs=$(((cores + lanes - 1) / lanes))
+    logdir=.build/wasm-logs
+    rm -rf "$logdir" && mkdir -p "$logdir"
+    pids=""
+    for lane in $(seq 1 "$lanes"); do
+        scratch="" # lane 1 reuses the default .build
+        if [ "$lane" -gt 1 ]; then
+            worker=.build-wasm-workers/$((lane - 1))
+            if [ ! -d "$worker" ]; then
+                echo "== seeding worker scratch $worker (one-time) =="
+                mkdir -p .build-wasm-workers
+                cp -a .build "$worker"
+                # Drop the copied outputs of the earlier plugin runs, and
+                # clang's module caches, whose .pcm files refuse to load from
+                # any path but the one they were built under.
+                rm -rf "$worker/wasm-package" "$worker/wasm-logs" "$worker"/*/*/ModuleCache
+            fi
+            scratch=$worker
+        fi
+        # Round-robin over the remaining products: lane N takes the Nth, then
+        # every lanes-th after it.
+        (
+            i=0
+            for m in $rest; do
+                if [ $((i % lanes)) -eq $((lane - 1)) ]; then
+                    p=$(dal_product "$m")
+                    echo "== ${p}Web (lane $lane) =="
+                    if [ -n "$scratch" ]; then
+                        build_one "$p" --scratch-path "$scratch"
+                    else
+                        build_one "$p"
+                    fi
+                fi
+                i=$((i + 1))
+            done
+        ) > "$logdir/lane-$lane.log" 2>&1 &
+        pids="$pids $!:$lane"
+    done
+    failed=0
+    for entry in $pids; do
+        pid=${entry%%:*} lane=${entry##*:}
+        if ! wait "$pid"; then
+            echo "error: wasm build lane $lane failed" >&2
+            failed=1
+        fi
+        cat "$logdir/lane-$lane.log"
+    done
+    [ "$failed" -eq 0 ] || exit 1
+    built="$built $rest"
+fi
 
 if command -v wasm-opt > /dev/null; then
     pids=()
