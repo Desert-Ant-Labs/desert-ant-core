@@ -17,13 +17,11 @@ private let sendTimeoutSeconds = 5.0
 /// Whether the key can ride an `Authorization` header on every path this
 /// transport uses.
 ///
-/// False on Android, whose host bridge takes a body and a content type only, and
-/// on wasm, where a browser's unload flush is a `sendBeacon` and cannot carry a
-/// header; one wasm binary is the same code for a page and for a Node process, so
-/// it keeps one answer for both rather than branching on the host. Those two keep
-/// the key in the body.
+/// False on wasm, where a browser's unload flush is a `sendBeacon` and cannot
+/// carry a header; one wasm binary is the same code for a page and for a Node
+/// process, so it keeps one answer for both rather than branching on the host.
+/// It keeps the key in the body.
 private var keyRidesInHeader: Bool {
-    if !httpSupportsRequestHeaders { return false }
     #if os(WASI)
     return false
     #else

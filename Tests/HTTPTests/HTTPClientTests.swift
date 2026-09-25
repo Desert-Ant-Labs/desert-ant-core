@@ -193,9 +193,8 @@ struct HTTPClientTests {
     }
 
     @Test func postSendsRequestHeaders() async throws {
-        // The usage transport carries the API key here on builds that can set one.
-        // Android cannot (its host bridge takes a body and a content type only),
-        // which is why this is a parameter and not baked into httpPOST.
+        // The usage transport carries the API key here on every build but wasm,
+        // whose unload flush is a header-less sendBeacon.
         //
         // Asserted through the body rather than the echoed response header: the wasm
         // client surfaces only Content-Type from a response, and Node's fetch does

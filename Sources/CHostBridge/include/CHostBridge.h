@@ -55,16 +55,17 @@ int32_t host_http_download(const char *url, const char *dest_path,
                            void *ctx, HostProgressFn progress);
 
 // Generic HTTP request (Android): the host performs `method url` with an optional
-// body and content type, returning a malloc'd buffer laid out as:
+// body, content type and headers, returning a malloc'd buffer laid out as:
 //   4-byte big-endian status, 4-byte big-endian body length, then body bytes.
-// Returns NULL on transport failure. `body`/`content_type` may be NULL.
+// Returns NULL on transport failure. `body`/`content_type`/`headers` may be
+// NULL; `headers` is "Name: value" lines separated by '\n'.
 typedef char *(*HostHttpRequestFn)(const char *method, const char *url,
                                    const uint8_t *body, int32_t body_len,
-                                   const char *content_type);
+                                   const char *content_type, const char *headers);
 void host_set_http_request(HostHttpRequestFn fn);
 char *host_http_request(const char *method, const char *url,
                         const uint8_t *body, int32_t body_len,
-                        const char *content_type);
+                        const char *content_type, const char *headers);
 
 // Preferences (Android): the host persists small string values keyed by name,
 // backed by SharedPreferences. get returns a malloc'd value string (NULL if
