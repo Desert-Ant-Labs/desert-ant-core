@@ -125,6 +125,17 @@ if [ "$queued" -gt 1 ]; then
         scratch="" # lane 1 reuses the default .build
         if [ "$lane" -gt 1 ]; then
             worker=.build-wasm-workers/$((lane - 1))
+            # CI stores the workers hardlinked against .build so the cache
+            # archive carries one copy of the shared bytes (tar keeps
+            # hardlinks). Shared inodes must not survive into a build: lanes
+            # rewrite outputs in place concurrently, so a linked file would
+            # corrupt its counterpart. Break the links with a plain copy.
+            if [ -d "$worker" ] && [ -n "$(find "$worker" -type f -links +1 -print -quit)" ]; then
+                echo "== unsharing worker scratch $worker =="
+                cp -a "$worker" "$worker.unshared"
+                rm -rf "$worker"
+                mv "$worker.unshared" "$worker"
+            fi
             if [ ! -d "$worker" ]; then
                 echo "== seeding worker scratch $worker (one-time) =="
                 mkdir -p .build-wasm-workers

@@ -315,12 +315,17 @@ jobs:
       # .build-wasm-workers holds build:wasm's parallel link lanes, each a
       # seeded copy of .build. Caching them keeps the one-time seed rebuild
       # (host tools re-key on the copied path) at cache-miss frequency.
+      #
+      # .build/wasm-package is excluded from both cache steps: it is the
+      # plugin's packaging output, re-derived from the cached build in
+      # seconds, and two thirds of a gigabyte of .wasm binaries otherwise.
       - name: Cache the Swift wasm build
         uses: actions/cache/restore@v6
         with:
           path: |
             .build
             .build-wasm-workers
+            !.build/wasm-package
           # Per-commit key, same reasoning as the Apple scratch cache: file
           # hashes exact-hit a stale snapshot and never re-save.
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
@@ -381,6 +386,26 @@ jobs:
       # SSR breaks pass the unit tests and fail in a consumer's `next build`.
       - run: mise run test:bundles
 
+      # The worker scratches are near-identical copies of .build, so storing
+      # them whole would quadruple the cache entry. Hardlink every worker file
+      # that is byte-identical to its .build counterpart: tar stores a
+      # hardlink once, so the archive carries one copy of the shared bytes
+      # plus each worker's deltas. build:wasm breaks the links before the
+      # next build (concurrent lanes rewrite outputs in place).
+      - name: Dedupe the worker scratches
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          [ -d .build-wasm-workers ] || exit 0
+          for worker in .build-wasm-workers/*/; do
+            find "$worker" -type f -print0 | while IFS= read -r -d '' f; do
+              ref=".build/${f#"$worker"}"
+              if [ -f "$ref" ] && cmp -s "$f" "$ref"; then
+                ln -f "$ref" "$f"
+              fi
+            done
+          done
+          du -sh .build .build-wasm-workers
+
       - name: Save the Swift wasm build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/cache/save@v6
@@ -388,6 +413,7 @@ jobs:
           path: |
             .build
             .build-wasm-workers
+            !.build/wasm-package
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
 
   js-node:
