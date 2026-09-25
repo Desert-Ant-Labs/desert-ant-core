@@ -19,10 +19,7 @@ final class Model: @unchecked Sendable {
     private let queryCache = QueryCache(capacity: 256)
     /// Decode outputs, in the order the graph declares them.
     let decodeOutputs: [String]
-    /// Whether the decode graph also has the 1.1 presence gates
-    /// (`num_presence`, `dt_presence`). Found out on the first run: a 1.0
-    /// graph rejects the names, and then the 1.0 list is used from there on.
-    private let gates = GateProbe()
+
 
     /// Separator between the anchor, the schema summary and the text in the
     /// joint input. Part of the trained contract, not a formatting choice.
@@ -156,24 +153,9 @@ final class Model: @unchecked Sendable {
                       "query_bias": queryBias, "pool_w": poolW,
                       "dt_query": dtStates, "dt_bias": dtBias,
                       "num_query": numStates, "num_bias": numBias]
-        var names = decodeOutputs
-        var outs: [Tensor]
-        if await gates.known != false {
-            let gated = (decodeOutputs + Self.gateOutputNames).sorted()
-            do {
-                outs = try await decode.run(inputs: inputs, outputs: gated)
-                names = gated
-                await gates.set(true)
-            } catch {
-                if await gates.known == true { throw error }
-                await gates.set(false)
-                outs = try await decode.run(inputs: inputs, outputs: decodeOutputs)
-            }
-        } else {
-            outs = try await decode.run(inputs: inputs, outputs: decodeOutputs)
-        }
+        let outs = try await decode.run(inputs: inputs, outputs: decodeOutputs)
 
-        return Stage(heads: try Heads(names: names, tensors: outs),
+        return Stage(heads: try Heads(names: decodeOutputs, tensors: outs),
                      tokens: textTokens, shift: textStart - 1,
                      textStart: textStart, validEnd: validEnd, window: window,
                      truncated: truncated)
@@ -372,11 +354,6 @@ final class Model: @unchecked Sendable {
     }
 
     private func number(_ s: Stage, _ text: String, _ field: Field) -> Value {
-        // No presence gate. v79 ships with `_gate_nums` UNSET: the number
-        // absence head exists but the model of record never consults it.
-        // Applying it anyway turned 23 of the reference's numbers into nulls.
-        // Absence is decided only by the component decoder below, and only
-        // for nullable fields.
         guard s.textStart < s.validEnd else { return compose(s, field) }
 
         // Strategy A, the parse-gate: LOCATE the literal with the span
@@ -384,14 +361,13 @@ final class Model: @unchecked Sendable {
         // it does not read the digits (learned digits mis-scale: 950000 as
         // 9500).
         let startLogits = s.heads["span_start"], endLogits = s.heads["span_end"]
-        // Absence. A 1.1 graph has a trained presence gate; a 1.0 graph only
-        // the digit decoder's null logit, which still beats composing a
-        // value for a field the text never states (measured +0.06 on number).
-        let np = s.heads["num_presence"]
-        if np.count == 2, Levers.on("num_presence_gate") {
-            if Harness.softmax2(np[1], np[0]) >= 0.5 { return .null }
-        } else if Levers.on("num_null_gate"), field.nullable,
-                  1 / (1 + expf(-(s.heads["num_null"].first ?? 0))) > 0.5 {
+        // Absence. The digit decoder's null logit decides it for a nullable
+        // field before anything is parsed: composing a value for a field the
+        // text never states was 1.0's largest number error (measured +0.06
+        // on number). A trained presence gate was tried in 1.1 and did not
+        // beat this (docs/swift-eval.md).
+        if Levers.on("num_null_gate"), field.nullable,
+           1 / (1 + expf(-(s.heads["num_null"].first ?? 0))) > 0.5 {
             return .null
         }
         // Candidate starts, best first. The first is the reference's argmax;
@@ -465,10 +441,6 @@ final class Model: @unchecked Sendable {
         }
 
         if 1 / (1 + expf(-(s.heads["dt_null"].first ?? 0))) > 0.5 { return .null }
-        let dp = s.heads["dt_presence"]
-        if dp.count == 2, Levers.on("dt_presence_gate"), Harness.softmax2(dp[1], dp[0]) >= 0.5 {
-            return .null
-        }
         let y = anchor.year ?? 2026
         guard var iso = Harness.datetime(
             year: Harness.year(fromClass: s.heads.argmax("dt_year", 256), anchorYear: y),
@@ -584,9 +556,6 @@ final class Model: @unchecked Sendable {
     /// short by one (`dt_dow`, which nothing reads) until the LiteRT export
     /// wrote `decode_outputs.json` beside the artifacts and the two were
     /// compared. Generated from that file; do not hand-edit.
-    /// The presence gates a 1.1 decode graph adds (see `gates`).
-    static let gateOutputNames = ["dt_presence", "num_presence"]
-
     static let decodeOutputNames: [String] = [
         "array_bio", "array_presence", "bool_logits", "dt_day", "dt_dow",
         "dt_hour", "dt_is_rel", "dt_minute", "dt_month", "dt_null",
@@ -595,12 +564,6 @@ final class Model: @unchecked Sendable {
         "num_magnitude", "num_null", "num_sign", "proto_text", "reader_rep",
         "span_end", "span_start", "string_bio", "string_presence",
     ]
-}
-
-/// Whether the decode graph has the presence gates, once a run has said.
-private actor GateProbe {
-    private(set) var known: Bool? = nil
-    func set(_ v: Bool) { known = v }
 }
 
 /// Session cache. An actor rather than a lock because the loads it guards are
