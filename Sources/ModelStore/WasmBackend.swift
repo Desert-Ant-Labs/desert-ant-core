@@ -194,6 +194,25 @@ public extension StoredModel {
         return StoredModel(rootPath: rootPath, fileSystem: JSFileSystem(cacheRoot: rootPath))
     }
 
+    /// Compile a model file on the JS host and return its handle, once per
+    /// file: the second session over a file (another of its signatures) reuses
+    /// the compiled model rather than paying for its weights again. The host
+    /// keeps the handles, not this side, because a host is replaced on every
+    /// `load()` and a handle cached here would outlive the one that issued it.
+    func loadJavaScriptModel(modelFile: String) async throws -> Int {
+        let key = path(modelFile)
+        do {
+            let known = try dalModelHost.findModel(key)
+            if known > 0 { return known }
+            if jsIsNode() {
+                return try await dalModelHost.loadModelFromPath(key)
+            }
+            return try await dalModelHost.loadModelFromBytes(JSUint8Array(try read(modelFile)), key)
+        } catch let error as JSException {
+            throw ModelStoreError.io("the host could not compile the model: \(error)")
+        }
+    }
+
     /// Hand the model to the JS host so it can compile it: the cached path under
     /// node (avoiding a large copy across the wasm boundary), the bytes in the
     /// browser, whose store is in memory. The host's typed contract lives in

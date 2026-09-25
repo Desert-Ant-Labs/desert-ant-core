@@ -34,7 +34,10 @@ function fakeLiteRt() {
       return { probs: makeOutput("probs", [first.data.length]) };
     },
   });
-  return { Tensor, loadAndCompile, deleted, loadLiteRt: async () => {} };
+  return {
+    Tensor, loadAndCompile, deleted, loadLiteRt: async () => {},
+    makeOutput: (floats) => makeOutput("probs", floats),
+  };
 }
 
 test("makeLiteRtHost creates a session and marshals + frees tensors", async () => {
@@ -70,6 +73,49 @@ test("makeLiteRtHost setModel lets the modelBaseUrl path share run()", async () 
     x: { data: new Uint8Array(new Float32Array([1]).buffer), dims: [1], type: "float32" },
   });
   assert.ok(out.probs);
+});
+
+test("makeLiteRtHost keeps several models side by side and runs their signatures", async () => {
+  const compiled = [];
+  const seen = [];
+  const lrt = fakeLiteRt();
+  const loadAndCompile = async (bytes) => {
+    const m = {
+      bytes,
+      run: async (a, b) => {
+        const [signature, feeds] = typeof a === "string" ? [a, b] : ["", a];
+        seen.push([m.bytes[0], signature]);
+        return { probs: lrt.makeOutput([Object.values(feeds)[0].data.length]) };
+      },
+    };
+    compiled.push(m);
+    return m;
+  };
+  const { host, setModel } = makeLiteRtHost({
+    loadAndCompile, Tensor: lrt.Tensor, readModelSource: async (s) => s,
+  });
+  const x = { x: { data: new Uint8Array(new Float32Array([1]).buffer), dims: [1], type: "float32" } };
+
+  assert.equal(host.findModel("enc"), 0, "nothing compiled yet");
+  // Two loads of one key at once compile once and agree on the handle.
+  const [a, a2] = await Promise.all([
+    host.loadModelFromBytes(new Uint8Array([1]), "enc"),
+    host.loadModelFromBytes(new Uint8Array([1]), "enc"),
+  ]);
+  assert.equal(a, a2);
+  assert.ok(a > 0);
+  assert.equal(host.findModel("enc"), a);
+  const b = await host.loadModelFromBytes(new Uint8Array([2]), "dec");
+  assert.notEqual(a, b);
+  assert.equal(compiled.length, 2, "each file compiled once");
+
+  await host.runModel(a, "encode_256", x);
+  await host.runModel(b, "", x);
+  setModel(await loadAndCompile(new Uint8Array([3])));
+  await host.runModel(0, "encode_32", x);
+  await host.run(x);
+  assert.deepEqual(seen, [[1, "encode_256"], [2, ""], [3, "encode_32"], [3, ""]]);
+  await assert.rejects(() => host.runModel(99, "", x), /no compiled model/);
 });
 
 test("the host seam is late-bound, so a core can instantiate before LiteRT exists", async () => {

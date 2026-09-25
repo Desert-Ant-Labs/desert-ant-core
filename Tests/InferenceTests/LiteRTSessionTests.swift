@@ -18,6 +18,82 @@ struct LiteRTSessionTests {
         return url.path
     }
 
+    /// `signatures.tflite` carries two signatures over one graph shape:
+    /// `double` (y = 2x + bias) and `triple` (y = 3x + bias). Its inputs are
+    /// listed `bias`, `x`: sorted by name, not in the order the forward
+    /// declared them, which is what a litert-torch export does.
+    private func signaturesPath() throws -> String {
+        try #require(Bundle.module.url(forResource: "signatures", withExtension: "tflite")).path
+    }
+
+    private func y(_ session: LiteRTSession) throws -> [Float] {
+        let out = try session.run(
+            inputs: ["x": Tensor(float32: [1, 1, 1, 1], shape: [1, 4]),
+                     "bias": Tensor(float32: [0.5, 0.5, 0.5, 0.5], shape: [1, 4])],
+            outputs: ["y"], deviceId: nil)
+        return try #require(out.first?.float32Values)
+    }
+
+    @Test func aSessionRunsTheSignatureItNames() throws {
+        let path = try signaturesPath()
+        let double = try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "double")
+        let triple = try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "triple")
+        // Two sessions over one file share its compiled model; each still runs
+        // its own signature, in either order, and again.
+        #expect(try y(triple) == [3.5, 3.5, 3.5, 3.5])
+        #expect(try y(double) == [2.5, 2.5, 2.5, 2.5])
+        #expect(try y(triple) == [3.5, 3.5, 3.5, 3.5])
+        // No name runs the first.
+        #expect(try y(try LiteRTSession(modelPath: path, accelerator: .cpu)) == [2.5, 2.5, 2.5, 2.5])
+    }
+
+    /// Two sessions of the same signature are a pool: each gets a compiled
+    /// model of its own, so their runs overlap instead of queueing on one.
+    @Test func aPoolOfOneSignatureRunsConcurrently() async throws {
+        let path = try signaturesPath()
+        let pool = try (0..<4).map { _ in
+            try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "triple")
+        }
+        let results = try await withThrowingTaskGroup(of: [Float].self) { group in
+            for session in pool {
+                group.addTask { try (0..<50).map { _ in try self.y(session) }.last! }
+            }
+            return try await group.reduce(into: []) { $0.append($1) }
+        }
+        #expect(results.count == 4 && results.allSatisfy { $0 == [3.5, 3.5, 3.5, 3.5] })
+    }
+
+    @Test func anUnknownSignatureIsRefused() throws {
+        #expect(throws: InferenceError.self) {
+            _ = try LiteRTSession(modelPath: try signaturesPath(), accelerator: .cpu, signature: "nope")
+        }
+    }
+
+    /// The factory's `functionName` is the signature on LiteRT, as it is the
+    /// function of a multifunction package on Core ML.
+    @Test func theFactoryPassesTheFunctionNameAsTheSignature() async throws {
+        let session = try inferenceSession(modelPath: try signaturesPath(), functionName: "triple")
+        let out = try await session.run(
+            inputs: ["x": Tensor(float32: [1, 1, 1, 1], shape: [1, 4]),
+                     "bias": Tensor(float32: [0, 0, 0, 0], shape: [1, 4])],
+            outputs: ["y"])
+        let values = try #require(out.first?.float32Values)
+        #expect(values.allSatisfy { abs($0 - 3) < 1e-3 })
+    }
+
+    /// Sessions over one file come and go independently: the compiled model
+    /// outlives the first session released and is freed with the last.
+    @Test func sharedCompiledModelOutlivesItsFirstSession() throws {
+        let path = try signaturesPath()
+        var first: LiteRTSession? = try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "double")
+        let second = try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "triple")
+        #expect(try y(first!) == [2.5, 2.5, 2.5, 2.5])
+        first = nil
+        #expect(try y(second) == [3.5, 3.5, 3.5, 3.5])
+        let again = try LiteRTSession(modelPath: path, accelerator: .cpu, signature: "double")
+        #expect(try y(again) == [2.5, 2.5, 2.5, 2.5])
+    }
+
     @Test func namedTensorRunMatchesReference() throws {
         // Pin CPU for an exact numeric reference: the default (.auto) may run on
         // a GPU accelerator when one is bundled, whose kernels differ by ~1e-3.

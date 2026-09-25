@@ -32,6 +32,11 @@ export class FfiReader {
     return v;
   }
 
+  /** Whether any bytes are left, for fields appended after a first release. */
+  hasRemaining() {
+    return this._o < this._view.byteLength;
+  }
+
   /** Read `n` raw bytes (a view into the underlying buffer; copy if retaining). */
   bytes(n) {
     const v = this._bytes.subarray(this._o, this._o + n);

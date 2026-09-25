@@ -10,6 +10,7 @@ import DesertAnt
 @testable import Clips
 @testable import Shapes
 @testable import Align
+@testable import Schemer
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -25,6 +26,7 @@ let catalog: [any ModelDeclaration.Type] = [
     ClipModel.self,
     ShapesModel.self,
     AlignModel.self,
+    SchemerModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails

@@ -137,11 +137,20 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 prediction = retried
             }
         }
-        return try outputs.map { name in
-            guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
-                throw InferenceError.runFailed("the model returned no '\(name)'")
+        // Read inside a pool. The outputs are IOSurface-backed MLMultiArrays
+        // handed back autoreleased, and a caller looping over many runs can
+        // otherwise keep them alive until the Neural Engine runtime cannot get
+        // another surface: "Failed to allocate E5 buffer object", an uncaught
+        // NSException, after ~500 schemer fields. IOSurface memory is not in
+        // phys_footprint, so the process looked flat while it leaked. The
+        // Tensors returned here are copies, so nothing escapes the pool.
+        return try autoreleasepool {
+            try outputs.map { name in
+                guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
+                    throw InferenceError.runFailed("the model returned no '\(name)'")
+                }
+                return readTensor(array)
             }
-            return readTensor(array)
         }
     }
 
@@ -192,7 +201,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     /// It lives in a synchronous function because inside an `async` one the
     /// compiler picks Core ML's `async` overload of the same name.
     private func predictSynchronously(_ provider: MLFeatureProvider) throws -> MLFeatureProvider {
-        try model.prediction(from: provider)
+        try autoreleasepool { try model.prediction(from: provider) }
     }
 
     /// A set of input arrays this run owns until it is done with them.

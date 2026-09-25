@@ -1,5 +1,9 @@
 import ModelStore
 import Usage
+#if os(WASI)
+import JSHost
+import JavaScriptKit
+#endif
 
 // The platform seam for building sessions, so model SDKs never name a concrete
 // session type (and need no platform conditionals): declare the artifact per
@@ -11,6 +15,8 @@ import Usage
 ///
 /// `computeUnits` is a Core ML concern (LiteRT picks its own delegates), and the
 /// environment can still override it - see `CoreMLSession.configuration(for:)`.
+/// `functionName` picks a Core ML multifunction package's function, or a LiteRT
+/// model's signature: the same idea on each backend.
 public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .all,
                              functionName: String? = nil,
                              sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
@@ -26,7 +32,10 @@ public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .al
     return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits,
                                      functionName: functionName), sdk: sdk)
     #elseif canImport(CLiteRt)
-    return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
+    // A Core ML function and a LiteRT signature are the same idea, one file
+    // with several fixed shapes over one copy of the weights, so the one name
+    // selects either.
+    return tracked(try LiteRTSession(modelPath: modelPath, signature: functionName), sdk: sdk)
     #else
     throw InferenceError.sessionUnavailable("no on-device inference runtime on this platform")
     #endif
@@ -50,6 +59,29 @@ public func inferenceSession(modelBytes: [UInt8], sdk: SDKInfo = SDKInfo()) thro
 public func inferenceSession(sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     tracked(JSInferenceSession(), sdk: sdk)
 }
+
+/// One signature of the model the JS host compiled on the `modelBaseUrl` path,
+/// for a self-hosted model that carries several (see `JSInferenceSession`).
+public func inferenceSession(hostModelSignature signature: String,
+                             sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
+    tracked(JSInferenceSession(model: 0, signature: signature), sdk: sdk)
+}
+
+/// A session over one signature of model bytes the JS host compiles under
+/// `key`, or reuses if it already has: a self-hosted model's second and third
+/// graphs, which arrive as sidecars.
+public func inferenceSession(hostModelBytes bytes: [UInt8], key: String, signature: String? = nil,
+                             sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
+    let handle: Int
+    do {
+        let known = try dalModelHost.findModel(key)
+        handle = known > 0 ? known
+            : try await dalModelHost.loadModelFromBytes(JSUint8Array(bytes), key)
+    } catch {
+        throw InferenceError.sessionUnavailable("the host could not compile the model: \(error)")
+    }
+    return tracked(JSInferenceSession(model: handle, signature: signature), sdk: sdk)
+}
 #endif
 
 public extension StoredModel {
@@ -63,8 +95,11 @@ public extension StoredModel {
                           functionName: String? = nil,
                           sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
-        try await createJavaScriptSession(modelFile: model)
-        return tracked(JSInferenceSession(), sdk: sdk)
+        // Each file is compiled once into a model of its own on the host, and
+        // a session is one signature of it, so a model of several graphs (or of
+        // several windows over one graph's weights) keeps them side by side.
+        let handle = try await loadJavaScriptModel(modelFile: model)
+        return tracked(JSInferenceSession(model: handle, signature: functionName), sdk: sdk)
         #else
         return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits,
                                               functionName: functionName, sdk: sdk)  // already tracked

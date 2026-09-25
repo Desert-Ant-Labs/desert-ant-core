@@ -26,6 +26,10 @@ const imports = {
     createSessionFromPath: unreachable,
     createSessionFromBytes: unreachable,
     run: unreachable,
+    findModel: unreachable,
+    loadModelFromPath: unreachable,
+    loadModelFromBytes: unreachable,
+    runModel: unreachable,
   },
 };
 

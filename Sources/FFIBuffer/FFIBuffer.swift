@@ -201,10 +201,12 @@ public struct FFIReader: Sendable {
         return Array(s)
     }
 
-    /// Read a `u32` count followed by that many strings.
+    /// Read a `u32` count followed by that many strings. Each string is at
+    /// least its 4-byte length, so a count larger than the bytes left can hold
+    /// is a malformed buffer and yields `[]`.
     public mutating func strings() -> [String] {
         let count = u32()
-        guard count > 0 else { return [] }
+        guard count > 0, count <= remaining / 4 else { return [] }
         return (0..<count).map { _ in string() }
     }
 }

@@ -10,7 +10,24 @@ import JavaScriptKit
 /// host must satisfy. Tensor bytes cross the wasm boundary raw, so neither side
 /// marshals per element.
 public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
-    public init() {}
+    /// Which of the host's compiled models, and which of its signatures. `nil`
+    /// is the module's one model through `run`, which is every single-graph
+    /// model; a handle comes from `loadModelFrom*` (see `Host.swift`).
+    private let model: Int?
+    private let signature: String
+
+    public init() {
+        model = nil
+        signature = ""
+    }
+
+    /// A session over one signature of a model the host compiled. Handle 0 is
+    /// the module's own model (the one `run` uses), so a self-hosted model's
+    /// signatures are reachable through it.
+    public init(model: Int, signature: String?) {
+        self.model = model
+        self.signature = signature ?? ""
+    }
 
     public func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
         let feeds = inputs.mapValues {
@@ -18,7 +35,11 @@ public final class JSInferenceSession: InferenceSession, @unchecked Sendable {
         }
         let results: [String: HostTensor]
         do {
-            results = try await dalModelHost.run(feeds)
+            if let model {
+                results = try await dalModelHost.runModel(model, signature, feeds)
+            } else {
+                results = try await dalModelHost.run(feeds)
+            }
         } catch {
             throw InferenceError.runFailed("the host failed to run the model: \(error)")
         }
