@@ -8,10 +8,10 @@ import java.util.TimerTask
  * recorded per detection, and a debounced flush that coalesces a burst of
  * keystrokes into one send.
  *
- * `DAL_USAGE_DISABLED` is a consent switch an app may flip after load, so it is
- * read per detection and per flush rather than once. While it is on nothing is
- * recorded or sent, and until the first detection with it off no client is
- * built, so no store is touched and no device id is minted.
+ * The switch (`usageDisabled`, a test-only switch in this port) is read per
+ * detection and per flush rather than once, as every port reads it. While it is
+ * on nothing is recorded or sent, and until the first detection with it off no
+ * client is built, so no store is touched and no device id is minted.
  *
  * The equivalent of core's `TrackedSession`, which this SDK cannot use: that
  * wraps an `InferenceSession`, and there is no inference session here.
@@ -30,7 +30,8 @@ internal class UsageTurnstile private constructor(
 ) {
     /**
      * A turnstile over a client already built, for tests. The switch defaults
-     * to off here: the test task runs with `DAL_USAGE_DISABLED` set.
+     * to off here: the test task runs with `DAL_USAGE_DISABLED` set, which a
+     * JUnit run honors.
      */
     internal constructor(
         client: UsageClient,

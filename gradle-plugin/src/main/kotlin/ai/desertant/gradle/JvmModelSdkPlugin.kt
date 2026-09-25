@@ -36,10 +36,13 @@ class JvmModelSdkPlugin : Plugin<Project> {
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")
 
-        // This repo's own runs must not count as billable devices; consumers
-        // get usage reporting on by default.
-        project.tasks.withType(Test::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
-        project.tasks.withType(JavaExec::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
+        // Test switch for JUnit runs, plus a loopback ingest for anything that runs without one.
+        val guards = mapOf(
+            "DAL_USAGE_DISABLED" to "1",
+            "DAL_INGEST_ENDPOINT" to "http://127.0.0.1:9/api/v1/ingest",
+        )
+        project.tasks.withType(Test::class.java).configureEach { it.environment(guards) }
+        project.tasks.withType(JavaExec::class.java).configureEach { it.environment(guards) }
 
         project.configureDesertAntPublishing(ext, jvm = true)
     }

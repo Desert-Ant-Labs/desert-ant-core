@@ -25,7 +25,7 @@ actor UsageTurnstile {
     private var client: UsageClient?
     private let buildClient: () -> UsageClient
     /// The opt-out, read per call. `makeTurnstile` passes `usageDisabled`; the
-    /// default is for tests, whose suites run with the switch on.
+    /// default is for tests, which may run with the debug switch on.
     private let disabled: @Sendable () -> Bool
     private var flushScheduled = false
     private var registeredFlushHook = false

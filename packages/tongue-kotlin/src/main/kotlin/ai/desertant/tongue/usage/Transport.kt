@@ -49,8 +49,9 @@ internal fun hostProvidedDeviceId(): String? = setting("DAL_DEVICE_ID")
 
 /**
  * How this port reads the process environment. A seam for tests only: the Gradle
- * test task sets `DAL_USAGE_DISABLED` in the environment, and the environment
- * wins, so without it the system property path could never be exercised.
+ * test task sets `DAL_USAGE_DISABLED` and `DAL_INGEST_ENDPOINT` in the
+ * environment, and the environment wins, so without it the system property
+ * path could never be exercised.
  */
 internal var readEnvironment: (String) -> String? = System::getenv
 
@@ -189,16 +190,29 @@ internal fun defaultAppIdentifier(context: Any? = null): String {
     return System.getProperty("java.vm.name")?.takeIf { it.isNotEmpty() } ?: "unknown"
 }
 
-/**
- * Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
- * set in code, or `DAL_USAGE_DISABLED` in the environment or as a system
- * property, under `flagIsSet`. Read per call, so an app can hold it on until its
- * user consents and clear it then. See packages/tongue-node/USAGE.md.
- */
+/** The test switch (environment, then system property), honored only under a JUnit runner; read per call. */
 internal fun usageDisabled(): Boolean =
-    ai.desertant.tongue.DesertAnt.usageDisabled ||
-        flagIsSet(readEnvironment("DAL_USAGE_DISABLED")) ||
-        flagIsSet(System.getProperty("DAL_USAGE_DISABLED"))
+    underTestRunner() &&
+        (flagIsSet(readEnvironment("DAL_USAGE_DISABLED")) || flagIsSet(System.getProperty("DAL_USAGE_DISABLED")))
+
+/**
+ * Whether this process runs under a test runner: the JUnit Platform (what
+ * Gradle's `test` task and IDEs use) or JUnit 4's runner (which Android
+ * instrumentation carries), found on the classpath without initializing them.
+ * A seam so a test can play the production classpath.
+ */
+internal var underTestRunner: () -> Boolean = { testRunnerOnClasspath }
+
+private val testRunnerOnClasspath: Boolean by lazy {
+    val loader = Thread.currentThread().contextClassLoader ?: UsageClient::class.java.classLoader
+    listOf(
+        "org.junit.platform.launcher.Launcher",
+        "org.junit.platform.engine.TestEngine",
+        "org.junit.runner.Runner",
+    ).any { name ->
+        runCatching { Class.forName(name, false, loader) }.isSuccess
+    }
+}
 
 /**
  * Build a client wired to the shared endpoint, the system clock, a POST transport,

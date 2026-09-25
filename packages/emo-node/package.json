@@ -27,7 +27,7 @@
   "browser": "./browser.js",
   "types": "./index.d.ts",
   "scripts": {
-    "test": "DAL_USAGE_DISABLED=1 node --test test/emo.test.mjs"
+    "test": "DAL_INGEST_ENDPOINT=${DAL_INGEST_ENDPOINT:-http://127.0.0.1:9/api/v1/ingest} node --test test/emo.test.mjs test/usage-optout.test.mjs"
   },
   "exports": {
     ".": {

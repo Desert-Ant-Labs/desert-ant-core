@@ -113,24 +113,29 @@ threshold and commercial above it, and monthly active devices is the measure.
 
 ## Opting out
 
-Usage reporting has one switch, public on every platform, and it is meant to be
-used: a site or an app can keep it on until its user consents, and clear it then.
+Usage is the billing meter, so there is one opt-out, and only a web page has
+it: a page may need its visitor's consent before storing an identifier, so it
+can keep reporting off until the visitor agrees, and clear the flag then.
 
-| Host | In code | From the host |
-|---|---|---|
-| Swift (every model SDK on core) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1` |
-| A page (every JavaScript SDK, wasm or not) | `globalThis.__dalUsageDisabled = true` | |
-| Node | `globalThis.__dalUsageDisabled = true` (on `/native`, see below) | `DAL_USAGE_DISABLED=1` |
-| Kotlin (tongue) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1`, or the same-named JVM system property |
+| Host | Opt-out |
+|---|---|
+| A web page, or a worker a page started (every JavaScript SDK, wasm or not) | `globalThis.__dalUsageDisabled = true` |
+| Node, native or wasm | none |
+| Swift (every model SDK on core: Apple, Linux, Windows, Android) | none |
+| Kotlin (tongue, and the Android SDKs on core) | none |
+
+"A page" is decided the way the platform tag is: the wasm core counts any
+runtime without Node (`process.versions.node`) as the web, and the pure
+JavaScript ports any browser-origin runtime. The same global set in a Node
+process, an SSR pass included, does nothing.
 
 The global may also be a function returning the flag, called each time it is
 read, and a global whose getter or function throws reads as unset. A flag counts
 as set when it is the boolean `true`, a finite non-zero number such as `1`, or a
 string other than `""`, `"0"` and `"false"`; `false`, `0`, `NaN` and `Infinity`
-do not. Either form turns reporting off: code cannot clear a flag the
-environment sets.
+do not.
 
-While the switch is on nothing is recorded, nothing is stored and no request is
+While the flag is on nothing is recorded, nothing is stored and no request is
 made. A model loaded with it on does not even create the device id until the
 first call made with it off. It is read on every call and again on every flush,
 never cached, so it can change at any time:
@@ -138,20 +143,9 @@ never cached, so it can change at any time:
 - **Set after load**, it stops the next send. Calls recorded before it was set
   and still waiting out the 3-second debounce are held in memory, neither stored
   nor posted; they go out with the next flush after it is cleared, and are lost
-  if the page or process ends first. They were made with consent.
+  if the page ends first. They were made with consent.
 - **Cleared after load**, the next call reports as usual. Calls made while it
   was on are never counted.
-
-Two hosts read it less often. The native Node build (`/native`) copies the
-global into the environment only until its first model loads, because a native
-thread reading the environment while it is written can crash on glibc. There the
-switch is fixed at the first load: a global set before it keeps usage off for
-the life of the process, and changing the global later has no effect either
-way. A server that needs to flip it at runtime uses the wasm build. An Android app
-on the core's AAR has no launch environment and no in-code switch yet. It can
-call `android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)`, but only
-before its first model loads, for the same reason: the core reads the
-environment from its own threads on every call.
 
 ### A consent banner
 
@@ -192,10 +186,12 @@ attached.
 
 ### In this repository
 
-Every task in this repository sets `DAL_USAGE_DISABLED` through `mise.toml`,
-and the one CI job that runs swift without mise (Windows) sets it in
-`.github/workflows/ci.yml`. A CI runner is not a billable device, and
-without the guard each push would count as one.
+A CI runner is not a billable device, so no run here may post a real event.
+`mise.toml` sets the guards for every task, and the jobs and runners that do
+not inherit mise's environment set them themselves: the Windows job in
+`.github/workflows/ci.yml`, `test:ios`, the Android model suites, the Kotlin
+Gradle tasks, each Node package's `npm test` script, and `test:browser`'s pages,
+which fail the run if any request reaches `events.desertant.com`.
 
 ## Why this SDK had to implement it
 
@@ -302,5 +298,5 @@ bridges):
    same key. The day has a key of its own because older readers reset a
    `.state` that is not exactly two fields.
 4. Copy `usage_vectors.json` and wire the replay test before trusting the port.
-5. Set `DAL_USAGE_DISABLED=1` across the repo's own tasks and CI, first, so no
-   build ever bills.
+5. Check that every task and CI job that runs the new SDK inherits the guards
+   under "In this repository", first, so no build ever bills.

@@ -235,28 +235,21 @@ function hostApiKey(): string | undefined {
   return hostString("__dalApiKey", "DAL_API_KEY")?.trim() || undefined;
 }
 
-/**
- * Whether usage reporting is switched off, right now: `globalThis.__dalUsageDisabled`
- * (a string, a boolean, a number, or a function returning one) or `DAL_USAGE_DISABLED`,
- * under `flagIsSet`, as core reads it.
- *
- * The consent switch. A page keeps the beacon off until its visitor agrees, then
- * clears the flag, so it is read on every detection and again on every flush,
- * never cached: set after load it holds what was recorded unsent, and cleared
- * it lets reporting resume. While it is on nothing is recorded, stored or sent, and
- * no device id is made. See USAGE.md.
- */
+/** Usage off: a browser page's `globalThis.__dalUsageDisabled`, or the test switch under `NODE_ENV=test` only. */
 export function usageDisabled(): boolean {
-  return hostFlag("__dalUsageDisabled", "DAL_USAGE_DISABLED");
+  if (isBrowserOrigin() && hostFlag("__dalUsageDisabled")) return true;
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+  return env?.NODE_ENV === "test" && flagIsSet(env.DAL_USAGE_DISABLED);
 }
 
 /**
  * A host flag: `globalThis[name]`, calling it when it is a function, then
- * `process.env[envName]`, each under `flagIsSet`. A global whose getter or
- * function throws (a consent manager not loaded yet, a request-scoped accessor)
- * reads as unset, as core's `jsHostValue` does, rather than unwinding a detection.
+ * `process.env[envName]` when one is named, each under `flagIsSet`. A global
+ * whose getter or function throws (a consent manager not loaded yet, a
+ * request-scoped accessor) reads as unset, as core's `jsHostValue` does, rather
+ * than unwinding a detection.
  */
-function hostFlag(name: string, envName: string): boolean {
+function hostFlag(name: string, envName?: string): boolean {
   let value: unknown;
   try {
     value = (globalThis as Record<string, unknown>)[name];
@@ -265,6 +258,7 @@ function hostFlag(name: string, envName: string): boolean {
     value = undefined;
   }
   if (flagIsSet(value)) return true;
+  if (envName === undefined) return false;
   const env = (globalThis as { process?: { env?: Record<string, string> } }).process?.env;
   return flagIsSet(env?.[envName]);
 }

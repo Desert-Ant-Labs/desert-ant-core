@@ -47,6 +47,11 @@ fi
 # measured locally). The worker count is left to xcodebuild: pinning it to 8
 # measured no better than the default. Safe here because the model-backed tests
 # (the only ones that touch shared state, the model cache) are skipped on iOS.
+
+# xcodebuild forwards only TEST_RUNNER_ variables to the simulator, so pass the usage guards from mise.toml explicitly.
+export TEST_RUNNER_DAL_INGEST_ENDPOINT="${DAL_INGEST_ENDPOINT:-http://127.0.0.1:9/api/v1/ingest}"
+export TEST_RUNNER_DAL_USAGE_DISABLED="${DAL_USAGE_DISABLED:-1}"
+
 # Release configuration, matching test:swift, see the comment there. Unlike
 # `swift test -c release`, xcodebuild only enables testability in Debug, so
 # without the override every @testable import fails with "module built

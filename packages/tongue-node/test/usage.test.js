@@ -130,11 +130,12 @@ test("the wire body matches core's field order and carries no text", () => {
   );
 });
 
-test("DAL_USAGE_DISABLED suppresses every send and every store write", async () => {
-  // The kill switch docs/USAGE.md offers operators. A regression making it a
-  // no-op would start billing every CI runner.
+test("DAL_USAGE_DISABLED suppresses every send and every store write under NODE_ENV=test", async () => {
+  // The SDK's own test switch. A regression making it a no-op would start
+  // billing every CI runner.
   const { UsageTurnstile } = await import("../dist/usage.js");
   assert.equal(process.env.DAL_USAGE_DISABLED, "1", "suite must run with the switch on");
+  assert.equal(process.env.NODE_ENV, "test", "suite must run with NODE_ENV=test");
   let touches = 0;
   const store = { get: () => (touches++, null), set: () => void touches++ };
   const turnstile = UsageTurnstile.create("9.9.9", store);
@@ -158,11 +159,39 @@ test("DAL_USAGE_DISABLED suppresses every send and every store write", async () 
   }
 });
 
-test("the switch is read per detection and per send, as a consent flow flips it", async () => {
+test("outside NODE_ENV=test, DAL_USAGE_DISABLED does not stop a server's usage", async () => {
+  // A server has no opt-out: the test switch must not become one in production.
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  const nodeEnv = process.env.NODE_ENV;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  process.env.NODE_ENV = "production";
+  try {
+    assert.equal(process.env.DAL_USAGE_DISABLED, "1");
+    const values = new Map();
+    const store = { get: (k) => values.get(k) ?? null, set: (k, v) => void values.set(k, v) };
+    const turnstile = UsageTurnstile.create("9.9.9", store);
+    turnstile.record();
+    await turnstile.flushTelemetry();
+    assert.equal(posts.length, 1, "the test switch stopped a production send");
+    assert.equal(posts[0].platform, "server");
+  } finally {
+    process.env.NODE_ENV = nodeEnv;
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("in a page the switch is read per detection and per send, as a consent flow flips it", async () => {
   // A page keeps the beacon off until its visitor agrees, so the switch is on
   // when the turnstile is built and cleared later; withdrawing consent sets it
-  // again, and must also stop an event already waiting out the debounce.
+  // again, and must also stop an event already waiting out the debounce. The
+  // page is simulated with a `document` global, which is all the usage module
+  // asks of one, and it is there before the turnstile is built.
   const { UsageTurnstile } = await import("../dist/usage.js");
+  globalThis.document = {};
   const posts = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (_url, init) => {
@@ -175,6 +204,8 @@ test("the switch is read per detection and per send, as a consent flow flips it"
     get: (k) => (touches++, values.get(k) ?? null),
     set: (k, v) => (touches++, values.set(k, v)),
   };
+  // The banner's flag, set before any SDK loads.
+  globalThis.__dalUsageDisabled = true;
   try {
     const turnstile = UsageTurnstile.create("9.9.9", store);
     turnstile.record();
@@ -185,8 +216,13 @@ test("the switch is read per detection and per send, as a consent flow flips it"
     await withUsageOn(async () => {
       turnstile.record();
       await turnstile.flushTelemetry();
+      assert.equal(posts.length, 0, "the page's flag alone did not hold the send");
+      delete globalThis.__dalUsageDisabled;
+      turnstile.record();
+      await turnstile.flushTelemetry();
       assert.equal(posts.length, 1, "the detection after consent did not report");
       assert.equal(posts[0].events[0].callCount, 1, "a detection before consent was counted");
+      assert.equal(posts[0].platform, "web", "the simulated page was not tagged web");
 
       // Consent withdrawn by the page's global, the form a banner uses.
       globalThis.__dalUsageDisabled = true;
@@ -212,6 +248,8 @@ test("the switch is read per detection and per send, as a consent flow flips it"
       assert.equal(posts[1].events[0].callCount, 1);
     });
   } finally {
+    delete globalThis.__dalUsageDisabled;
+    delete globalThis.document;
     globalThis.fetch = realFetch;
   }
 });

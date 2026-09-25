@@ -160,7 +160,7 @@ struct TrackedSessionTests {
         #expect(sink.events.isEmpty)
     }
 
-    /// The switch is a consent flag a host flips after load: while it is on a
+    /// The switch is a consent flag a web page flips after load: while it is on a
     /// run records nothing and opens no client (so no store write and no device
     /// id), the run after it is cleared reports, and a call recorded before it
     /// is set again is held, neither stored nor sent, until it is cleared.

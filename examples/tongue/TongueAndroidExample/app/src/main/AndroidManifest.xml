@@ -1,10 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Detection needs no network — the model ships inside the artifact and
+    <!-- Detection needs no network: the model ships inside the artifact and
          nothing is ever fetched. This is for the usage turnstile, which posts one
-         load event per device per day. See "Opting out" in
-         packages/tongue-node/USAGE.md: DesertAnt.usageDisabled (from the Tongue
-         release after 3.4.0; this example pins an older one) switches it off,
-         and this permission can go only if it stays off for good. -->
+         load event per device per day. An Android app has no usage opt-out (see
+         "Opting out" in packages/tongue-node/USAGE.md), so keep this permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application

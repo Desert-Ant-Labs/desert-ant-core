@@ -17,6 +17,15 @@ import CHostBridge
 import JavaScriptKit
 #endif
 
+// dlsym, for `testFrameworkIsLoaded`.
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#elseif canImport(Musl)
+import Musl
+#endif
+
 import PlatformSupport
 
 /// Read a host-provided string from a JS global that may be a string or a
@@ -51,29 +60,48 @@ public func hostProvidedAppId() -> String? {
 #endif
 }
 
-/// Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
-/// set in code, or the host flag: `globalThis.__dalUsageDisabled` (a string, a
-/// boolean, a number, or a function returning one) on WASI, then under Node
-/// `process.env.DAL_USAGE_DISABLED`; the `DAL_USAGE_DISABLED` environment
-/// variable elsewhere. The flag follows `flagIsSet`, as the context opt-out does.
-///
-/// This is the consent switch, public on every platform: a page keeps the
-/// beacon off until its visitor agrees, then clears the flag. So it is read
-/// when a call is recorded and again when events are flushed, never cached: set
-/// after load it holds what was recorded unsent, and cleared it lets reporting
-/// resume.
-/// While it is on nothing is recorded, stored or sent, and no device id is made.
-/// Our own suites set it too, because networked CI would otherwise post a real
-/// event per model load.
+/// Usage off: a web page's `globalThis.__dalUsageDisabled`, or `DAL_USAGE_DISABLED` in a DEBUG build or test process only.
 public func usageDisabled() -> Bool {
-    if DesertAnt.usageDisabled { return true }
 #if os(WASI)
-    if jsFlagIsSet(jsHostValue("__dalUsageDisabled")) { return true }
-    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
+    return usageDisabled(inPage: !jsHostIsNode())
 #else
-    return flagIsSet(environmentVariable("DAL_USAGE_DISABLED"))
+    return testSwitchIsSet(environmentVariable("DAL_USAGE_DISABLED"))
 #endif
 }
+
+#if os(WASI)
+/// `usageDisabled()` with the host decided by the caller, so a test running
+/// under Node can exercise the page path.
+func usageDisabled(inPage: Bool) -> Bool {
+    if inPage, jsFlagIsSet(jsHostValue("__dalUsageDisabled")) { return true }
+    return testSwitchIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
+}
+#endif
+
+/// `flagIsSet` for the test switch, honored only by a DEBUG build or inside a test process.
+func testSwitchIsSet(_ value: String?, inTestProcess: Bool = testFrameworkIsLoaded) -> Bool {
+#if DEBUG
+    return flagIsSet(value)
+#else
+    return inTestProcess && flagIsSet(value)
+#endif
+}
+
+/// Whether Swift Testing or XCTest is loaded in this process; a shipped app never loads either.
+let testFrameworkIsLoaded: Bool = {
+#if canImport(Darwin) || canImport(Glibc) || canImport(Musl)
+    // RTLD_DEFAULT: every image loaded so far. Its spelling differs per libc.
+    #if canImport(Darwin)
+    let everyImage = UnsafeMutableRawPointer(bitPattern: -2)
+    #else
+    let everyImage: UnsafeMutableRawPointer? = nil
+    #endif
+    for symbol in ["swt_abiv0_getEntryPoint", "OBJC_CLASS_$_XCTestCase"] where dlsym(everyImage, symbol) != nil {
+        return true
+    }
+#endif
+    return false
+}()
 
 /// A host-provided app version, overriding the bundle's own for the event
 /// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function),
@@ -185,12 +213,16 @@ public func hostProvidedDeviceId() -> String? {
 }
 
 /// A host-provided ingest endpoint, overriding the built-in one. On WASI reads
-/// `globalThis.__dalIngestEndpoint` (string or function); elsewhere reads the
-/// `DAL_INGEST_ENDPOINT` environment variable. `nil` when unset. Intended for
-/// tests, local capture, and diagnostics; production uses the built-in default.
+/// `globalThis.__dalIngestEndpoint` (string or function), then under Node
+/// `process.env.DAL_INGEST_ENDPOINT`; elsewhere reads the `DAL_INGEST_ENDPOINT`
+/// environment variable. `nil` when unset. Intended for tests, local capture,
+/// and diagnostics; production uses the built-in default. The environment form
+/// is how this repo keeps its release-built test runs off the real ingest.
 public func hostProvidedIngestEndpoint() -> String? {
 #if os(WASI)
-    return jsHostString("__dalIngestEndpoint")
+    if let value = jsHostString("__dalIngestEndpoint") { return value }
+    guard let value = nodeEnvironmentVariable("DAL_INGEST_ENDPOINT"), !value.isEmpty else { return nil }
+    return value
 #else
     guard let value = environmentVariable("DAL_INGEST_ENDPOINT") else { return nil }
     return value.isEmpty ? nil : value

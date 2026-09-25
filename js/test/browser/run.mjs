@@ -145,6 +145,11 @@ function renderPage(entry) {
   return `<!doctype html>
 <html><body>
 <script type="importmap">${JSON.stringify({ imports: map })}</script>
+<script>
+  // The page opt-out plus a loopback ingest; the harness fails the run on any ingest request.
+  globalThis.__dalUsageDisabled = true;
+  globalThis.__dalIngestEndpoint = "http://127.0.0.1:9/api/v1/ingest";
+</script>
 <script type="module">
   import { run } from "${caseDir}/browser-case.js";
 
@@ -250,8 +255,19 @@ const browser = await chromium.launch({
 });
 const failures = [];
 
+// Any request to the usage ingest fails the run, and is aborted so nothing is sent.
+const ingestHits = [];
+const INGEST_HOSTS = /(^|\.)events\.desertant\.com$/;
+
 for (const entry of cases) {
   const tab = await browser.newPage();
+  await tab.route(
+    (url) => INGEST_HOSTS.test(url.hostname),
+    (route) => {
+      ingestHits.push(`${entry.model}: ${route.request().method()} ${route.request().url()}`);
+      return route.abort();
+    },
+  );
   const logs = [];
   tab.on("console", (m) => logs.push(`[${entry.model}] ${m.text()}`));
   tab.on("pageerror", (e) => logs.push(`[${entry.model}] pageerror: ${e.message}`));
@@ -282,6 +298,8 @@ for (const entry of cases) {
 
 await browser.close();
 server.close();
+
+for (const hit of ingestHits) failures.push(`usage reached the real ingest: ${hit}`);
 
 if (failures.length) {
   console.error(`\n${failures.length} of ${cases.length} browser cases failed:`);

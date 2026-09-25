@@ -98,8 +98,7 @@ public class Tongue internal constructor(
      * when the flush itself threw. The endpoint's answer is not reported: a
      * refused or failed POST still returns true, as core's and the Node port's
      * `flushTelemetry()` do, because reporting is best effort. Nothing recorded
-     * means nothing sent. While `DAL_USAGE_DISABLED` is set nothing is recorded or
-     * sent, so this sends and stores nothing and returns true.
+     * means nothing sent.
      */
     public fun flushTelemetry(): Boolean = usage?.flushTelemetry() ?: true
 

@@ -39,21 +39,25 @@ function flagIsSet(value) {
 /**
  * The native core reads usage identity and settings from the environment
  * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_APP_VERSION,
- * DAL_USAGE_DISABLED, DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the
- * same values from `globalThis.__dal*`. Bridging them means a host sets one
- * spelling on either runtime, and a server that sets the global is not silently
- * unattributed. Each may be a string or a zero-arg function, the two forms the
- * core's own JS host read accepts, and the two opt-out flags may also be `true`
- * or a finite non-zero number, as they may in a page. An environment variable
- * already set wins, except that a flag is an opt-out from either side, as in
- * the core: a set global turns on a flag the environment has off.
+ * DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the same values from
+ * `globalThis.__dal*`. Bridging them means a host sets one spelling on either
+ * runtime, and a server that sets the global is not silently unattributed.
+ * Each may be a string or a zero-arg function, the two forms the core's own JS
+ * host read accepts, and the context flag may also be `true` or a finite
+ * non-zero number, as it may in a page. An environment variable already set
+ * wins, except that the context flag is an opt-out from either side, as in the
+ * core: a set global turns on a flag the environment has off.
+ *
+ * `__dalUsageDisabled` is deliberately not bridged. It is the web page's
+ * consent switch, and a server has no usage opt-out: this entry only runs in
+ * Node, so a global set here is ignored, as the wasm core ignores it under Node.
  *
  * Run at each load rather than once at import, so a host that imports the package
  * before setting the global is still attributed, but only until a native model
  * first loads in this process: from then on core threads read the environment,
  * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
- * later still counts, since `run` passes it per call; a key, app id, app version,
- * usage switch or context flag set after the first load has to be in the environment already.
+ * later still counts, since `run` passes it per call; a key, app id, app version
+ * or context flag set after the first load has to be in the environment already.
  */
 function bridgeHostIdentity() {
   if (globalThis[NATIVE_STARTED]) return;
@@ -62,7 +66,6 @@ function bridgeHostIdentity() {
     ["__dalApiKey", "DAL_API_KEY"],
     ["__dalDeviceId", "DAL_DEVICE_ID"],
     ["__dalAppVersion", "DAL_APP_VERSION"],
-    ["__dalUsageDisabled", "DAL_USAGE_DISABLED"],
     ["__dalUsageContextDisabled", "DAL_USAGE_CONTEXT_DISABLED"],
   ]) {
     let value;
@@ -72,7 +75,7 @@ function bridgeHostIdentity() {
     } catch {
       continue;
     }
-    if (env === "DAL_USAGE_DISABLED" || env === "DAL_USAGE_CONTEXT_DISABLED") {
+    if (env === "DAL_USAGE_CONTEXT_DISABLED") {
       if (flagIsSet(value) && !flagIsSet(process.env[env])) process.env[env] = "1";
       continue;
     }

@@ -31,11 +31,17 @@ class ModelSdkPlugin : Plugin<Project> {
         project.pluginManager.apply("com.android.library")
         project.pluginManager.apply("org.jetbrains.kotlin.android")
 
+        // Use this repo's loopback-ingest test runner when present; builds outside the repo keep the stock one.
+        val runnerSources = project.rootDir.resolve("kotlin/src/testRunner/kotlin")
+        val loopbackRunner = runnerSources.resolve("ai/desertant/testing/LoopbackIngestRunner.kt").isFile
+
         project.extensions.configure(LibraryExtension::class.java) { android ->
             android.namespace = "ai.desertant.$model"
             android.compileSdk = 35
             android.defaultConfig.minSdk = 24 // NFKC via host java.text.Normalizer (API 1+); no platform libicu
-            android.defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            android.defaultConfig.testInstrumentationRunner =
+                if (loopbackRunner) "ai.desertant.testing.LoopbackIngestRunner" else "androidx.test.runner.AndroidJUnitRunner"
+            if (loopbackRunner) android.sourceSets.getByName("androidTest").java.srcDir(runnerSources)
             android.defaultConfig.ndk.abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
             android.buildTypes.getByName("release").isMinifyEnabled = false
             android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
