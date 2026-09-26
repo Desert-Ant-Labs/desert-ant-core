@@ -350,7 +350,10 @@ final class Model: @unchecked Sendable {
         if Harness.softmax2(p[1], p[0]) >= 0.5 { return .array([]) }
         return .array(bio(s, "array_bio")
             .compactMap { slice(s, text, $0) }
-            .filter { !$0.isEmpty })
+            .filter { !$0.isEmpty }
+            // A lone function word is never an item ("the" between two
+            // symptoms): a tagging slip between two runs.
+            .filter { !Levers.on("array_function_words") || !Harness.trailFunctionWords.contains($0.lowercased()) })
     }
 
     private func number(_ s: Stage, _ text: String, _ field: Field) -> Value {

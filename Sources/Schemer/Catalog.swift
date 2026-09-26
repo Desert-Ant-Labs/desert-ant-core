@@ -19,7 +19,7 @@ import DesertAnt
 public enum SchemerModel: ModelDeclaration {
     public static let id = "schemer"
     public static let product = "Schemer"
-    public static let revision = "v1.0.0"
+    public static let revision = "v1.1.0"
     /// Matches packages/schemer-node/package.json and
     /// packages/schemer-kotlin/build.gradle.kts (ModelCatalogTests enforces it).
     public static let sdkVersion = "3.5.0"

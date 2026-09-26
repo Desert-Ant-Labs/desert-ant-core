@@ -104,6 +104,10 @@ enum Harness {
         "het", "een", "van", "voor", "met", "op", "aan", "bij",
         "p\u{e5}", "til", "og", "av", "af", "hos", "fr\u{e5}n", "fra", "och", "att",
         "w", "na", "z", "dla", "i", "o", "przy",
+        // A deadline's preposition left on the task
+        // ("enviar o relatório financeiro até").
+        "until", "by", "bis", "hasta", "at\u{e9}", "jusqu'\u{e0}", "entro", "tot",
+        "till", "innan", "inden", "innen",
     ]
 
     /// Japanese particles; Chinese is handled by the punctuation strip.

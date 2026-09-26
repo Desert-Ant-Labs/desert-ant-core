@@ -9,7 +9,7 @@ On-device structured extraction into a caller-supplied JSON schema.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 13 |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/schemer) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/schemer) |
 | **Demo** | https://desertant.com/models/schemer/ |
 
 ## Install

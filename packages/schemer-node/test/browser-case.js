@@ -16,7 +16,7 @@
 // real Hub. `check` runs in Node on what `run` returns.
 
 const RESOURCES = "/Tests/SchemerTests/Resources/";
-const REVISION = "v1.0.0";
+const REVISION = "v1.1.0";
 const REPO = "desert-ant-labs/schemer";
 // The web platform's files (SchemerModel.files[.web]).
 const FILES = ["schemer-encoder.tflite", "schemer-decode.tflite", "schemer-label.tflite",
