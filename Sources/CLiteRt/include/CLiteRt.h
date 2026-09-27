@@ -54,6 +54,9 @@ void dal_lrt_output_dims(const DalLrtSession* session, int index, int32_t* dims_
 size_t dal_lrt_output_byte_size(const DalLrtSession* session, int index);
 const void* dal_lrt_output_data(const DalLrtSession* session, int index);
 
+// The XNNPACK thread count used when DAL_CPU_THREADS is unset, for a host with `usable_cpus` CPUs.
+int dal_lrt_default_cpu_threads(int usable_cpus);
+
 #ifdef __cplusplus
 }
 #endif

@@ -43,10 +43,20 @@ static LiteRtEnvironment shared_environment(void) {
   return env;
 }
 
-// XNNPACK threads: usable logical CPUs capped at 4 (physical cores are not portable to detect); DAL_CPU_THREADS overrides.
-#define DAL_DEFAULT_MAX_THREADS 4
+// XNNPACK threads: one on Android (big.LITTLE cores, battery), else usable logical CPUs capped at 4; DAL_CPU_THREADS overrides.
+#define DAL_DESKTOP_MAX_THREADS 4
 #define DAL_MAX_THREADS 64
 static int g_threads = 0;
+
+int dal_lrt_default_cpu_threads(int usable_cpus) {
+#if defined(__ANDROID__)
+  (void)usable_cpus;
+  return 1;
+#else
+  if (usable_cpus < 1) return 1;
+  return usable_cpus > DAL_DESKTOP_MAX_THREADS ? DAL_DESKTOP_MAX_THREADS : usable_cpus;
+#endif
+}
 
 static int usable_cpus(void) {
 #ifdef _WIN32
@@ -76,10 +86,7 @@ static int cpu_threads(void) {
       long parsed = strtol(v, &end, 10);
       if (end && *end == '\0' && parsed > 0) n = parsed > DAL_MAX_THREADS ? DAL_MAX_THREADS : (int)parsed;
     }
-    if (n == 0) {
-      n = usable_cpus();
-      if (n > DAL_DEFAULT_MAX_THREADS) n = DAL_DEFAULT_MAX_THREADS;
-    }
+    if (n == 0) n = dal_lrt_default_cpu_threads(usable_cpus());
     g_threads = n;
   }
   int n = g_threads;
@@ -87,7 +94,7 @@ static int cpu_threads(void) {
   return n;
 }
 
-// The CPU accelerator reads a TOML payload under "xnnpack"; on failure the runtime default stays.
+// CPU accelerator options: TOML under "xnnpack"; create and add take ownership only on success, so failures free here.
 static void set_cpu_threads(LiteRtOptions options, int threads) {
   char buf[32];
   snprintf(buf, sizeof buf, "num_threads = %d\n", threads);

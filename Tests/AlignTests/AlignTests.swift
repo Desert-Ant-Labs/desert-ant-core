@@ -336,8 +336,8 @@ import Speech
         #expect(maxDiff < tolerance, "the cascade drifted from its recorded corrections")
     }
 
-    // The whole cascade fed by the FFT frontend path against the matmul path, on this host's runtime.
-    @Test func endToEndFFTFrontendMatchesMatmulFrontend() async throws {
+    // Smoke test only: the cascade runs on the FFT frontend; FFT, log-mel and PSNR tests guard DSP accuracy.
+    @Test func endToEndFFTFrontendSmoke() async throws {
         let g = try loadGolden()
         let refiner = try await makeRefiner()
         let rt = try await refiner.model.value()
