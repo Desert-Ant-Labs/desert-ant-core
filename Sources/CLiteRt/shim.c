@@ -1,5 +1,11 @@
-#include "CLiteRt.h"
+#if defined(__linux__) && !defined(_GNU_SOURCE)
+#define _GNU_SOURCE  // sched_getaffinity and CPU_COUNT on glibc
+#endif
 
+#include "CLiteRt.h"
+#include "litert/c/litert_opaque_options.h"
+
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,6 +19,8 @@ static SRWLOCK g_env_lock = SRWLOCK_INIT;
 #define ENV_UNLOCK() ReleaseSRWLockExclusive(&g_env_lock)
 #else
 #include <pthread.h>
+#include <sched.h>
+#include <unistd.h>
 static pthread_mutex_t g_env_lock = PTHREAD_MUTEX_INITIALIZER;
 #define ENV_LOCK() pthread_mutex_lock(&g_env_lock)
 #define ENV_UNLOCK() pthread_mutex_unlock(&g_env_lock)
@@ -33,6 +41,66 @@ static LiteRtEnvironment shared_environment(void) {
   LiteRtEnvironment env = g_env;
   ENV_UNLOCK();
   return env;
+}
+
+// XNNPACK threads: usable logical CPUs capped at 4 (physical cores are not portable to detect); DAL_CPU_THREADS overrides.
+#define DAL_DEFAULT_MAX_THREADS 4
+#define DAL_MAX_THREADS 64
+static int g_threads = 0;
+
+static int usable_cpus(void) {
+#ifdef _WIN32
+  SYSTEM_INFO info;
+  GetSystemInfo(&info);
+  return (int)info.dwNumberOfProcessors;
+#else
+#if defined(__GLIBC__)
+  cpu_set_t set;
+  if (sched_getaffinity(0, sizeof set, &set) == 0) {
+    int n = CPU_COUNT(&set);
+    if (n > 0) return n;
+  }
+#endif
+  long n = sysconf(_SC_NPROCESSORS_ONLN);
+  return n > 0 ? (int)n : 1;
+#endif
+}
+
+static int cpu_threads(void) {
+  ENV_LOCK();
+  if (g_threads == 0) {
+    int n = 0;
+    const char* v = getenv("DAL_CPU_THREADS");
+    if (v && *v) {
+      char* end = NULL;
+      long parsed = strtol(v, &end, 10);
+      if (end && *end == '\0' && parsed > 0) n = parsed > DAL_MAX_THREADS ? DAL_MAX_THREADS : (int)parsed;
+    }
+    if (n == 0) {
+      n = usable_cpus();
+      if (n > DAL_DEFAULT_MAX_THREADS) n = DAL_DEFAULT_MAX_THREADS;
+    }
+    g_threads = n;
+  }
+  int n = g_threads;
+  ENV_UNLOCK();
+  return n;
+}
+
+// The CPU accelerator reads a TOML payload under "xnnpack"; on failure the runtime default stays.
+static void set_cpu_threads(LiteRtOptions options, int threads) {
+  char buf[32];
+  snprintf(buf, sizeof buf, "num_threads = %d\n", threads);
+  size_t n = strlen(buf) + 1;
+  char* payload = (char*)malloc(n);
+  if (!payload) return;
+  memcpy(payload, buf, n);
+  LiteRtOpaqueOptions opaque = NULL;
+  if (LiteRtCreateOpaqueOptions("xnnpack", payload, free, &opaque) != kLiteRtStatusOk) {
+    free(payload);
+    return;
+  }
+  if (LiteRtAddOpaqueOptions(options, opaque) != kLiteRtStatusOk) LiteRtDestroyOpaqueOptions(opaque);
 }
 
 // One compiled model with its fixed-shape input/output host buffers, created
@@ -174,6 +242,7 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
       set_err(errbuf, errbuf_len, "LiteRtCreateOptions failed"); goto fail;
     }
     LiteRtSetOptionsHardwareAccelerators(s->options, accel);
+    set_cpu_threads(s->options, cpu_threads());
     compiled_status = LiteRtCreateCompiledModel(s->env, s->model, s->options, &s->compiled);
     if (compiled_status == kLiteRtStatusOk) break;
     // Failed: drop this attempt's options and, if we asked for more than CPU,
