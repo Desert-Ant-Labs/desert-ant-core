@@ -78,7 +78,7 @@ func makeFrontend() async throws -> Frontend {
         var state: UInt64 = 42
         let noise = (0..<(16000 * 4)).map { _ -> Float in
             state = state &* 6364136223846793005 &+ 1442695040888963407
-            return Float(Double(state >> 11) / Double(1 << 53)) - 0.5
+            return Float(Double(state >> 11) / 0x1p53) - 0.5
         }
         let signals: [(String, [Float])] = [("golden", synthAudio(g.n_samples, g.sample_rate)), ("noise", noise)]
         for (name, audio) in signals {

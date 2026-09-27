@@ -8,7 +8,7 @@ struct FFTTests {
         var state: UInt64
         mutating func next() -> Float {
             state = state &* 6364136223846793005 &+ 1442695040888963407
-            return Float(Double(state >> 11) / Double(1 << 53)) * 2 - 1
+            return Float(Double(state >> 11) / 0x1p53) * 2 - 1
         }
     }
 
