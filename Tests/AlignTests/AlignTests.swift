@@ -3,6 +3,7 @@ import ModelStore
 import Foundation
 import Testing
 @_spi(AlignBindings) @testable import Align
+@testable import AudioDSP
 import TestSupport
 
 struct Golden: Codable {
@@ -66,6 +67,40 @@ func makeFrontend() async throws -> Frontend {
         let psnr = 10 * log10(peak * peak / max(mse, 1e-12))
         print("frontend PSNR \(psnr) dB, RMSE \(sqrt(mse)), max abs diff \(maxAbs)")
         #expect(psnr > 60.0, "log-mel frontend diverges from Python reference")
+    }
+
+    // The FFT path is what runs without Accelerate; exercise it on every host.
+    @Test func frontendFFTPathMatchesMatmulPath() async throws {
+        let g = try loadGolden()
+        let frontend = try await makeFrontend()
+        #expect(frontend.stft.hasFFT)
+        let ref = Data(base64Encoded: g.logmel_b64)!.withUnsafeBytes { Array($0.bindMemory(to: Float.self)) }
+        var state: UInt64 = 42
+        let noise = (0..<(16000 * 4)).map { _ -> Float in
+            state = state &* 6364136223846793005 &+ 1442695040888963407
+            return Float(Double(state >> 11) / Double(1 << 53)) - 0.5
+        }
+        let signals: [(String, [Float])] = [("golden", synthAudio(g.n_samples, g.sample_rate)), ("noise", noise)]
+        for (name, audio) in signals {
+            let fft = frontend.logMel(spectrogram: frontend.stft.forwardFFT(audio))
+            let matmul = frontend.logMel(spectrogram: frontend.stft.forwardMatmul(audio))
+            #expect(fft.nFrames == matmul.nFrames)
+            var maxAbs: Float = 0
+            for k in 0..<fft.data.count { maxAbs = max(maxAbs, abs(fft.data[k] - matmul.data[k])) }
+            print("frontend \(name): fft vs matmul max abs diff \(maxAbs)")
+            // Unit-variance log-mel; the gap is the matmul bases' own float32 error.
+            #expect(maxAbs < 1e-3, "\(name): FFT and matmul log-mel diverge")
+            guard name == "golden" else { continue }
+            var mse = 0.0, peak = 0.0
+            for k in 0..<ref.count {
+                let d = Double(fft.data[k] - ref[k])
+                mse += d * d
+                peak = max(peak, abs(Double(ref[k])))
+            }
+            let psnr = 10 * log10(peak * peak / max(mse / Double(ref.count), 1e-12))
+            print("frontend FFT path PSNR \(psnr) dB vs Python reference")
+            #expect(psnr > 60.0)
+        }
     }
 }
 
@@ -299,6 +334,42 @@ import Speech
         #expect(checkedBoundaries > 0)
         guard let tolerance = Self.parityToleranceMs[Self.parityBackend] else { return }
         #expect(maxDiff < tolerance, "the cascade drifted from its recorded corrections")
+    }
+
+    // The whole cascade fed by the FFT frontend path against the matmul path, on this host's runtime.
+    @Test func endToEndFFTFrontendMatchesMatmulFrontend() async throws {
+        let g = try loadGolden()
+        let refiner = try await makeRefiner()
+        let rt = try await refiner.model.value()
+        let langId = try #require(rt.assets.config.languages[g.language].map(Int32.init))
+        var speech = synthAudio(16000 * 20, 16000)
+        for i in speech.indices where (i / 8000) % 3 == 2 { speech[i] *= 0.02 }
+        let spaced = (0..<24).map { i in
+            WordTiming(text: ["one", "two", "three", "four"][i % 4], start: 0.4 + Double(i) * 0.8, end: 0.75 + Double(i) * 0.8)
+        }
+        let cases: [([Float], [WordTiming])] = [
+            (synthAudio(g.n_samples, g.sample_rate), g.words.map { WordTiming(text: $0.text, start: $0.start, end: $0.end) }),
+            (speech, spaced),
+        ]
+        var diffs: [Double] = []
+        for (audio, words) in cases {
+            let a = rt.frontend.logMel(spectrogram: rt.frontend.stft.forwardFFT(audio))
+            let b = rt.frontend.logMel(spectrogram: rt.frontend.stft.forwardMatmul(audio))
+            let viaFFT = try await Align.runCascade(rt, words, logmel: a.data, nFrames: a.nFrames, langId: langId,
+                                                    sampleOffset: 0, streaming: false)
+            let viaMatmul = try await Align.runCascade(rt, words, logmel: b.data, nFrames: b.nFrames, langId: langId,
+                                                       sampleOffset: 0, streaming: false)
+            for i in words.indices {
+                #expect(viaFFT[i].refined == viaMatmul[i].refined)
+                diffs.append(abs(viaFFT[i].start - viaMatmul[i].start) * 1000)
+                diffs.append(abs(viaFFT[i].end - viaMatmul[i].end) * 1000)
+            }
+        }
+        let maxDiff = diffs.max() ?? 0, meanDiff = diffs.reduce(0, +) / Double(diffs.count)
+        print("end-to-end FFT vs matmul frontend: max \(maxDiff) ms, mean \(meanDiff) ms over \(diffs.count) boundaries")
+        // Where the model is unsure, float32 rounding alone can move a boundary by one 10 ms frame.
+        #expect(maxDiff < 15)
+        #expect(meanDiff < 2)
     }
 
     #if canImport(Speech)
