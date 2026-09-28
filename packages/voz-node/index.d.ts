@@ -31,9 +31,9 @@ export interface VozLoadOptions {
    *  runtime there is a native addon that cannot be bundled, so pass
    *  `onnxruntime-node`. */
   ort?: any;
-  /** Serve the bundle yourself instead of from the Hub. Must end in "/". */
+  /** Serve the bundle yourself instead of from Hugging Face. Must end in "/". */
   modelBaseUrl?: string;
-  /** A different Hub revision of the bundle. */
+  /** A different revision of the bundle on Hugging Face. */
   revision?: string;
   /** Override the WebNN detection. WebNN runs the decode step on the Neural
    *  Engine where the browser has it. */

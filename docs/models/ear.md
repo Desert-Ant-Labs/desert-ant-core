@@ -37,9 +37,7 @@ npm i @desert-ant-labs/ear                  # Node, prebuilt native core
 
 ## Usage
 
-`Ear` names the language of a recording, so an app can pick the right recognizer
-before it starts transcribing. It listens to three thirty-second windows rather
-than the whole file, which takes about 250 ms.
+Ear detects the language of a recording, so your app can pick the right recognizer before transcription starts. Ear analyzes three 30s windows instead of the whole file. Detection takes 250ms.
 
 ### Swift
 
@@ -55,11 +53,9 @@ detection.isReliable    // true
 detection.candidates    // [LanguagePrediction(language: "pt", probability: 0.98), …]
 ```
 
-Create one and reuse it. Construction does no work and starts no download; the
-model loads on the first `identify` or `download(progress:)`, off your calling
-thread.
+Create one `Ear` instance and reuse it. Creating the instance does no work and starts no download. The SDK loads the model on the first call to `identify` or `download(progress:)`, off your calling thread.
 
-Already-decoded audio at any rate works too:
+You can also pass decoded samples at any sample rate:
 
 ```swift
 let detection = try await ear.identify(samples: samples, sampleRate: 44100)
@@ -79,11 +75,11 @@ ear.close()
 
 ### JavaScript
 
-One import for the browser (WebAssembly + LiteRT.js) and Node (prebuilt native
-core); the runtime resolves the right one.
+The default import is the browser build, which runs on WebAssembly and LiteRT.js. For inference in Node, import the `/native` subpath, which runs a prebuilt native core.
 
 ```js
-import { Ear } from "@desert-ant-labs/ear";
+import { Ear } from "@desert-ant-labs/ear";           // browser
+// import { Ear } from "@desert-ant-labs/ear/native"; // server-side Node
 
 const ear = await Ear.load();
 const detection = await ear.identify(samples, 16000);
@@ -95,10 +91,7 @@ ear.dispose();
 
 ### Deciding what to do with the answer
 
-`isReliable` is the flag to branch on. It is false when the top two candidates
-are too close to separate, and false for Norwegian, Swedish and Danish, which
-the model confuses with each other confidently rather than uncertainly - so
-their probability does not reveal the problem.
+Branch on `isReliable`. `isReliable` is false when the top two candidates are too close to separate. `isReliable` is also false for Norwegian, Swedish and Danish. Ear confuses those three with each other at high confidence, so their probability doesn't show the error.
 
 ```swift
 guard detection.isReliable, let language = detection.language else {
@@ -106,13 +99,9 @@ guard detection.isReliable, let language = detection.language else {
 }
 ```
 
-`isReliable` is decided once, in the model, and crosses the boundary as a
-number. Every SDK reads the same flag rather than reimplementing the rule, which
-is measured rather than obvious.
+Every SDK reads `isReliable` from the same shared core, so the same recording gets the same answer on every platform.
 
-The threshold was set by sweeping it against 162 recordings. Of the answers
-above it, 98.5% route correctly; on files in a language the primary recognizer
-supports, 100% do, and 86% of files clear it.
+We set the threshold by sweeping it against 162 recordings. 98.5% of the answers above the threshold route correctly. On files in a language the primary recognizer supports, 100% of those answers route correctly, and 86% of files clear the threshold.
 
 ### Downloading ahead of time
 
@@ -122,46 +111,36 @@ if !Ear.isDownloaded() {
 }
 ```
 
-`directory` points at model files you manage yourself. If it already holds the
-model it is used offline and nothing is downloaded, which is how you ship the
-weights inside an app instead of fetching them.
+Pass `directory` to use model files you manage yourself. When the directory already holds the model, Ear loads the model offline and downloads nothing. Use `directory` to ship the weights inside your app instead of fetching them.
 
 ```swift
 let ear = Ear(directory: "/path/to/model")
 ```
 
-## What it hears
+## How Ear picks windows
 
-A file handed to a transcriber is not speech end to end, so `Ear` does not
-listen to it end to end either. It ranks candidate windows by how much of their
-loudness varies at syllable rate - speech rises and falls three to six times a
-second and has gaps between words, music sustains, silence does not vary at all
-- and listens to the three most speech-like.
+Most recordings aren't speech from start to end, so Ear doesn't analyze the whole file. Ear ranks candidate windows by how much of their loudness varies at syllable rate, and analyzes the three most speech-like windows. Speech rises and falls three to six times a second and has gaps between words. Music sustains notes. Silence doesn't vary at all.
 
-That matters more than it sounds. Picking windows by position finds the language
-4% of the time on a five-minute recording with speech in a tenth of it. Picking
-the loudest windows finds it half the time on a file with a music intro, because
-an intro is mixed hotter than the voice after it.
+Windows picked by position find the language 4% of the time on a five-minute recording with speech in a tenth of it. The loudest windows find the language 50% of the time on a file with a music intro and outro. An intro is mixed louder than the voice after it, so ranking by loudness picks the music.
 
 ## Accuracy
 
-Measured end to end through this SDK, on real uploads:
+We measured Ear end to end through the SDK, on real uploads:
 
 | | exact | confident | of those, right |
 | --- | ---: | ---: | ---: |
 | Ordinary recordings | 12/12 | 12/12 | **12/12** |
 | The same, rebuilt as podcasts | 9/10 | 8/10 | **8/8** |
 
-No confident answer was wrong in either set. The podcast miss is a German
-episode read as English under its jingle, and it was reported unsure.
+Ear gave no wrong confident answer in either set. The podcast miss is a German episode that Ear identified as English under its jingle. Ear marked that answer as unreliable.
 
 ## Limits
 
-- **Speech mixed under louder music** is read correctly about 60% of the time.
-  No amount of choosing better windows changes that; the model cannot read it.
-- **Nordic languages** are not distinguished reliably. `isReliable` is false for
-  all of them rather than reporting one confidently.
-- **Recordings shorter than thirty seconds** get a single window, so there is
-  nothing to average and the answer is less certain than the number suggests.
-- Multilingual recordings are reported as whichever language the chosen windows
-  contain, not as a mixture.
+- Ear identifies speech mixed under louder music correctly 60% of the time. Better window selection doesn't change that, because the errors come from the model itself.
+- Ear doesn't reliably tell Norwegian, Swedish and Danish apart. `isReliable` is false for all three, even when Ear reports one of them at high confidence.
+- Ear analyzes a recording shorter than 30s as a single window. With nothing to average, the answer is less certain than the confidence suggests.
+- Ear reports a multilingual recording as the language of the chosen windows. Ear doesn't report a mixture of languages.
+
+## License
+
+Ear is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Ear for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

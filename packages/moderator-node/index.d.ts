@@ -77,8 +77,8 @@ export declare class Moderator {
   /** Use Moderator.load(); the constructor is internal. */
   private constructor();
   /**
-   * Load the model and return a ready moderator. Downloads from the Hugging
-   * Face Hub at the pinned revision and caches by default; pass `directory`
+   * Load the model and return a ready moderator. Downloads from Hugging Face
+   * at the pinned revision and caches by default; pass `directory`
    * (Node) or `modelBaseUrl` (browser) to adopt self-hosted files instead.
    */
   static load(options?: LoadOptions): Promise<Moderator>;

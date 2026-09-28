@@ -7,7 +7,7 @@
 // shape and doubles as a smoke test for the graceful "runtime absent" path.
 import { Redact } from "@desert-ant-labs/redact";
 
-// Redact downloads, verifies (SHA-256), and caches the model from the Hub;
+// Redact downloads, verifies (SHA-256), and caches the model from Hugging Face;
 // LiteRT.js runs inference in the browser. First run fetches; later runs cache.
 const redact = await Redact.load({});
 

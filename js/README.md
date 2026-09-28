@@ -16,7 +16,7 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
 - `createWasmSdk({ platform, packageName })` - the
   whole browser/WebAssembly half of a model package: instantiate the core through
   the package's `#platform` seam, set up the LiteRT.js session, then
-  `open(options)` either downloads the model from the Hub or adopts the files a
+  `open(options)` either downloads the model from Hugging Face or adopts the files a
   `modelBaseUrl` serves, and returns a ready `LoadedModel`.
 - `LoadedModel` - a loaded model behind an opaque core handle: `run(text,
   options, { group, deviceId })` returning an `FfiReader`, plus `isDownloaded`,

@@ -15,7 +15,7 @@ npm i @desert-ant-labs/gist @litertjs/core
 npm i @desert-ant-labs/gist
 ```
 
-The model is downloaded from the Hugging Face Hub on first use at the SDK's pinned tag, then cached. Nothing model-sized is shipped in the npm tarball.
+The model is downloaded from Hugging Face on first use at the SDK's pinned tag, then cached. Nothing model-sized is shipped in the npm tarball.
 
 ```js
 import { Gist } from "@desert-ant-labs/gist";
@@ -59,9 +59,9 @@ channelTopics(posts, { topN: 5 });
 
 ## Loading the model
 
-By default `Gist.load()` downloads the model files from the Hugging Face Hub ([`desert-ant-labs/gist`](https://huggingface.co/desert-ant-labs/gist)) at the SDK's pinned tag, verifies them, and caches them. The browser build fetches the `.tflite` for LiteRT.js and caches it in the browser. The native build (`/native`) fetches the `.tflite` on Linux or the `.mlmodelc/` on macOS and caches it under the OS cache dir.
+By default `Gist.load()` downloads the model files from Hugging Face ([`desert-ant-labs/gist`](https://huggingface.co/desert-ant-labs/gist)) at the SDK's pinned tag, verifies them, and caches them. The browser build fetches the `.tflite` for LiteRT.js and caches it in the browser. The native build (`/native`) fetches the `.tflite` on Linux or the `.mlmodelc/` on macOS and caches it under the OS cache dir.
 
-To self-host or run fully offline, opt out of the Hub:
+To self-host or run fully offline, skip the Hugging Face download:
 
 - `directory`: an explicit model directory (native build, or the browser build under Node). Files already there are used offline, otherwise the model is downloaded into it.
 - `modelBaseUrl`: a base URL you serve the model files from, for example `"/assets/gist/"` (browser build).

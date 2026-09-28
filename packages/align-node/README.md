@@ -52,7 +52,7 @@ The same three members are also on a loaded instance, so code holding an `align`
 
 ## Loading the model
 
-`Align.load()` downloads the model files from the Hugging Face Hub ([`desert-ant-labs/align`](https://huggingface.co/desert-ant-labs/align)) at the SDK's pinned revision on first use, verifies them, and caches them under the OS cache directory. Nothing model-sized ships in the npm tarball.
+`Align.load()` downloads the model files from Hugging Face ([`desert-ant-labs/align`](https://huggingface.co/desert-ant-labs/align)) at the SDK's pinned revision on first use, verifies them, and caches them under the OS cache directory. Nothing model-sized ships in the npm tarball.
 
 On a server you will usually pre-place the files instead:
 
