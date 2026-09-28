@@ -24,19 +24,15 @@ Then add the `Title` product to your target. The `MLX` trait is required: withou
 
 ## Usage
 
-Apple only, and the one model here that runs on MLX rather than Core ML: short
-autoregressive decode measured 5.7-8.3x faster on the GPU than on the Neural
-Engine. That is why it is behind the `MLX` package trait, and why a build that
-forgets the trait fails at compile time instead of mis-building.
+Title runs only on Apple platforms, on the GPU through MLX. The other Desert Ant models on Apple platforms run on Core ML. We measured Title writing text 5.7-8.3x faster on the GPU than on the Neural Engine. Because Title needs MLX, you turn Title on with the `MLX` package trait. A build that leaves out the trait fails at compile time, so you can't ship an app without a working model by mistake.
 
-Loading is expensive and generation is cheap, so build one `Titles` and reuse
-it. It is an `actor` because MLX state is not safe to drive from several tasks
-at once.
+Loading the model is slow and writing a card is fast, so create one `Titles` and reuse it. `Titles` is an `actor`, because MLX isn't safe to drive from several tasks at once. Calls from several tasks run one at a time.
+
+On iOS, call `suspend()` before your app enters the background and `resume()` when it returns. iOS revokes GPU access in the background, and MLX crashes the app if a generation is still running. `suspend()` cancels the running generation, and the call retries after `resume()`.
 
 ### Swift
 
-Nothing is downloaded here. Point the initializer at a folder you populated with
-the model files, unlike the other models in this repo:
+Title doesn't download its weights. Download the model files from Hugging Face, and point the initializer at that folder:
 
 ```swift
 import Title
@@ -49,8 +45,7 @@ card.description    // one or two sentences
 card.isEmpty        // true when the model returned neither
 ```
 
-`maxTokens` caps a degenerate run, which is a real failure mode for a small
-instruct model given unusual input:
+On unusual input, Title can keep generating without end. `maxTokens` caps each run, at 96 tokens by default:
 
 ```swift
 let titles = try await Titles(directory: modelFolder, maxTokens: 96)
@@ -58,83 +53,59 @@ let titles = try await Titles(directory: modelFolder, maxTokens: 96)
 
 ### With Clips
 
-`Card` is owned by this module and is not a field on `Clip`: selection and card
-writing are separate stages on separate silicon. Pair them when you want both.
+To give each clip a title and a description, pass the clips to Title. `cards(for:)` returns the cards in the same order as the clips.
 
 ```swift
 let cards = try await titles.cards(for: moments)   // index-aligned with moments
 let card = try await titles.card(for: moments[0])
 ```
 
-`cards(for:)` is sequential on purpose. Decode is already GPU-bound, so
-overlapping generations contend for the same device rather than adding
-throughput, and on a phone it adds thermal pressure that shows up as throttling
-partway through a long video.
+`cards(for:)` writes one card at a time. One generation already keeps the GPU busy, so parallel generations aren't faster. On a phone, parallel generations also add heat, and the phone throttles partway through a long video.
 
-### Not clip-specific
+### Other kinds of text
 
-The model was fine-tuned on transcript clips, but the task it learned is
-general: news paragraphs, product descriptions and emails all produce accurate,
-correctly-registered cards. Treat it as capable on general prose, not
-infallible on it.
+We fine-tuned Title on transcript clips. Title also writes accurate cards for news paragraphs, product descriptions and emails. Title can still get details wrong on general prose.
 
 ## Files
 
-An MLX model directory. Load the folder, not a single file.
+Title's files form one MLX model folder. Pass the whole folder to `Titles(directory:)`.
 
 | File | Contents |
 |---|---|
 | `model.safetensors` | 6-bit quantized weights |
-| `model.safetensors.index.json` | shard index; present even for one shard, because the loader reads it |
-| `config.json` | architecture and quantization config |
-| `generation_config.json` | decode defaults |
-| `tokenizer.json`, `tokenizer_config.json` | byte-level BPE with merges |
-| `chat_template.jinja` | the chat template the fine-tune was trained against |
+| `model.safetensors.index.json` | Shard index. Keep this file: the loader needs it, even with a single shard. |
+| `config.json` | Architecture and quantization config |
+| `generation_config.json` | Decode defaults |
+| `tokenizer.json`, `tokenizer_config.json` | Byte-level BPE with merges |
+| `chat_template.jinja` | The chat template we trained the fine-tune against |
 
-The chat template is not incidental. A different template is a different task to this model.
+Keep the chat template as shipped. A different template changes the task the model performs.
 
 ## The prompt
 
-The model was fine-tuned against one specific instruction, and a paraphrase is a different
-task to it. It lives in `Titles.prompt` in the SDK; use that wording. The reply is two labelled
-lines:
+The SDK sends Title the exact instruction we fine-tuned the model on, and parses the reply for you. The model replies with two labeled lines:
 
 ```
 TITLE: <3-8 words, no final punctuation>
 DESC: <1-2 sentences>
 ```
 
-Parse tolerantly. A card model that drifts off format should degrade to a usable title rather
-than throw.
+The model sometimes drifts off this format, so parse the reply tolerantly. When the reply has no labels, the SDK takes the first line as the title. When the SDK finds neither a title nor a description, `card.isEmpty` is true.
 
 ## Apple only
 
-MLX runs on Apple silicon and nowhere else, so there is no Android, Linux or Windows artifact
-here and no manifest promising one. A Core ML export exists in the training repository and is
-kept as evidence rather than as a candidate: on short autoregressive decode the Neural Engine
-is bandwidth-bound, and the Core ML arm lost on first token, throughput, load time and resident
-memory.
+MLX runs only on Apple silicon, so Title has no Android, Linux, Windows, browser or Node build. We also built Title for Core ML, to compare. The Neural Engine is limited by memory bandwidth when a model writes short text one token at a time. The Core ML build lost to MLX on time to first token, tokens per second, load time and memory use. We don't plan to ship the Core ML build.
 
 ## Status
 
-Internal testing, and less settled than that phrase usually implies. This card carries no
-quality figures: no independent review has been completed, and a known open issue is that the
-model sometimes opens a description with a stock phrase its own instruction forbids. Treat the
-output as needing a read before it reaches a user.
+Title is in internal testing. We publish no quality figures for Title yet, because no independent review is complete. Title sometimes opens a description with a stock phrase that its instruction forbids. Read each card before it reaches a user.
 
 ## Built on
 
-- [`ibm-granite/granite-4.0-350m`](https://huggingface.co/ibm-granite/granite-4.0-350m):
-  the base model this is fine-tuned from.
+- [`ibm-granite/granite-4.0-350m`](https://huggingface.co/ibm-granite/granite-4.0-350m): the base model we fine-tuned Title from.
 
 See [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/title/blob/v0.1.0/THIRD_PARTY_NOTICES.md).
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for most
-apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
-
----
-
-© 2026 Desert Ant Labs · <https://desertant.com>
+Title is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Title for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

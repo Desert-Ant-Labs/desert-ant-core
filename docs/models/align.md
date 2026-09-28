@@ -30,27 +30,17 @@ npm i @desert-ant-labs/align
 
 ## Changes in this release
 
-- `refine` is `async` and takes `languageCode`; it works on any transcript's words, not only
-  `SpeechAnalyzer` output.
-- The handle is `Align`. `SpeechTimestampRefiner` remains as a deprecated alias for the name
-  only: `Align` has no `locale:` initializer, and both `refine` and `isSupported` changed
-  shape, so a 3.x call site does not compile through it.
-- Streaming callers move to `StreamingRefiner`, which wraps an `Align` and keeps the
-  `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles.
-- The Apple runtime's log-mel frontend is corrected: it scaled power by 4 before the log.
-  On-device results change at this release.
-- A LiteRT export adds Linux, Windows and Node.
-- The npm package is Node-only, and its default entry refuses in the browser with an
-  actionable error. The refiner is a cascade of two graphs, and the WebAssembly host compiles
-  one model per module, so there is no browser build.
-- Three further changes break source on 3.x callers, separately from the two above:
-  `isSupported` is now `async throws -> Bool` and takes a language code rather than being a
-  property; `reset()` is no longer on the offline handle; and `AlignResourceError` is removed.
+- `refine` is `async` and takes `languageCode`. `refine` works on the words of any transcript, not only on `SpeechAnalyzer` output.
+- The handle is `Align`. `SpeechTimestampRefiner` remains as a deprecated alias for the name only. A 3.x call site doesn't compile through the alias, because `Align` has no `locale:` initializer and both `refine` and `isSupported` changed shape.
+- Streaming callers move to `StreamingRefiner`. `StreamingRefiner` wraps an `Align` and keeps the `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles.
+- On Apple platforms, corrected timestamps change at this release. We fixed a bug in the Core ML runtime's audio features, which scaled power by 4 before the log.
+- Align now runs on Linux, Windows and Node, through LiteRT.
+- The npm package runs only in Node. In the browser, `load()` throws an error that tells you to import `@desert-ant-labs/align/native` on a server instead. See [Limitations](#limitations) for why.
+- Three more changes break 3.x code. `isSupported` is now an `async throws -> Bool` method that takes a language code, where it used to be a property. The offline handle no longer has `reset()`. `AlignResourceError` is removed.
 
 ## Usage
 
-Align corrects the word timestamps of any transcript against its audio; on Apple it also
-attaches to `SpeechAnalyzer` (iOS 26 and later) through `StreamingRefiner`.
+Align corrects the word timestamps of any transcript against its audio. On Apple platforms, Align also attaches to `SpeechAnalyzer` (iOS 26 and later) through `StreamingRefiner`.
 
 ### Swift
 
@@ -64,8 +54,7 @@ let fixed = try await align.refine(words, audio: samples, sampleRate: 16_000, la
 
 ### SpeechAnalyzer (Apple)
 
-Attach the refiner to the standard Speech pipeline. It records the audio going in and
-corrects the timestamps coming out:
+Add `StreamingRefiner` to Apple's SpeechAnalyzer pipeline. The refiner records the audio you pass to SpeechAnalyzer and corrects the word timestamps in the results:
 
 ```swift
 import Align
@@ -80,15 +69,15 @@ for try await result in transcriber.results.refiningTimestamps(with: refiner) {
 }
 ```
 
-Volatile results pass through unchanged; finalized results are refined. In a
-callback-based audio pipeline, `analyzerInput` does both halves at once:
+The refiner corrects only finalized results. Volatile results come through unchanged.
+
+If your audio arrives in callbacks, call `analyzerInput` on each buffer. `analyzerInput` records the buffer for the refiner and returns the `AnalyzerInput` to pass to SpeechAnalyzer:
 
 ```swift
 let input = try await refiner.analyzerInput(buffer)   // buffers the audio, returns Apple's input
 ```
 
-For file input, hand it the `AVAudioFile` the analyzer is reading. A separate file handle
-is used, so the file stays positioned for the analyzer:
+If SpeechAnalyzer reads from a file, create the refiner with the same `AVAudioFile`. The refiner reads the file through its own handle, so SpeechAnalyzer's read position doesn't change:
 
 ```swift
 let refiner = try await StreamingRefiner(locale: locale, audioFile: file)
@@ -96,8 +85,7 @@ let refiner = try await StreamingRefiner(locale: locale, audioFile: file)
 
 ### JavaScript
 
-The `/native` subpath runs inference in plain Node, prebuilt for linux-x64, linux-arm64 and
-darwin-arm64.
+The `/native` subpath runs inference in plain Node. The subpath ships prebuilt for linux-x64, linux-arm64 and darwin-arm64.
 
 ```ts
 import { Align } from "@desert-ant-labs/align/native";
@@ -109,36 +97,21 @@ align.dispose();
 
 ### Unsupported locales
 
-Not every locale is covered by the model. Check before you build the pipeline; when it is
-false, `refine` is a passthrough rather than an error:
+Align supports the nine [languages](#languages) below. Check the language before you build the pipeline. For an unsupported language, `refine` returns the words unchanged and doesn't throw:
 
 ```swift
 guard try await align.isSupported(languageCode: "sv") else { /* use the original timestamps as-is */ }
 ```
 
-A `StreamingRefiner` checks the language it was created with the same way, with
-`try await refiner.isSupported()`. On JavaScript, `Align.isSupported(language)` is a
-synchronous check with the same meaning.
+To check the language a `StreamingRefiner` was created with, call `try await refiner.isSupported()`. In JavaScript, `Align.isSupported(language)` is a synchronous check with the same meaning.
 
-`refine` also keeps the original timestamp for any single word whose correction runs into the
-search edge, whose corrected range would end before it starts, or, when streaming, whose forward
-context is not buffered yet. Those fallbacks are checks on structure, not on accuracy: a
-correction that looks plausible but is wrong still lands. A stage that fails outright throws
-rather than falling back. See Limitations.
+`refine` also keeps the original timestamp for a word whose correction lands at the edge of the window Align searches, or whose corrected range would end before it starts. When streaming, `refine` does the same for a word whose forward context isn't buffered yet. These fallbacks check structure and don't check accuracy. A correction that looks plausible but is wrong still lands. If a model fails to run, `refine` throws an error and doesn't fall back. See [Limitations](#limitations).
 
-Input that cannot be a time is refused before any work, whatever the language. Every `start`
-and `end` must be finite and from -1 to 10,000,000 seconds, and the sample rate finite and
-positive, and the audio must not be empty. Audio at another rate that resamples to more than
-about 37 hours at 16 kHz is refused too. Swift throws `AlignError.invalidInput`, naming the
-word; JavaScript rejects with a `RangeError`. A word more than about 1.2 seconds past the end
-of the audio has nothing to refine against, so it keeps its input times with `refined`
-false.
+Align checks the input before doing any work, whatever the language. Every `start` and `end` must be finite and from -1 to 10,000,000 seconds. The sample rate must be finite and positive. The audio must not be empty. Audio at a rate other than 16kHz must be shorter than 37 hours. Swift throws `AlignError.invalidInput`, naming the word. JavaScript rejects with a `RangeError`. A word more than 1.2s past the end of the audio has nothing to refine against, so the word keeps its input times with `refined` false.
 
 ### Loading the model
 
-The weights are fetched from the Hub on first use and cached. To fetch them earlier, for
-example during onboarding, or to ship them yourself, see
-[model downloads and caching](../../README.md#model-downloads-and-caching).
+The SDK downloads the weights from Hugging Face on first use and caches them. To download them earlier, for example during onboarding, or to ship them yourself, see [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ```swift
 let align = Align()
@@ -146,75 +119,50 @@ if !align.isDownloaded() {
     try await align.download { fraction in print("\(Int(fraction * 100))%") }
 }
 
-let offline = Align(directory: myModelDirectory)   // adopted as-is, nothing downloaded
+let offline = Align(directory: myModelDirectory)   // uses the files as they are, downloads nothing
 ```
 
 ## Files
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `align-coarse.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Coarse stage |
-| `align-fine.mlmodelc` | Compiled Core ML (FP16) | ~0.3 MB | Fine stage |
-| `align-coarse.tflite` | LiteRT (FP32) | ~0.5 MB | Coarse stage |
-| `align-fine.tflite` | LiteRT (FP32) | ~0.5 MB | Fine stage |
-| `mel_filters.bin` | Float32 filter bank | ~40 KB | Log-mel filter bank the runtime frontend needs |
-| `calibrator.bin` | Gradient-boosted trees | ~70 KB | Correction calibrator |
+| `align-coarse.mlmodelc` | Compiled Core ML (FP16) | 0.3MB | Coarse stage |
+| `align-fine.mlmodelc` | Compiled Core ML (FP16) | 0.3MB | Fine stage |
+| `align-coarse.tflite` | LiteRT (FP32) | 0.5MB | Coarse stage |
+| `align-fine.tflite` | LiteRT (FP32) | 0.5MB | Fine stage |
+| `mel_filters.bin` | Float32 filter bank | 40KB | Log-mel filter bank the runtime frontend needs |
+| `calibrator.bin` | Gradient-boosted trees | 70KB | Correction calibrator |
 | `refiner_config.json` | JSON | tiny | Runtime config |
 
-The compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin`, and `refiner_config.json`
-are what the Swift SDK downloads on Apple; the `.tflite` pair replaces the two `.mlmodelc`
-directories on Linux, Windows and Node.
+On Apple platforms, the Swift SDK downloads the compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin` and `refiner_config.json`. On Linux, Windows and Node, the `.tflite` pair replaces the two `.mlmodelc` directories.
 
 ## Inputs and outputs
 
-- **Input:** mono audio plus any transcript's words with their proposed start/end times.
-- **Output:** the same words with corrected start/end times, or the original time when a
-  correction is not structurally safe.
+- You pass mono audio and the words of any transcript, with their proposed start and end times.
+- You get the same words back with corrected start and end times. A word keeps its original time when a correction isn't structurally safe.
 
 ## Accuracy
 
-On the clean condition, macro-averaged over the nine languages, Align cuts the proposer's raw
-timing error by roughly two-thirds. Per language it ranges from a third to over three quarters,
-and the noisy condition is lower. Both runtimes are scored on `gold-en-us`, the 258-boundary set
-corrected by hand against the waveform. There the on-device Core ML runtime's corpus mean boundary
-error is 44.8 ms (darwin-arm64, 2026-09-21), within 0.2 ms of the same checkpoint through the
-training-time frontend (45.0) and less than half the proposer's 100.8 ms, and the LiteRT export's
-corpus mean boundary error on that set matches the training-time reference to five significant
-figures. That is one corpus average in one language, not a per-boundary guarantee. The
-per-condition and per-language figures on this page are the training-side measurement; the Apple
-runtime's frontend changed at this release, so on-device Core ML numbers differ from v1.0.0's and
-are not carried over from it. The same per-condition figures are on the
-[model card](https://huggingface.co/desert-ant-labs/align), which also names the three
-weakest languages.
+On clean audio, averaged over the nine languages, Align cuts the timing error of the input timestamps by two-thirds. Per language, the cut ranges from a third to over three quarters. The cut is smaller on noisy audio.
+
+We score both runtimes on `gold-en-us`, a set of 258 boundaries corrected by hand against the waveform. On Apple platforms, the Core ML runtime's mean boundary error on that set is 44.8ms (darwin-arm64, 2026-09-21). The training-time reference scores 45.0ms. The input timestamps, before Align, score 100.8ms. The LiteRT runtime matches the training-time reference to five significant figures. These are averages over one English set, and a single boundary can be further off.
+
+The clean, noisy, and per-language figures come from the training-time reference, not from an on-device runtime. The on-device Core ML figures from v1.0.0 no longer apply, because the Core ML runtime's audio features changed at this release. The [model card](https://huggingface.co/desert-ant-labs/align) has the same per-condition figures and names the three weakest languages.
 
 ## Languages
 
-English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chinese. A locale
-outside this set is passed through unchanged.
+English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chinese. Align passes a locale outside this set through unchanged.
 
 ## Limitations
 
-- The macro-averaged figures are measured against machine forced-alignment estimates, not human
-  annotations, so they show a large, consistent reduction of the proposer's timing error rather
-  than sample-accurate ground truth.
-- A learned correction is not guaranteed to improve every boundary; the structural fallback keeps
-  the original timestamp when a correction looks unsafe but cannot catch every plausible-looking error.
-- Japanese, Korean, and Chinese were the weakest languages before v1.0.0. They now improve their
-  proposals by 33%, 55%, and 51%.
-- Number timings are the weakest remaining case. On a small sample refinement moved digit
-  boundaries further from the reference than leaving them alone, so treat spoken numbers as
-  unimproved until a larger sample settles it.
-- The LiteRT export is a third numeric path alongside Core ML and the training-time reference. The
-  parity fixture is Core ML's own recorded output on synthetic audio: Core ML on the CPU
-  reproduces it where it was measured (0.0 ms, against a 25 ms tolerance) while LiteRT drifts
-  10.4 ms from it (linux-arm64, 2026-09-17). Treat the two runtimes as able to disagree by around
-  10 ms on the same audio, not as agreeing to sub-millisecond.
-- No browser build: the cascade is two graphs, and the WebAssembly host compiles one model per
-  module.
-- No Android SDK.
+- The averaged figures compare against a forced aligner, not against boundaries marked by hand. The figures show that Align cuts the timing error of the input timestamps. They don't show how close Align gets to the true boundary.
+- Align doesn't improve every boundary. The structural fallback keeps the original timestamp when a correction looks unsafe. The fallback can't catch every plausible-looking error.
+- Japanese, Korean, and Chinese were the weakest languages before v1.0.0. Align now improves their input timestamps by 33%, 55%, and 51%.
+- Numbers are the weakest remaining case. On a small sample, refinement moved digit boundaries further from the reference than leaving them alone. Treat spoken numbers as unimproved until a larger sample settles the question.
+- The Core ML and LiteRT runtimes can disagree by 10ms on the same audio. We test both runtimes against Core ML's recorded output on synthetic audio. Core ML on the CPU matches that output (0.0ms, against a 25ms tolerance). LiteRT drifts 10.4ms (linux-arm64, 2026-09-17). Don't expect the two runtimes to agree to below a millisecond.
+- Align has no browser build. Align runs two models in sequence, and our WebAssembly build loads only one model.
+- Align has no Android SDK.
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for most apps;
-a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+Align is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Align for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

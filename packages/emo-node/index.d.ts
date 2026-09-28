@@ -56,8 +56,8 @@ export declare class Emo {
   /** Use Emo.load(); the constructor is internal. */
   private constructor();
   /**
-   * Load the model and return a ready suggester. Downloads from the Hugging Face
-   * Hub at the pinned revision and caches by default; pass `directory` (Node) or
+   * Load the model and return a ready suggester. Downloads from Hugging Face at
+   * the pinned revision and caches by default; pass `directory` (Node) or
    * `modelBaseUrl` (browser) to adopt self-hosted files instead.
    */
   static load(options?: LoadOptions): Promise<Emo>;

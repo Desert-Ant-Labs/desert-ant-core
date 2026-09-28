@@ -25,8 +25,7 @@ Then add the `Uhm` product to your target.
 
 ## Usage
 
-Apple only today. Create one detector and reuse it: the model loads on first
-use, or earlier if you call `download`.
+Uhm runs on Apple platforms only. Create one `Uhm` instance and reuse it. The SDK loads the model the first time you use it, or earlier if you call `download`.
 
 ### Swift
 
@@ -40,18 +39,12 @@ for filler in result.fillers {
     print(filler.start, filler.end, filler.confidence)   // seconds, seconds, 0...1
 }
 result.audioDuration
-result.phaseTimings.inferenceSec                         // where the time went
+result.phaseTimings.inferenceSec                         // seconds spent running the model
 ```
 
-Any format the platform decoder can read is accepted; audio is decoded to
-16 kHz mono internally. `analyze(audioURL:)`, `analyze(bytes:)` for in-memory
-audio, and `analyze(samples:sampleRate:)` for raw PCM are the other entry
-points.
+Uhm accepts any audio format AVFoundation can read. The SDK decodes the audio to 16kHz mono. Use `analyze(audioURL:)` for a file URL, `analyze(bytes:)` for audio in memory, and `analyze(samples:sampleRate:)` for raw PCM.
 
-`Options` trades recall against precision and drops spans that are too short.
-`bias` is the threshold preset: `.precision` (0.75) for automatic cuts,
-`.balanced` (0.65) by default, `.recall` (0.50) when you would rather review and
-confirm than miss one.
+`Options` sets the balance between recall and precision. `Options` also sets the shortest span Uhm keeps, 0.12s by default. `bias` picks the confidence threshold. Use `.precision` (0.75) when you cut fillers automatically. `.balanced` (0.65) is the default. Use `.recall` (0.50) when you would rather review and confirm each filler than miss one.
 
 ```swift
 let options = Uhm.Options(bias: .precision, minDurationSec: 0.08)
@@ -60,11 +53,9 @@ let result = try await uhm.analyze(audioPath: "interview.m4a", options: options)
 result.fillers.first?.type      // .uh, .um, .hmm, .and, .other
 ```
 
-The type labeler is on by default and Apple-only; `type` stays nil elsewhere.
-Pass `includeTypes: false` to skip it when filler-vs-not spans are enough.
+The SDK labels each filler with its type by default. The type labeler runs on Apple's SoundAnalysis framework. Pass `includeTypes: false` to skip the labeler when you only need to know where the fillers are.
 
-Pass a `progressHandler` to follow a long file, and cancel the enclosing task to
-stop the run:
+Pass a `progressHandler` to track a long file. Cancel the enclosing task to stop the run:
 
 ```swift
 let result = try await uhm.analyze(audioPath: path) { fraction in
@@ -72,60 +63,47 @@ let result = try await uhm.analyze(audioPath: path) { fraction in
 }
 ```
 
-### Loading the model
+### Downloading the model
 
-The weights are fetched from the Hub on first use and cached. See
-[model downloads and caching](../../README.md#model-downloads-and-caching).
+The SDK downloads the weights from Hugging Face on first use and caches them. See [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ## Files
 
 | File | Format | Size | Use |
 |---|---|---:|---|
-| `uhm.mlmodelc/` | Core ML fp16 (compiled) | ~45 MB | iOS / macOS on-device |
-| `uhm-web-fp16.onnx` | ONNX fp16 | ~51 MB | Browser, server, Python (`onnxruntime`) |
-| `uhm.onnx` | ONNX fp32 | ~98 MB | Quantization-free reference |
-
-`uhm.mlmodelc/` is a compiled Core ML model directory. The Swift SDK downloads it with the Hugging Face Hub snapshot API, so only changed files are re-fetched on model updates.
-
-The shipped model is a DistilHuBERT fine-tune. It is the smaller and more precise Uhm runtime model; the older HuBERT-base tier is no longer published.
+| `uhm.mlmodelc/` | Core ML fp16 (compiled) | 45MB | iOS and macOS, on device |
+| `uhm-web-fp16.onnx` | ONNX fp16 | 51MB | Browser, server, Python (`onnxruntime`) |
+| `uhm.onnx` | ONNX fp32 | 98MB | Unquantized reference |
 
 ## Inputs and outputs
 
-- **Input:** 16 kHz mono audio, up to 30-second windows.
-- **Output:** per-frame softmax over 6 classes, one prediction every 20 ms.
-- **Class indices:** `0 = not_filler, 1 = uh, 2 = um, 3 = hmm, 4 = and, 5 = other`.
+- Uhm reads 16kHz mono audio, in windows of up to 30s.
+- Uhm outputs a softmax over 6 classes for each 20ms frame.
+- The class indices are `0 = not_filler, 1 = uh, 2 = um, 3 = hmm, 4 = and, 5 = other`.
 
-Core ML input shape `(30, 1, 1, 16080)` float16 — the 30-second window pre-cut
-into 30 overlapping tiles — and output `(1, 6, 1, 1499)` float16. The SDK builds
-that layout for you; it exists because the Neural Engine caps every tensor axis
-at 16384, and it is what lets the whole model run there. Requires iOS 17 /
-macOS 14 or newer.
+The Core ML input shape is `(30, 1, 1, 16080)` float16: the 30s window, pre-cut into 30 overlapping tiles. The Core ML output shape is `(1, 6, 1, 1499)` float16. The SDK builds the tiled layout for you. The Neural Engine caps every tensor axis at 16384, and the tiled layout lets the whole model run on the Neural Engine. The Core ML model requires iOS 17 or macOS 14 or newer.
 
-The ONNX artifacts keep the plain `(1, 480000)` float32 in, `(1, 1499, 6)` out
-shape: the tiled layout is an Apple-silicon optimization and is slower on a GPU.
+The ONNX files keep the plain shapes, `(1, 480000)` float32 input and `(1, 1499, 6)` output, because the tiled layout runs slower on a GPU.
 
 ## Performance
 
-Warm on-device runs on the published fp16 Core ML model:
+We measured warm runs of the published fp16 Core ML model on Apple devices, with the model load excluded:
 
 | Device | Realtime factor |
 |---|---:|
-| iPhone 17 Pro | ~296× |
-| iPhone 15 Pro | ~169× |
-| iPad Pro M4 | ~279× |
+| iPhone 17 Pro | 296x |
+| iPhone 15 Pro | 169x |
+| iPad Pro M4 | 279x |
 
-Realtime factor = audio duration ÷ analyze time; model load excluded.
+The realtime factor is the audio duration divided by the time `analyze` takes.
 
-Those are measured on the *previous* export. The current one runs every
-operation on the Neural Engine and is 1.6× faster where it has been measured
-(M1: 115× → 188× end to end), so these numbers are conservative until they are
-re-measured on the devices themselves.
+We measured the table on the previous export. The current export runs every operation on the Neural Engine. On an M1, the current export runs 1.6x faster, at 188x end to end against 115x. We haven't measured the current export on the devices in the table yet.
 
-## Limitations
+## Limits
 
-- Trained on English; non-English performance is by acoustic transfer and has not been measured against per-language ground truth.
-- Best on podcast / meeting / talking-head audio. Heavy background music, laughter, or multi-speaker overlap degrades quality.
-- Type labels (`uh` / `um` / `hmm` / `and` / `other`) are secondary. Trust filler vs. not-filler more than the specific subtype.
+- Uhm is trained on English. Uhm detects fillers in other languages by acoustic transfer, and we haven't measured that against per-language ground truth.
+- Uhm works best on podcast, meeting, and talking-head audio. Heavy background music, laughter, and overlapping speakers lower the detection quality.
+- The type labels (`uh`, `um`, `hmm`, `and`, `other`) are less reliable than the filler detection. Trust whether a span is a filler more than its type.
 
 ## Built on
 
@@ -135,6 +113,4 @@ re-measured on the devices themselves.
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
-most apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+Uhm is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Uhm for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

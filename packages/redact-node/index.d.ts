@@ -85,7 +85,7 @@ export declare class Redact {
   private constructor();
   /**
    * Load the model and return a ready redactor. By default it downloads from the
-   * Hugging Face Hub at the pinned tag on first call, verifies it (SHA-256), and
+   * Hugging Face at the pinned tag on first call, verifies it (SHA-256), and
    * caches it (nothing model-sized ships in the npm package). Pass `directory`
    * (Node) or `modelBaseUrl` (browser) to self-host / run offline instead.
    */

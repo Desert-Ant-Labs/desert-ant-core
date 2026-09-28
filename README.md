@@ -4,10 +4,7 @@
 ![Kotlin](https://img.shields.io/badge/Kotlin-Android-7F52FF?logo=kotlin&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Node%20%7C%20Browser%20%7C%20WASM-3178C6?logo=typescript&logoColor=white)
 
-On-device AI SDKs for Swift, Kotlin, and JavaScript. Small, focused models that
-run directly on the user's phone, Mac, or browser tab, through Core ML on Apple,
-LiteRT (formerly TensorFlow Lite) on Android, and WebAssembly with LiteRT.js on
-the web, so text, audio, and images never leave the device.
+Add on-device speech recognition, audio cleanup, PII redaction, emoji suggestion, and more to your app, with SDKs for Swift, Kotlin, and JavaScript. The models run on the device, so text, audio, and images never leave it.
 
 ```swift
 import Emo
@@ -62,20 +59,11 @@ nothing to install today. Ask us if you want early access.
 | **Who** | On-device speaker labeling: per-person turns with timestamps. | [Model](https://huggingface.co/desert-ant-labs/who) |
 <!-- models:end -->
 
-Each model behaves the same on every platform, so you can build a feature once
-and ship it everywhere. New models are added regularly, and the weights live on
-[Hugging Face](https://huggingface.co/desert-ant-labs).
-
-**Every model's own page is where its examples are**, one page per model in
-[`docs/models/`](docs/models/), covering install and usage on every platform it
-supports. The rest of this file is what they have in common: platform
-requirements, and how model files are downloaded and cached.
+The weights for every model are on [Hugging Face](https://huggingface.co/desert-ant-labs).
 
 ## Swift
 
-Requirements: iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, and Swift 6.2+ (Xcode 26).
-The floor is the Core ML models', not the code's: they are built for this
-deployment target, and an older OS refuses to load them.
+On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, visionOS 2+, and Swift 6.2+ (Xcode 26). An older OS can't load the Core ML models. On Windows, the Swift package requires x64 and Swift 6.2+.
 
 Add the package with Swift Package Manager:
 
@@ -83,14 +71,11 @@ Add the package with Swift Package Manager:
 .package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.5.0")
 ```
 
-Then add a product per model you want, named as in the table above. You only pay
-for what you add, so an Emo-only app carries nothing from the other models.
-Each model's page has the exact product and an example.
+Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
 
 ## Android
 
-Requirements: Android API 24+, arm64-v8a and x86_64. Adding a second model does
-not double the size it adds to your app.
+The Android SDK requires API 24+ and runs on arm64-v8a and x86_64. All models share one copy of LiteRT from `ai.desertant:core`, so each model you add brings only its own native library.
 
 ```kotlin
 // settings.gradle.kts
@@ -110,9 +95,7 @@ dependencies {
 }
 ```
 
-One dependency per model, using the coordinates from the table above. Tongue is
-a plain jar rather than an AAR, a pure Kotlin port with no native libraries, so
-it also runs on a bare JVM (17+).
+Tongue has no native code, so you can also use Tongue outside Android, on any JVM 17+.
 
 ## JavaScript and TypeScript
 
@@ -129,124 +112,83 @@ npm i @desert-ant-labs/emo
 npm i @desert-ant-labs/tongue
 ```
 
-The default import is the browser build. It has no native dependencies, so it
-bundles cleanly for every target of a multi-target bundler such as Next.js,
-Remix, SvelteKit, or Nuxt, including the server-side rendering pass those
-frameworks run in Node. For inference in plain Node, import the `/native`
-subpath, which ships prebuilt for linux-x64, linux-arm64, and darwin-arm64.
+The default import is the browser build. The browser build has no native dependencies, so Next.js, Remix, SvelteKit, and Nuxt can bundle it for every target, including the server-side rendering pass. For inference in plain Node, import the `/native` subpath. `/native` ships prebuilt for linux-x64, linux-arm64, and darwin-arm64. Voz has no `/native` subpath. In Node, pass `onnxruntime-node` to Voz's `load()`.
 
-A Node-only package is the exception, and `@desert-ant-labs/align` is one today.
-Its default entry still imports cleanly everywhere, including the SSR pass, but
-`load()` refuses and points at `/native`. See that model's page for why the
-browser build cannot exist.
+Align runs only in Node. You can still import `@desert-ant-labs/align` anywhere, including the server-side rendering pass. Calling `load()` from that import throws an error that tells you to import `@desert-ant-labs/align/native` instead.
 
 ## Command line
 
-Transcribe a recording, cut clips, clean up audio, or redact a text from the
-terminal, with the same models running on your own machine. The [Desert Ant
-CLI](https://github.com/Desert-Ant-Labs/desert-ant-cli) runs on macOS (Apple
-silicon) and Linux:
+Transcribe a recording, cut clips, clean up audio, or redact text from the terminal. The [Desert Ant CLI](https://github.com/Desert-Ant-Labs/desert-ant-cli) runs on macOS (Apple silicon) and Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Desert-Ant-Labs/desert-ant-cli/main/install.sh | sh
 ```
 
-or `brew install desert-ant-labs/tap/desertant`. Then:
+You can also install the CLI with `brew install desert-ant-labs/tap/desertant` or with mise. Then run a model:
 
 ```
 $ da redact "Email Anna at anna@example.hu or call 555-0100"
 Email [GIVEN_NAME_1] at [EMAIL_1] or call [PHONE_1]
 ```
 
-mise, JSON output, chaining, and setup for coding agents are in the CLI's own
-README.
+Commands pass JSON to each other, so you can transcribe a video once and cut clips from that transcript.
+
+`desertant setup` writes a skill so coding agents on your machine, such as Claude Code and Codex, can use the CLI.
 
 ## Model downloads and caching
 
-Weights are published on the [Hugging Face
-Hub](https://huggingface.co/desert-ant-labs). Each SDK version is pinned to one
-model revision, so a model never changes under you, and every download is
-verified before it is used. (Tongue is the exception: its 2 MB model ships
-inside each package, so nothing here applies to it and nothing downloads.)
+The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-ant-labs) on first use. Each SDK version pins one model revision, so your app gets the same model until you update the SDK. The SDK verifies every download before using it. Tongue's 2MB model ships inside each package, so Tongue never downloads anything.
 
-- **Managed cache**, the default. Files land in the platform cache directory and
-  are reused across launches.
-- **Your own directory.** Pass `directory` and it becomes the model home. Files
-  already there are adopted as-is, so an app that ships the model offline simply
-  points at the folder it unpacked. Otherwise the model downloads into it.
-- **Self-hosted on the web.** Serve the files yourself and pass `modelBaseUrl`.
+- By default, the SDK keeps the files in the platform cache directory and reuses them across launches.
+- Pass `directory` to keep the model in your own folder. If the model files are already in the folder, the SDK uses them and downloads nothing. Otherwise the SDK downloads the model into the folder.
+- On the web, you can serve the files yourself and pass `modelBaseUrl`.
 
-`isDownloaded()` answers whether a model is usable with no network, and
-`download()` fetches it ahead of time with progress.
+`isDownloaded()` tells you whether a model works with no network. `download()` fetches the model ahead of time and reports progress.
 
 ### Faster downloads on Apple platforms (the `Xet` trait)
 
-Our Hub repos are stored on [Xet](https://huggingface.co/docs/hub/en/xet/index),
-Hugging Face's content-addressed backend, which serves a file as deduplicated
-chunks fetched in parallel rather than one stream. Swift consumers can opt into
-it with a package trait:
+Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
 .package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.5.0",
         traits: ["Xet"])
 ```
 
-Nothing else changes: the same files land in the same cache and are verified the
-same way, and anything not Xet-backed (or a CAS that is having a bad day) falls
-back to the ordinary HTTPS download. It is opt-in because it pulls
-[swift-xet](https://github.com/huggingface/swift-xet) and the NIO stack into the
-resolved graph, which no Linux, Android or web build has any use for. Those
-platforms, and the Node and Kotlin SDKs, keep the plain download path.
+With the trait on, the same files land in the same cache, and the SDK verifies them the same way. If a file isn't on Xet, or the Xet download fails, the SDK falls back to the ordinary HTTPS download. The trait adds [swift-xet](https://github.com/huggingface/swift-xet) and SwiftNIO to your dependencies. Every other platform and SDK downloads over plain HTTPS.
 
-Set `HF_TOKEN` in the environment for a gated or private repo; public models need
-no token.
+Set `HF_TOKEN` in the environment for a gated or private repo. Public models need no token.
 
 ### Offline and airgapped
 
-Model files are ordinary HTTPS downloads, so a directory can be populated from
-any machine: neither the SDK nor a container matching the target platform is
-needed. Each model's repo, pinned revision, and per-platform file list are
-declared in `Sources/<Model>/Catalog.swift` at the tag you build against; Swift
-also exposes them as `modelRepo` and `modelRevision`.
+To run a model offline, download its files and point the SDK at the folder. The SDK then needs no network.
 
-Redact at `v0.4.0`, for example. The Hub repo also holds training and tokenizer
-sources, which no SDK reads:
+1. Find the model's `Catalog.swift` in [`Sources/`](https://github.com/Desert-Ant-Labs/desert-ant-core/tree/main/Sources), at the tag you build against. The catalog lists the Hugging Face repo, the revision, and the files for each platform.
+2. Download those files with the [Hugging Face CLI](https://huggingface.co/docs/huggingface_hub/guides/cli). For example, Redact on Apple platforms:
+   ```bash
+   hf download desert-ant-labs/redact --revision v0.4.0 \
+     --include "redact.mlmodelc/*" redact_tokenizer.bin labels.json \
+     --local-dir redact
+   ```
+   On Android, Linux, Windows, and the web, the catalog lists `redact.tflite` in place of the `.mlmodelc` folder.
+3. Point the SDK at the folder:
+   - Swift: `Redact(directory: path)`
+   - Kotlin: `Redact(context, directory = path)`
+   - Node: `Redact.load({ directory: path })`
+   - Browser: serve the files yourself and pass `modelBaseUrl` to `Redact.load()`.
 
-| Platform | Files |
-|---|---|
-| Apple | `redact.mlmodelc/` (`coremldata.bin`, `metadata.json`, `model.mil`, `weights/weight.bin`, `analytics/coremldata.bin`), `redact_tokenizer.bin`, `labels.json` |
-| Android, Linux, Windows, web | `redact.tflite`, `redact_tokenizer.bin`, `labels.json` |
-
-```bash
-base=https://huggingface.co/desert-ant-labs/redact/resolve/v0.4.0
-for f in redact.tflite redact_tokenizer.bin labels.json; do
-  curl -fsSL --create-dirs -o "model/$f" "$base/$f"
-done
-```
-
-Pass that folder as `directory` and it is adopted as-is, with nothing downloaded
-and no network at run time. For a build that has to be reproducible, use the
-commit sha in place of the tag - the Hub accepts either, and `v0.4.0` is
-`1d65950bbf0459a4d7a94afb85095877f585d99c`. A revision is pinned per SDK version
-and moves only with a deliberate bump: every 1.0.x release ships `v0.4.0`.
+For a reproducible build, use the revision's commit sha in place of the tag.
 
 ### AWS Lambda on arm64
 
-Lambda does not mount `/sys/devices/system/cpu`. On arm64 the CPU backend reads
-it to enumerate cores, so without it inference fails on every call even though
-the library loads. Preload the shim shipped alongside the native:
+Lambda doesn't mount `/sys/devices/system/cpu`. On arm64, the CPU backend reads that directory to count cores. Without the directory, the library loads but inference fails on every call. Preload the shim that ships alongside the native library:
 
 ```
 LD_PRELOAD=/var/task/node_modules/@desert-ant-labs/redact/native/linux-arm64/libdalcpushim.so
 ```
 
-Set it as a function environment variable, and correct the path if the package
-lives in a layer (`/opt/nodejs/node_modules/...`). It answers those two sysfs
-reads and passes everything else through untouched. The dynamic linker has to
-insert it before libc, which is why the SDK cannot do this for you.
+Set `LD_PRELOAD` as a function environment variable. Correct the path if the package lives in a layer (`/opt/nodejs/node_modules/...`). The shim answers reads of the two files the CPU backend needs there, `possible` and `present`, and passes every other call through. The dynamic linker has to insert the shim before libc, so the SDK can't set it up for you.
 
-x86_64 needs none of this: there the core count comes from a CPU instruction
-rather than sysfs.
+On x86_64 you don't need the shim, because the core count comes from a CPU instruction instead of sysfs.
 
 ## Platform support
 
@@ -258,9 +200,8 @@ rather than sysfs.
 | Browser | WebAssembly + LiteRT.js | any browser with WebAssembly; `@litertjs/core` |
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
 
+Voz uses ONNX Runtime outside Apple platforms. On Windows, Voz runs on the GPU through ONNX Runtime and DirectML. In the browser, Voz runs on WebGPU through `onnxruntime-web`, and uses WebNN where the browser supports it. In Node, Voz runs on the CPU through `onnxruntime-node`.
+
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0).
-Free for most apps; a commercial license is required at scale. Full terms are at
-the link. Licensing: <licensing@desertant.com>. Third-party components are listed
-in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use the SDK for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the third-party components.

@@ -46,7 +46,7 @@ const voz = await Voz.load({ ort });
 Passing `ort` works in the browser too, for an app that already bundles a
 runtime or wants a build other than `onnxruntime-web/webgpu`.
 
-The bundle is downloaded from the Hugging Face Hub on first use and cached (the
+The bundle is downloaded from Hugging Face on first use and cached (the
 Cache API in a browser, disk in Node), so a reload does not fetch it again.
 Nothing model-sized ships in the npm tarball.
 
@@ -143,7 +143,7 @@ avoids a WebKit JIT pathology that costs 15% in Safari.
 | --- | --- | --- |
 | `ort` | onnxruntime-web in the browser | an ONNX Runtime module of your own; required under Node |
 | `ep` | `"auto"` | `"webgpu"` or `"wasm"` to override where the graphs run |
-| `modelBaseUrl` | the Hub | serve the bundle yourself; must end in `/` |
+| `modelBaseUrl` | Hugging Face | serve the bundle yourself; must end in `/` |
 | `revision` | the SDK's pin | a different revision of the weights |
 | `webnn` | detected | run the decode step on WebNN |
 | `wasmDir` | the runtime's own | where onnxruntime-web's `.wasm` files are served from |
@@ -169,4 +169,4 @@ run, and concurrent calls queue rather than interleave.
 ## License
 
 The SDK is source-available under the license in this package. The model weights
-carry their own license on the Hub.
+carry their own license on Hugging Face.
