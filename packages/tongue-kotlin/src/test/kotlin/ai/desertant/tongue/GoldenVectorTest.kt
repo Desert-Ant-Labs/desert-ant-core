@@ -1,5 +1,7 @@
 package ai.desertant.tongue
 
+import ai.desertant.tongue.usage.InMemoryStorage
+
 // The golden vectors are the cross-platform contract. The Python reference and
 // the Swift, Kotlin and JavaScript ports all replay the same files; if any drifts,
 // the model sees different features on that platform and the implementations
@@ -156,7 +158,8 @@ private fun testRouter() {
 }
 
 private fun testDetection() {
-    val tongue = Tongue.bundled(null)
+    // A throwaway usage store: the JVM's own is shared by every keyless Tongue app for this user.
+    val tongue = Tongue.bundled(null, InMemoryStorage())
     val expectations = listOf(
         "je voudrais un café au lait" to "fr",
         "kann ich das haben" to "de",
@@ -179,6 +182,7 @@ private fun testDetection() {
         """{"labels":["en","fr"],"num_buckets":1,"dim":1,"ngram_orders":[1],"embed_scale":1,"latin_labels":["en","fr"]}""",
         ByteArray(17),
         null,
+        InMemoryStorage(),
     )
     val topOne = controlled.detect("this input is long enough", topK = 1)
     check(topOne.candidates.size == 1) { "topK 1 should return one candidate" }

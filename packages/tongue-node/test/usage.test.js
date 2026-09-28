@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -10,29 +11,11 @@ import { Tongue } from "../dist/index.js";
 /** The platform tags the ingest endpoint accepts; anything else is a 400. */
 const acceptedPlatforms = ["ios", "android", "web", "server"];
 
-// A test that builds a real turnstile and leaves a call unsent would otherwise
-// post it to production on exit. Tests that need a server set their own.
-process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
-
 // Replays the shared turnstile contract. The Kotlin port replays the identical
 // file against its own hand-ported client; the Swift SDK uses desert-ant-core's
 // client directly, which is where this behaviour comes from. See docs/USAGE.md.
 const here = dirname(fileURLToPath(import.meta.url));
 const vectors = JSON.parse(readFileSync(join(here, "usage_vectors.json"), "utf8"));
-
-/**
- * Run `body` with the usage switch off, then put it back. The suite runs with
- * DAL_USAGE_DISABLED=1, and the transport reads it per send.
- */
-async function withUsageOn(body) {
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
-  try {
-    return await body();
-  } finally {
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
-  }
-}
 
 test("turnstile matches the shared contract", () => {
   for (const c of vectors.cases) {
@@ -80,10 +63,47 @@ test("turnstile matches the shared contract", () => {
   }
 });
 
-test("detection still works with reporting switched off", async () => {
-  // The suite runs with DAL_USAGE_DISABLED=1, so no client is ever opened.
-  const tongue = await Tongue.load();
-  assert.equal(tongue.detect("kann ich das haben").language, "de");
+test("a storage global that throws on read falls back to memory", () => {
+  // A child process: once Tongue.load() installs its file store, the globals are never read.
+  const script = fileURLToPath(new URL("./fixtures-throwing-storage.mjs", import.meta.url));
+  const result = JSON.parse(execFileSync(process.execPath, [script], { encoding: "utf8" }));
+  assert.equal(result.posts, 1, "a throwing storage getter stopped reporting");
+});
+
+test("a client build that fails once is tried again on the next detection", async () => {
+  const posts = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (_url, init) => {
+    posts.push(JSON.parse(init.body));
+    return Promise.resolve({ ok: true });
+  };
+  const values = new Map();
+  let failures = 1;
+  const store = {
+    get: (k) => {
+      if (failures > 0) {
+        failures -= 1;
+        throw new Error("transient");
+      }
+      return values.get(k) ?? null;
+    },
+    set: (k, v) => values.set(k, v),
+  };
+  const exitHooks = process.listeners("beforeExit");
+  try {
+    const turnstile = UsageTurnstile.create("9.9.9", store);
+    turnstile.record();
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(posts.length, 0, "the failed build reported");
+    turnstile.record();
+    assert.equal(await turnstile.flushTelemetry(), true);
+    assert.equal(posts.length, 1, "one failed build stopped reporting for good");
+  } finally {
+    for (const hook of process.listeners("beforeExit")) {
+      if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
+    }
+    globalThis.fetch = realFetch;
+  }
 });
 
 test("the platform tag is one the endpoint accepts", () => {
@@ -130,126 +150,36 @@ test("the wire body matches core's field order and carries no text", () => {
   );
 });
 
-test("DAL_USAGE_DISABLED suppresses every send and every store write", async () => {
-  // The kill switch docs/USAGE.md offers operators. A regression making it a
-  // no-op would start billing every CI runner.
-  const { UsageTurnstile } = await import("../dist/usage.js");
-  assert.equal(process.env.DAL_USAGE_DISABLED, "1", "suite must run with the switch on");
-  let touches = 0;
-  const store = { get: () => (touches++, null), set: () => void touches++ };
-  const turnstile = UsageTurnstile.create("9.9.9", store);
-
-  let fetched = false;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = () => {
-    fetched = true;
-    return Promise.reject(new Error("must not be called"));
-  };
-  try {
-    for (let i = 0; i < 5; i++) turnstile.record();
-    assert.equal(await turnstile.flushTelemetry(), true);
-    assert.equal(touches, 0, "a switched-off turnstile touched its store");
-    const tongue = await Tongue.load();
-    for (let i = 0; i < 20; i++) tongue.detect("kann ich das haben");
-    await new Promise((r) => setTimeout(r, 50));
-    assert.equal(fetched, false, "a detection posted despite DAL_USAGE_DISABLED");
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
-
-test("the switch is read per detection and per send, as a consent flow flips it", async () => {
-  // A page keeps the beacon off until its visitor agrees, so the switch is on
-  // when the turnstile is built and cleared later; withdrawing consent sets it
-  // again, and must also stop an event already waiting out the debounce.
-  const { UsageTurnstile } = await import("../dist/usage.js");
+test("a detection always posts to the ingest", async () => {
+  // Every detection reports, here to a local capture server.
+  const { createServer } = await import("node:http");
   const posts = [];
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = (_url, init) => {
-    posts.push(JSON.parse(init.body));
-    return Promise.resolve({ ok: true });
-  };
-  let touches = 0;
-  const values = new Map();
-  const store = {
-    get: (k) => (touches++, values.get(k) ?? null),
-    set: (k, v) => (touches++, values.set(k, v)),
-  };
-  try {
-    const turnstile = UsageTurnstile.create("9.9.9", store);
-    turnstile.record();
-    assert.equal(await turnstile.flushTelemetry(), true);
-    assert.equal(touches, 0, "the turnstile opened a client before consent");
-    assert.equal(posts.length, 0);
-
-    await withUsageOn(async () => {
-      turnstile.record();
-      await turnstile.flushTelemetry();
-      assert.equal(posts.length, 1, "the detection after consent did not report");
-      assert.equal(posts[0].events[0].callCount, 1, "a detection before consent was counted");
-
-      // Consent withdrawn by the page's global, the form a banner uses.
-      globalThis.__dalUsageDisabled = true;
-      try {
-        turnstile.record();
-        await turnstile.flushTelemetry();
-        assert.equal(posts.length, 1, "a detection after the opt-out was sent");
-
-        // Recorded while on, withdrawn before the flush: held, neither stored
-        // nor sent, and delivered once consent is given again.
-        globalThis.__dalUsageDisabled = false;
-        turnstile.record();
-        globalThis.__dalUsageDisabled = () => true;
-        const before = touches;
-        await turnstile.flushTelemetry();
-        assert.equal(posts.length, 1, "a call recorded before the opt-out was sent after it");
-        assert.equal(touches, before, "a flush after the opt-out wrote the store");
-      } finally {
-        delete globalThis.__dalUsageDisabled;
-      }
-      await turnstile.flushTelemetry();
-      assert.equal(posts.length, 2, "the held call was lost when consent returned");
-      assert.equal(posts[1].events[0].callCount, 1);
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (chunk) => (body += chunk));
+    req.on("end", () => {
+      posts.push(JSON.parse(body));
+      res.writeHead(202).end();
     });
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
-
-test("a client holds while its switch is on, then sends what it held", () => {
-  let off = false;
-  let state = { lastActiveAt: 0, carryCallCount: 0 };
-  let saves = 0;
-  const sends = [];
-  const client = new UsageClient({
-    deviceId: "d",
-    keyInBody: true,
-    platform: "server",
-    version: "9.9.9",
-    windowMs: 86_400_000,
-    now: () => 1700000000000,
-    loadState: () => state,
-    saveState: (next) => {
-      state = next;
-      saves++;
-    },
-    send: (body) => void sends.push(body),
-    disabled: () => off,
   });
-  client.start();
-  client.recordCall();
-  off = true;
-  const before = saves;
-  client.recordCall();
-  client.flush();
-  client.suspend();
-  client.load();
-  assert.equal(sends.length, 0, "a switched-off client sent");
-  assert.equal(saves, before, "a switched-off client wrote its store");
-  off = false;
-  client.flush();
-  assert.equal(sends.length, 1);
-  assert.equal(sends[0].events[0].callCount, 1, "the held call was lost, or one made while off counted");
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const savedEndpoint = process.env.DAL_INGEST_ENDPOINT;
+  process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${server.address().port}/api/v1/ingest`;
+  const exitHooks = process.listeners("beforeExit");
+  try {
+    const tongue = await Tongue.load();
+    assert.equal(tongue.detect("kann ich das haben").language, "de");
+    assert.equal(await tongue.flushTelemetry(), true);
+    assert.equal(posts.length, 1, "the detection did not report");
+    assert.equal(posts[0].events[0].callCount, 1);
+  } finally {
+    for (const hook of process.listeners("beforeExit")) {
+      if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
+    }
+    if (savedEndpoint === undefined) delete process.env.DAL_INGEST_ENDPOINT;
+    else process.env.DAL_INGEST_ENDPOINT = savedEndpoint;
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test("a forced load posts inside the window and resolves only once the send has", async () => {
@@ -300,12 +230,9 @@ test("a forced load posts inside the window and resolves only once the send has"
 });
 
 test("a flush with nothing recorded reports success and sends nothing", async () => {
-  // The suite runs with the kill switch on, so the turnstile is built by hand
-  // here. A process that started but never detected must not be billed: core's
+  // A process that started but never detected must not be billed: core's
   // flush skips a client with no usage, and an idle process is the common case.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   let fetched = false;
   const realFetch = globalThis.fetch;
   globalThis.fetch = () => {
@@ -318,12 +245,11 @@ test("a flush with nothing recorded reports success and sends nothing", async ()
       get: (k) => values.get(k) ?? null,
       set: (k, v) => values.set(k, v),
     });
-    assert.ok(turnstile, "the turnstile builds once the switch is off");
+    assert.ok(turnstile, "the turnstile did not build");
     assert.equal(await turnstile.flushTelemetry(), true);
     assert.equal(fetched, false, "an idle turnstile posted a load");
   } finally {
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -452,8 +378,6 @@ test("state stored before the emit day existed emits on the next start, and keep
   // the window, or a device used every day is never billed again. Through the
   // debounce, not flushTelemetry(): a forced flush emits whatever start() decided.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_700_000_000_000 });
   // Each client this opens adds an exit hook; removed after, so the file's
   // turnstiles stay under Node's listener warning.
@@ -489,7 +413,6 @@ test("state stored before the emit day existed emits on the next start, and keep
       if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
     }
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -498,8 +421,6 @@ test("a turnstile created on a day that already posted emits on its first detect
   // one opened inside the window (a server redeployed the same day) carried every
   // call for as long as it lived.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   // 2023-11-14T22:13:20Z, two hours before a UTC midnight.
   t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 1_700_000_000_000 });
   // Each client this opens adds an exit hook; removed after, so the file's
@@ -534,7 +455,6 @@ test("a turnstile created on a day that already posted emits on its first detect
       if (!exitHooks.includes(hook)) process.off("beforeExit", hook);
     }
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -546,8 +466,6 @@ test("a forced flush takes the pending debounce, and the turnstile still flushes
   // early, and a flag left set means `record()` never schedules again, so that
   // detection is never sent at all. The Kotlin twin is pinned to the same two.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const posts = [];
   const realFetch = globalThis.fetch;
@@ -577,7 +495,6 @@ test("a forced flush takes the pending debounce, and the turnstile still flushes
     assert.equal(posts.length, 2, "the turnstile stopped flushing after a forced flush");
   } finally {
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -586,8 +503,6 @@ test("a forced flush awaits the send the debounce started", async (t) => {
   // the debounce started may still be in flight. `flushTelemetry()` must wait for
   // it too, or a process that exits next drops the event.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   t.mock.timers.enable({ apis: ["setTimeout"] });
   let answer;
   let posts = 0;
@@ -618,7 +533,6 @@ test("a forced flush awaits the send the debounce started", async (t) => {
     assert.equal(posts, 1, "the forced flush posted a second load");
   } finally {
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -628,8 +542,6 @@ test("a forced flush awaits every debounced send still in flight, not only the n
   // would let flushTelemetry() resolve with the first one, often the day's load,
   // unsent.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const answers = [];
   const realFetch = globalThis.fetch;
@@ -658,7 +570,6 @@ test("a forced flush awaits every debounced send still in flight, not only the n
     assert.equal(await flushed, true);
   } finally {
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -682,7 +593,7 @@ test("a send is bounded, and a timed-out one is not sent again by beacon", async
     configurable: true,
   });
   try {
-    await withUsageOn(() => makeSend("http://127.0.0.1:9/ingest")({ events: [] }));
+    await makeSend("http://127.0.0.1:9/ingest")({ events: [] });
     assert.ok(signal instanceof AbortSignal, "the POST carried no timeout signal");
     assert.equal(beacons, 0, "a timed-out POST was sent again by beacon");
   } finally {
@@ -718,15 +629,13 @@ test("the transport actually posts the body over HTTP", async () => {
     // Awaiting the returned promise is the contract `flushTelemetry()` rests on:
     // it resolves once the server has answered, not when the request is queued.
     // The key goes in the header, so the body built here must not carry one.
-    await withUsageOn(() =>
-      makeSend(`http://127.0.0.1:${port}/api/v1/ingest`, "dal_test")({
-        platform: "server",
-        app: { id: "com.acme.app" },
-        sdk: { name: "tongue-js", version: "9.9.9" },
-        sentAt: "2023-11-14T22:13:20.000Z",
-        events: [{ name: "load", deviceId: "d", callCount: 2 }],
-      }),
-    );
+    await makeSend(`http://127.0.0.1:${port}/api/v1/ingest`, "dal_test")({
+      platform: "server",
+      app: { id: "com.acme.app" },
+      sdk: { name: "tongue-js", version: "9.9.9" },
+      sentAt: "2023-11-14T22:13:20.000Z",
+      events: [{ name: "load", deviceId: "d", callCount: 2 }],
+    });
 
     assert.equal(received.length, 1, "the transport never reached the server");
     assert.equal(received[0].method, "POST");
@@ -763,21 +672,17 @@ test("the turnstile a host builds puts the key in exactly one place", async () =
   const { port } = server.address();
 
   const saved = {
-    DAL_USAGE_DISABLED: process.env.DAL_USAGE_DISABLED,
     DAL_INGEST_ENDPOINT: process.env.DAL_INGEST_ENDPOINT,
     DAL_API_KEY: process.env.DAL_API_KEY,
     DAL_DEVICE_ID: process.env.DAL_DEVICE_ID,
   };
-  // `mise run test:node` sets DAL_USAGE_DISABLED=1 for every task, and a
-  // switched-off turnstile records nothing.
-  delete process.env.DAL_USAGE_DISABLED;
   process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${port}/api/v1/ingest`;
   process.env.DAL_API_KEY = "dal_test";
   process.env.DAL_DEVICE_ID = "e2e-host-device";
 
   try {
     const turnstile = UsageTurnstile.create("9.9.9");
-    assert.ok(turnstile, "create() returned null with reporting enabled");
+    assert.ok(turnstile, "create() returned null");
     turnstile.record();
     assert.equal(await turnstile.flushTelemetry(), true);
 
@@ -804,8 +709,6 @@ test("a flush awaits a send an earlier, unawaited flush started", async () => {
   // `void t.flushTelemetry(); await t.flushTelemetry()`: the second flush has
   // nothing to send, but must still wait for the first POST.
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const disabled = process.env.DAL_USAGE_DISABLED;
-  delete process.env.DAL_USAGE_DISABLED;
   let answer;
   const realFetch = globalThis.fetch;
   globalThis.fetch = () => new Promise((resolve) => (answer = () => resolve({ ok: true })));
@@ -828,7 +731,6 @@ test("a flush awaits a send an earlier, unawaited flush started", async () => {
     assert.equal(await second, true);
   } finally {
     globalThis.fetch = realFetch;
-    if (disabled !== undefined) process.env.DAL_USAGE_DISABLED = disabled;
   }
 });
 
@@ -846,8 +748,7 @@ test("a worker in a server runtime is a server, not a page", () => {
 
 test("a key with surrounding whitespace is trimmed before it reaches the header", async () => {
   const { UsageTurnstile } = await import("../dist/usage.js");
-  const saved = { disabled: process.env.DAL_USAGE_DISABLED, key: process.env.DAL_API_KEY };
-  delete process.env.DAL_USAGE_DISABLED;
+  const saved = { key: process.env.DAL_API_KEY };
   process.env.DAL_API_KEY = "dal_test\n";
   const seen = [];
   const realFetch = globalThis.fetch;
@@ -866,7 +767,6 @@ test("a key with surrounding whitespace is trimmed before it reaches the header"
     assert.deepEqual(seen, ["Bearer dal_test"]);
   } finally {
     globalThis.fetch = realFetch;
-    if (saved.disabled !== undefined) process.env.DAL_USAGE_DISABLED = saved.disabled;
     if (saved.key === undefined) delete process.env.DAL_API_KEY;
     else process.env.DAL_API_KEY = saved.key;
   }

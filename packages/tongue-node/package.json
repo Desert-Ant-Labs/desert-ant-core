@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/tongue",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "desertant": {
     "pure": true
   },
@@ -28,7 +28,7 @@
   ],
   "scripts": {
     "build": "tsc && cp src/tongue_int8.bin src/tongue_meta.json dist/",
-    "test": "npm run build && DAL_USAGE_DISABLED=1 node --test test/*.test.js",
+    "test": "npm run build && node --import ../../js/test/setup.mjs --test test/*.test.js",
     "prepare": "npm run build"
   },
   "keywords": [

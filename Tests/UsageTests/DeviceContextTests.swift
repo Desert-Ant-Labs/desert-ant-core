@@ -315,7 +315,7 @@ struct BrowserVocabularyTests {
 
 // Serialized: `DesertAnt.sendsDeviceContext` is process-wide, and these read the
 // real provider, which honours it. A test elsewhere that relies on the default
-// provider would race `theInCodeOptOutSendsUsageWithoutContext`; inject one.
+// provider would race `theInCodeContextSwitchSendsUsageWithoutContext`; inject one.
 @Suite(.serialized) struct DefaultContextProviderTests {
     private func firstContext(
         platform: String, deviceId: String? = nil, storage: InMemoryStorage = InMemoryStorage()
@@ -326,8 +326,7 @@ struct BrowserVocabularyTests {
             deviceId: deviceId,
             platform: platform,
             storage: storage,
-            send: { body, _ in sent.append(body) },
-            disabled: { false }
+            send: { body, _ in sent.append(body) }
         )
         client.start()
         client.flush()
@@ -380,7 +379,7 @@ struct BrowserVocabularyTests {
     }
 
     /// Caller-passed context goes through the same cut as the provider's.
-    // Here, not with the other sanitizing tests: it reads the process-wide opt-out.
+    // Here, not with the other sanitizing tests: it reads the process-wide context switch.
     @Test(.enabled(if: !deviceContextDisabled()))
     func anExplicitLoadContextIsSanitizedToo() {
         var sent: [IngestBody] = []
@@ -394,7 +393,7 @@ struct BrowserVocabularyTests {
         #expect(sent.first?.events.first?.context == ["osName": "macOS"])
     }
 
-    @Test func anExplicitLoadContextObeysTheOptOut() {
+    @Test func anExplicitLoadContextObeysTheContextSwitch() {
         DesertAnt.sendsDeviceContext = false
         defer { DesertAnt.sendsDeviceContext = true }
         var sent: [IngestBody] = []
@@ -408,7 +407,7 @@ struct BrowserVocabularyTests {
         #expect(sent[0].events[0].context == nil)
     }
 
-    @Test func aCallersOwnProviderObeysTheOptOut() {
+    @Test func aCallersOwnProviderObeysTheContextSwitch() {
         DesertAnt.sendsDeviceContext = false
         defer { DesertAnt.sendsDeviceContext = true }
         var sent: [IngestBody] = []
@@ -424,7 +423,7 @@ struct BrowserVocabularyTests {
         #expect(sent[0].events[0].context == nil)
     }
 
-    @Test func anOptOutSetBeforeTheFlushDropsTheQueuedContext() {
+    @Test func aContextSwitchSetBeforeTheFlushDropsTheQueuedContext() {
         defer { DesertAnt.sendsDeviceContext = true }
         var sent: [IngestBody] = []
         let client = UsageClient(ClientDeps(
@@ -440,12 +439,12 @@ struct BrowserVocabularyTests {
         #expect(sent[0].events[0].context == nil)
     }
 
-    @Test func theInCodeOptOutSendsUsageWithoutContext() {
+    @Test func theInCodeContextSwitchSendsUsageWithoutContext() {
         DesertAnt.sendsDeviceContext = false
         defer { DesertAnt.sendsDeviceContext = true }
         #expect(deviceContextDisabled())
         var sent: [IngestBody] = []
-        let client = makeClient(appId: "co.acme.app", platform: "ios", storage: InMemoryStorage(), send: { body, _ in sent.append(body) }, disabled: { false })
+        let client = makeClient(appId: "co.acme.app", platform: "ios", storage: InMemoryStorage(), send: { body, _ in sent.append(body) })
         client.start()
         client.flush()
         #expect(sent.count == 1)
@@ -477,7 +476,7 @@ struct BrowserVocabularyTests {
         var sent: [IngestBody] = []
         let client = makeClient(
             appId: "co.acme.app", deviceId: "d", platform: "web", context: { nil },
-            storage: store, send: { body, _ in sent.append(body) }, disabled: { false }
+            storage: store, send: { body, _ in sent.append(body) }
         )
         client.start()
         client.flush()

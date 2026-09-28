@@ -68,7 +68,7 @@ internal data class DeviceFacts(
 
 /**
  * The default `context` provider [makeClient] wires. The facts are read once;
- * the opt-out and the appVersion override are read per event, so a host that
+ * the context switch and the appVersion override are read per event, so a host that
  * sets either after the client is built is still honoured.
  */
 internal fun defaultContextProvider(
@@ -84,10 +84,10 @@ internal fun defaultContextProvider(
 internal fun hostProvidedAppVersion(): String? = setting("DAL_APP_VERSION")
 
 /**
- * Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
+ * Whether the event `context` is left out: `DesertAnt.sendsDeviceContext`
  * set to false in code, or `DAL_USAGE_CONTEXT_DISABLED` under `flagIsSet` in the
- * environment or as the same-named system property. Either one opts out, as
- * with `usageDisabled()`. Usage itself still reports; only the context goes.
+ * environment or as the same-named system property. Either one leaves the
+ * context out. Usage itself still reports; only the context goes.
  */
 internal fun deviceContextDisabled(): Boolean =
     !ai.desertant.tongue.DesertAnt.sendsDeviceContext ||
@@ -95,10 +95,10 @@ internal fun deviceContextDisabled(): Boolean =
         flagIsSet(System.getProperty("DAL_USAGE_CONTEXT_DISABLED"))
 
 /**
- * The truthiness rule every port's opt-out flags share, usage and context alike:
- * set, and not "", "0" or "false". This port reads strings only (the environment
+ * The truthiness rule every port's context flag shares: set, and not "", "0"
+ * or "false". This port reads strings only (the environment
  * and system properties), so a number arrives as its text: "1" is set and "0"
- * is not, as the JS ports' number rule has it. It fails closed.
+ * is not, as the JS ports' number rule has it.
  */
 internal fun flagIsSet(value: String?): Boolean =
     value != null && value != "" && value != "0" && value != "false"

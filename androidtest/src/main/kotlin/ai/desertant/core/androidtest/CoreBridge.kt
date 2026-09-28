@@ -9,7 +9,7 @@ object CoreBridge {
 
     /**
      * Installs the CHostBridge callbacks against [host] (pass
-     * `DesertAntNative::class.java`: HostBridge's opt-out is a property, so it
+     * `DesertAntNative::class.java`: HostBridge's context switch is a property, so it
      * has no `sendsDeviceContext()` for JNI to find) and runs the host-backed integration checks
      * (Regex, JSON decode, NFKC). Returns "" when all pass, or a ` | `-separated
      * summary of the failures.
@@ -22,4 +22,7 @@ object CoreBridge {
      * none). Call [ai.desertant.core.HostBridge.attach] first for the facts.
      */
     @JvmStatic external fun usageContext(host: Class<*>): String
+
+    /** The ingest endpoint the core resolves on this device, "" for the built-in one. */
+    @JvmStatic external fun ingestEndpoint(): String
 }

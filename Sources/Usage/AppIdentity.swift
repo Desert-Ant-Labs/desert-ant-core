@@ -51,30 +51,6 @@ public func hostProvidedAppId() -> String? {
 #endif
 }
 
-/// Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
-/// set in code, or the host flag: `globalThis.__dalUsageDisabled` (a string, a
-/// boolean, a number, or a function returning one) on WASI, then under Node
-/// `process.env.DAL_USAGE_DISABLED`; the `DAL_USAGE_DISABLED` environment
-/// variable elsewhere. The flag follows `flagIsSet`, as the context opt-out does.
-///
-/// This is the consent switch, public on every platform: a page keeps the
-/// beacon off until its visitor agrees, then clears the flag. So it is read
-/// when a call is recorded and again when events are flushed, never cached: set
-/// after load it holds what was recorded unsent, and cleared it lets reporting
-/// resume.
-/// While it is on nothing is recorded, stored or sent, and no device id is made.
-/// Our own suites set it too, because networked CI would otherwise post a real
-/// event per model load.
-public func usageDisabled() -> Bool {
-    if DesertAnt.usageDisabled { return true }
-#if os(WASI)
-    if jsFlagIsSet(jsHostValue("__dalUsageDisabled")) { return true }
-    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
-#else
-    return flagIsSet(environmentVariable("DAL_USAGE_DISABLED"))
-#endif
-}
-
 /// A host-provided app version, overriding the bundle's own for the event
 /// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function),
 /// then under Node `process.env.DAL_APP_VERSION`; elsewhere reads the
@@ -92,7 +68,7 @@ func hostProvidedAppVersion() -> String? {
 #endif
 }
 
-/// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
+/// Whether the event `context` is left out: `DesertAnt.sendsDeviceContext`
 /// set to false in code (on Android, Kotlin's `HostBridge.sendsDeviceContext`
 /// as well), or the host flag: `globalThis.__dalUsageContextDisabled`
 /// (a string, a boolean, a number, or a function returning one) on WASI, then
@@ -103,7 +79,7 @@ func hostProvidedAppVersion() -> String? {
 func deviceContextDisabled() -> Bool {
     if !DesertAnt.sendsDeviceContext { return true }
 #if os(Android)
-    // 0 is the host's opt-out; -1, a host that predates it, is not one.
+    // 0 leaves the context out; -1, a host that predates the switch, does not.
     if host_sends_device_context() == 0 { return true }
 #endif
 #if os(WASI)
@@ -122,10 +98,7 @@ func nodeEnvironmentVariable(_ name: String) -> String? {
 }
 #endif
 
-/// The truthiness rule for every opt-out flag, usage and context alike: set,
-/// and not "", "0" or "false". A JS host may also pass the boolean `true` or a
-/// finite non-zero number (`jsFlagIsSet`). It fails closed: `1`, which older
-/// tongue-node honoured, still opts out.
+/// The device-context flag's truthiness: set and not "", "0" or "false" (a JS host may also pass `true` or a non-zero number).
 func flagIsSet(_ value: String?) -> Bool {
     guard let value else { return false }
     return value != "" && value != "0" && value != "false"
@@ -185,12 +158,15 @@ public func hostProvidedDeviceId() -> String? {
 }
 
 /// A host-provided ingest endpoint, overriding the built-in one. On WASI reads
-/// `globalThis.__dalIngestEndpoint` (string or function); elsewhere reads the
-/// `DAL_INGEST_ENDPOINT` environment variable. `nil` when unset. Intended for
-/// tests, local capture, and diagnostics; production uses the built-in default.
+/// `globalThis.__dalIngestEndpoint` (string or function), then under Node
+/// `process.env.DAL_INGEST_ENDPOINT`; elsewhere reads the `DAL_INGEST_ENDPOINT`
+/// environment variable. `nil` when unset. Intended for tests, local capture,
+/// and diagnostics; production uses the built-in default.
 public func hostProvidedIngestEndpoint() -> String? {
 #if os(WASI)
-    return jsHostString("__dalIngestEndpoint")
+    if let value = jsHostString("__dalIngestEndpoint") { return value }
+    guard let value = nodeEnvironmentVariable("DAL_INGEST_ENDPOINT"), !value.isEmpty else { return nil }
+    return value
 #else
     guard let value = environmentVariable("DAL_INGEST_ENDPOINT") else { return nil }
     return value.isEmpty ? nil : value

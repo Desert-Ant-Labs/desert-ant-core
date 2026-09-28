@@ -18,7 +18,8 @@ android {
 
     defaultConfig {
         minSdk = 31
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // Reports to a closed local port, as the model suites do.
+        testInstrumentationRunner = "ai.desertant.testing.LocalIngestRunner"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
     }
 
@@ -34,6 +35,7 @@ android {
 
     // libCoreAndroidTests.so + libc++_shared.so are staged here by the mise task.
     sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+    sourceSets["androidTest"].java.srcDir("../kotlin/src/androidTestRunner/kotlin")
 }
 
 // Reuse HostBridge, and DesertAntNative (the host class the SDKs install, which

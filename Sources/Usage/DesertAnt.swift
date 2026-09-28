@@ -39,26 +39,11 @@ public enum DesertAnt {
         set { withLock { storedSendsDeviceContext = newValue } }
     }
 
-    /// Whether usage reporting is off. `false` by default. Setting it to `true`
-    /// stops every model SDK in the process from recording or sending usage, the
-    /// in-code form of the `DAL_USAGE_DISABLED` flag; either one switches it off.
-    /// Read per call and per send, so an app can hold it on until its user
-    /// consents and clear it then, or set it when consent is withdrawn:
-    ///
-    /// ```swift
-    /// DesertAnt.usageDisabled = !consent.analytics
-    /// ```
-    public static var usageDisabled: Bool {
-        get { withLock { storedUsageDisabled } }
-        set { withLock { storedUsageDisabled = newValue } }
-    }
-
     // Rare writes and per-call reads make contention irrelevant, but
     // the accessors still have to be data-race free under Swift 6, and the
     // package floor (iOS 17) predates Synchronization.Mutex.
     private nonisolated(unsafe) static var storedApiKey: String?
     private nonisolated(unsafe) static var storedSendsDeviceContext = true
-    private nonisolated(unsafe) static var storedUsageDisabled = false
 
 #if os(WASI)
     // Single-threaded host, nothing to lock.

@@ -40,6 +40,12 @@ if [[ -n "${CI:-}" ]]; then
     # drifted, the same way the DerivedData cache is patched incrementally.
 fi
 
+# xcodebuild passes TEST_RUNNER_-prefixed variables to the tests, prefix stripped.
+export TEST_RUNNER_DAL_INGEST_ENDPOINT="${DAL_INGEST_ENDPOINT:-http://127.0.0.1:1/ingest}"
+# A usage namespace of the suite's own; the shell's key and device id never reach the simulator.
+export TEST_RUNNER_DAL_APP_ID="ai.desertant.test.$$.$RANDOM$RANDOM"
+unset TEST_RUNNER_DAL_API_KEY TEST_RUNNER_DAL_DEVICE_ID
+
 # Run the bundles in parallel. This package has 21 test targets, so the run is
 # 21 separate .xctest installs and launches on the simulator; the tests inside
 # them take ~37 s in total, while the launches around them cost ~105 s. Letting

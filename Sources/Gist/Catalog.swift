@@ -5,7 +5,7 @@ public enum GistModel: ModelDeclaration {
     public static let id = "gist"
     public static let product = "Gist"
     public static let revision = "v2.2.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "Multilingual on-device content topic tagging across a 36-topic taxonomy."
 
     /// The SDK default. The repo also publishes the English-only build under

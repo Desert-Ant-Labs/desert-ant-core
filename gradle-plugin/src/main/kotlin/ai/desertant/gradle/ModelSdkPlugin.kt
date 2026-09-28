@@ -36,6 +36,11 @@ class ModelSdkPlugin : Plugin<Project> {
             android.compileSdk = 35
             android.defaultConfig.minSdk = 24 // NFKC via host java.text.Normalizer (API 1+); no platform libicu
             android.defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            // Inside this repo only, device suites report to a closed local port (see LocalIngestRunner.kt).
+            project.repoTestRunnerDir?.let { runnerDir ->
+                android.defaultConfig.testInstrumentationRunner = "ai.desertant.testing.LocalIngestRunner"
+                android.sourceSets.getByName("androidTest").java.srcDir(runnerDir)
+            }
             android.defaultConfig.ndk.abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
             android.buildTypes.getByName("release").isMinifyEnabled = false
             android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17

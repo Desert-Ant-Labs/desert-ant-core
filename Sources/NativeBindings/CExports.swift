@@ -35,6 +35,11 @@ public func dal_flush_telemetry() {
     nativeFlushTelemetry()
 }
 
+@_cdecl("dal_await_usage_sends")
+public func dal_await_usage_sends(_ timeoutMs: Int32) {
+    nativeAwaitUsageSends(timeoutMs: timeoutMs)
+}
+
 @_cdecl("dal_buffer_free")
 public func dal_buffer_free(_ pointer: UnsafeMutablePointer<CChar>?) {
     nativeBufferFree(pointer)

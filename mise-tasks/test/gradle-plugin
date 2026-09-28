@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+#MISE description="Run the Gradle convention plugins' own tests (repo-only wiring, published behavior)"
+#MISE dir="{{config_root}}"
+#MISE tools={java="temurin-21"}
+set -euo pipefail
+./gradlew --no-daemon -p gradle-plugin test

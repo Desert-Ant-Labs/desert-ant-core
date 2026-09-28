@@ -44,7 +44,7 @@ internal class ClientDeps(
     val callCount: (() -> Int)? = null,
     /**
      * Default context attached to auto-emitted loads. Ignored while the context
-     * opt-out is on (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
+     * is left out (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
      * what it returns is sanitized (`sanitizeContext`).
      */
     val context: (() -> Map<String, String>?)? = null,
@@ -111,7 +111,7 @@ internal class UsageClient(private val deps: ClientDeps) {
             // First flush of this session's turnstile: attach carry + session calls.
             pending = null
             var event = queued.copy(callCount = resolveCount(st.carryCallCount + sessionCalls))
-            // An opt-out set during the debounce still applies to the queued event.
+            // A context switch set during the debounce still applies to the queued event.
             if (deviceContextDisabled()) event = event.copy(context = null)
             if (deps.callCount == null) {
                 deps.saveState(st.copy(carryCallCount = 0))
@@ -155,7 +155,7 @@ internal class UsageClient(private val deps: ClientDeps) {
     }
 
     private fun queue(context: Map<String, String>? = null) {
-        // The opt-out is enforced at flush, for an explicit context too.
+        // The context switch is enforced at flush, for an explicit context too.
         val explicit = context?.let(::sanitizeContext)
         pending = IngestEvent(deviceId = deps.deviceId, context = if (context != null) explicit else currentContext())
         emitted = true

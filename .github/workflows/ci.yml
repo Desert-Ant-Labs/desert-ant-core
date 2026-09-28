@@ -59,6 +59,7 @@ jobs:
       # The README promises a minimum Swift; this builds on exactly that.
       - run: mise run check:swift-floor
       - run: mise run test:js
+      - run: mise run test:gradle-plugin
 
   apple:
     name: Apple (macOS)
@@ -530,11 +531,12 @@ jobs:
     # models (Core ML or MLX runtimes) never enter this job.
     name: Windows (Swift)
     runs-on: windows-latest
-    # The one job that runs swift directly rather than through mise, so it does
-    # not inherit mise.toml's switch: without it every model test posts a real
-    # usage event.
+    # Runs swift without mise, so it sets the closed local ingest endpoint and a test namespace itself; empty values read as unset.
     env:
-      DAL_USAGE_DISABLED: "1"
+      DAL_INGEST_ENDPOINT: "http://127.0.0.1:1/ingest"
+      DAL_APP_ID: "ai.desertant.test.windows-${{ github.run_id }}"
+      DAL_API_KEY: ""
+      DAL_DEVICE_ID: ""
     steps:
       - uses: actions/checkout@v5
       - uses: compnerd/gha-setup-swift@v0.4.0

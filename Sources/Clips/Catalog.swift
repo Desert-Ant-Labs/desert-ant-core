@@ -27,7 +27,7 @@ public enum ClipModel: ModelDeclaration {
     /// needs two sessions, which the wasm host cannot give it). Nothing
     /// cross-checks this the way `ModelCatalogTests` checks emo and redact; keep
     /// it in step with `packages/clips-*` if they land.
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device."
 
     /// The artifact family this SDK is built against. Every file name below derives

@@ -9,7 +9,7 @@ public enum EarModel: ModelDeclaration {
     public static let id = "ear"
     public static let product = "Ear"
     public static let revision = "v0.1.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "On-device spoken language identification across 99 languages."
 
     /// Artifact names describe roles rather than the network behind them, so

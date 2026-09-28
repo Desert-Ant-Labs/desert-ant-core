@@ -8,6 +8,7 @@
 // once per model instead of once per runtime.
 //
 // Node-only (loadNative uses node:* + koffi).
+import { isMainThread } from "node:worker_threads";
 import { loadNative } from "./native.js";
 import { readyModel } from "./sdk.js";
 
@@ -39,21 +40,21 @@ function flagIsSet(value) {
 /**
  * The native core reads usage identity and settings from the environment
  * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_APP_VERSION,
- * DAL_USAGE_DISABLED, DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the
+ * DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the
  * same values from `globalThis.__dal*`. Bridging them means a host sets one
  * spelling on either runtime, and a server that sets the global is not silently
  * unattributed. Each may be a string or a zero-arg function, the two forms the
- * core's own JS host read accepts, and the two opt-out flags may also be `true`
- * or a finite non-zero number, as they may in a page. An environment variable
- * already set wins, except that a flag is an opt-out from either side, as in
- * the core: a set global turns on a flag the environment has off.
+ * core's own JS host read accepts, and the context flag may also be `true` or a
+ * finite non-zero number, as it may in a page. An environment variable already
+ * set wins, except that the context flag is set from either side, as in the
+ * core: a set global turns on a flag the environment has off.
  *
  * Run at each load rather than once at import, so a host that imports the package
  * before setting the global is still attributed, but only until a native model
  * first loads in this process: from then on core threads read the environment,
  * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
- * later still counts, since `run` passes it per call; a key, app id, app version,
- * usage switch or context flag set after the first load has to be in the environment already.
+ * later still counts, since `run` passes it per call; a key, app id, app version
+ * or context flag set after the first load has to be in the environment already.
  */
 function bridgeHostIdentity() {
   if (globalThis[NATIVE_STARTED]) return;
@@ -62,7 +63,6 @@ function bridgeHostIdentity() {
     ["__dalApiKey", "DAL_API_KEY"],
     ["__dalDeviceId", "DAL_DEVICE_ID"],
     ["__dalAppVersion", "DAL_APP_VERSION"],
-    ["__dalUsageDisabled", "DAL_USAGE_DISABLED"],
     ["__dalUsageContextDisabled", "DAL_USAGE_CONTEXT_DISABLED"],
   ]) {
     let value;
@@ -72,12 +72,41 @@ function bridgeHostIdentity() {
     } catch {
       continue;
     }
-    if (env === "DAL_USAGE_DISABLED" || env === "DAL_USAGE_CONTEXT_DISABLED") {
+    if (env === "DAL_USAGE_CONTEXT_DISABLED") {
       if (flagIsSet(value) && !flagIsSet(process.env[env])) process.env[env] = "1";
       continue;
     }
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
   }
+}
+
+// Shared by every copy of this module and every model library, so exit waits never stack.
+const USAGE_EXIT = Symbol.for("desert-ant.usage-exit");
+// Total exit delay across all libraries: just past the native send timeout.
+const USAGE_EXIT_BOUND_MS = 6000;
+
+/** One prepended exit handler starts every library's usage flush, then waits on each with the time left under one deadline. */
+function addUsageExitWait(wait) {
+  // A worker's exit is not the process's: draining there would flush every session in the process and hold the worker.
+  if (!isMainThread) return;
+  let shared = globalThis[USAGE_EXIT];
+  if (!shared) {
+    shared = globalThis[USAGE_EXIT] = { waits: [] };
+    process.prependOnceListener("exit", () => {
+      const deadline = Date.now() + USAGE_EXIT_BOUND_MS;
+      for (const run of shared.waits) {
+        try {
+          run(0);
+        } catch {}
+      }
+      for (const run of shared.waits) {
+        try {
+          run(Math.max(0, deadline - Date.now()));
+        } catch {}
+      }
+    });
+  }
+  shared.waits.push(wait);
 }
 
 /**
@@ -98,13 +127,23 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
 
   const isDownloaded = (handle) => lib.isDownloaded(handle) !== 0;
 
+  let exitWaitAdded = false;
+  const waitForUsageOnExit = () => {
+    if (exitWaitAdded) return;
+    exitWaitAdded = true;
+    addUsageExitWait((timeoutMs) => lib.awaitUsageSends?.(timeoutMs));
+  };
+
   // Plain closures rather than `this`-dependent methods: the core is handed
   // around as a value (LoadedModel, readyModel), so it must survive destructuring.
   const core = {
     // Managed nested cache under ~/.cache by default (matching the browser
     // host); an explicit `directory` is adopted when it holds the files, else
     // downloaded into.
-    create: (cacheRoot, directory) => lib.create(modelId, cacheRoot, directory || null),
+    create: (cacheRoot, directory) => {
+      waitForUsageOnExit();
+      return lib.create(modelId, cacheRoot, directory || null);
+    },
     isDownloaded,
     async download(handle, onProgress) {
       // The C ABI has no progress channel: report the endpoints so a caller's

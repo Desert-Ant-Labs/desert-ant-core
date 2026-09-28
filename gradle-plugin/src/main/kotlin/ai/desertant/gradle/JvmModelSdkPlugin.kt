@@ -36,11 +36,32 @@ class JvmModelSdkPlugin : Plugin<Project> {
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")
 
-        // This repo's own runs must not count as billable devices; consumers
-        // get usage reporting on by default.
-        project.tasks.withType(Test::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
-        project.tasks.withType(JavaExec::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
+        project.reportTestsToLocalIngest()
 
         project.configureDesertAntPublishing(ext, jvm = true)
     }
 }
+
+/**
+ * Inside this repo only: test and exec tasks report to a closed local port under a usage namespace of their own, with the
+ * developer's key and device id removed and java.util.prefs pointed at the build directory where the platform honors it.
+ */
+internal fun org.gradle.api.Project.reportTestsToLocalIngest() {
+    if (repoTestRunnerDir == null) return
+    val prefsRoot = layout.buildDirectory.dir("tmp/java-prefs").get().asFile
+    tasks.withType(Test::class.java).configureEach { it.reportToLocalIngest(prefsRoot) }
+    tasks.withType(JavaExec::class.java).configureEach { it.reportToLocalIngest(prefsRoot) }
+}
+
+private fun org.gradle.process.JavaForkOptions.reportToLocalIngest(prefsRoot: java.io.File) {
+    setEnvironment(environment.filterKeys { key -> key !in INHERITED_USAGE_SETTINGS })
+    environment("DAL_APP_ID", "ai.desertant.test.${java.util.UUID.randomUUID()}")
+    systemProperty("DAL_INGEST_ENDPOINT", LOCAL_INGEST_ENDPOINT)
+    systemProperty("java.util.prefs.userRoot", prefsRoot.absolutePath)
+}
+
+/** A shell's usage settings, which must never reach this repo's own test processes. */
+private val INHERITED_USAGE_SETTINGS = setOf("DAL_INGEST_ENDPOINT", "DAL_APP_ID", "DAL_API_KEY", "DAL_DEVICE_ID")
+
+/** A closed local port for test tasks. */
+private const val LOCAL_INGEST_ENDPOINT = "http://127.0.0.1:1/ingest"

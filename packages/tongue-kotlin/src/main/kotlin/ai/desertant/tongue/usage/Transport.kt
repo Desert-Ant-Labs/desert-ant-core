@@ -48,9 +48,9 @@ internal fun apiKey(): String? =
 internal fun hostProvidedDeviceId(): String? = setting("DAL_DEVICE_ID")
 
 /**
- * How this port reads the process environment. A seam for tests only: the Gradle
- * test task sets `DAL_USAGE_DISABLED` in the environment, and the environment
- * wins, so without it the system property path could never be exercised.
+ * How this port reads the process environment. A seam for tests only: the
+ * environment wins over a system property, so without it a test run with a
+ * variable set in its environment could never exercise the system property path.
  */
 internal var readEnvironment: (String) -> String? = System::getenv
 
@@ -188,17 +188,6 @@ internal fun defaultAppIdentifier(context: Any? = null): String {
     System.getenv("DAL_APP_ID")?.takeIf { it.isNotEmpty() }?.let { return it }
     return System.getProperty("java.vm.name")?.takeIf { it.isNotEmpty() } ?: "unknown"
 }
-
-/**
- * Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
- * set in code, or `DAL_USAGE_DISABLED` in the environment or as a system
- * property, under `flagIsSet`. Read per call, so an app can hold it on until its
- * user consents and clear it then. See packages/tongue-node/USAGE.md.
- */
-internal fun usageDisabled(): Boolean =
-    ai.desertant.tongue.DesertAnt.usageDisabled ||
-        flagIsSet(readEnvironment("DAL_USAGE_DISABLED")) ||
-        flagIsSet(System.getProperty("DAL_USAGE_DISABLED"))
 
 /**
  * Build a client wired to the shared endpoint, the system clock, a POST transport,

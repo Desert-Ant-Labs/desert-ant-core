@@ -67,7 +67,7 @@ public struct ClientDeps {
     /// Authoritative call count read at emit time; overrides recordCall() when set.
     public var callCount: (() -> Int)?
     /// Default context attached to auto-emitted loads. Ignored while the context
-    /// opt-out is on (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
+    /// is left out (`DesertAnt.sendsDeviceContext`, `DAL_USAGE_CONTEXT_DISABLED`);
     /// what it returns is sanitized (`sanitizeContext`).
     public var context: (() -> [String: String]?)?
     /// Re-emit window (ms): `dayMs` for persistent installs, `webSessionMs` for web-like.
@@ -78,10 +78,6 @@ public struct ClientDeps {
     public var loadState: () -> UsageState
     public var saveState: (UsageState) -> Void
     public var send: (IngestBody, SendOptions) -> Void
-    /// The usage opt-out, read before every step that would count, store or
-    /// send. While it returns true the client does nothing, so what it holds
-    /// waits in memory until it is cleared. `makeClient` passes `usageDisabled`.
-    public var disabled: () -> Bool
 
     public init(
         deviceId: String,
@@ -97,8 +93,7 @@ public struct ClientDeps {
         now: @escaping () -> Int64 = systemNowMs,
         loadState: @escaping () -> UsageState,
         saveState: @escaping (UsageState) -> Void,
-        send: @escaping (IngestBody, SendOptions) -> Void,
-        disabled: @escaping () -> Bool = { false }
+        send: @escaping (IngestBody, SendOptions) -> Void
     ) {
         self.deviceId = deviceId
         self.key = key
@@ -114,7 +109,6 @@ public struct ClientDeps {
         self.loadState = loadState
         self.saveState = saveState
         self.send = send
-        self.disabled = disabled
     }
 }
 
@@ -133,7 +127,7 @@ public final class UsageClient {
 
     /// Host calls this once per inference/call to attribute to the turnstile.
     public func recordCall(_ n: Int = 1) {
-        if n > 0 && !deps.disabled() { sessionCalls += n }
+        if n > 0 { sessionCalls += n }
     }
 
     /// Whether there is usage to report. Skips a client with nothing to say, so
@@ -147,7 +141,7 @@ public final class UsageClient {
     /// holds the device would otherwise strand them in memory, where they vanish
     /// with the session; the carry rides the device's next emit instead.
     public func carryUnsent() {
-        guard deps.callCount == nil, sessionCalls > 0, !deps.disabled() else { return }
+        guard deps.callCount == nil, sessionCalls > 0 else { return }
         let st = deps.loadState()
         deps.saveState(UsageState(lastActiveAt: st.lastActiveAt, carryCallCount: st.carryCallCount + sessionCalls, lastEmitDay: st.lastEmitDay))
         sessionCalls = 0
@@ -157,7 +151,6 @@ public final class UsageClient {
     /// elapsed since the app was last active). Call on every recorded call, not
     /// only on init: a client started only when it opens never sees the next day.
     public func start() {
-        if deps.disabled() { return }
         let st = deps.loadState()
         let now = deps.now()
         let today = utcDay(now)
@@ -172,7 +165,6 @@ public final class UsageClient {
 
     /// Mark the app inactive (stamp the idle clock) and flush via the unload-safe path.
     public func suspend() {
-        if deps.disabled() { return }
         let st = deps.loadState()
         deps.saveState(UsageState(lastActiveAt: deps.now(), carryCallCount: st.carryCallCount, lastEmitDay: st.lastEmitDay))
         flush(SendOptions(beacon: true))
@@ -180,7 +172,6 @@ public final class UsageClient {
 
     /// Force a turnstile now, ignoring the window.
     public func load(context: [String: String]? = nil) {
-        if deps.disabled() { return }
         let st = deps.loadState()
         let now = deps.now()
         deps.saveState(UsageState(lastActiveAt: now, carryCallCount: st.carryCallCount, lastEmitDay: utcDay(now)))
@@ -190,12 +181,10 @@ public final class UsageClient {
 
     /// Flush any pending event. `beacon: true` uses the unload-safe path.
     public func flush(_ opts: SendOptions = SendOptions()) {
-        if deps.disabled() { return }
         let st = deps.loadState()
 
         if var ev = pending {
-            // An opt-out set while the event waited out the debounce still
-            // applies. Read before the event leaves the queue.
+            // Read before the event leaves the queue, so a context setting changed during the debounce still applies.
             if deviceContextDisabled() { ev.context = nil }
             // First flush of this session's turnstile: attach carry + session calls.
             pending = nil
@@ -247,14 +236,14 @@ public final class UsageClient {
 
     // Every context is sanitized before it is queued, because the ingest
     // rejects the whole batch over an oversized one (see `sanitizeContext`).
-    // The opt-out is checked here too, so a caller's own provider obeys it.
+    // The context switch is checked here too, so a caller's own provider obeys it.
     private func currentContext() -> [String: String]? {
         if deviceContextDisabled() { return nil }
         return sanitizeContext(deps.context.flatMap { $0() })
     }
 
     private func queue(context: [String: String]? = nil) {
-        // The opt-out is enforced at flush, for an explicit context too.
+        // The context switch is enforced at flush, for an explicit context too.
         let explicit = context.flatMap(sanitizeContext)
         pending = IngestEvent(deviceId: deps.deviceId, context: context != nil ? explicit : currentContext())
         emitted = true

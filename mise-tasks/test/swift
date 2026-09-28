@@ -19,6 +19,8 @@ if [ "${usage_model:-all}" != all ]; then
     filter=(--filter "$(dal_product "$model")Tests")
 fi
 
+dal_test_usage_namespace
+
 dal_vendor_litert
 # Own port: the umbrella `test` runs this and test:wasi in parallel, and both
 # start an echo server. The suites read DAL_ECHO_PORT (8199 when unset).

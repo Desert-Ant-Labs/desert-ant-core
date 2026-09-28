@@ -1,5 +1,6 @@
 package ai.desertant.tongue
 
+import ai.desertant.tongue.usage.UsageStorage
 import ai.desertant.tongue.usage.UsageTurnstile
 
 /**
@@ -52,14 +53,17 @@ public class Tongue internal constructor(
          * the Android SDK. Anything else is ignored.
          */
         @JvmStatic
-        public fun bundled(context: Any?): Tongue {
+        public fun bundled(context: Any?): Tongue = bundled(context, null)
+
+        /** [bundled] with the usage store replaced; tests pass a throwaway one, since the JVM store is shared per user. */
+        internal fun bundled(context: Any?, usageStorage: UsageStorage?): Tongue {
             val loader = Tongue::class.java.classLoader
             val metadataJson = loader.getResourceAsStream("tongue_meta.json")?.use {
                 it.readBytes().toString(Charsets.UTF_8)
             } ?: throw TongueException("tongue_meta.json is missing from the artifact resources")
             val weightBytes = loader.getResourceAsStream("tongue_int8.bin")?.use { it.readBytes() }
                 ?: throw TongueException("tongue_int8.bin is missing from the artifact resources")
-            return of(metadataJson, weightBytes, context)
+            return of(metadataJson, weightBytes, context, usageStorage)
         }
 
         /**
@@ -78,9 +82,13 @@ public class Tongue internal constructor(
          * now resolves to the deprecated overload above.
          */
         @JvmStatic
-        public fun of(metadataJson: String, weightBytes: ByteArray, context: Any? = null): Tongue {
+        public fun of(metadataJson: String, weightBytes: ByteArray, context: Any? = null): Tongue =
+            of(metadataJson, weightBytes, context, null)
+
+        /** [of] with the usage store replaced, as [bundled] takes it. */
+        internal fun of(metadataJson: String, weightBytes: ByteArray, context: Any?, usageStorage: UsageStorage?): Tongue {
             val metadata = Metadata.parse(metadataJson)
-            return Tongue(metadata, Weights(weightBytes, metadata), UsageTurnstile.create(context))
+            return Tongue(metadata, Weights(weightBytes, metadata), UsageTurnstile.create(context, usageStorage))
         }
     }
 
@@ -98,8 +106,7 @@ public class Tongue internal constructor(
      * when the flush itself threw. The endpoint's answer is not reported: a
      * refused or failed POST still returns true, as core's and the Node port's
      * `flushTelemetry()` do, because reporting is best effort. Nothing recorded
-     * means nothing sent. While `DAL_USAGE_DISABLED` is set nothing is recorded or
-     * sent, so this sends and stores nothing and returns true.
+     * means nothing sent.
      */
     public fun flushTelemetry(): Boolean = usage?.flushTelemetry() ?: true
 

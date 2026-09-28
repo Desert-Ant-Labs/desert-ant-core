@@ -126,6 +126,13 @@ A manual dispatch defaults to a dry run. Preview locally with
 `mise run hub:publish --dry-run`, which needs no token, or render the cards to
 `.build/hub/` with `mise run hub:sync`.
 
+## Test lanes and the ingest URL
+
+Test lanes send usage to a local endpoint. `mise.toml`, the shared
+`js/test/setup.mjs` (which every Node test script loads), `JvmModelSdkPlugin`,
+`LocalIngestRunner`, `mise-tasks/test/ios` and the browser harness set it; a new
+test lane or usage client port does the same.
+
 ## House style
 
 - No em dashes or en dashes in anything you write: code comments, docs, commit

@@ -204,7 +204,7 @@ private func hostDeviceContext() -> UnsafeMutablePointer<CChar>? {
     }
 }
 
-// The host's context opt-out: 1 sends the context, 0 opted out, -1 unknown.
+// The host's context setting: 1 sends the context, 0 leaves it out, -1 unknown.
 private func hostSendsDeviceContext() -> Int32 {
     guard let vm = gVM else { return -1 }
     var raw: UnsafeMutableRawPointer?
@@ -358,7 +358,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gApiKey = optionalStaticMethod(env, cls, "apiKey", "()[B")
     // Optional: audio decode (AudioIO on Android) via MediaExtractor/MediaCodec.
     gAudioDecode = optionalStaticMethod(env, cls, "audioDecode", "([B[BD)[B")
-    // Optional: the usage context's device facts and the host's opt-out.
+    // Optional: the usage context's device facts and the host's context switch.
     gDeviceContext = optionalStaticMethod(env, cls, "deviceContext", "()[B")
     gSendsDeviceContext = optionalStaticMethod(env, cls, "sendsDeviceContext", "()Z")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }

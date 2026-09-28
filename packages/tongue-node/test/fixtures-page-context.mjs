@@ -10,7 +10,6 @@ Object.defineProperty(globalThis, "navigator", {
     maxTouchPoints: 0,
   },
 });
-delete process.env.DAL_USAGE_DISABLED;
 delete process.env.DAL_USAGE_CONTEXT_DISABLED;
 delete process.env.DAL_APP_VERSION;
 delete process.env.DAL_DEVICE_ID;

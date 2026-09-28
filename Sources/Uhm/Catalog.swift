@@ -16,7 +16,7 @@ public enum UhmModel: ModelDeclaration {
     /// No published npm/Maven package, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with
     /// packages/uhm-* if they land.
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans."
 
     /// The SDK default. A caller-selected tier (`Uhm(quality:)`) downloads

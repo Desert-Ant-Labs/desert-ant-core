@@ -5,7 +5,7 @@ public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
     public static let revision = "v1.1.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "Word-timestamp refinement for any transcript, on device."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).

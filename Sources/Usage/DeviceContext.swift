@@ -93,7 +93,7 @@ struct DeviceContext: Sendable, Equatable {
 }
 
 /// The default `context` provider `makeClient` wires. The host facts are cached;
-/// the appVersion override is read per event, and the opt-out is enforced per
+/// the appVersion override is read per event, and the context switch is enforced per
 /// event by `UsageClient`, so a host that sets either after the first client is
 /// built is still honoured. The native Node entry bridges its globals to the
 /// environment only until a model first loads.

@@ -55,12 +55,8 @@
 [env]
 # Non-empty also vendors the LiteRT GPU accelerator sibling on Linux.
 DAL_GPU = ""
-# Our own suites run on networked CI; without this every model load would post a
-# real turnstile event, and a fire-and-forget send still in flight as a test
-# process exits can race Node's teardown into a SIGSEGV. Honoured by Usage's
-# `usageDisabled()` on every platform, the wasm build under Node included; set
-# here so every `mise run` task inherits it.
-DAL_USAGE_DISABLED = "1"
+# Every task's usage goes to a closed local port, never the production ingest.
+DAL_INGEST_ENDPOINT = "http://127.0.0.1:1/ingest"
 
 [tasks.build]
 description = "Build every artifact this host can build"
@@ -79,6 +75,7 @@ depends = [
     "test:swift",
     "test:wasi",
     "test:js",
+    "test:gradle-plugin",
     "test:node",
     "test:browser",
     "test:bundles",

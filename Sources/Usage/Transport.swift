@@ -36,25 +36,18 @@ private var keyRidesInHeader: Bool {
 /// The HTTP client is async, so every flush is dispatched fire-and-forget on a
 /// detached task. `beacon` only changes the path on wasm, where it uses
 /// `navigator.sendBeacon`.
-///
-/// Sends nothing while `usageDisabled()` is on, read per send: the last guard
-/// behind the client's own (`ClientDeps.disabled`), for a host that pairs this
-/// transport with a client of its own.
 public func makeSend(endpoint: String, bearerKey: String? = nil) -> @Sendable (IngestBody, SendOptions) -> Void {
     makeSend(endpoint: endpoint, bearerKey: bearerKey, registry: .shared)
 }
 
 /// `registry` is a seam for tests: a send must be in it by the time the
 /// returned closure returns, which only a private registry lets a test observe.
-/// `disabled` is one too, since the suites run with the switch on.
 func makeSend(
     endpoint: String,
     bearerKey: String? = nil,
-    registry: InflightSends,
-    disabled: @escaping @Sendable () -> Bool = usageDisabled
+    registry: InflightSends
 ) -> @Sendable (IngestBody, SendOptions) -> Void {
     { body, opts in
-        if disabled() { return }
         // Best-effort: a body we cannot serialize is dropped rather than thrown
         // (the transport is fire-and-forget). These types always encode.
         guard let json = try? buildBody(body) else { return }
@@ -130,14 +123,11 @@ private func jsSendBeacon(_ url: String, _ payload: [UInt8]) -> Bool {
 ///     cached host facts (`DeviceContext`), cut to the server set when `platform`
 ///     is "server" or the device id was supplied rather than generated here.
 ///     Whatever it returns is sanitized before it is sent (`sanitizeContext`),
-///     and ignored while the context opt-out is on (`DesertAnt.sendsDeviceContext`,
+///     and ignored while the context is left out (`DesertAnt.sendsDeviceContext`,
 ///     `DAL_USAGE_CONTEXT_DISABLED`).
 ///   - send: overrides the transport. Defaults to the real POST; a caller-supplied
 ///     one wins (tests), which is how a test reads the platform tag and the key's
 ///     placement that this function decides.
-///   - disabled: the usage opt-out the client reads before every step. Defaults
-///     to `usageDisabled`; a test passes its own, since the suites run with the
-///     switch on.
 public func makeClient(
     appId: String? = nil,
     key: String? = nil,
@@ -149,8 +139,7 @@ public func makeClient(
     callCount: (() -> Int)? = nil,
     context: (() -> [String: String]?)? = nil,
     storage: UsageStorage? = nil,
-    send: ((IngestBody, SendOptions) -> Void)? = nil,
-    disabled: @escaping () -> Bool = usageDisabled
+    send: ((IngestBody, SendOptions) -> Void)? = nil
 ) -> UsageClient {
     let resolvedAppId = appId ?? hostProvidedAppId() ?? defaultAppIdentifier()
     let resolvedKey = trimmedKey(key) ?? hostProvidedApiKey()
@@ -180,7 +169,6 @@ public func makeClient(
         saveState: { store.saveState($0, namespace, device) },
         // The key is only known here, so the real transport is built here too; a
         // caller-supplied one still wins (tests).
-        send: send ?? makeSend(endpoint: ingestEndpoint, bearerKey: resolvedKey),
-        disabled: disabled
+        send: send ?? makeSend(endpoint: ingestEndpoint, bearerKey: resolvedKey)
     ))
 }

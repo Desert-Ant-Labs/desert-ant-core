@@ -24,7 +24,10 @@ dependencies {
     // The jvm-model-sdk convention builds its javadoc jar with Dokka: a Kotlin
     // source set gives the Java javadoc tool nothing to document.
     implementation("org.jetbrains.dokka:dokka-gradle-plugin:2.0.0")
+    testImplementation(kotlin("test"))
 }
+
+tasks.test { useJUnitPlatform() }
 
 gradlePlugin {
     plugins {

@@ -16,7 +16,7 @@ public enum VozModel: ModelDeclaration {
     public static let id = "voz"
     public static let product = "Voz"
     public static let revision = "v0.3.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary =
         "On-device speech recognition: transcripts with word-level timestamps, 25 languages."
 

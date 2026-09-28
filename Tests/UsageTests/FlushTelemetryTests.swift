@@ -107,7 +107,7 @@ struct FlushTelemetryTests {
         #else
         let endpoint = "http://127.0.0.1:1/ingest"
         #endif
-        let send = makeSend(endpoint: endpoint, registry: registry, disabled: { false })
+        let send = makeSend(endpoint: endpoint, registry: registry)
         // Repeated because a registration from another task can still win the
         // race now and then; across this many sends, one of them loses it.
         for sent in 1...sends {
@@ -192,7 +192,7 @@ struct FlushTelemetryTests {
         }
         defer { close(fd) }
         let registry = InflightSends()
-        let send = makeSend(endpoint: "http://127.0.0.1:\(port)/ingest", registry: registry, disabled: { false })
+        let send = makeSend(endpoint: "http://127.0.0.1:\(port)/ingest", registry: registry)
         let clock = ContinuousClock()
         let started = clock.now
         send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())

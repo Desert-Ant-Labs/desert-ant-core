@@ -158,9 +158,9 @@ class HostBridgeTest {
         assertEquals("osName=Android\nosVersion=14", HostBridge.deviceContext().decodeToString())
     }
 
-    /** The opt-out empties the facts too, so a native side that predates the
-     *  opt-out callback still sends none of them. */
-    @Test fun theOptOutEmptiesTheContextUntilItIsTurnedBackOn() {
+    /** The context switch empties the facts too, so a native side that predates
+     *  the switch callback still sends none of them. */
+    @Test fun theContextSwitchEmptiesTheContextUntilItIsTurnedBackOn() {
         HostBridge.attach("com.example.app", { "osName=Android\nosVersion=14" }) { FakePreferences() }
         assertTrue(HostBridge.sendsDeviceContext)
 

@@ -35,6 +35,9 @@ public enum InferenceContext {
     /// it wraps into a single billed call. `nil` means each run counts on its own.
     @TaskLocal public static var callGroup: InferenceCallGroup?
 
+    /// The host handle the current call runs under, so releasing that handle suspends only the sessions its runs used.
+    @TaskLocal public static var owner: UInt?
+
     /// Coalesce every inference run made inside `body` into a single tracked
     /// usage call (per device). Use it when one logical operation performs
     /// several `run`s (e.g. a multi-stage or autoregressive model) but should

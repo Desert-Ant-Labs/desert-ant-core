@@ -18,6 +18,10 @@ internal val Project.dalModel: String
 internal val Project.dalProduct: String
     get() = dalModel.replaceFirstChar { it.uppercase() }
 
+/** The repo's own device-test runner sources, or null in any outside build, whose test wiring is left alone. */
+internal val Project.repoTestRunnerDir: java.io.File?
+    get() = rootDir.resolve("kotlin/src/androidTestRunner/kotlin").takeIf { it.isDirectory }
+
 /** Shared knobs for the two publishable Android artifact shapes. */
 abstract class DesertAntPublishExtension {
     /** POM display name, e.g. "Desert Ant Emo". */

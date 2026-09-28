@@ -10,6 +10,7 @@ import ai.desertant.tongue.usage.UsageState
 import ai.desertant.tongue.usage.androidFacts
 import ai.desertant.tongue.usage.buildBody
 import ai.desertant.tongue.usage.defaultContextProvider
+import ai.desertant.tongue.usage.flagIsSet
 import ai.desertant.tongue.usage.formFactor
 import ai.desertant.tongue.usage.languageRegion
 import ai.desertant.tongue.usage.majorMinor
@@ -21,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -32,7 +34,7 @@ import kotlin.test.assertTrue
  * from a different host, so none of it goes there.
  *
  * `readEnvironment`, the system properties and `DesertAnt` are process-wide; see
- * UsageKillSwitchTest for why that is safe here.
+ * UsageMeteringTest for why that is safe here.
  */
 class DeviceContextTest {
     private var previousEnvironment: (String) -> String? = readEnvironment
@@ -152,23 +154,23 @@ class DeviceContextTest {
         assertTrue(buildBody(body).contains("\"context\":{\"osName\":"), buildBody(body))
     }
 
-    @Test fun theInCodeOptOutSendsUsageWithoutContext() {
+    @Test fun theInCodeContextSwitchSendsUsageWithoutContext() {
         DesertAnt.sendsDeviceContext = false
         val event = loadOnce().events.single()
         assertNull(event.context)
-        assertEquals(1, event.callCount, "the opt-out dropped the usage too")
+        assertEquals(1, event.callCount, "the context switch dropped the usage too")
     }
 
-    @Test fun theFlagOptOutSendsUsageWithoutContext() {
+    @Test fun theContextFlagSendsUsageWithoutContext() {
         System.setProperty("DAL_USAGE_CONTEXT_DISABLED", "1")
         assertNull(loadOnce().events.single().context)
         System.setProperty("DAL_USAGE_CONTEXT_DISABLED", "false")
-        assertNotNull(loadOnce().events.single().context, "\"false\" is not an opt-out")
+        assertNotNull(loadOnce().events.single().context, "\"false\" does not leave the context out")
         readEnvironment = { name -> if (name == "DAL_USAGE_CONTEXT_DISABLED") "true" else null }
         assertNull(loadOnce().events.single().context)
     }
 
-    @Test fun anExplicitContextObeysTheOptOutAndTheCaps() {
+    @Test fun anExplicitContextObeysTheContextSwitchAndTheCaps() {
         val sent = mutableListOf<IngestBody>()
         val client = client(sent)
         client.load(mapOf("osName" to "Android", "deviceName" to "Ana's phone"))
@@ -179,15 +181,20 @@ class DeviceContextTest {
         assertNull(sent.last().events.single().context)
     }
 
-    /** The turnstile is queued on start and sent on the debounce; an opt-out set
-     *  in between still keeps its context off the wire. */
-    @Test fun anOptOutSetBeforeTheFlushDropsTheQueuedContext() {
+    /** The turnstile is queued on start and sent on the debounce; a context switch
+     *  set in between still keeps its context off the wire. */
+    @Test fun aContextSwitchSetBeforeTheFlushDropsTheQueuedContext() {
         val sent = mutableListOf<IngestBody>()
         val client = client(sent)
         client.start()
         DesertAnt.sendsDeviceContext = false
         client.flush()
         assertNull(sent.single().events.single().context)
+    }
+
+    @Test fun theContextFlagFollowsTheTruthinessRule() {
+        for (value in listOf("1", "true", "yes")) assertTrue(flagIsSet(value), value)
+        for (value in listOf(null, "", "0", "false")) assertFalse(flagIsSet(value), value.toString())
     }
 
     @Test fun aProviderThatThrowsCostsTheContextNotTheEvent() {

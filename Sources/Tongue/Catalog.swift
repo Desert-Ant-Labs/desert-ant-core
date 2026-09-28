@@ -14,7 +14,7 @@ public enum TongueModel: ModelDeclaration {
     /// bundled copies). The SDKs never download them; the website demo does,
     /// and pins this tag rather than trailing main.
     public static let revision = "v1.0.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "On-device language identification for short text across 84 languages."
 
     /// The int8 embedding table and head; `Model.swift` documents the layout.

@@ -24,11 +24,9 @@ import {
   nodeOSName,
   printableValue,
   sanitizeContext,
-  usageDisabled,
 } from "../dist/usage.js";
 
-process.env.DAL_INGEST_ENDPOINT ??= "http://127.0.0.1:9/ingest";
-// An opt-out in the calling shell would turn every provider here off.
+// A context flag in the calling shell would turn every provider here off.
 delete process.env.DAL_USAGE_CONTEXT_DISABLED;
 delete globalThis.__dalUsageContextDisabled;
 delete process.env.DAL_APP_VERSION;
@@ -225,7 +223,7 @@ test("a malformed brand list falls back instead of losing the facts", () => {
   });
 });
 
-test("the turnstile a host builds sends the server set, and nothing when opted out", async () => {
+test("the turnstile a host builds sends the server set, and no context when the context flag is set", async () => {
   const sent = [];
   const realFetch = globalThis.fetch;
   globalThis.fetch = (_url, init) => {
@@ -237,7 +235,7 @@ test("the turnstile a host builds sends the server set, and nothing when opted o
     return { get: (k) => values.get(k) ?? null, set: (k, v) => values.set(k, v) };
   };
   try {
-    await withHost({ env: { DAL_USAGE_DISABLED: undefined, DAL_APP_VERSION: "3.0.0" } }, async () => {
+    await withHost({ env: { DAL_APP_VERSION: "3.0.0" } }, async () => {
       const turnstile = UsageTurnstile.create("9.9.9", store());
       turnstile.record();
       await turnstile.flushTelemetry();
@@ -256,7 +254,7 @@ test("the turnstile a host builds sends the server set, and nothing when opted o
   }
 });
 
-test("the opt-outs share one truthiness rule", async () => {
+test("the context flag follows the truthiness rule", async () => {
   for (const value of ["1", "true", "yes", true, 1, -1, 0.5]) assert.equal(flagIsSet(value), true, String(value));
   for (const value of [undefined, null, "", "0", "false", false, 0, NaN, Infinity]) {
     assert.equal(flagIsSet(value), false, String(value));
@@ -272,37 +270,24 @@ test("the opt-outs share one truthiness rule", async () => {
   });
 });
 
-test("the usage switch follows the same rule, and a throwing global reads as unset", async () => {
-  const off = { DAL_USAGE_DISABLED: undefined };
-  await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
-  for (const value of [true, 1, "1", "true", () => true, () => "1", () => 1]) {
-    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
-      assert.equal(usageDisabled(), true, String(value)),
-    );
-  }
-  for (const value of [false, 0, NaN, "", "0", "false", () => false]) {
-    await withHost({ env: off, globals: { __dalUsageDisabled: value } }, () =>
-      assert.equal(usageDisabled(), false, String(value)),
-    );
-  }
+test("a throwing context global reads as unset", async () => {
+  const off = { DAL_USAGE_CONTEXT_DISABLED: undefined };
   const throwing = () => {
-    throw new Error("no consent manager yet");
+    throw new Error("not ready");
   };
-  await withHost({ env: off, globals: { __dalUsageDisabled: throwing } }, () => assert.equal(usageDisabled(), false));
-  await withHost({ env: { DAL_USAGE_DISABLED: "1" }, globals: { __dalUsageDisabled: throwing } }, () =>
-    assert.equal(usageDisabled(), true, "a throwing global hid the environment"),
+  await withHost({ env: off, globals: { __dalUsageContextDisabled: throwing } }, () =>
+    assert.equal(deviceContextDisabled(), false),
+  );
+  await withHost({ env: { DAL_USAGE_CONTEXT_DISABLED: "1" }, globals: { __dalUsageContextDisabled: throwing } }, () =>
+    assert.equal(deviceContextDisabled(), true, "a throwing global hid the environment"),
   );
   // An accessor whose getter throws, as a request-scoped host may define.
-  Object.defineProperty(globalThis, "__dalUsageDisabled", { configurable: true, get: throwing });
+  Object.defineProperty(globalThis, "__dalUsageContextDisabled", { configurable: true, get: throwing });
   try {
-    await withHost({ env: off }, () => assert.equal(usageDisabled(), false));
+    await withHost({ env: off }, () => assert.equal(deviceContextDisabled(), false));
   } finally {
-    delete globalThis.__dalUsageDisabled;
+    delete globalThis.__dalUsageContextDisabled;
   }
-  for (const value of ["0", "false", ""]) {
-    await withHost({ env: { DAL_USAGE_DISABLED: value } }, () => assert.equal(usageDisabled(), false, value));
-  }
-  await withHost({ env: { DAL_USAGE_DISABLED: "true" } }, () => assert.equal(usageDisabled(), true));
 });
 
 test("locales are language and region only", () => {

@@ -2,6 +2,7 @@ package ai.desertant.core.androidtest
 
 import ai.desertant.DesertAntNative
 import ai.desertant.core.HostBridge
+import ai.desertant.testing.LocalIngestRunner
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
@@ -26,11 +27,11 @@ class CoreBridgeTest {
 
     /**
      * The facts Kotlin reads reach the context the Swift client sends, and the
-     * Kotlin opt-out reaches the Swift one: with it on, not even osName goes,
-     * which emptying the facts alone would still have sent.
+     * Kotlin context setting reaches the Swift one: while the context is left
+     * out, not even osName goes, which emptying the facts alone would still send.
      */
     @Test
-    fun theUsageContextCarriesTheDeviceFactsAndHonoursTheOptOut() {
+    fun theUsageContextCarriesTheDeviceFactsAndHonorsTheContextSetting() {
         HostBridge.attach(InstrumentationRegistry.getInstrumentation().targetContext)
 
         val context = CoreBridge.usageContext(DesertAntNative::class.java).lines()
@@ -47,5 +48,11 @@ class CoreBridgeTest {
         } finally {
             HostBridge.sendsDeviceContext = true
         }
+    }
+
+    /** The runner's endpoint reaches the native core, so these runs never post to production. */
+    @Test
+    fun theCoreReportsToTheRunnersLocalEndpoint() {
+        assertEquals(LocalIngestRunner.LOCAL_INGEST_ENDPOINT, CoreBridge.ingestEndpoint())
     }
 }

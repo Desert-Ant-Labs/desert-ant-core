@@ -15,6 +15,9 @@ import { test } from "node:test";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 
+// The test setup's own namespace, which each case extends and then restores.
+const namespace = process.env.DAL_APP_ID;
+
 // A one-shot server that captures the first POSTed usage body and resolves it.
 function captureServer() {
   let resolveBody;
@@ -38,8 +41,9 @@ function captureServer() {
 // run `body(emo)`, and return the emitted callCount (waits out the ~3s debounce).
 async function capturedCallCount(body) {
   const server = await captureServer();
+  const savedEndpoint = process.env.DAL_INGEST_ENDPOINT;
   process.env.DAL_INGEST_ENDPOINT = `http://127.0.0.1:${server.port}/api/v1/ingest`;
-  process.env.DAL_APP_ID = `ai.desertant.emo.callgroup.${randomUUID()}`;
+  process.env.DAL_APP_ID = `${namespace}.callgroup.${randomUUID()}`;
   try {
     const { Emo } = await import(`../node.js?fresh=${randomUUID()}`);
     const emo = await Emo.load();
@@ -49,8 +53,9 @@ async function capturedCallCount(body) {
     return ingest.events?.[0]?.callCount;
   } finally {
     server.close();
-    delete process.env.DAL_INGEST_ENDPOINT;
-    delete process.env.DAL_APP_ID;
+    if (savedEndpoint === undefined) delete process.env.DAL_INGEST_ENDPOINT;
+    else process.env.DAL_INGEST_ENDPOINT = savedEndpoint;
+    process.env.DAL_APP_ID = namespace;
   }
 }
 

@@ -145,6 +145,10 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     // Every core exports the generic call-group release symbol; bound here so
     // `withCallGroup` works without each SDK declaring it.
     lib.dalCallGroupEnd ??= core.func(CALL_GROUP_END_SYMBOL);
+    // Optional: a native core built before this symbol has none to bind.
+    try {
+      lib.awaitUsageSends ??= core.func("void dal_await_usage_sends(int)");
+    } catch {}
     return lib;
   }
 

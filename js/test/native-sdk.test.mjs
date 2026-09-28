@@ -117,17 +117,17 @@ test("a host getter that throws does not fail the load", async () => {
   }
 });
 
-test("the usage switch reaches the native core under the core's truthiness rule", async () => {
+test("the context flag reaches the native core under the core's truthiness rule", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
-  const saved = process.env.DAL_USAGE_DISABLED;
+  const saved = process.env.DAL_USAGE_CONTEXT_DISABLED;
   const open = async (global, env) => {
-    if (env === undefined) delete process.env.DAL_USAGE_DISABLED;
-    else process.env.DAL_USAGE_DISABLED = env;
-    globalThis.__dalUsageDisabled = global;
+    if (env === undefined) delete process.env.DAL_USAGE_CONTEXT_DISABLED;
+    else process.env.DAL_USAGE_CONTEXT_DISABLED = env;
+    globalThis.__dalUsageContextDisabled = global;
     const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
     await assert.rejects(sdk.open(), "there is no native library here to load");
-    return process.env.DAL_USAGE_DISABLED;
+    return process.env.DAL_USAGE_CONTEXT_DISABLED;
   };
   try {
     assert.equal(await open(true, undefined), "1");
@@ -136,17 +136,17 @@ test("the usage switch reaches the native core under the core's truthiness rule"
     assert.equal(await open(1, undefined), "1", "a non-zero number is a flag");
     assert.equal(await open(0, undefined), undefined, "0 is not");
     assert.equal(await open(NaN, undefined), undefined, "NaN is not");
-    // Either side opts out: a global set turns on a flag the environment has off.
+    // Either side sets it: a global set turns on a flag the environment has off.
     assert.equal(await open(true, "0"), "1");
-    assert.equal(await open(false, "1"), "1", "a global cannot clear the environment's opt-out");
+    assert.equal(await open(false, "1"), "1", "a global cannot clear the environment's flag");
     const throwing = () => {
-      throw new Error("no consent manager yet");
+      throw new Error("not ready");
     };
     assert.equal(await open(throwing, undefined), undefined, "a throwing global reads as unset");
   } finally {
-    delete globalThis.__dalUsageDisabled;
-    if (saved === undefined) delete process.env.DAL_USAGE_DISABLED;
-    else process.env.DAL_USAGE_DISABLED = saved;
+    delete globalThis.__dalUsageContextDisabled;
+    if (saved === undefined) delete process.env.DAL_USAGE_CONTEXT_DISABLED;
+    else process.env.DAL_USAGE_CONTEXT_DISABLED = saved;
     fs.rmSync(here, { recursive: true, force: true });
   }
 });

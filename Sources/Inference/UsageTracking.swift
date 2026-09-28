@@ -10,11 +10,8 @@ import Usage
 /// Wrap a session so usage is recorded and sent automatically. Called by the
 /// session factory; the derived app identity + native storage come from
 /// `makeClient`.
-///
-/// Wrapped even while usage is off: the switch is a consent flag a host may
-/// clear after load, so `TrackedSession` reads it per run instead.
 func tracked(_ session: any InferenceSession, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
-    TrackedSession(wrapping: session, sdk: sdk, disabled: usageDisabled)
+    TrackedSession(wrapping: session, sdk: sdk)
 }
 
 /// An `InferenceSession` that records a usage call per `run` and batches sends.
@@ -44,9 +41,6 @@ actor TrackedSession: InferenceSession {
 
     private let storage: UsageStorage
     private let makeDeviceClient: (String) -> UsageClient
-    /// The opt-out, read on every run. `tracked` passes `usageDisabled`; the
-    /// default is for tests, whose suites run with the switch on.
-    private let disabled: @Sendable () -> Bool
     private let debounceNanos: UInt64
     private let maxDevices = 512
 
@@ -64,6 +58,7 @@ actor TrackedSession: InferenceSession {
     private var pendingFlush: Task<Void, Never>?
     private var started = false
     private var registeredFlushHook = false
+    private var registeredOwner = false
     private var lifecycle: LifecycleObserver?
 
     init(
@@ -73,13 +68,11 @@ actor TrackedSession: InferenceSession {
         storage: UsageStorage? = nil,
         windowMs: Int64 = dayMs,
         flushAfter: Double = 3,
-        clientFactory: ((String) -> UsageClient)? = nil,
-        disabled: @escaping @Sendable () -> Bool = { false }
+        clientFactory: ((String) -> UsageClient)? = nil
     ) {
         let resolvedAppId = appId
         let resolvedStorage = storage ?? defaultStorage()
         self.wrapped = session
-        self.disabled = disabled
         self.storage = resolvedStorage
         self.debounceNanos = UInt64(max(0, flushAfter) * 1_000_000_000)
         self.makeDeviceClient = clientFactory ?? { deviceId in
@@ -93,7 +86,6 @@ actor TrackedSession: InferenceSession {
     /// rather than once per session. The session that loses the claim carries its
     /// calls to storage instead of posting, so they ride the next emit.
     func forceFlush() async {
-        if disabled() { return }
         for (deviceId, client) in clients where client.hasUsage {
             guard await TelemetryDebug.shared.claimForcedEmit(device: deviceId) else {
                 client.carryUnsent()
@@ -104,16 +96,12 @@ actor TrackedSession: InferenceSession {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
-        // Off means the bare run: no client, no device id, no store write, no
-        // debounce task, and no fire-and-forget send that could still be in
-        // flight when a short-lived process exits (which is what raced the node
-        // test runner's teardown into a SIGSEGV). Read per run, so a consent
-        // given after load reports from the next run on. Every flush reads it
-        // too: calls recorded before it was set are held, neither stored nor
-        // sent, until it is cleared.
-        if disabled() { return try await wrapped.run(inputs: inputs, outputs: outputs) }
         startIfNeeded()
         await registerFlushHookIfNeeded()
+        if !registeredOwner, let owner = InferenceContext.owner {
+            registeredOwner = true
+            await SessionOwners.shared.add(self, owner: owner)
+        }
         let resolvedDevice = device(deviceId)
         let client = clientFor(resolvedDevice)
         client.start()
@@ -130,7 +118,7 @@ actor TrackedSession: InferenceSession {
     /// Stamp the idle clock and send pending usage for every tracked device (e.g.
     /// on app background / page hide). No-op if inference never ran.
     func suspend() {
-        guard started, !disabled() else { return }
+        guard started else { return }
         pendingFlush?.cancel()
         pendingFlush = nil
         for client in clients.values { client.suspend() }
@@ -138,7 +126,7 @@ actor TrackedSession: InferenceSession {
 
     /// Send any pending usage now. Optional: the debounce sends once runs idle.
     func flush() {
-        guard started, !disabled() else { return }
+        guard started else { return }
         pendingFlush?.cancel()
         pendingFlush = nil
         for client in clients.values { client.flush() }
@@ -198,7 +186,8 @@ actor TrackedSession: InferenceSession {
                     guard let self else { return false }
                     await self.forceFlush()
                     return true
-                }
+                },
+                drain: { [weak self] in await self?.suspend() }
             )
         )
     }
@@ -214,13 +203,12 @@ actor TrackedSession: InferenceSession {
     }
 
     private func emitFlush() {
-        if disabled() { return }
         for client in clients.values { client.flush() }
     }
 
     deinit {
         // Best-effort: only if inference ran. The idle-clock stamp (synchronous
         // storage) lands; the network send is best-effort.
-        if started && !disabled() { for client in clients.values { client.suspend() } }
+        if started { for client in clients.values { client.suspend() } }
     }
 }

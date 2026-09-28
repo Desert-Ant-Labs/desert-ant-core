@@ -42,10 +42,17 @@ public func telemetryDebugEnabled() -> Bool {
 public struct FlushHook: Sendable {
     public let isAlive: @Sendable () -> Bool
     public let flush: @Sendable () async -> Bool
+    /// Sends or carries pending usage within the re-emit window, never forcing a turnstile; nil when the session has none.
+    public let drain: (@Sendable () async -> Void)?
 
-    public init(isAlive: @escaping @Sendable () -> Bool, flush: @escaping @Sendable () async -> Bool) {
+    public init(
+        isAlive: @escaping @Sendable () -> Bool,
+        flush: @escaping @Sendable () async -> Bool,
+        drain: (@Sendable () async -> Void)? = nil
+    ) {
         self.isAlive = isAlive
         self.flush = flush
+        self.drain = drain
     }
 }
 
@@ -89,6 +96,11 @@ final class InflightSends: @unchecked Sendable {
         }
     }
 
+    /// Every send registered and not yet finished, left in place.
+    func snapshot() -> [Task<Void, Never>] {
+        withLock { Array(tasks.values) }
+    }
+
     var count: Int { withLock { tasks.count } }
 
 #if os(WASI)
@@ -120,6 +132,39 @@ func dispatchTrackedSend(
         registry.remove(id)
     }
 }
+
+/// Runs `work` detached and registers it with the in-flight sends, so a wait for usage at exit also covers it.
+public func dispatchUsageWork(_ work: @escaping @Sendable () async -> Void) {
+    dispatchTrackedSend(into: .shared, work)
+}
+
+#if !os(WASI)
+/// Drains every live session, then waits for all usage sends for at most `timeoutMs` (0 starts the drain and returns); for a host thread about to exit.
+public func flushAndWaitForUsage(timeoutMs: Int) {
+    flushAndWaitForUsage(timeoutMs: timeoutMs, telemetry: .shared, registry: .shared)
+}
+
+/// `telemetry` and `registry` are seams for tests, which must not drain the shared sessions of other suites.
+func flushAndWaitForUsage(timeoutMs: Int, telemetry: TelemetryDebug, registry: InflightSends) {
+    guard timeoutMs > 0 else {
+        Task.detached { await telemetry.drainLiveSessions() }
+        return
+    }
+    let done = DispatchSemaphore(value: 0)
+    Task.detached {
+        await telemetry.drainLiveSessions()
+        // Waits without taking the sends, so a wait started earlier cannot hide them; each leaves the registry once done.
+        while true {
+            let pending = registry.snapshot()
+            if pending.isEmpty { break }
+            for task in pending { await task.value }
+            await Task.yield()
+        }
+        done.signal()
+    }
+    _ = done.wait(timeout: .now() + .milliseconds(timeoutMs))
+}
+#endif
 
 /// Tracks live tracked-session flush hooks and in-flight telemetry sends, so a
 /// caller can force a send and wait for it to finish.
@@ -204,6 +249,11 @@ public actor TelemetryDebug {
         dispatchTrackedSend(into: records, record)
     }
 
+    /// Drains every live session within its re-emit window; never waits on a running flush pass, whose hooks it leaves alone.
+    public func drainLiveSessions() async {
+        for hook in flushHooks where hook.isAlive() { await hook.drain?() }
+    }
+
     /// Force every tracked session to emit now (bypassing the debounce and the
     /// re-emit window), then await all in-flight telemetry sends. One pass runs
     /// at a time: overlapping passes each start by clearing the claims, so a
@@ -235,7 +285,8 @@ public actor TelemetryDebug {
         flushHooks = live + flushHooks.dropFirst(marked)
         // Every hook has returned, and each registered its sends before its
         // `send` call returned, so this holds every send this pass started.
-        for task in sends.drain() { await task.value }
+        // Awaited in place: each leaves the registry once done, so an exit wait still sees it meanwhile.
+        for task in sends.snapshot() { await task.value }
         flushing = false
         let waiting = parked
         parked = []

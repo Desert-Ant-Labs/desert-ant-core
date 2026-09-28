@@ -7,7 +7,8 @@
 // `runChecks` installs the bridge, exercises the host-backed paths (Regex, JSON
 // decode, NFKC), and returns a failure summary; an empty string means every
 // check passed. `usageContext` returns the usage context the core builds from
-// the host's device facts. Android-only; empty elsewhere.
+// the host's device facts, and `ingestEndpoint` the ingest URL it resolves.
+// Android-only; empty elsewhere.
 
 #if os(Android)
 import Android
@@ -54,7 +55,7 @@ public func coreBridgeRunChecks(_ env: HostEnv, _ clazz: jclass?, _ host: jclass
 }
 
 // The usage context a client on this device sends, as sorted "key=value" lines,
-// through the real path: the host's device-facts and opt-out callbacks, the
+// through the real path: the host's device-facts and context-switch callbacks, the
 // Android DeviceContext and the client's sanitizing. Nothing is posted; the
 // send only captures the body.
 @_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_usageContext")
@@ -69,5 +70,11 @@ public func coreBridgeUsageContext(_ env: HostEnv, _ clazz: jclass?, _ host: jcl
     let context = sent.first?.events.first?.context ?? [:]
     let lines = context.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
     return lines.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
+}
+
+// The ingest endpoint the core resolves on this device, "" for the built-in one.
+@_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_ingestEndpoint")
+public func coreBridgeIngestEndpoint(_ env: HostEnv, _ clazz: jclass?) -> jstring? {
+    (hostProvidedIngestEndpoint() ?? "").withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
 }
 #endif

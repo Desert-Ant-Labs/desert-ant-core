@@ -4,4 +4,4 @@
 #MISE depends=["npm-install"]
 #MISE tools={node="22"}
 
-node --test test/*.test.mjs
+node --import ./test/setup.mjs --test test/*.test.mjs

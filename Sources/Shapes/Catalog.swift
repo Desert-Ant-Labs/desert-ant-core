@@ -5,7 +5,7 @@ public enum ShapesModel: ModelDeclaration {
     public static let id = "shapes"
     public static let product = "Shapes"
     public static let revision = "v0.3.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "On-device single-stroke shape recognition."
 
     /// Class order, calibrated gates, and the frozen preprocessing constants.

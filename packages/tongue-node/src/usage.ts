@@ -92,9 +92,7 @@ class MemoryStorage implements UsageStorage {
  */
 function defaultStorage(): UsageStorage {
   if (installedStorage) return installedStorage;
-  const candidate =
-    (globalThis as Record<string, unknown>).__dalUsageStore ??
-    (globalThis as Record<string, unknown>).localStorage;
+  const candidate = storageGlobal("__dalUsageStore") ?? storageGlobal("localStorage");
   const store = candidate as
     | { getItem(k: string): string | null; setItem(k: string, v: string): void }
     | undefined;
@@ -117,6 +115,15 @@ function defaultStorage(): UsageStorage {
     };
   }
   return new MemoryStorage();
+}
+
+/** `globalThis[name]`, or undefined when its getter throws, as `localStorage` does on an opaque origin. */
+function storageGlobal(name: string): unknown {
+  try {
+    return (globalThis as Record<string, unknown>)[name];
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -189,7 +196,7 @@ export function defaultPlatform(): string {
   return attribution(isBrowserOrigin()).platform;
 }
 
-/** The ingest endpoint. A host may override it for tests and local capture. */
+/** The ingest URL, overridable for tests. */
 function ingestEndpoint(): string {
   return hostString("__dalIngestEndpoint", "DAL_INGEST_ENDPOINT") ?? INGEST_ENDPOINT;
 }
@@ -236,24 +243,9 @@ function hostApiKey(): string | undefined {
 }
 
 /**
- * Whether usage reporting is switched off, right now: `globalThis.__dalUsageDisabled`
- * (a string, a boolean, a number, or a function returning one) or `DAL_USAGE_DISABLED`,
- * under `flagIsSet`, as core reads it.
- *
- * The consent switch. A page keeps the beacon off until its visitor agrees, then
- * clears the flag, so it is read on every detection and again on every flush,
- * never cached: set after load it holds what was recorded unsent, and cleared
- * it lets reporting resume. While it is on nothing is recorded, stored or sent, and
- * no device id is made. See USAGE.md.
- */
-export function usageDisabled(): boolean {
-  return hostFlag("__dalUsageDisabled", "DAL_USAGE_DISABLED");
-}
-
-/**
  * A host flag: `globalThis[name]`, calling it when it is a function, then
  * `process.env[envName]`, each under `flagIsSet`. A global whose getter or
- * function throws (a consent manager not loaded yet, a request-scoped accessor)
+ * function throws (a script not loaded yet, a request-scoped accessor)
  * reads as unset, as core's `jsHostValue` does, rather than unwinding a detection.
  */
 function hostFlag(name: string, envName: string): boolean {
@@ -536,10 +528,9 @@ export function browserFacts(nav: BrowserNavigator | undefined): DeviceFacts {
 }
 
 /**
- * The truthiness rule for every opt-out flag, usage and context alike, core's:
- * `true`, a finite non-zero number, or a string other than "", "0" and "false".
- * It fails closed: `1`, which this package's older check honoured, still opts
- * out. `false`, 0, NaN, null and undefined are unset.
+ * The truthiness rule for the context flag, core's: `true`, a finite non-zero
+ * number, or a string other than "", "0" and "false". `false`, 0, NaN, null and
+ * undefined are unset.
  */
 export function flagIsSet(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -548,7 +539,7 @@ export function flagIsSet(value: unknown): boolean {
 }
 
 /**
- * Whether the event `context` is switched off: `globalThis.__dalUsageContextDisabled`
+ * Whether the event `context` is left out: `globalThis.__dalUsageContextDisabled`
  * or `DAL_USAGE_CONTEXT_DISABLED`. Usage itself still reports.
  */
 export function deviceContextDisabled(): boolean {
@@ -559,7 +550,7 @@ export function deviceContextDisabled(): boolean {
  * The per-event `context` provider a turnstile wires by default: core's rules
  * on the same host. A server, or a turnstile whose device id the host supplied,
  * sends only osName and appVersion; that device is not this process's to
- * describe. The facts are cached; the opt-out and the appVersion override
+ * describe. The facts are cached; the context flag and the appVersion override
  * (`globalThis.__dalAppVersion` / `DAL_APP_VERSION`) are read per event.
  */
 export function defaultContextProvider(
@@ -630,20 +621,11 @@ export class UsageClient {
       send: (body: IngestBody) => Promise<void> | void;
       /** Per-event `context`, sanitized before it is sent. None when omitted. */
       context?: () => Record<string, string> | undefined;
-      /**
-       * The usage opt-out, read before every step that would count, store or
-       * send; what the client holds waits until it is cleared. Never when omitted.
-       */
-      disabled?: () => boolean;
     },
   ) {}
 
-  private get off(): boolean {
-    return this.deps.disabled?.() ?? false;
-  }
-
   recordCall(n = 1): void {
-    if (n > 0 && !this.off) this.sessionCalls += n;
+    if (n > 0) this.sessionCalls += n;
   }
 
   /** Whether there is usage to report, so a forced flush never invents a call. */
@@ -656,7 +638,6 @@ export class UsageClient {
    * completion so a caller can await the POST. Port of core's `load()`.
    */
   load(): Promise<void> | void {
-    if (this.off) return;
     const st = this.deps.loadState();
     const now = this.deps.now();
     this.deps.saveState({ ...st, lastActiveAt: now, lastEmitDay: utcDay(now) });
@@ -665,7 +646,6 @@ export class UsageClient {
   }
 
   start(): void {
-    if (this.off) return;
     const now = this.deps.now();
     if (now < this.nextDueAt && now >= this.checkedAt) return;
     this.checkedAt = now;
@@ -682,14 +662,12 @@ export class UsageClient {
   }
 
   suspend(): void {
-    if (this.off) return;
     const st = this.deps.loadState();
     this.deps.saveState({ ...st, lastActiveAt: this.deps.now() });
     this.flush();
   }
 
   flush(): Promise<void> | void {
-    if (this.off) return;
     const st = this.deps.loadState();
 
     if (this.pending) {
@@ -755,10 +733,8 @@ export class UsageClient {
 }
 
 /**
- * Exported so a test can drive the real transport at a local endpoint. The
- * default endpoint is overridable only through `__dalIngestEndpoint` /
- * `DAL_INGEST_ENDPOINT`, the same host override core offers, and `UsageTurnstile`
- * always goes through it.
+ * Exported so a test can drive the real transport at a local endpoint.
+ * `UsageTurnstile` always sends to the ingest URL, overridable for tests.
  *
  * A key rides an `Authorization` header rather than the body: every runtime this
  * package supports sets request headers, and the endpoint prefers the header. A
@@ -770,9 +746,6 @@ export class UsageClient {
  *
  * Returns the send's promise so `flushTelemetry()` can await the POST. The
  * debounced path ignores it, exactly as core's fire-and-forget send does.
- *
- * Sends nothing while `usageDisabled()` is on, read per send: the last guard
- * behind the client's and the turnstile's own.
  */
 export function makeSend(
   endpoint = INGEST_ENDPOINT,
@@ -780,7 +753,6 @@ export function makeSend(
   keyInHeader: boolean = keyRidesInHeader(isBrowserOrigin()),
 ): (body: IngestBody) => Promise<void> {
   return (body) => {
-    if (usageDisabled()) return Promise.resolve();
     let json: string;
     try {
       json = buildBody(body);
@@ -848,23 +820,18 @@ export class UsageTurnstile {
   }
 
   /**
-   * The client, built on the first detection recorded with usage on, so a
-   * turnstile made while the switch is on touches no store and mints no device
-   * id. `null` until then, and for good once building it has failed.
+   * The client, built on the first detection, so a turnstile that never
+   * detects touches no store and mints no device id. `null` until then; a
+   * build that fails is tried again on the next detection.
    */
   private client: UsageClient | null = null;
-  private broken = false;
 
   private constructor(
     private readonly version: string,
     private readonly storage?: UsageStorage,
   ) {}
 
-  /**
-   * A turnstile for one `Tongue`, built whether or not usage is switched off:
-   * the switch is a consent flag a host may clear after load, so it is read per
-   * detection instead. Never throws, and builds nothing yet.
-   */
+  /** A turnstile for one `Tongue`. Never throws, and builds nothing yet. */
   static create(version: string, storage?: UsageStorage): UsageTurnstile {
     return new UsageTurnstile(version, storage);
   }
@@ -874,7 +841,7 @@ export class UsageTurnstile {
    * or an unusual runtime means no reporting, not no detection.
    */
   private open(): UsageClient | null {
-    if (this.client || this.broken) return this.client;
+    if (this.client) return this.client;
     try {
       const store = this.storage ?? defaultStorage();
       // A host-provided id wins, matching core's resolveDeviceId: a server that
@@ -927,7 +894,6 @@ export class UsageTurnstile {
         },
         send: makeSend(ingestEndpoint(), key, keyInHeader),
         context: defaultContextProvider(platform, hostDevice !== undefined && hostDevice !== persisted),
-        disabled: usageDisabled,
       });
       client.start();
       // Deliver what was accrued when the host goes away. Without this a process
@@ -935,15 +901,13 @@ export class UsageTurnstile {
       // `start()` has already stamped the window, so a short-lived Node script
       // would report zero every day, permanently.
       if (browserOrigin && typeof addEventListener === "function") {
-        addEventListener("pagehide", () => {
-          if (!usageDisabled()) client.suspend();
-        });
+        addEventListener("pagehide", () => client.suspend());
       } else {
         const proc = (globalThis as { process?: { once?: (e: string, f: () => void) => void } }).process;
         // `beforeExit` still allows work to be scheduled, unlike `exit`.
         proc?.once?.("beforeExit", () => {
           try {
-            if (!usageDisabled()) this.track(client.flush());
+            this.track(client.flush());
           } catch {
             /* best effort */
           }
@@ -952,14 +916,12 @@ export class UsageTurnstile {
       this.client = client;
       return client;
     } catch {
-      this.broken = true;
       return null;
     }
   }
 
-  /** One detection. Nothing at all while usage is switched off. */
+  /** One detection. */
   record(): void {
-    if (usageDisabled()) return;
     const client = this.open();
     if (!client) return;
     // Every detection, not only when the client opens: one opened on a day that
@@ -974,8 +936,7 @@ export class UsageTurnstile {
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       try {
-        // Held while switched off: neither stored nor sent until it is cleared.
-        if (this.client && !usageDisabled()) this.track(this.client.flush());
+        if (this.client) this.track(this.client.flush());
       } catch {
         /* best effort */
       }
@@ -994,7 +955,7 @@ export class UsageTurnstile {
   async flushTelemetry(): Promise<boolean> {
     this.cancelFlush();
     try {
-      if (!usageDisabled() && this.client?.hasUsage) this.track(this.client.load());
+      if (this.client?.hasUsage) this.track(this.client.load());
       await Promise.all([...this.inflight]);
       return true;
     } catch {

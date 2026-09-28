@@ -417,6 +417,61 @@ dal_arch() {
     esac
 }
 
+# Run a command when the task exits, however it exits. Hooks accumulate, so one
+# never replaces another's trap.
+DAL_EXIT_HOOKS="${DAL_EXIT_HOOKS:-true}"
+dal_on_exit() {
+    DAL_EXIT_HOOKS="$1; $DAL_EXIT_HOOKS"
+    trap 'eval "$DAL_EXIT_HOOKS"' EXIT
+}
+
+# Give this task's test processes a usage namespace of their own, with the
+# shell's app id, key and device id removed. The store is still real: on macOS
+# UserDefaults writes the test process's domain in the real home, so stale test
+# keys of dead runs are swept first and this run's own are deleted at exit; on
+# Linux Foundation keeps preferences under XDG_CONFIG_HOME, pointed at a
+# throwaway folder here (HOME stays, since toolchains and caches live there).
+dal_test_usage_namespace() {
+    export DAL_APP_ID="ai.desertant.test.$$.$RANDOM$RANDOM"
+    unset DAL_API_KEY DAL_DEVICE_ID
+    case "$(dal_host_os)" in
+        darwin)
+            dal_sweep_test_defaults dead
+            dal_on_exit "dal_sweep_test_defaults own"
+            ;;
+        linux)
+            local config
+            config=$(mktemp -d)
+            export XDG_CONFIG_HOME="$config"
+            dal_on_exit "rm -rf '$config'"
+            ;;
+    esac
+}
+
+# Delete ai.desertant.usage.ai.desertant.test.<pid>.* keys from the domains a
+# Swift test process writes: `own` removes this run's namespace, `dead` those of
+# runs whose pid is gone. Nothing else is touched.
+dal_sweep_test_defaults() { # own|dead
+    local mode=$1 domain key pid
+    for domain in swiftpm-testing-helper xctest; do
+        while IFS= read -r key; do
+            [ -n "$key" ] || continue
+            pid=${key#ai.desertant.usage.ai.desertant.test.}
+            pid=${pid%%.*}
+            if [ "$mode" = own ]; then
+                case "$key" in
+                    "ai.desertant.usage.$DAL_APP_ID" | "ai.desertant.usage.$DAL_APP_ID".*) ;;
+                    *) continue ;;
+                esac
+            elif kill -0 "$pid" 2> /dev/null; then
+                continue
+            fi
+            defaults delete "$domain" "$key" > /dev/null 2>&1 || true
+        done < <(defaults export "$domain" - 2> /dev/null \
+            | sed -n 's#.*<key>\(ai\.desertant\.usage\.ai\.desertant\.test\.[0-9][0-9]*\..*\)</key>.*#\1#p')
+    done
+}
+
 # Build and start Tools/EchoServer.swift for HTTPTests, wait until it accepts,
 # and register a trap that stops it however the task exits.
 dal_start_echo_server() {
@@ -440,8 +495,7 @@ dal_start_echo_server() {
     fi
     "$bin" "$port" &
     DAL_ECHO_PID=$!
-    # shellcheck disable=SC2064
-    trap "kill $DAL_ECHO_PID 2>/dev/null; wait $DAL_ECHO_PID 2>/dev/null || true" EXIT
+    dal_on_exit "kill $DAL_ECHO_PID 2>/dev/null; wait $DAL_ECHO_PID 2>/dev/null || true"
     # Ready only when the reply is our own probe echoed back, so a listener
     # that took the port in the meantime is not mistaken for this server.
     local _ probe="dal-echo-$$"

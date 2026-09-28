@@ -252,6 +252,10 @@ const failures = [];
 
 for (const entry of cases) {
   const tab = await browser.newPage();
+  // Usage from these pages goes to a closed local port, never the production ingest.
+  await tab.addInitScript((endpoint) => {
+    globalThis.__dalIngestEndpoint = endpoint;
+  }, process.env.DAL_INGEST_ENDPOINT ?? "http://127.0.0.1:1/ingest");
   const logs = [];
   tab.on("console", (m) => logs.push(`[${entry.model}] ${m.text()}`));
   tab.on("pageerror", (e) => logs.push(`[${entry.model}] pageerror: ${e.message}`));

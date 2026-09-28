@@ -59,10 +59,13 @@ public func nativeRun(
     let optionsReader = FFIReader(options, optionsLen)
     let group = string(groupId)
     let device = string(deviceId)
+    let owner = UInt(bitPattern: handle)
     let payload: [UInt8]? = blockingValue(with: model) { model in
-        await InferenceContext.$deviceId.withValue(device) {
-            await InferenceContext.withCallGroup(id: group) {
-                await model.run(input: inputReader, options: optionsReader)
+        await InferenceContext.$owner.withValue(owner) {
+            await InferenceContext.$deviceId.withValue(device) {
+                await InferenceContext.withCallGroup(id: group) {
+                    await model.run(input: inputReader, options: optionsReader)
+                }
             }
         }
     }
@@ -76,9 +79,22 @@ public func nativeFlushTelemetry() {
     blockingValue { await TelemetryDebug.shared.flushAndWait() }
 }
 
+/// Flushes live sessions and waits for usage sends, for at most `timeoutMs`. The C ABI's `dal_await_usage_sends`, run as a Node host exits.
+public func nativeAwaitUsageSends(timeoutMs: Int32) {
+    flushAndWaitForUsage(timeoutMs: Int(timeoutMs))
+}
+
+/// The retained handle, carried into the task that releases it.
+private struct RetainedHandle: @unchecked Sendable {
+    let handle: Unmanaged<NativeHandle>
+}
+
 public func nativeDestroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
-    Unmanaged<NativeHandle>.fromOpaque(handle).release()
+    let owner = UInt(bitPattern: handle)
+    let retained = RetainedHandle(handle: Unmanaged<NativeHandle>.fromOpaque(handle))
+    // Never blocks the caller: the handle stays alive until its sessions are suspended.
+    SessionOwners.shared.suspendAll(owner: owner) { retained.handle.release() }
 }
 
 public func nativeBufferFree(_ pointer: UnsafeMutablePointer<CChar>?) {

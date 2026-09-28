@@ -18,13 +18,9 @@ import DesertAnt
 /// counters are unsynchronized and only this actor touches them. Core's
 /// `TrackedSession` is an actor for the same reason.
 actor UsageTurnstile {
-    /// Built on the first call recorded with usage on, so a turnstile made
-    /// while it is off touches no store and mints no device id.
+    /// Built on the first recorded call, so a turnstile that never records touches no store and mints no device id.
     private var client: UsageClient?
     private let buildClient: () -> UsageClient
-    /// The opt-out, read per call. `makeTurnstile` passes `usageDisabled`; the
-    /// default is for tests, whose suites run with the switch on.
-    private let disabled: @Sendable () -> Bool
     private var flushScheduled = false
     private var registeredFlushHook = false
     /// Where the flush hook registers. A test passes its own, so its flush pass
@@ -36,12 +32,10 @@ actor UsageTurnstile {
 
     init(
         client: @autoclosure @escaping () -> UsageClient,
-        telemetry: TelemetryDebug = .shared,
-        disabled: @escaping @Sendable () -> Bool = { false }
+        telemetry: TelemetryDebug = .shared
     ) {
         self.buildClient = client
         self.telemetry = telemetry
-        self.disabled = disabled
     }
 
     /// The client, built the first time it is needed.
@@ -55,13 +49,9 @@ actor UsageTurnstile {
     /// One transcription. Records the call and arranges a single flush for the
     /// burst, so a caller transcribing a folder sends once rather than per file.
     func record() async {
-        // Read per call: a consent flow sets or clears it after load.
-        if disabled() { return }
         // `start()` on every call, as `TrackedSession` does per run: the first
         // call of a new UTC day must open a turnstile however recently the app
-        // was active, it is a no-op otherwise inside the window, and a switch set
-        // between the check above and the client's own would otherwise leave a
-        // start skipped for good.
+        // was active, and it is a no-op otherwise inside the window.
         let client = openClient()
         client.start()
         client.recordCall()
@@ -74,11 +64,8 @@ actor UsageTurnstile {
         }
     }
 
-    /// Held while usage is switched off: the calls stay unsent and unstored,
-    /// and the next call recorded with it cleared schedules a flush again.
     private func flushNow() {
         flushScheduled = false
-        if disabled() { return }
         client?.flush()
     }
 
@@ -86,7 +73,7 @@ actor UsageTurnstile {
     /// part of `flushAndWait()`. Claims the device the way core's
     /// `TrackedSession` does, so a device shared with another session posts once.
     func forceFlush() async {
-        guard let client, !disabled(), client.hasUsage else { return }
+        guard let client, client.hasUsage else { return }
         guard await telemetry.claimForcedEmit(device: client.deviceId) else {
             client.carryUnsent()
             return
@@ -114,13 +101,11 @@ actor UsageTurnstile {
 }
 
 /// The turnstile for a new `Voz`. Keeps the usage surface to this file, so the
-/// pipeline stays free of it. Built even while usage is switched off, since the
-/// switch may be cleared later; it opens no client until a call is recorded
-/// with usage on.
+/// pipeline stays free of it. It opens no client until a call is recorded.
 ///
 /// `VozModel.sdkInfo` is the catalog's own identity, so this model's calls
 /// arrive under its own name and version rather than the package's.
 func makeTurnstile() -> UsageTurnstile {
-    UsageTurnstile(client: makeClient(sdk: VozModel.sdkInfo), disabled: usageDisabled)
+    UsageTurnstile(client: makeClient(sdk: VozModel.sdkInfo))
 }
 #endif

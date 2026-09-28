@@ -100,46 +100,5 @@ struct VozUsage {
         #expect(VozModel.sdkInfo.name == "Voz")
         #expect(VozModel.sdkInfo.version == VozModel.sdkVersion)
     }
-
-    /// The switch is a consent flag an app may flip after load. While it is on
-    /// a transcription records nothing and opens no client; the one after it is
-    /// cleared reports, and one after it is set again does not.
-    @Test func theOptOutIsReadPerTranscription() async {
-        final class Switch: @unchecked Sendable { var on = true; var opened = 0 }
-        let off = Switch()
-        let sink = Sink()
-        let telemetry = TelemetryDebug(sends: InflightSends())
-        let turnstile = UsageTurnstile(
-            client: { off.opened += 1; return testClient(sink) }(),
-            telemetry: telemetry, disabled: { off.on }
-        )
-        await turnstile.record()
-        await telemetry.flushAndWait()
-        #expect(off.opened == 0, "a switched-off transcription opened a client")
-        #expect(sink.sent.isEmpty)
-
-        off.on = false
-        await turnstile.record()
-        await telemetry.flushAndWait()
-        #expect(sink.calls == 1, "the transcription after consent did not report")
-
-        off.on = true
-        await turnstile.record()
-        await telemetry.flushAndWait()
-        #expect(sink.calls == 1, "a transcription after the opt-out was recorded")
-        #expect(off.opened == 1)
-
-        // Recorded with consent, withdrawn before the flush: held, not stored or sent.
-        off.on = false
-        await turnstile.record()
-        off.on = true
-        let state = sink.state
-        await telemetry.flushAndWait()
-        #expect(sink.calls == 1, "a call recorded before the opt-out was sent after it")
-        #expect(sink.state == state, "a flush after the opt-out wrote the store")
-        off.on = false
-        await telemetry.flushAndWait()
-        #expect(sink.calls == 2, "the held call was lost when consent returned")
-    }
 }
 #endif

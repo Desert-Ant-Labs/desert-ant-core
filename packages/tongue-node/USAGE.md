@@ -45,8 +45,8 @@ the same way.
   OS version, screen size or time zone in a browser, and nothing outside those
   keys: each value is cut to 64 bytes, and a context over 1 KB is dropped while
   the event is still sent. `DAL_USAGE_CONTEXT_DISABLED=1`
-  (see "Leaving out the device context" for the in-code forms) turns it off and leaves usage
-  reporting on.
+  (see "Leaving out the device context" for the in-code forms) leaves it out;
+  the load is still reported.
 - **No text is ever sent.** Nothing that was detected, no language results, no
   input length. The pipeline never touches the network; only the turnstile does.
 
@@ -108,75 +108,13 @@ after every detection, and it sends nothing at all when nothing was recorded: an
 idle process is not a billable device. The Kotlin and JavaScript surfaces expose
 the same method, and it is what a short-lived caller should await before exiting.
 
-This is billing metering, not product analytics: the licence is free below a
-threshold and commercial above it, and monthly active devices is the measure.
+## License metering
 
-## Opting out
-
-Usage reporting has one switch, public on every platform, and it is meant to be
-used: a site or an app can keep it on until its user consents, and clear it then.
-
-| Host | In code | From the host |
-|---|---|---|
-| Swift (every model SDK on core) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1` |
-| A page (every JavaScript SDK, wasm or not) | `globalThis.__dalUsageDisabled = true` | |
-| Node | `globalThis.__dalUsageDisabled = true` (on `/native`, see below) | `DAL_USAGE_DISABLED=1` |
-| Kotlin (tongue) | `DesertAnt.usageDisabled = true` | `DAL_USAGE_DISABLED=1`, or the same-named JVM system property |
-
-The global may also be a function returning the flag, called each time it is
-read, and a global whose getter or function throws reads as unset. A flag counts
-as set when it is the boolean `true`, a finite non-zero number such as `1`, or a
-string other than `""`, `"0"` and `"false"`; `false`, `0`, `NaN` and `Infinity`
-do not. Either form turns reporting off: code cannot clear a flag the
-environment sets.
-
-While the switch is on nothing is recorded, nothing is stored and no request is
-made. A model loaded with it on does not even create the device id until the
-first call made with it off. It is read on every call and again on every flush,
-never cached, so it can change at any time:
-
-- **Set after load**, it stops the next send. Calls recorded before it was set
-  and still waiting out the 3-second debounce are held in memory, neither stored
-  nor posted; they go out with the next flush after it is cleared, and are lost
-  if the page or process ends first. They were made with consent.
-- **Cleared after load**, the next call reports as usual. Calls made while it
-  was on are never counted.
-
-Two hosts read it less often. The native Node build (`/native`) copies the
-global into the environment only until its first model loads, because a native
-thread reading the environment while it is written can crash on glibc. There the
-switch is fixed at the first load: a global set before it keeps usage off for
-the life of the process, and changing the global later has no effect either
-way. A server that needs to flip it at runtime uses the wasm build. An Android app
-on the core's AAR has no launch environment and no in-code switch yet. It can
-call `android.system.Os.setenv("DAL_USAGE_DISABLED", "1", true)`, but only
-before its first model loads, for the same reason: the core reads the
-environment from its own threads on every call.
-
-### A consent banner
-
-Set the flag before any model loads, then follow the visitor's choice. The SDK
-posts nothing and writes nothing to `localStorage` until consent is given:
-
-```html
-<script>
-  // Before any Desert Ant SDK loads: no usage until the visitor agrees.
-  globalThis.__dalUsageDisabled = true;
-</script>
-```
-
-```js
-consentManager.onChange((consent) => {
-  // Whichever category your site files usage metering under.
-  globalThis.__dalUsageDisabled = !consent.statistics;
-});
-```
-
-A function works as well, if the consent manager can answer on demand:
-
-```js
-globalThis.__dalUsageDisabled = () => !consentManager.has("statistics");
-```
+Usage reporting is how the license is metered: loads are counted per device, and
+monthly active devices decide whether a deployment is within the free tier or
+needs a commercial license. It is part of the license and always on, on every
+platform. No text, audio or results are ever sent, only the fields listed above.
+The terms are at https://desertant.com/telemetry.
 
 ### Leaving out the device context
 
@@ -186,16 +124,13 @@ To keep reporting but leave out the `context`, set `DAL_USAGE_CONTEXT_DISABLED=1
 `DesertAnt.sendsDeviceContext = false` in Swift and in this SDK's Kotlin
 (`ai.desertant.tongue.DesertAnt`), and `HostBridge.sendsDeviceContext = false`
 (`ai.desertant.core.HostBridge`) for the Android SDKs built on desert-ant-core,
-such as emo and redact. It follows the same rule for what counts as set, and it
-too is read per event. Usage is still reported, with no facts about the host
-attached.
-
-### In this repository
-
-Every task in this repository sets `DAL_USAGE_DISABLED` through `mise.toml`,
-and the one CI job that runs swift without mise (Windows) sets it in
-`.github/workflows/ci.yml`. A CI runner is not a billable device, and
-without the guard each push would count as one.
+such as emo and redact. The flag counts as set when it is the boolean `true`, a
+finite non-zero number such as `1`, or a string other than `""`, `"0"` and
+`"false"`. The global may also be a function returning the flag, and a global
+whose getter or function throws reads as unset. It is read per event, except on
+the native Node build (`/native`), which copies the global into the environment
+only until its first model loads. Usage is still reported, with no facts about
+the host attached.
 
 ## Why this SDK had to implement it
 
@@ -226,7 +161,7 @@ inherit from. The result is three implementations of one state machine.
 | Kotlin | `usage/UsageClient.kt`, a port | SharedPreferences via a `Context`, else `java.util.prefs`, else memory | `HttpURLConnection` on one daemon thread |
 | JavaScript | `usage.ts`, a port | `__dalUsageStore` → `localStorage` → a JSON file under `~/.desert-ant` on Node → memory | `fetch(keepalive)`, `sendBeacon` on unload |
 
-Each opens the turnstile on the first `detect` made with usage on, records a
+Each opens the turnstile on the first `detect`, records a
 call per `detect`, and flushes on a 3-second debounce so a burst of keystrokes
 becomes one send. That mirrors core's `TrackedSession`.
 
@@ -302,5 +237,5 @@ bridges):
    same key. The day has a key of its own because older readers reset a
    `.state` that is not exactly two fields.
 4. Copy `usage_vectors.json` and wire the replay test before trusting the port.
-5. Set `DAL_USAGE_DISABLED=1` across the repo's own tasks and CI, first, so no
-   build ever bills.
+5. Keep the port's own test runs off production, as AGENTS.md describes for
+   this repository.
