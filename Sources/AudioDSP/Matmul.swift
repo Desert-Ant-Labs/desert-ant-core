@@ -1,6 +1,6 @@
 // Row-major single-precision GEMM behind the STFT/mel matmuls: Accelerate on
 // Apple (the point of doing STFT as a matmul is that it runs on the vector
-// units), a plain triple loop everywhere else.
+// units), a portable loop everywhere else.
 
 #if canImport(Accelerate)
 import Accelerate
@@ -34,15 +34,34 @@ enum Matmul {
             vDSP_vsmsma(t, 1, &sa, c, 1, &sb, &c, 1, vDSP_Length(m * n))
         }
         #else
-        for i in 0..<m {
-            for j in 0..<n {
-                var acc: Float = 0
-                let aRow = i * k
-                for p in 0..<k { acc += a[aRow + p] * b[p * n + j] }
-                let idx = i * n + j
-                c[idx] = alpha * acc + beta * c[idx]
-            }
-        }
+        gemmPortable(a, b, into: &c, m: m, n: n, k: k, alpha: alpha, beta: beta)
         #endif
+    }
+
+    /// The non-Accelerate GEMM, same contract as `gemm`.
+    static func gemmPortable(_ a: [Float], _ b: [Float], into c: inout [Float],
+                             m: Int, n: Int, k: Int, alpha: Float = 1, beta: Float = 0) {
+        // Row at a time for contiguous inner loops; each element sums its k products in order, as a triple loop does.
+        guard m > 0, n > 0 else { return }
+        guard k > 0 else {
+            for idx in 0..<(m * n) { c[idx] = alpha * 0 + beta * c[idx] }
+            return
+        }
+        var row = [Float](repeating: 0, count: n)
+        a.withUnsafeBufferPointer { ap in b.withUnsafeBufferPointer { bp in
+        c.withUnsafeMutableBufferPointer { cp in row.withUnsafeMutableBufferPointer { rp in
+            let r = rp.baseAddress!
+            for i in 0..<m {
+                for j in 0..<n { r[j] = 0 }
+                let aRow = ap.baseAddress! + i * k
+                for p in 0..<k {
+                    let av = aRow[p]
+                    let bRow = bp.baseAddress! + p * n
+                    for j in 0..<n { r[j] += av * bRow[j] }
+                }
+                let cRow = cp.baseAddress! + i * n
+                for j in 0..<n { cRow[j] = alpha * r[j] + beta * cRow[j] }
+            }
+        } } } }
     }
 }

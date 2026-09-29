@@ -2,6 +2,7 @@ import Testing
 @testable import Inference
 
 #if canImport(CLiteRt)
+import CLiteRt
 import Foundation
 
 /// Exercises the LiteRT backend end to end: load a bundled `.tflite`, run it
@@ -13,6 +14,18 @@ import Foundation
 /// masked sum across the time axis. Feeding per-step features that sum to
 /// [1, 2, 3] makes `probs` == softmax([1, 2, 3]).
 struct LiteRTSessionTests {
+    @Test func defaultCPUThreadPolicy() {
+        #if os(Android)
+        for cpus in [0, 1, 4, 8] { #expect(dal_lrt_default_cpu_threads(Int32(cpus)) == 1) }
+        #else
+        #expect(dal_lrt_default_cpu_threads(0) == 1)
+        #expect(dal_lrt_default_cpu_threads(1) == 1)
+        #expect(dal_lrt_default_cpu_threads(3) == 3)
+        #expect(dal_lrt_default_cpu_threads(4) == 4)
+        #expect(dal_lrt_default_cpu_threads(64) == 4)
+        #endif
+    }
+
     private func modelPath() throws -> String {
         let url = try #require(Bundle.module.url(forResource: "testmodel", withExtension: "tflite"))
         return url.path

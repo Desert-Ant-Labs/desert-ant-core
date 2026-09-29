@@ -48,8 +48,7 @@ public struct Spectrogram: Sendable {
 }
 
 /// A short-time Fourier transform configured once and reused. Precomputes the
-/// window and the real-DFT bases at init, so `forward`/`inverse` are just the
-/// matmuls plus overlap-add.
+/// window, the real-DFT bases and, for a power-of-two `nFFT`, the FFT tables at init.
 public struct STFT: Sendable {
     public let nFFT: Int
     public let hop: Int
@@ -61,6 +60,7 @@ public struct STFT: Sendable {
     private let fwdSin: [Float]   // [nFFT x bins]
     private let invCos: [Float]   // [bins x nFFT]
     private let invSin: [Float]   // [bins x nFFT]
+    private let fft: RealFFT?
 
     /// Configure an STFT. `window` defaults to a periodic Hann of length
     /// `nFFT`. `center` reflect-pads by `nFFT/2` so frames are centered
@@ -102,10 +102,47 @@ public struct STFT: Sendable {
         }
         self.invCos = ic
         self.invSin = isn
+        self.fft = RealFFT(n: n)
     }
 
     /// Forward transform: windowed frames -> complex spectrogram.
+    // Without Accelerate a power-of-two size runs as a real FFT, which is also the more accurate path.
     public func forward(_ signal: [Float]) -> Spectrogram {
+        #if canImport(Accelerate)
+        return forwardMatmul(signal)
+        #else
+        return fft == nil ? forwardMatmul(signal) : forwardFFT(signal)
+        #endif
+    }
+
+    /// Whether `forwardFFT` is available (`nFFT` is a power of two).
+    var hasFFT: Bool { fft != nil }
+
+    /// The forward transform as a per-frame real FFT. Requires `hasFFT`.
+    func forwardFFT(_ signal: [Float]) -> Spectrogram {
+        guard let fft else { preconditionFailure("nFFT is not a power of two") }
+        let n = nFFT, f = bins
+        let padded = center ? Padding.reflect(signal, pad: n / 2) : signal
+        guard padded.count >= n else { return Spectrogram(re: [], im: [], frames: 0, bins: f) }
+        let frames = 1 + (padded.count - n) / hop
+        var re = [Float](repeating: 0, count: frames * f)
+        var im = [Float](repeating: 0, count: frames * f)
+        var zr = [Float](repeating: 0, count: fft.half)
+        var zi = [Float](repeating: 0, count: fft.half)
+        padded.withUnsafeBufferPointer { xp in window.withUnsafeBufferPointer { wp in
+        re.withUnsafeMutableBufferPointer { rp in im.withUnsafeMutableBufferPointer { ip in
+        zr.withUnsafeMutableBufferPointer { zrp in zi.withUnsafeMutableBufferPointer { zip in
+            for fr in 0..<frames {
+                fft.forward(xp.baseAddress! + fr * hop, window: wp.baseAddress!,
+                            outRe: rp.baseAddress! + fr * f, outIm: ip.baseAddress! + fr * f,
+                            zr: zrp.baseAddress!, zi: zip.baseAddress!)
+            }
+        } } } } } }
+        return Spectrogram(re: re, im: im, frames: frames, bins: f)
+    }
+
+    /// The forward transform as two real-DFT matmuls.
+    func forwardMatmul(_ signal: [Float]) -> Spectrogram {
         let n = nFFT, f = bins
         let padded = center ? Padding.reflect(signal, pad: n / 2) : signal
         guard padded.count >= n else { return Spectrogram(re: [], im: [], frames: 0, bins: f) }
