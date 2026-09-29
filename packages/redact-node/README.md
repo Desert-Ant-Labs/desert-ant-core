@@ -59,7 +59,7 @@ import { Redact } from "@desert-ant-labs/redact/native"; // server only
   download, otherwise the model is downloaded into it. Omit for the managed cache
   (`~/.cache/desert-ant-models/...`).
 - `modelBaseUrl` (browser build): a base URL you serve the model files from (e.g.
-  `"/assets/redact/"`), loaded instead of the Hub for self-host / offline setups.
+  `"/assets/redact/"`), loaded instead of Hugging Face for self-host / offline setups.
 - `cacheRoot`: base directory for the managed on-disk cache (default `~/.cache`;
   native build, or the browser build under Node).
 - `onProgress`: download progress callback, fraction in `[0, 1]`.
@@ -70,7 +70,7 @@ import { Redact } from "@desert-ant-labs/redact/native"; // server only
 - `accelerator` (browser): `"wasm"` (XNNPACK CPU, default), `"webgpu"`, or
   `"webnn"`.
 
-By default the model is **downloaded from the Hugging Face Hub on first use** (at
+By default the model is **downloaded from Hugging Face on first use** (at
 the revision pinned to this package version), SHA-256 verified, and cached for
 later runs, so nothing model-sized ships in the npm tarball. In Node the cache is
 the OS cache dir; in the browser it is the fetch cache. Use `directory` (Node) or

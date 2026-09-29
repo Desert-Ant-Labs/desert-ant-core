@@ -7,7 +7,7 @@
 globalThis.__dalHttpDebug = true;
 const { Emo } = await import("@desert-ant-labs/emo");
 
-// Emo downloads, verifies (SHA-256), and caches the model from the Hub. First
+// Emo downloads, verifies (SHA-256), and caches the model from Hugging Face. First
 // run fetches; later runs cache.
 const emo = await Emo.load({});
 

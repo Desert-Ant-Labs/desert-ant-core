@@ -38,8 +38,7 @@ npm i @desert-ant-labs/redact                  # Node, prebuilt native core
 
 ## Usage
 
-Redaction is reversible. Mask personal data before sending text to an LLM, then
-restore the originals in the reply, on device.
+Redact replaces personal data with placeholders like `[EMAIL_1]`. Send the redacted text to an LLM, then call `restore` on the reply to put the original values back, on the device.
 
 ### Swift
 
@@ -94,74 +93,51 @@ redact.dispose();
 
 ### Loading the model
 
-The weights are fetched from the Hub on first use and cached. See
-[model downloads and caching](../../README.md#model-downloads-and-caching) to
-prefetch them or to ship them with your app.
+The SDK downloads the weights from Hugging Face on first use and caches them. To prefetch the weights or ship them with your app, see [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ### Runtime settings
 
-Recommended defaults: `min_score = 0.6`, `max_length = 256`, `stride = 64`.
+By default the SDK drops model detections with a confidence below 0.6 (`minimumConfidence`). Pattern matches for structured data, like emails and card numbers, always apply. The SDK splits long text into 256-token windows that overlap by 64 tokens, so an entity on a window edge still comes back whole.
 
-## Taxonomy (20 public labels, plus `ORG`)
+## Labels
 
-`GIVEN_NAME`, `SURNAME`, `STREET_NAME`, `BUILDING_NUMBER`, `SECONDARY_ADDRESS`,
-`CITY`, `STATE`, `ZIP_CODE`, `EMAIL`, `PHONE`, `CREDIT_CARD`, `BANK_ACCOUNT`,
-`ROUTING_NUMBER`, `IP_ADDRESS`, `URL`, `GOVERNMENT_ID`, `PASSPORT`,
-`DRIVERS_LICENSE`, `TAX_ID`, `SSN`.
+Redact detects 20 labels:
 
-`ORG` (organisation / company name) is detected but **not redacted by default**:
-a company is not a natural person. It exists so that `Silverfin`, `Odoo` or
-`Visma Nova` are recognised as organisations instead of being mislabelled as a
-`SURNAME`. Opt in by passing it explicitly in the SDK's `labels` option.
+`GIVEN_NAME`, `SURNAME`, `STREET_NAME`, `BUILDING_NUMBER`, `SECONDARY_ADDRESS`, `CITY`, `STATE`, `ZIP_CODE`, `EMAIL`, `PHONE`, `CREDIT_CARD`, `BANK_ACCOUNT`, `ROUTING_NUMBER`, `IP_ADDRESS`, `URL`, `GOVERNMENT_ID`, `PASSPORT`, `DRIVERS_LICENSE`, `TAX_ID`, `SSN`.
 
-The deterministic layer additionally emits `IMEI` (device identifier), a
-deterministic-only label outside the neural head.
+Redact detects `ORG` (an organization or company name), but doesn't redact it by default, because a company isn't a natural person. With the `ORG` label, Redact recognizes names like `Silverfin`, `Odoo` or `Visma Nova` as organizations and doesn't mislabel them as a `SURNAME`. To redact organizations, pass `ORG` in the SDK's `labels` option.
+
+Redact also flags `IMEI` (a device identifier), with a pattern check instead of the model. The check flags a 15-digit number only when the number passes the Luhn checksum and sits within 32 characters of the word "IMEI".
 
 ## How it compares
 
-Every system below was scored by the same harness on the same rows, each at its
-own operating point, so the comparison measures the models rather than the
-plumbing.
+We scored every system below with the same scoring code, on the same rows. Each system ran at its own operating point.
 
 | System | Recall | Precision | Size | Params |
 |---|---:|---:|---:|---:|
-| **redact** | **88.8** | **99.6** | **11.6 MB** | **23M** |
-| GLiNER-PII | 91.1 | 90.4 | 2.3 GB | 570M |
-| Rampart | 61.4 | 97.2 | 14.7 MB | 18.5M |
-| OpenAI privacy filter | 60.2 | 93.5 | 3 GB | 1.5B |
+| **redact** | **88.8** | **99.6** | **11.6MB** | **23M** |
+| GLiNER-PII | 91.1 | 90.4 | 2.3GB | 570M |
+| Rampart | 61.4 | 97.2 | 14.7MB | 18.5M |
+| OpenAI privacy filter | 60.2 | 93.5 | 3GB | 1.5B |
 
-**Recall** is the share of personal data fully masked (leak-safe), macro-averaged
-over WikiANN, MultiNERD and a format-valid structured-PII set across 24 EU
-languages. **Precision** is the share of masked spans that were really personal
-data, on the structured set. Size is the Apple build; the Android and web build
-is 24.5 MB.
+Recall is the share of personal data a system masks fully, so none of it leaks. We macro-average recall over WikiANN, MultiNERD and a format-valid structured-PII set, across 24 EU languages. Precision is the share of masked spans that really were personal data, measured on the structured set. The size column shows the Core ML build that Redact uses on Apple platforms. On Android, Linux, Windows, the browser and Node, Redact uses the LiteRT build, which is 24.5MB.
 
-Not masking ordinary words matters as much as catching real ones, because a
-false positive corrupts the text a downstream model receives. On an 11,528-row
-negative set across 27 languages, built to provoke exactly that (sentence-initial
-capitals, ALL-CAPS input, month and weekday names, UI vocabulary, bare numbers,
-company names), 94.1% of rows come back untouched.
+Every false positive corrupts the text your LLM receives. We test for false positives on 11,528 rows in 27 languages that hold no personal data but look like they might: sentence-initial capitals, ALL-CAPS input, month and weekday names, UI vocabulary, bare numbers and company names. Redact returns 94.1% of those rows untouched.
 
 ### AWS Comprehend, English only
 
-Comprehend is the other service teams weigh, and it is not in the table above
-because its PII API **only accepts English**, and every other language code is
-refused outright, so there is no way to run it on the other 23. Scored on the
-same English rows:
+AWS Comprehend isn't in the table above, because its PII API accepts only English. The API refuses every other language code, so we couldn't run Comprehend on the other 23 languages. Here are both systems on the same English rows:
 
 | System | Names (WikiANN) | Names (MultiNERD) | Structured | English composite |
 |---|---:|---:|---:|---:|
 | redact | 69.5 | 94.9 | **95.0** | 86.5 |
 | AWS Comprehend | **84.3** | **98.5** | 91.9 | **91.6** |
 
-Leak-safe recall; precision is the same for both (99.8 against 100.0). On English
-names Comprehend is ahead of us. It also runs in the cloud, bills per call, and
-covers one of the 27 languages listed below.
+The table shows recall. Precision is close for both systems, 99.8 against 100.0. Comprehend is ahead of Redact on English names, and Redact is ahead on structured data. Comprehend runs in the cloud and bills per call.
 
 ## Languages
 
-**27 languages**: every official EU language, plus 3 more.
-Latin, Greek and Cyrillic scripts.
+Redact supports 27 languages: every official EU language, plus 3 more. The 27 languages use the Latin, Greek and Cyrillic scripts.
 
 ### The 24 EU languages
 
@@ -200,12 +176,8 @@ Latin, Greek and Cyrillic scripts.
 | `nn` | Norwegian Nynorsk |
 | `is` | Icelandic |
 
-Coverage is not uniform: the largest EU languages are the strongest, and Maltese
-and Irish are the weakest of the 24. The per-language detection numbers are in
-the benchmark data.
+Redact is most accurate on the largest EU languages. Maltese and Irish are the weakest of the 24. The per-language detection numbers are in the benchmark data.
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
-most apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+Redact is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Redact for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

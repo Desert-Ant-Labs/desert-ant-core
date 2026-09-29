@@ -7,7 +7,7 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Browser, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Windows, Browser, Node |
 | **Languages** | 25 |
 | **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/voz) |
 
@@ -30,8 +30,7 @@ npm i @desert-ant-labs/voz onnxruntime-web
 
 ## Usage
 
-`Voz` turns speech into text, with a start and an end on every word. Create one
-and reuse it; the model downloads on first use and is cached.
+Create one `Voz` instance and reuse it. The SDK downloads the model the first time you use it and keeps it on the device.
 
 ```swift
 import Voz
@@ -40,11 +39,11 @@ let voz = try await Voz()
 let result = try await voz.transcribe(url)
 
 result.text                     // the transcript
-result.words.first?.start       // 80 ms resolution
-result.realtimeFactor           // seconds of audio per second of wall clock
+result.words.first?.start       // in seconds, 80ms resolution
+result.realtimeFactor           // how many times faster than realtime
 ```
 
-Samples work too, mono at `voz.sampleRate`:
+You can also pass raw samples, mono at `voz.sampleRate`:
 
 ```swift
 let result = try await voz.transcribe(samples: samples)
@@ -52,9 +51,7 @@ let result = try await voz.transcribe(samples: samples)
 
 ### Downloading ahead of time
 
-The first load after a download pays a one-time Neural Engine specialization of
-roughly 20 seconds; every load after it takes about 0.2 s. Doing both during
-onboarding keeps that cost off the first transcription.
+On Apple platforms, the first load after a download typically takes 10-30s, depending on the device, while Core ML prepares the model for the Neural Engine. After that, a load takes 0.2s. Download and load the model during onboarding so your users don't wait on their first transcription.
 
 ```swift
 if !Voz.isDownloaded() {
@@ -66,23 +63,23 @@ if !Voz.isDownloaded() {
 
 ### Picking a language first
 
-`Voz` covers 25 languages and does not detect which one it is hearing. Pair it
-with [Ear](ear.md) when the input could be anything:
+Voz supports 25 languages. Voz doesn't detect the language of the audio. When the audio could be in any language, check it with [Ear](ear.md) first:
 
 ```swift
 let detection = try await Ear().identify(contentsOf: url)
 guard detection.isReliable, Voz.supportedLanguages.contains(detection.language ?? "") else {
-    return try await yourFallbackRecognizer(url)   // Voz does not cover it
+    return try await yourFallbackRecognizer(url)   // unreliable detection, or a language Voz doesn't support
 }
 let result = try await Voz().transcribe(url)
 ```
 
-The fallback is yours to choose: `Voz` ships the recognizer, not a router.
+### Windows
+
+On Windows the Swift SDK runs Voz on the GPU, through ONNX Runtime and DirectML. The API is the same as on Apple platforms.
 
 ### JavaScript
 
-The browser and Node run the same pipeline compiled to WebAssembly, over ONNX
-Runtime rather than Core ML.
+In the browser and in Node, Voz runs the same pipeline as the Swift SDK, compiled to WebAssembly, on ONNX Runtime instead of Core ML.
 
 ```js
 import { Voz } from "@desert-ant-labs/voz";
@@ -95,70 +92,56 @@ result.words[0];        // { text: "chapter", start: 0.08, end: 0.24 }
 result.realtimeFactor;
 ```
 
-The encoder runs on WebGPU, and on a browser that exposes WebNN (Chromium
-today) the decode step runs on the Neural Engine. `onnxruntime-web` is imported
-on demand, as LiteRT.js is for the other models here, so installing it is all a
-browser app does.
+In the browser the encoder runs on WebGPU. When the browser supports WebNN, as Chromium on a Mac does, the decoder runs on the Neural Engine. The SDK loads `onnxruntime-web` when it needs it, so you only have to install the package.
 
-A `File` is read in pieces as the model works through it, so memory does not
-grow with the length of the recording: a five-hour file costs what a
-five-minute one does. Ten minutes of audio runs at about 125x real time in
-Chromium on an M5, 38x on an M1 and 35x in Safari, at a word error rate level
-with the Core ML build.
+Voz reads a `File` in pieces, so a five-hour recording needs no more memory than a five-minute one. In Chromium, Voz transcribes 10 minutes of audio at 125x realtime on an M5 and 38x on an M1. Safari runs at 35x. The word error rate matches the Core ML build.
 
-Under Node, install `onnxruntime-node` and pass it to `load({ ort })`: same API
-and the same word timestamps, on the CPU. It is not imported for you there
-because a native addon in the module graph cannot be bundled for a server.
+In Node, install `onnxruntime-node` and pass it to `load({ ort })`. You get the same API and the same word-level timestamps, running on the CPU. The SDK doesn't import `onnxruntime-node` for you, because a server bundle can't include a native addon.
 
-A `File` is decoded for you, with Web Audio in the browser and the portable WAV
-codec in Node. See the
-[package README](../../packages/voz-node/README.md) for the load options, the
-self-hosting path, and the browser requirements.
+The SDK streams WAV directly and decodes other formats with WebCodecs. In Node without WebCodecs, convert the audio to WAV first. For load options, self-hosting and browser requirements, see the [JavaScript package docs](../../packages/voz-node/README.md).
+
+## Performance
+
+We timed 10 minutes of audio on the Neural Engine of each Apple device with SDK 3.5.0 and kept the fastest of three runs after the model loaded:
+
+| Device | Time | Realtime factor |
+|---|---:|---:|
+| M3 Ultra | 0.8s | **762x** |
+| iPhone 18 Pro | 1.2s | **492x** |
+| M4 Max | 1.3s | **453x** |
+| iPhone 17 Pro | 1.8s | **334x** |
+| iPhone 15 Pro | 2.1s | **283x** |
+| M1 Mac mini | 2.4s | **251x** |
+
+On Apple platforms, short clips run at 50-62x, because Voz always processes a full 15s window.
+
+On Apple platforms, Voz runs entirely on the Neural Engine, so your app keeps the GPU and CPU. On Windows, Voz runs on the GPU.
 
 ## Accuracy
 
 | | |
 |---|---|
-| Speed | 2.1 s for 611 s of audio (about 290x real time) on long files |
-| Word error rate | 7.40% over six Open ASR Leaderboard sets, against 7.00% for Whisper large-v3-turbo |
-| Long-form | 2.83% on half an hour of narration, against 2.72% for the same Whisper |
-| Word timestamps | starts 83 ms, ends 95 ms mean absolute error against a forced aligner |
-| Neural Engine | 100% resident, no CPU or GPU fallback |
-| Size | 467 MB, against 1.6 GB for Whisper large-v3-turbo |
+| Word error rate | 7.40% across six Open ASR Leaderboard datasets. Whisper large-v3-turbo scores 7.00%. |
+| On long audio | 2.83% on 30 minutes of an audiobook. Whisper large-v3-turbo scores 2.72%. |
+| Word timestamps | Starts are off by 83ms and ends by 95ms on average, compared with a forced aligner. |
+| Size | 467MB. Whisper large-v3-turbo is 1.6GB. |
 
-Close to a model three and a half times its size, two points better on meetings,
-behind on prepared and read speech.
+Voz comes close to Whisper large-v3-turbo at less than a third of the size. Voz scores two points better on meetings and worse on read and prepared speech.
 
-**Expect the conversational figures, not the LibriSpeech one.** Read speech in a
-clean recording scores around 2%; meetings, earnings calls and podcast audio
-score 10-13%, and most real material is nearer the second group. Roughly one word
-in ten wanting a look is the honest expectation for a podcast.
+Clean audiobook recordings score under 3%. Meetings, earnings calls and podcasts score 10-13%. Most real recordings sound more like those. On a podcast, plan to check one word in ten.
 
-Per-language figures on long audio, and the full leaderboard breakdown, are in
-the [model card](https://huggingface.co/desert-ant-labs/voz).
+The [model card](https://huggingface.co/desert-ant-labs/voz) has the accuracy for each language on long audio and the full leaderboard results.
 
 ## Limits
 
-- **Apple platforms and the browser.** On Apple the runtime drives Core ML
-  directly, because the things that make it fast (preallocated buffers,
-  `outputBackings`, a lane-batched decode loop) are not expressible through the
-  generic inference shape the other models share. The JavaScript SDK runs the
-  same pipeline on ONNX Runtime, in a browser or in Node. There is no Android
-  or Linux build.
-- **The browser bundle is a separate download**: 390 MB, because a GPU wants the
-  weights in a different layout than the Neural Engine does. Resident cost is
-  about 1.2 GB, most of it what ONNX Runtime keeps for the compiled session
-  rather than the weights themselves. Tested on Chromium 135+ and Safari 26+.
-- **Node transcribes on the CPU.** `onnxruntime-node`'s default execution
-  provider reaches no accelerator, so a server is slower per second of audio
-  than a browser on the same machine.
-- **25 languages**, and it does not know which one it is hearing. Feeding it a
-  language it does not cover produces confident nonsense rather than an error.
-  See [Ear](ear.md).
-- **Accuracy varies widely by language.** Italian is 3.31% and Greek 39.46% on
-  the same ten-minute-per-language protocol. Check the model card before
-  promising a language.
-- **Word ends are the harder half.** The recognizer reports how far to skip after
-  each token rather than where a word stops, so ends are trimmed back using the
-  audio. 80 ms is the frame resolution and the floor for any timestamp here.
-- **467 MB** is a real download. Fetch it during onboarding, not on first use.
+- Voz has no Android SDK, and the Swift package doesn't run Voz on Linux. Voz runs on Apple platforms, Windows, in the browser and in Node. Voz doesn't use LiteRT, the runtime behind our other models on Android and Linux, because LiteRT can't preallocate buffers or batch the decode loop, and Voz would run slower.
+- In the browser, Voz needs its own 390MB download, because a GPU needs the weights in a different layout than the Neural Engine. Voz uses 1.2GB of memory in the browser, mostly for ONNX Runtime's compiled session. We test on Chromium 135+ and Safari 26+.
+- In Node, Voz runs on the CPU. `onnxruntime-node` doesn't use the GPU by default, so a server transcribes slower than a browser on the same machine.
+- Voz doesn't detect the language. Audio in a language Voz doesn't support comes back as fluent text that's wrong. Voz doesn't raise an error. Use [Ear](ear.md) to check first.
+- Accuracy depends on the language. Italian scores 3.31% and Greek 39.46%, on 10 minutes of audio per language. Check the [model card](https://huggingface.co/desert-ant-labs/voz) before you promise a language to your users.
+- Word ends are less precise than word starts. Voz marks where each word starts. The SDK estimates where each word ends from the audio. Timestamps land on 80ms frames, so no timestamp is more precise than 80ms.
+- The model is 467MB. Download the model during onboarding, not on first use.
+
+## License
+
+Voz is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Voz for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
