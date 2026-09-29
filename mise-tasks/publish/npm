@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #MISE description="Publish @desert-ant-labs/core and every model package to npm"
 #MISE dir="{{config_root}}"
-#MISE depends=["check:version"]
+#MISE depends=["check:version", "check:npm-repo"]
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
@@ -13,9 +13,16 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # release workflow builds the natives on their own runners and gathers them here.
 version=$(dal_version)
 
-# Auth: NPM_TOKEN from CI or mise.local.toml, else an interactive `npm login`.
-# The token goes through a throwaway userconfig, so normal npm commands and
-# checked-in files never carry auth.
+# Auth, in the order npm tries it: in the release workflow, trusted publishing
+# (the job's OIDC token, no secret); else NPM_TOKEN from CI or mise.local.toml;
+# else an interactive `npm login`. The token goes through a throwaway
+# userconfig, so normal npm commands and checked-in files never carry auth.
+#
+# Trusted publishing needs npm 11.5.1 or later and Node 22 ships npm 10, so the
+# publish itself runs a pinned npm 11; everything else uses the bundled one.
+# npm 11 refuses to tag a prerelease or a version below the current latest as
+# `latest`, so a backport or prerelease needs an explicit --tag here.
+publish_npm=(npx --yes npm@11.15.0)
 npm_args=(--access public)
 if [ -n "${NPM_TOKEN:-}" ]; then
     npmrc=$(mktemp)
@@ -35,7 +42,7 @@ publish_package() { # <directory>
     fi
     # The tarball must carry the license (package.json: SEE LICENSE IN ...).
     cp LICENSE.md "$dir/LICENSE.md"
-    ( cd "$dir" && npm publish "${npm_args[@]}" )
+    ( cd "$dir" && "${publish_npm[@]}" publish "${npm_args[@]}" )
     echo "published: $name@$version"
 }
 

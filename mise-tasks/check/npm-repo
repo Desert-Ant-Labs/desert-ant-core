@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+#MISE description="Verify every npm package publish:npm ships names this repo as its repository"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# A trusted publish attaches provenance for the repo the release ran in, and the
+# registry rejects the upload when repository.url names any other repo. A token
+# publish carries no provenance, so a wrong URL stays invisible until release
+# day. Same package list as publish:npm.
+expected="git+https://github.com/Desert-Ant-Labs/desert-ant-core.git"
+bad=0
+check() { # <directory>
+    local dir="$1" url directory
+    url=$(node -p "require('./$dir/package.json').repository?.url ?? ''")
+    directory=$(node -p "require('./$dir/package.json').repository?.directory ?? ''")
+    [ "$url" = "$expected" ] || { echo "  $dir: repository.url is ${url:-<missing>}" >&2; bad=1; }
+    [ "$directory" = "$dir" ] || { echo "  $dir: repository.directory is ${directory:-<missing>}" >&2; bad=1; }
+}
+
+check js
+for model in $(dal_models_with node); do
+    check "packages/$model-node"
+done
+
+[ "$bad" = 0 ] || { echo "error: every published package needs repository.url $expected and its own repository.directory" >&2; exit 1; }
+echo "ok"
