@@ -42,7 +42,7 @@ const result = await moderator.analyze({ data, width: info.width, height: info.h
 
 ## Loading the model
 
-`Moderator.load()` downloads the model from the Hugging Face Hub ([`desert-ant-labs/moderator`](https://huggingface.co/desert-ant-labs/moderator)) at the SDK's pinned tag, verifies it, and caches it. Pass `directory` (Node) or `modelBaseUrl` (browser) to use files you host yourself, and `onProgress` for download progress. The browser build also takes `litert`, `litertWasmDir`, and `accelerator` (`"wasm"`, `"webgpu"`, or `"webnn"`).
+`Moderator.load()` downloads the model from Hugging Face ([`desert-ant-labs/moderator`](https://huggingface.co/desert-ant-labs/moderator)) at the SDK's pinned tag, verifies it, and caches it. Pass `directory` (Node) or `modelBaseUrl` (browser) to use files you host yourself, and `onProgress` for download progress. The browser build also takes `litert`, `litertWasmDir`, and `accelerator` (`"wasm"`, `"webgpu"`, or `"webnn"`).
 
 ## License
 

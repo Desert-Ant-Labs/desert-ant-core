@@ -2,9 +2,9 @@
 // real on-device path: the Swift->wasm core + LiteRT.js inference on emo.tflite.
 //
 // The npm package does not bundle the model: the browser default (`Emo.load()`)
-// downloads it from the Hugging Face Hub on first use and caches it (the browser
+// downloads it from Hugging Face on first use and caches it (the browser
 // fetch cache). This harness serves the repo over HTTP and lets that download
-// hit the real Hub, so it needs network the first time.
+// reach Hugging Face, so it needs network the first time.
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import path from "node:path";

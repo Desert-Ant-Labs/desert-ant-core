@@ -17,7 +17,7 @@
 
   async function run() {
     const { Redact } = await import("@desert-ant-labs/redact");
-    // Redact downloads, verifies, and caches the model from the Hub; LiteRT.js
+    // Redact downloads, verifies, and caches the model from Hugging Face; LiteRT.js
     // runs inference on the .tflite (XNNPACK CPU via the "wasm" accelerator).
     const redact = await Redact.load({
       litert,

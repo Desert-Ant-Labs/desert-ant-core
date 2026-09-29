@@ -37,7 +37,7 @@
 
   async function run() {
     const { Emo } = await import("@desert-ant-labs/emo");
-    // Emo downloads, verifies, and caches the model from the Hub; LiteRT.js
+    // Emo downloads, verifies, and caches the model from Hugging Face; LiteRT.js
     // runs inference on the .tflite (XNNPACK CPU via the "wasm" accelerator).
     const emo = await Emo.load({
       litert,

@@ -49,9 +49,7 @@ print(result.score)        // 0...1
 print(result.regions)      // nipples, genitals, buttocks, nude, sexAct
 ```
 
-Files and `Data` are decoded upright per their EXIF orientation, and a
-`UIImage` keeps its orientation and full pixel resolution. Cancelling the calling
-task stops the analysis and throws `CancellationError`.
+The SDK decodes files and `Data` upright, following their EXIF orientation. A `UIImage` keeps its orientation and full pixel resolution. Canceling the calling task stops the analysis and throws `CancellationError`.
 
 On Linux and Windows, pass decoded pixels:
 
@@ -83,28 +81,23 @@ const { score, isNSFW, regions } = await moderator.analyze(image);
 moderator.dispose();
 ```
 
-In the browser `image` is anything `createImageBitmap` accepts (an `<img>`, a
-canvas, a `Blob`, an `ImageBitmap`) or an `ImageData`. In Node pass decoded
-pixels, `{ data, width, height }` with RGB or RGBA bytes, for example from
-`sharp(file).raw().toBuffer({ resolveWithObject: true })`.
+In the browser, `image` can be anything `createImageBitmap` accepts (an `<img>`, a canvas, a `Blob`, an `ImageBitmap`) or an `ImageData`. In Node, pass decoded pixels as `{ data, width, height }` with RGB or RGBA bytes, for example from `sharp(file).raw().toBuffer({ resolveWithObject: true })`.
 
 ### Options
 
-Every SDK takes the same three options:
+Every SDK accepts the same three options:
 
 | Option | Default | |
 | --- | --- | --- |
-| `threshold` | `0.5` | Score at or above which `isNSFW` is true. A product dial: raise it to trade recall for precision. |
-| `policy` | standard | `allowTopless` ignores a bare chest on its own; exposed genitals or buttocks, full nudity, and sexual activity still flag. |
-| `quality` | accurate | Crops scored per image, max taken. `fast` is one center crop (video frames), `balanced` four multiscale tiles, `accurate` those tiles and their mirrors, the setting the model is evaluated with. |
+| `threshold` | `0.5` | The score at or above which `isNSFW` is true. Raise the threshold to flag fewer safe images, at the cost of missing more NSFW ones. |
+| `policy` | standard | `allowTopless` ignores a bare chest on its own. Exposed genitals or buttocks, full nudity and sexual activity still flag. |
+| `quality` | accurate | How many crops the SDK scores per image. The score is the max across crops. `fast` scores one center crop, for video frames. `balanced` scores four multiscale tiles. `accurate` scores those tiles and their mirrors, the setting the model is evaluated with. |
 
-The score is the max of the region heads the policy counts. Regions are decision
-scores, not calibrated probabilities.
+The score is the highest of the region scores that the policy counts. Region scores rank images, but they aren't calibrated probabilities: a 0.8 doesn't mean an 80% chance.
 
 ### Loading the model
 
-The weights are fetched from the Hub on first use and cached. See
-[model downloads and caching](../../README.md#model-downloads-and-caching).
+The SDK downloads the weights from Hugging Face on first use and caches them. See [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ## Files
 
@@ -113,11 +106,6 @@ The weights are fetched from the Hub on first use and cached. See
 | `moderator.mlmodelc` | Compiled Core ML (int8) | 9.7MB | Ready to load on Apple platforms (used by the Swift SDK) |
 | `moderator.tflite` | LiteRT / TFLite (int8) | 9.2MB | Runs on Android, Linux, Windows, Node, and the web (downloaded on demand by the Kotlin and JavaScript SDKs) |
 
-The SDKs prepare images exactly as the model was evaluated, so a score here is
-the score the model was measured on.
-
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
-most apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+Moderator is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Moderator for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

@@ -38,8 +38,7 @@ npm i @desert-ant-labs/emo                  # Node, prebuilt native core
 
 ## Usage
 
-Create one instance and reuse it. Construction is cheap and non-blocking; the
-model loads on first use, or earlier if you call `download`.
+Create one `Emo` instance and reuse it. Creating the instance is cheap and doesn't block. The SDK loads the model on first use, or earlier if you call `download`.
 
 ### Swift
 
@@ -56,8 +55,7 @@ let toned = try await emo.suggestions(for: "go for a run", limit: 1, skinTone: .
 
 ### Kotlin
 
-`suggestions` and `download` are suspending functions. A model owns native
-resources, so close it when you are done, or let `use { }` do it.
+`suggestions` and `download` are suspending functions. An `Emo` holds native resources, so close it when you're done, or let `use { }` close it.
 
 ```kotlin
 import ai.desertant.emo.Emo
@@ -71,8 +69,7 @@ Emo(context).use { emo ->
 
 ### JavaScript
 
-The default import is the browser build. For inference in plain Node, import the
-`/native` subpath, which ships prebuilt for linux-x64, linux-arm64 and darwin-arm64.
+The default import is the browser build. For inference in Node, import the `/native` subpath. The SDK ships `/native` prebuilt for linux-x64, linux-arm64 and darwin-arm64.
 
 ```ts
 import { Emo } from "@desert-ant-labs/emo";           // browser
@@ -85,9 +82,7 @@ emo.dispose();
 
 ### Loading the model
 
-The weights are fetched from the Hub on first use and cached. To fetch them
-earlier, for example during onboarding, or to ship them yourself, see
-[model downloads and caching](../../README.md#model-downloads-and-caching).
+The SDK downloads the weights from Hugging Face on first use and caches them. To download the weights earlier, for example during onboarding, or to ship them yourself, see [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ```swift
 let emo = Emo()
@@ -95,40 +90,34 @@ if !emo.isDownloaded() {
     try await emo.download { fraction in print("\(Int(fraction * 100))%") }
 }
 
-let offline = Emo(directory: myModelDirectory)   // adopted as-is, nothing downloaded
+let offline = Emo(directory: myModelDirectory)   // uses the files as they are, downloads nothing
 ```
 
 ## Files
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
-| `emo.tflite` | LiteRT / TFLite (int8) | ~10.2 MB | Runs on Android, Linux, Node, and the web (bundled by default in the Kotlin SDK; downloaded on demand by the JavaScript SDK) |
-| `emo.mlmodelc` | Compiled Core ML | ~4.6 MB | Ready to load on Apple platforms (used by the Swift SDK) |
-| `emo_tokenizer.bin` | Unigram tokenizer | ~0.75 MB | Tokenizer the runtime needs |
+| `emo.tflite` | LiteRT / TFLite (int8) | 10.2MB | Runs on Android, Linux, Windows, Node, and the web (downloaded on demand by the Kotlin and JavaScript SDKs) |
+| `emo.mlmodelc` | Compiled Core ML | 4.6MB | Ready to load on Apple platforms (used by the Swift SDK) |
+| `emo_tokenizer.bin` | Unigram tokenizer | 0.75MB | Tokenizer the runtime needs |
 | `emo_meta.json` | JSON | tiny | Emoji labels and runtime config |
 
-Older revisions (tags `v0.6.0` and earlier) carry `Emo.mlmodelc` and `emo.safetensors` for SDK versions that predate the unified cross-platform migration.
+Older SDK versions load `Emo.mlmodelc` and `emo.safetensors`. Those files stay on Hugging Face in revisions `v0.6.0` and earlier.
 
 ## Inputs and outputs
 
-- **Input:** a plain text string. Best on short, intent-oriented text.
-- **Output:** a probability distribution over the ~800-emoji vocabulary; take the
-  top-1 (or top-k). Optimized for **top-1 relevance**.
+Pass a plain text string. Emo works best on short text that states an intent, like "Pay my bills". Emo gives each of the 800 emoji in its vocabulary a probability. Show the top suggestion, or the top few.
 
 ## Languages
 
-English, Spanish, Portuguese, French, German, Italian, Dutch, Russian, Polish,
-Turkish, Arabic, Chinese (Simplified & Traditional), Japanese, Korean, Hindi,
-Indonesian, Thai, Vietnamese, Ukrainian, Swedish, Danish, Czech.
+English, Spanish, Portuguese, French, German, Italian, Dutch, Russian, Polish, Turkish, Arabic, Chinese (Simplified and Traditional), Japanese, Korean, Hindi, Indonesian, Thai, Vietnamese, Ukrainian, Swedish, Danish, Czech.
 
-## Limitations
+## Limits
 
-- Tuned for short, intent-oriented text; long-form text produces noisier suggestions.
-- Emoji semantics are imprecise; near-ties at the top of the ranking are expected.
-- Per-language quality varies; lower-resource languages in the set are somewhat weaker.
+- Emo is tuned for short text that states an intent. Longer text gets noisier suggestions.
+- Emoji meanings are imprecise. Expect near-ties between the top suggestions.
+- Quality varies by language. Emo is somewhat weaker on the lower-resource languages in the set.
 
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for
-most apps; a commercial license is required at scale. Full terms are at the link.
-Licensing: <licensing@desertant.com>.
+Emo is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Emo for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.

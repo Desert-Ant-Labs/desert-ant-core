@@ -17,7 +17,7 @@ npm i @desert-ant-labs/shapes @litertjs/core
 npm i @desert-ant-labs/shapes
 ```
 
-The model is downloaded from the Hugging Face Hub on first use at the SDK's pinned tag, then cached. Nothing model-sized is shipped in the npm tarball.
+The model is downloaded from Hugging Face on first use at the SDK's pinned tag, then cached. Nothing model-sized is shipped in the npm tarball.
 
 ```js
 import { Shapes } from "@desert-ant-labs/shapes";
@@ -52,9 +52,9 @@ The kinds and field names are identical in Swift and Kotlin, so a stroke recogni
 
 ## Loading the model
 
-By default `Shapes.load()` downloads the model files from the Hugging Face Hub ([`desert-ant-labs/shapes`](https://huggingface.co/desert-ant-labs/shapes)) at the SDK's pinned tag, verifies them, and caches them. The browser build fetches the `.tflite` for LiteRT.js and caches it in the browser. The native build (`/native`) fetches the `.tflite` on Linux or the `.mlmodelc/` on macOS and caches it under the OS cache dir.
+By default `Shapes.load()` downloads the model files from Hugging Face ([`desert-ant-labs/shapes`](https://huggingface.co/desert-ant-labs/shapes)) at the SDK's pinned tag, verifies them, and caches them. The browser build fetches the `.tflite` for LiteRT.js and caches it in the browser. The native build (`/native`) fetches the `.tflite` on Linux or the `.mlmodelc/` on macOS and caches it under the OS cache dir.
 
-To self-host or run fully offline, opt out of the Hub:
+To self-host or run fully offline, skip the Hugging Face download:
 
 - `directory`: an explicit model directory (native build, or the browser build under Node). Files already there are used offline, otherwise the model is downloaded into it.
 - `modelBaseUrl`: a base URL you serve the model files from, for example `"/assets/shapes/"` (browser build).
