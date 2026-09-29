@@ -500,7 +500,7 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CoreAndroidTests",
-            dependencies: ["HostBridge", "Regex", "JSON", "TextNormalization", "Usage"]
+            dependencies: ["HostBridge", "PlatformSupport", "Regex", "JSON", "TextNormalization", "Usage"]
         ),
 ]
 

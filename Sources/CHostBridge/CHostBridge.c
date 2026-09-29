@@ -42,8 +42,8 @@ static HostHttpRequestFn g_http_request = 0;
 void host_set_http_request(HostHttpRequestFn fn) { g_http_request = fn; }
 char *host_http_request(const char *method, const char *url,
                         const uint8_t *body, int32_t body_len,
-                        const char *content_type) {
-    return g_http_request ? g_http_request(method, url, body, body_len, content_type) : 0;
+                        const char *content_type, const char *headers) {
+    return g_http_request ? g_http_request(method, url, body, body_len, content_type, headers) : 0;
 }
 
 static HostPrefsGetFn g_prefs_get = 0;
