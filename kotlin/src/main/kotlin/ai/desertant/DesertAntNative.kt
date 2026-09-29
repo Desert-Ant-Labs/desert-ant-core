@@ -32,6 +32,16 @@ object DesertAntNative {
     fun httpDownload(urlUtf8: ByteArray, destUtf8: ByteArray): Int =
         HostBridge.httpDownload(urlUtf8, destUtf8)
 
+    // HTTP request callback the Swift usage transport POSTs through.
+    @JvmStatic
+    fun httpRequest(
+        methodUtf8: ByteArray,
+        urlUtf8: ByteArray,
+        body: ByteArray?,
+        contentTypeUtf8: ByteArray?,
+        headersUtf8: ByteArray?,
+    ): ByteArray? = HostBridge.httpRequest(methodUtf8, urlUtf8, body, contentTypeUtf8, headersUtf8)
+
     // Usage state persistence + app identity (SharedPreferences via the host app).
     @JvmStatic
     fun prefsGet(keyUtf8: ByteArray): ByteArray = HostBridge.prefsGet(keyUtf8)
