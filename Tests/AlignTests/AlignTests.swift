@@ -367,7 +367,7 @@ import Speech
         }
         let maxDiff = diffs.max() ?? 0, meanDiff = diffs.reduce(0, +) / Double(diffs.count)
         print("end-to-end FFT vs matmul frontend: max \(maxDiff) ms, mean \(meanDiff) ms over \(diffs.count) boundaries")
-        // Where the model is unsure, float32 rounding alone can move a boundary by one 10 ms frame.
+        // Where the model is unsure, float32 rounding alone can move a boundary by one 10ms frame.
         #expect(maxDiff < 15)
         #expect(meanDiff < 2)
     }

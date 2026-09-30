@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Verify every npm package publish:npm ships names this repo as its repository"
+#MISE description="Check that every package publish:npm ships names this repo in repository.url"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"

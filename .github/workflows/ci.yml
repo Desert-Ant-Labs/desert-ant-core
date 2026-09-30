@@ -388,8 +388,6 @@ jobs:
     name: JavaScript (Node native)
     # The natives build in the release's image, so the host only runs docker and the suites.
     runs-on: ubuntu-24.04
-    env:
-      DAL_INGEST_ENDPOINT: http://127.0.0.1:9/ingest
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -444,7 +442,7 @@ jobs:
       # real dist is exercised in js-browser.
       - run: mise run build:wasm-stub
 
-      # The release's own build task and image, with build:node-native's default glibc ceilings.
+      # Builds with the release's task and image, under build:node-native's default glibc ceilings.
       - run: mise run build:node-native-linux
       - run: mise run test:node
       - run: mise run test:node-old-glibc

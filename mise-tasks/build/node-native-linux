@@ -12,9 +12,9 @@ if [ "$(dal_host_os)" != linux ]; then
     exit 0
 fi
 
-# LiteRT vendors on the host, where uv is; the image finds it already in place.
+# The host vendors LiteRT, because uv is on the host; the image finds it already in place.
 dal_vendor_litert
-# Rootless Docker or Podman maps the image's root to the caller already, and a chown would land on a subuid.
+# Rootless Docker or Podman maps the image's root to the caller already, and a chown would give the files to a subuid.
 owner=""
 security=$(docker info -f '{{println .SecurityOptions}}' 2> /dev/null || echo rootless)
 [[ "$security" == *rootless* ]] || owner="$(id -u):$(id -g)"
