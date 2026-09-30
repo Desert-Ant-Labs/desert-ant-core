@@ -99,6 +99,9 @@ final class Pipeline: @unchecked Sendable {
     /// How much of a refused window to keep when giving it a second length.
     /// Shortening by a second recovered every refused window that was tested.
     private static let retryFraction = 0.93
+    /// How much earlier a late-starting window is rerun from.
+    private static let leadShift =
+        Double(ProcessInfo.processInfo.environment["VOZ_LEAD_SHIFT"] ?? "") ?? 5.0
     /// How many retries may recover nothing before retrying is abandoned.
     private static let futileRetryLimit = 8
     /// Audio a window may leave after its last word before it counts as having
@@ -776,6 +779,7 @@ final class Pipeline: @unchecked Sendable {
             var emitFrames = decoded.frames
             var emitEnds = decoded.ends
             var extra = [Int: ([Int], [Int], [Int], Int)]()
+            var lead = [Int: ([Int], [Int], [Int], Int)]()
 
             // Some windows come back empty even though they are full of speech.
             // This is the recogniser's own behaviour and not this runtime's: the
@@ -846,6 +850,7 @@ final class Pipeline: @unchecked Sendable {
                 defer { retryProjections.deallocate() }
                 var retryValids = [Int](repeating: frames, count: refused.count)
                 var retryStarts = [Int](repeating: 0, count: refused.count)
+                var lateStarts = Set<Int>()
                 do {
                     for (slot, entry) in refused.enumerated() {
                         let windowStart = starts[entry.element]
@@ -871,6 +876,20 @@ final class Pipeline: @unchecked Sendable {
                         // rerun.
                         let gaveUp = windowStart
                             + Int(Double(stopped) * c.secondsPerFrame * Double(c.sampleRate))
+                        // A window silent from its very first frame (the widest gap
+                        // opens at 0) started late rather than stopped early. Rerunning
+                        // the same crop repeats it; the same audio a few seconds later
+                        // into a window does not, so the rerun starts earlier.
+                        if !tokens[entry.offset].isEmpty && stopped == 0 {
+                            let early = Swift.max(origin, windowStart - Int(Self.leadShift * Double(c.sampleRate)))
+                            let end = Swift.min(early + c.nSamples, available)
+                            retryStarts[slot] = early
+                            retryValids[slot] = Self.validEncoderFrames(sampleCount: end - early, configuration: c)
+                            lateStarts.insert(slot)
+                            try await encode(window: slice(early, end), slot: 0,
+                                             into: retryProjections + slot * stride)
+                            continue
+                        }
                         let low = tokens[entry.offset].isEmpty ? windowStart
                             // `buffer` is the audio, not `out`: this searches the
                             // waveform for a quiet point. The two were briefly the
@@ -899,7 +918,10 @@ final class Pipeline: @unchecked Sendable {
                                  ends: &retryEnds,
                                  tokens: &retryTokens, frames: &retryFrames)
                 for (slot, entry) in refused.enumerated() {
-                    if tokens[entry.offset].isEmpty {
+                    if lateStarts.contains(slot) {
+                        lead[entry.offset] = (retryTokens[slot], retryFrames[slot],
+                                              retryEnds[slot], retryStarts[slot])
+                    } else if tokens[entry.offset].isEmpty {
                         // Nothing to keep, so the rerun simply replaces it.
                         tokens[entry.offset] = retryTokens[slot]
                         emitFrames[entry.offset] = retryFrames[slot]
@@ -950,7 +972,23 @@ final class Pipeline: @unchecked Sendable {
                                               overlap: Self.boundarySearch)
                     }
                 }
-                join(produced, at: starts[w])
+                if let (t, f, e, at) = lead[i], !t.isEmpty {
+                    let leadEnd = Swift.min(at + c.nSamples, available)
+                    join(refineEnds(timedWords(tokens: t, frames: f, ends: e,
+                                               vocabulary: assets.vocabulary,
+                                               secondsPerFrame: c.secondsPerFrame,
+                                               timeOffset: Double(at) / Double(c.sampleRate)),
+                                    samples: slice(at, leadEnd),
+                                    windowStart: Double(at) / Double(c.sampleRate),
+                                    sampleRate: Double(c.sampleRate)),
+                         at: at)
+                    // the window's own words take over inside the overlap, after its first word
+                    let first = produced.first?.start ?? Double(low) / Double(c.sampleRate)
+                    let seam = Swift.min(Double(leadEnd) / Double(c.sampleRate) - 1.5, first + 1.5)
+                    join(produced, at: Int(seam * Double(c.sampleRate)))
+                } else {
+                    join(produced, at: starts[w])
+                }
                 if let (t, f, e, at) = extra[i] {
                     join(refineEnds(timedWords(tokens: t, frames: f, ends: e,
                                                vocabulary: assets.vocabulary,

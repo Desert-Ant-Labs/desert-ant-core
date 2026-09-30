@@ -60,8 +60,8 @@ var benchmarkIsConfigured: Bool {
 func loadVoz(_ directory: URL) async throws -> Voz {
     #if canImport(CoreAI)
     if #available(macOS 27.0, iOS 27.0, *),
-       FileManager.default.fileExists(
-        atPath: directory.appendingPathComponent("encoder.aimodel").path) {
+       ["encoder.aimodel", "voz.aimodel"].contains(where: {
+           FileManager.default.fileExists(atPath: directory.appendingPathComponent($0).path) }) {
         return try await Voz.coreAI(modelDirectory: directory)
     }
     #endif

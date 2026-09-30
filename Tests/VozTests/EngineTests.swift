@@ -23,6 +23,7 @@ private let configuration = try! JSONDecoder().decode(
 private final class TestEngine: Engine, @unchecked Sendable {
     let decodeLanes = 1
     let encodeDepth: Int
+    let decodeRunsBesideEncoder = false
     var active = 0
     var peak = 0
     var failNext = false
@@ -43,7 +44,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
         }
     }
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
         // Blank everywhere, so the decode ends the window rather than emitting.
         logits.zero()
@@ -80,6 +81,7 @@ private final class TestEngine: Engine, @unchecked Sendable {
 private final class ShuffledEngine: Engine, @unchecked Sendable {
     let decodeLanes = 1
     let encodeDepth = 4
+    let decodeRunsBesideEncoder = false
     private let lock = NSLock()
     private var _order: [Int] = []
     var order: [Int] { lock.lock(); defer { lock.unlock() }; return _order }
@@ -95,7 +97,7 @@ private final class ShuffledEngine: Engine, @unchecked Sendable {
     }
 
     func runDecodeStep(embed: Buffer, hIn: Buffer, cIn: Buffer, encStep: Buffer,
-                       logits: Buffer, hOut: Buffer, cOut: Buffer,
+                       logits: Buffer, hOut: Buffer, cOut: Buffer, activeLanes: [Int],
                        isolation: isolated (any Actor)?) async throws {
         logits.zero()
         logits.ptr[configuration.blankIdx * configuration.decodeWidth] = 1

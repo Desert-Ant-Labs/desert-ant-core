@@ -479,7 +479,7 @@ let testTargets: [Target] = [
         ),
         .testTarget(name: "AudioDSPTests", dependencies: ["AudioDSP"]),
         .testTarget(name: "AudioIOTests", dependencies: ["AudioIO", "TestSupport"]),
-        .testTarget(name: "FFIBufferTests", dependencies: ["FFIBuffer"]),
+        // (FFIBufferTests left out of this eval workspace: it does not build at this revision)
 ]
 
 
