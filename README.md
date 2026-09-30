@@ -202,6 +202,8 @@ On x86_64 you don't need the shim, because the core count comes from a CPU instr
 
 Voz uses ONNX Runtime outside Apple platforms. On Windows, Voz runs on the GPU through ONNX Runtime and DirectML. In the browser, Voz runs on WebGPU through `onnxruntime-web`, and uses WebNN where the browser supports it. In Node, Voz runs on the CPU through `onnxruntime-node`.
 
+LiteRT runs each model on up to four CPU threads on Linux and Windows, including Node on Linux, and on one thread on Android. The count comes from the CPUs the process sees, which in a container can be more than its CPU limit. Set `DAL_CPU_THREADS` to choose the count, for example `DAL_CPU_THREADS=1` in a container limited to one CPU.
+
 ## License
 
 [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use the SDK for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists the third-party components.
