@@ -15,7 +15,7 @@ public struct FoundationTransport: ModelTransport {
 
     public func tree(_ url: String) async throws -> [RemoteEntry] {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
-        let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: u))
+        let (data, resp) = try await URLSession.shared.data(for: hubRequest(u))
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ModelStoreError.io("tree \(url): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
         }
@@ -45,7 +45,7 @@ public struct FoundationTransport: ModelTransport {
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
         let http = try await withCheckedThrowingContinuation { (c: CheckedContinuation<HTTPURLResponse?, Error>) in
-            let task = FoundationTransport.downloadSession.downloadTask(with: u)
+            let task = FoundationTransport.downloadSession.downloadTask(with: hubRequest(u))
             // Registered before `resume()`: the first callback can land as
             // soon as the task starts running.
             FoundationTransport.downloadDelegate.begin(
@@ -64,7 +64,7 @@ public struct FoundationTransport: ModelTransport {
 
     public func tags(_ url: String) async throws -> [String] {
         guard let u = URL(string: url) else { throw ModelStoreError.io("bad url: \(url)") }
-        let (data, resp) = try await URLSession.shared.data(for: URLRequest(url: u))
+        let (data, resp) = try await URLSession.shared.data(for: hubRequest(u))
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ModelStoreError.io("refs \(url): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1)")
         }
@@ -73,6 +73,14 @@ public struct FoundationTransport: ModelTransport {
             let tags: [Ref]?
         }
         return try JSONDecoder().decode(Refs.self, from: data).tags?.map(\.name) ?? []
+    }
+
+    private func hubRequest(_ url: URL) -> URLRequest {
+        var request = URLRequest(url: url)
+        if let authorization = hubAuthorization(for: url.absoluteString) {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        }
+        return request
     }
 
     private struct TreeItem: Decodable {
@@ -170,6 +178,10 @@ public struct FoundationTransport: ModelTransport {
                 return
             }
             entry.redirects += 1
+            var request = request
+            if request.url?.host != task.currentRequest?.url?.host {
+                request.setValue(nil, forHTTPHeaderField: "Authorization")
+            }
             // Registered before `resume()`, for the reason `begin` gives.
             let next = session.downloadTask(with: request)
             pending[next.taskIdentifier] = entry

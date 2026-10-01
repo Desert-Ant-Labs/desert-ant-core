@@ -55,10 +55,10 @@ public struct ModelStore: Sendable {
     private func manifestPath(_ model: ModelSpec) -> String { join(location(of: model), Self.metadataDirectory, "manifest") }
     private func filePath(_ model: ModelSpec, _ file: String) -> String { join(location(of: model), file) }
     private func fileURL(_ model: ModelSpec, _ file: String) -> String {
-        "\(endpoint)/\(model.repo)/resolve/\(model.revision)/\(file)"
+        "\(endpoint)/\(hubRepo(model.repo))/resolve/\(model.revision)/\(file)"
     }
     private func treeURL(_ model: ModelSpec) -> String {
-        "\(endpoint)/api/models/\(model.repo)/tree/\(model.revision)?recursive=true"
+        "\(endpoint)/api/models/\(hubRepo(model.repo))/tree/\(model.revision)?recursive=true"
     }
 
     // MARK: public API
@@ -207,7 +207,7 @@ public struct ModelStore: Sendable {
         case .exact(let revision):
             return revision
         case .from(let from):
-            if let tags = try? await transport.tags("\(endpoint)/api/models/\(repo)/refs"),
+            if let tags = try? await transport.tags("\(endpoint)/api/models/\(hubRepo(repo))/refs"),
                let best = requirement.bestMatch(in: tags) {
                 return best
             }

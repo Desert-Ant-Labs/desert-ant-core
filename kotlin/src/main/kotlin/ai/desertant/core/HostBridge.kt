@@ -89,6 +89,7 @@ object HostBridge {
         return try {
             val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
             conn.instanceFollowRedirects = true
+            hubAuthorization(conn.url.toString())?.let { conn.setRequestProperty("Authorization", it) }
             val json = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
             val sb = StringBuilder()
@@ -106,6 +107,9 @@ object HostBridge {
         }
     }
 
+    private fun hubAuthorization(url: String): String? =
+        System.getenv("HF_TOKEN")?.takeIf { it.isNotEmpty() && url.startsWith("https://huggingface.co/") }?.let { "Bearer $it" }
+
     /// Download a URL to a file path (following redirects to the LFS CDN).
     /// Returns 0 on success, -1 on failure.
     @JvmStatic
@@ -115,6 +119,7 @@ object HostBridge {
             dest.parentFile?.mkdirs()
             val conn = URL(urlUtf8.toString(Charsets.UTF_8)).openConnection() as HttpURLConnection
             conn.instanceFollowRedirects = true
+            hubAuthorization(conn.url.toString())?.let { conn.setRequestProperty("Authorization", it) }
             conn.inputStream.use { input -> dest.outputStream().use { out -> input.copyTo(out) } }
             conn.disconnect()
             0

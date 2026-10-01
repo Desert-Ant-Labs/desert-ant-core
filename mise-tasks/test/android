@@ -140,4 +140,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         tasks+=(":$model:test")
     fi
 done
+for name in HF_TOKEN DAL_HF_REPO_SUFFIX; do
+    if [ -n "${!name:-}" ]; then tasks+=("-Pandroid.testInstrumentationRunnerArguments.$name=${!name}"); fi
+done
 [ ${#tasks[@]} -eq 0 ] || ./gradlew --no-daemon "${tasks[@]}"

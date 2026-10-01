@@ -83,7 +83,9 @@ public final class XetTransport: ModelTransport {
         guard let u = URL(string: url) else { return nil }
         var request = URLRequest(url: u)
         request.httpMethod = "HEAD"
-        if let hubToken { request.setValue("Bearer \(hubToken)", forHTTPHeaderField: "Authorization") }
+        if let hubToken, url.hasPrefix("https://huggingface.co/") {
+            request.setValue("Bearer \(hubToken)", forHTTPHeaderField: "Authorization")
+        }
         guard let (_, response) = try? await URLSession.shared.data(for: request,
                                                                     delegate: NoRedirects()),
               let http = response as? HTTPURLResponse else { return nil }

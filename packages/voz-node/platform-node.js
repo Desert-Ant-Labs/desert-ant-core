@@ -8,6 +8,7 @@
 // which exposes the same InferenceSession and Tensor API) and where the bundle
 // is cached.
 import { installAudioHost } from "@desert-ant-labs/core/audio/node";
+import { hubFetch } from "./codec.js";
 
 export async function setupCore() {
   const { instantiate } = await import("./dist/instantiate.js");
@@ -85,7 +86,7 @@ export async function makeFetchFile({ info, revision, cache, onProgress }) {
       onProgress?.(++done / Math.max(names.size, 1));
       return bytes;
     }
-    const response = await fetch(url);
+    const response = await hubFetch(url);
     if (!response.ok) throw new Error(`voz: ${name} -> HTTP ${response.status}`);
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (cache) {

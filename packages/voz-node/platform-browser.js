@@ -2,6 +2,7 @@
 // condition so the node-only code in platform-node.js never enters the browser
 // module graph.
 import { installAudioHost } from "@desert-ant-labs/core/audio";
+import { hubFetch } from "./codec.js";
 
 /** The bundle, keyed by revision, so a new pin does not read the old cache. */
 const CACHE_NAME = "desert-ant-voz";
@@ -113,7 +114,7 @@ export async function makeFetchFile({ revision, cache, onProgress }) {
     if (response) {
       bytes = new Uint8Array(await response.arrayBuffer());
     } else {
-      response = await fetch(url);
+      response = await hubFetch(url);
       if (!response.ok) throw new Error(`voz: ${name} -> HTTP ${response.status}`);
       // Read first, then cache what was read. `response.clone()` reads cleaner
       // but buffers the body a second time to feed both readers, which on a
