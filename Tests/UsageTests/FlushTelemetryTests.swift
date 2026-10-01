@@ -41,6 +41,9 @@ private actor Gate {
     }
 }
 
+// Serialized: the 32 held sends in makeSendRegistersItsSendBeforeReturning share
+// URLSession's per-host connections with the timeout test and would queue it.
+@Suite(.serialized)
 struct FlushTelemetryTests {
     /// The handshake the flush rests on: a send registered from a separate task
     /// would be invisible for an unbounded moment after `send` returned.
