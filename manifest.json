@@ -129,7 +129,7 @@
       "id": "ear",
       "name": "Ear",
       "tagline": "Detect spoken language from 30 seconds audio.",
-      "summary": "On-device spoken language identification across 99 languages.",
+      "summary": "On-device spoken language identification across 102 languages.",
       "category": "Language identification",
       "lifecycle": "stable",
       "visibility": "public",
@@ -143,7 +143,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/ear",
         "url": "https://huggingface.co/desert-ant-labs/ear",
-        "revision": "v0.1.0",
+        "revision": "v0.2.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": ["coreml", "litert"],
@@ -154,15 +154,15 @@
         "libraryName": null
       },
       "languages": {
-        "count": 99,
+        "count": 102,
         "codes": [
-          "af", "am", "ar", "as", "az", "ba", "be", "bg", "bn", "bo", "br", "bs", "ca", "cs", "cy", "da",
-          "de", "el", "en", "es", "et", "eu", "fa", "fi", "fo", "fr", "gl", "gu", "ha", "haw", "he", "hi",
-          "hr", "ht", "hu", "hy", "id", "is", "it", "ja", "jw", "ka", "kk", "km", "kn", "ko", "la", "lb",
-          "ln", "lo", "lt", "lv", "mg", "mi", "mk", "ml", "mn", "mr", "ms", "mt", "my", "ne", "nl", "nn",
-          "no", "oc", "pa", "pl", "ps", "pt", "ro", "ru", "sa", "sd", "si", "sk", "sl", "sn", "so", "sq",
-          "sr", "su", "sv", "sw", "ta", "te", "tg", "th", "tk", "tl", "tr", "tt", "uk", "ur", "uz", "vi",
-          "yi", "yo", "zh"
+          "af", "am", "ar", "as", "ast", "az", "be", "bg", "bn", "bs", "ca", "ceb", "ckb", "cs", "cy", "da",
+          "de", "el", "en", "es", "et", "eu", "fa", "ff", "fi", "fil", "fr", "ga", "gl", "gu", "ha", "he",
+          "hi", "hr", "hu", "hy", "id", "ig", "is", "it", "ja", "jv", "ka", "kam", "kea", "kk", "km", "kn",
+          "ko", "ky", "lb", "lg", "ln", "lo", "lt", "luo", "lv", "mi", "mk", "ml", "mn", "mr", "ms", "mt",
+          "my", "ne", "nl", "no", "nso", "ny", "oc", "om", "or", "pa", "pl", "ps", "pt", "ro", "ru", "sd",
+          "sk", "sl", "sn", "so", "sr", "sv", "sw", "ta", "te", "tg", "th", "tr", "uk", "umb", "ur", "uz",
+          "vi", "wo", "xh", "yo", "zh", "zu"
         ],
         "basis": "declared",
         "source": null

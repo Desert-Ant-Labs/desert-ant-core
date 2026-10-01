@@ -3,13 +3,13 @@
 
 Detect spoken language from 30 seconds audio.
 
-On-device spoken language identification across 99 languages.
+On-device spoken language identification across 102 languages.
 
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Languages** | 99 |
-| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/ear) |
+| **Languages** | 102 |
+| **Weights** | [v0.2.0](https://huggingface.co/desert-ant-labs/ear) |
 
 ## Install
 

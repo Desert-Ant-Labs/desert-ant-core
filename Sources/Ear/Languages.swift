@@ -22,3 +22,9 @@ let confusableLanguages: Set<String> = ["no", "sv", "da"]
 func canonicalLanguage(_ code: String) -> String {
     languageAliases[code] ?? code
 }
+
+/// The model's codes in order, aliases applied, each code once.
+func canonicalLanguages(_ codes: [String]) -> [String] {
+    var seen = Set<String>()
+    return codes.map(canonicalLanguage).filter { seen.insert($0).inserted }
+}
