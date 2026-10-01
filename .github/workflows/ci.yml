@@ -28,6 +28,10 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  HF_TOKEN: ${{ secrets.HF_READ_TOKEN }}
+  DAL_HF_REPO_SUFFIX: ${{ vars.DAL_HF_REPO_SUFFIX }}
+
 jobs:
   checks:
     name: checks (versions, JS units)
@@ -198,7 +202,7 @@ jobs:
 
   linux:
     name: Linux (Swift)
-    runs-on: ubuntu-22.04 # glibc 2.35; the *published* natives build on 2.26 in release.yml
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }} # glibc 2.35; the *published* natives build on 2.26 in release.yml
     steps:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
@@ -274,7 +278,7 @@ jobs:
   # test:bundles and test:browser.
   js-browser:
     name: JavaScript (wasm, browser/SSR bundles)
-    runs-on: ubuntu-22.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -339,14 +343,18 @@ jobs:
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: npm-${{ runner.os }}-
 
-      # Both wasm builds, release first: build:wasm warms the scratch path
-      # test:wasi shares (host macro tooling, checkouts; the object code
-      # differs, debug vs release).
+      # PRs skip wasm-opt: it only shrinks what ships, and saves 4 min.
       - run: mise run build:wasm
+        env:
+          DAL_SKIP_WASM_OPT: ${{ github.event_name == 'pull_request' && '1' || '' }}
 
-      # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
-      # actually execute under wasm, so this is the browser correctness check.
-      - run: mise run test:wasi
+      # Saved before the tests so the cache holds this build's configuration.
+      - name: Save the Swift wasm build
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v6
+        with:
+          path: .build
+          key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
 
       # check:types runs in the checks job too, but only this job has a built
       # core, which is what makes the same task prove WasmCore in js/index.d.ts is
@@ -375,12 +383,23 @@ jobs:
       # SSR breaks pass the unit tests and fail in a consumer's `next build`.
       - run: mise run test:bundles
 
-      - name: Save the Swift wasm build
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+  # The JS-host backends (JSON.parse, RegExp, String.normalize, fetch) only
+  # actually execute under wasm, so this is the browser correctness check.
+  js-wasi:
+    name: JavaScript (Swift tests on wasm)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: jdx/mise-action@v4
         with:
-          path: .build
-          key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
+          version: 2026.9.2
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+          key: swift-wasm-sdk-6.3.3
+      - run: mise run test:wasi
 
   js-node:
     name: JavaScript (Node native)
@@ -671,7 +690,7 @@ jobs:
     # emulator has been flaky on 24.04. build:android-natives fetches the Swift
     # snapshot tarball built for this Ubuntu release, so the cross-compile and
     # the emulator can share one job.
-    runs-on: ubuntu-22.04
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
     steps:
       - uses: actions/checkout@v5
 
@@ -681,7 +700,12 @@ jobs:
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
-                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules \
+                      /opt/hostedtoolcache/go /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/Ruby \
+                      /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/boost \
+                      /opt/microsoft /opt/google /opt/az /usr/share/az_* /usr/local/julia* \
+                      /usr/share/swift /usr/share/miniconda /usr/local/share/vcpkg \
+                      /usr/lib/google-cloud-sdk /opt/pipx || true
           sudo docker image prune --all --force || true
           df -h /
 
@@ -785,7 +809,7 @@ jobs:
           path: |
             ~/.android/avd/*
             ~/.android/adb*
-          key: avd-31-x86_64-default
+          key: avd-31-x86_64-default-4core
 
       - name: Create AVD snapshot
         if: steps.avd-cache.outputs.cache-hit != 'true'
@@ -797,6 +821,7 @@ jobs:
           force-avd-creation: false
           disable-animations: false
           emulator-boot-timeout: 900
+          cores: 4
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: echo "Generated AVD snapshot for caching"
 
@@ -813,6 +838,7 @@ jobs:
           force-avd-creation: false
           disable-animations: true
           emulator-boot-timeout: 900
+          cores: 4
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
           script: mise run test:android --no-stage
 

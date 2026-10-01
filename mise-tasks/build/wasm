@@ -72,7 +72,9 @@ for model in $(dal_select "${usage_model:-all}"); do
     built="$built $model"
 done
 
-if command -v wasm-opt > /dev/null; then
+if [ -n "${DAL_SKIP_WASM_OPT:-}" ]; then
+    echo "DAL_SKIP_WASM_OPT is set: shipping unoptimized wasm"
+elif command -v wasm-opt > /dev/null; then
     pids=()
     for model in $built; do
         product=$(dal_product "$model")
