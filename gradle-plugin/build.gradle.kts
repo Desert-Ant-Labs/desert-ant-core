@@ -51,7 +51,7 @@ gradlePlugin {
 
 mavenPublishing {
     publishToMavenCentral()
-    if (providers.gradleProperty("signingInMemoryKey").isPresent) {
+    if (!providers.gradleProperty("signingInMemoryKey").orNull.isNullOrEmpty()) {
         signAllPublications()
     }
     coordinates("ai.desertant", "model-sdk-gradle-plugin", version.toString())

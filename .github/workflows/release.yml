@@ -35,6 +35,7 @@ concurrency:
 
 permissions:
   contents: write # create the GitHub Release
+  packages: write # prereleases publish to GitHub Packages
 
 jobs:
   gate:
@@ -42,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       publish: ${{ steps.gate.outputs.publish }}
+      target: ${{ steps.gate.outputs.target }}
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -51,6 +53,9 @@ jobs:
         run: |
           set -euo pipefail
           version=$(mise run check:version | tail -1)
+          public=false
+          [ "$GITHUB_REPOSITORY" = Desert-Ant-Labs/desert-ant-core ] && public=true
+          if $public; then echo "target=public"; else echo "target=github"; fi >> "$GITHUB_OUTPUT"
           if [ "${GITHUB_REF_TYPE}" != tag ]; then
             echo "manual run: dry-running the build paths at $version"
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -58,6 +63,16 @@ jobs:
           fi
           [ "${GITHUB_REF_NAME#v}" = "$version" ] || {
             echo "::error::tag ${GITHUB_REF_NAME} does not match VERSION ($version)"
+            exit 1
+          }
+          prerelease=false
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]] && prerelease=true
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] || {
+            echo "::error::version $version is neither X.Y.Z nor X.Y.Z-rc.N"
+            exit 1
+          }
+          [ "$public" != "$prerelease" ] || {
+            echo "::error::$GITHUB_REPOSITORY does not ship $version"
             exit 1
           }
           echo "publish=true" >> "$GITHUB_OUTPUT"
@@ -144,6 +159,9 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+          ORG_GRADLE_PROJECT_GitHubPackagesUsername: ${{ github.actor }}
+          ORG_GRADLE_PROJECT_GitHubPackagesPassword: ${{ github.token }}
+          DAL_PUBLISH_TARGET: ${{ needs.gate.outputs.target }}
         run: mise run publish:maven
 
   # The npm packages ship a prebuilt native core per server-side target. Cross-OS
@@ -274,10 +292,15 @@ jobs:
       # time, which needs the workspace devDependencies on the PATH.
       - run: mise run npm-install
 
+      - name: Link the packages to this repo
+        if: needs.gate.outputs.target == 'github'
+        run: sed -i -E "s|Desert-Ant-Labs/[A-Za-z0-9_.-]+\.git|$GITHUB_REPOSITORY.git|" js/package.json packages/*-node/package.json
+
       - name: Publish
         if: needs.gate.outputs.publish == 'true'
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ needs.gate.outputs.target == 'github' && github.token || secrets.NPM_TOKEN }}
+          DAL_PUBLISH_TARGET: ${{ needs.gate.outputs.target }}
         run: mise run publish:npm
 
   release:

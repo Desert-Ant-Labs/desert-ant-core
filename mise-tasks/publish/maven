@@ -19,6 +19,16 @@ if [ -n "${usage_local:-}" ]; then
     exit 0
 fi
 
+if [ "${DAL_PUBLISH_TARGET:-}" = github ]; then
+    tasks=(":core:publishAllPublicationsToGitHubPackagesRepository")
+    for model in $(dal_models_with kotlin); do
+        tasks+=(":$model:publishAllPublicationsToGitHubPackagesRepository")
+    done
+    ./gradlew "${tasks[@]}" --no-configuration-cache
+    echo "published to GitHub Packages: ai.desertant:* $version"
+    exit 0
+fi
+
 # Credentials arrive as Gradle properties through the environment, from CI
 # secrets or mise.local.toml:
 #   ORG_GRADLE_PROJECT_mavenCentralUsername / ...Password  (Central portal token)
