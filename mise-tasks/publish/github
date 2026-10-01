@@ -34,6 +34,6 @@ trap 'rm -f "$notes"' EXIT
 } > "$notes"
 
 jq -n --arg tag "$tag" --arg name "desert-ant-core $version" --rawfile body "$notes" \
-    '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true}' \
+    '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true, prerelease: ($tag | contains("-"))}' \
     | gh api "repos/$repo/releases" --input - > /dev/null
 echo "created release $tag"

@@ -16,11 +16,17 @@ version=$(dal_version)
 # Auth: NPM_TOKEN from CI or mise.local.toml, else an interactive `npm login`.
 # The token goes through a throwaway userconfig, so normal npm commands and
 # checked-in files never carry auth.
+registry=https://registry.npmjs.org
 npm_args=(--access public)
+if [ "${DAL_PUBLISH_TARGET:-}" = github ]; then
+    registry=https://npm.pkg.github.com
+    npm_args=()
+fi
+npm_args+=(--registry "$registry")
 if [ -n "${NPM_TOKEN:-}" ]; then
     npmrc=$(mktemp)
     trap 'rm -f "$npmrc"' EXIT
-    echo "//registry.npmjs.org/:_authToken=${NPM_TOKEN}" > "$npmrc"
+    echo "//${registry#https://}/:_authToken=${NPM_TOKEN}" > "$npmrc"
     npm_args+=(--userconfig "$npmrc")
 fi
 
@@ -29,7 +35,7 @@ publish_package() { # <directory>
     name=$(node -p "require('./$dir/package.json').name")
     # Re-runnable: a partly-failed tag re-runs every job, and npm rejects a
     # duplicate version - which would hide whatever actually failed.
-    if npm view "$name@$version" version > /dev/null 2>&1; then
+    if npm view "$name@$version" version "${npm_args[@]}" > /dev/null 2>&1; then
         echo "$name@$version is already published"
         return 0
     fi

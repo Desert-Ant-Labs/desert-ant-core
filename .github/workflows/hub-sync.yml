@@ -37,6 +37,7 @@ permissions:
 jobs:
   sync:
     name: publish
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

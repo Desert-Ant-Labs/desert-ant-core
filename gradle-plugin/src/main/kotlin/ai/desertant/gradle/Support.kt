@@ -5,7 +5,9 @@ import com.vanniktech.maven.publish.JavadocJar
 import com.vanniktech.maven.publish.KotlinJvm
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import org.gradle.api.Project
+import org.gradle.api.credentials.PasswordCredentials
 import org.gradle.api.provider.Property
+import org.gradle.api.publish.PublishingExtension
 
 /** Every Android artifact in this repo ships from the one desert-ant-core repo,
  *  so the POM's url/scm are the same for all of them. */
@@ -40,8 +42,13 @@ internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension
     pluginManager.apply("com.vanniktech.maven.publish")
     val publishing = extensions.getByType(MavenPublishBaseExtension::class.java)
     publishing.publishToMavenCentral()
+    extensions.getByType(PublishingExtension::class.java).repositories.maven { repo ->
+        repo.name = "GitHubPackages"
+        repo.setUrl("https://maven.pkg.github.com/${System.getenv("GITHUB_REPOSITORY")}")
+        repo.credentials(PasswordCredentials::class.java)
+    }
     // ORG_GRADLE_PROJECT_signingInMemoryKey maps to this property in CI.
-    if (providers.gradleProperty("signingInMemoryKey").isPresent) publishing.signAllPublications()
+    if (!providers.gradleProperty("signingInMemoryKey").orNull.isNullOrEmpty()) publishing.signAllPublications()
     if (jvm) {
         // Dokka, not the `javadoc` task: a Kotlin source set has no Java
         // sources, so the javadoc tool would ship a jar holding only a manifest.
