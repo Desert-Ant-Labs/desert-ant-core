@@ -7,6 +7,9 @@ import assert from "node:assert/strict";
 import { makeVoz } from "../voz.js";
 import { hubBaseUrl, MODEL_ID, SAMPLE_RATE } from "../codec.js";
 
+// These assert the default URLs; CI may set a suffix for the real downloads.
+delete process.env.DAL_HF_REPO_SUFFIX;
+
 const INFO = {
   id: "voz",
   sdkVersion: "3.1.0",
@@ -99,6 +102,9 @@ test("the catalog id and rate are the ones the core reports", () => {
   assert.equal(hubBaseUrl(INFO), "https://huggingface.co/desert-ant-labs/voz/resolve/web/web/");
   assert.equal(hubBaseUrl(INFO, "v9.9.9"),
     "https://huggingface.co/desert-ant-labs/voz/resolve/v9.9.9/web/");
+  process.env.DAL_HF_REPO_SUFFIX = "-staging";
+  assert.equal(hubBaseUrl(INFO), "https://huggingface.co/desert-ant-labs/voz-staging/resolve/web/web/");
+  delete process.env.DAL_HF_REPO_SUFFIX;
 });
 
 test("load takes the bundle's geometry from its manifest, not from the package", async () => {

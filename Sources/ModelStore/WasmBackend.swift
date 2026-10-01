@@ -124,7 +124,7 @@ public struct JSTransport: ModelTransport {
 
     public func tree(_ url: String) async throws -> [RemoteEntry] {
         jsTransportDebugLog("tree \(url)")
-        let resp = try await fetch(url, .undefined)
+        let resp = try await fetch(url)
         guard let jsonPromise = JSPromise(from: resp.json!()) else { throw ModelStoreError.io("json(\(url))") }
         let arr = try await jsonPromise.value
         let n = Int(arr.length.number ?? 0)
@@ -140,7 +140,7 @@ public struct JSTransport: ModelTransport {
 
     public func download(_ url: String, to destinationPath: String, onBytes: @escaping @Sendable (Int64) -> Void) async throws {
         jsTransportDebugLog("download \(url) -> \(destinationPath)")
-        let resp = try await fetch(url, .undefined)
+        let resp = try await fetch(url)
         // Stream the body for fine-grained progress: read the ReadableStream
         // chunk by chunk, reporting cumulative bytes, then write the file.
         if let body = resp.body.object, let reader = body.getReader?().object {
@@ -166,8 +166,16 @@ public struct JSTransport: ModelTransport {
         onBytes(Int64(bytes.count))
     }
 
-    private func fetch(_ url: String, _ opts: JSValue) async throws -> JSObject {
+    private func fetch(_ url: String) async throws -> JSObject {
         jsTransportDebugLog("fetch \(url)")
+        var opts = JSValue.undefined
+        if let authorization = hubAuthorization(for: url), let object = JSObject.global.Object.function {
+            let headers = object.new()
+            headers["Authorization"] = authorization.jsValue
+            let options = object.new()
+            options["headers"] = .object(headers)
+            opts = .object(options)
+        }
         // `this: JSObject.global` is required, not cosmetic: a browser's `fetch`
         // is a Window method and throws "Illegal invocation" when called
         // detached. Node tolerates a detached call, so only a real browser

@@ -473,6 +473,7 @@ let libraryTargets: [Target] = [
             name: "ModelStore",
             dependencies: [
                 "CStrings",
+                "PlatformSupport",
                 .target(name: "CBCrypt", condition: .when(platforms: [.windows])),
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 "JSHost",  // unconditional: see Inference

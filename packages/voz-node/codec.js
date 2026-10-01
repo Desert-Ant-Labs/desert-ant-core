@@ -28,5 +28,19 @@ export const SAMPLE_RATE = 16000;
  * the catalog rather than from here.
  */
 export function hubBaseUrl(info, revision = info.revision) {
-  return `https://huggingface.co/${info.repo}/resolve/${revision}/web/`;
+  const suffix = hubSetting("__dalHfRepoSuffix", "DAL_HF_REPO_SUFFIX") ?? "";
+  return `https://huggingface.co/${info.repo}${suffix}/resolve/${revision}/web/`;
+}
+
+/** `fetch`, with `HF_TOKEN` sent to Hugging Face URLs only. */
+export function hubFetch(url) {
+  const token = hubSetting("__dalHfToken", "HF_TOKEN");
+  if (!token || !url.startsWith("https://huggingface.co/")) return fetch(url);
+  return fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+}
+
+/** A Hub setting from `globalThis[global]`, then the environment under Node. */
+function hubSetting(global, env) {
+  const value = globalThis[global] ?? globalThis.process?.env?.[env];
+  return typeof value === "string" && value ? value : undefined;
 }

@@ -35,7 +35,8 @@ class ModelSdkPlugin : Plugin<Project> {
             android.namespace = "ai.desertant.$model"
             android.compileSdk = 35
             android.defaultConfig.minSdk = 24 // NFKC via host java.text.Normalizer (API 1+); no platform libicu
-            android.defaultConfig.testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            android.defaultConfig.testInstrumentationRunner = "ai.desertant.androidtest.HubTestRunner"
+            android.sourceSets.getByName("androidTest").java.srcDir(project.rootProject.file("androidtest/runner"))
             android.defaultConfig.ndk.abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
             android.buildTypes.getByName("release").isMinifyEnabled = false
             android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
