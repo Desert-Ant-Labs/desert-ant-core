@@ -8,9 +8,9 @@ import DesertAnt
 public enum EarModel: ModelDeclaration {
     public static let id = "ear"
     public static let product = "Ear"
-    public static let revision = "v0.1.0"
+    public static let revision = "v0.2.0"
     public static let sdkVersion = "3.5.0"
-    public static let summary = "On-device spoken language identification across 99 languages."
+    public static let summary = "On-device spoken language identification across 102 languages."
 
     /// Artifact names describe roles rather than the network behind them, so
     /// replacing the detector is a new upload rather than an SDK change.

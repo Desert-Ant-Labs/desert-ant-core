@@ -166,7 +166,7 @@ public final class Ear: @unchecked Sendable {
 
     /// The languages this model can name, as ISO codes.
     public func supportedLanguages() async throws -> [String] {
-        try await model.value().languages.map(canonicalLanguage)
+        canonicalLanguages(try await model.value().languages)
     }
 
     /// The rate the model expects, so the file path can decode straight to it.

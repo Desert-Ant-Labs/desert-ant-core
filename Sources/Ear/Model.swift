@@ -88,10 +88,16 @@ final class Model: @unchecked Sendable {
         }
 
         let scale = 1.0 / Double(offsets.count)
-        let candidates = totals.enumerated()
-            .map { LanguagePrediction(language: canonicalLanguage(languages[$0.offset]),
-                                      probability: $0.element * scale) }
-            .sorted { $0.probability > $1.probability }
+        // Labels that fold to one code add up, so a split between `yue` and `zh`
+        // can't lose to a third language.
+        var mass: [String: Double] = [:]
+        for (i, total) in totals.enumerated() {
+            mass[canonicalLanguage(languages[i]), default: 0] += total * scale
+        }
+        let candidates = mass
+            .map { LanguagePrediction(language: $0.key, probability: $0.value) }
+            .sorted { $0.probability == $1.probability ? $0.language < $1.language
+                                                       : $0.probability > $1.probability }
         return Detection(candidates: Array(candidates.prefix(5)), windows: offsets.count)
     }
 

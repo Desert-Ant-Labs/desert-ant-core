@@ -69,3 +69,18 @@ struct DetectionTests {
         #expect(confusableLanguages.contains(canonicalLanguage("nb")))
     }
 }
+
+struct FoldedLanguageTests {
+    @Test func cantoneseIsReportedAsChineseOnce() {
+        let folded = canonicalLanguages(["en", "yue", "zh", "pt"])
+        #expect(folded == ["en", "zh", "pt"])
+    }
+
+    @Test func v1sLabelSpaceIsUnchanged() {
+        #expect(canonicalLanguages(["en", "tl", "zh"]) == ["en", "fil", "zh"])
+    }
+
+    @Test func foldingKeepsTheFirstPosition() {
+        #expect(canonicalLanguages(["yue", "en", "zh"]) == ["zh", "en"])
+    }
+}
