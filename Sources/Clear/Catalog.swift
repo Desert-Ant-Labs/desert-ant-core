@@ -5,7 +5,7 @@ public enum ClearModel: ModelDeclaration {
     public static let id = "clear"
     public static let product = "Clear"
     public static let revision = "v0.3.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "3.6.0"
     public static let summary = "On-device speech enhancement: denoise, dereverb, and loudness-normalize."
 
     /// The SDK default. The repo also publishes `clear-natural`, which a caller

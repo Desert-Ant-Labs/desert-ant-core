@@ -5,7 +5,7 @@ public enum EmoModel: ModelDeclaration {
     public static let id = "emo"
     public static let product = "Emo"
     public static let revision = "v0.7.0"
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "3.6.0"
     public static let summary = "Multilingual on-device emoji suggestion."
 
     /// Labels plus the featurizer/tokenizer constants.

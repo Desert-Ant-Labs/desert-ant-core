@@ -30,7 +30,7 @@ public enum TitleModel: ModelDeclaration {
     /// resolves platforms at manifest level and no declaration here can satisfy it.
     public static let osFloor = OSFloor.mlx
 
-    public static let sdkVersion = "3.5.0"
+    public static let sdkVersion = "3.6.0"
     public static let summary =
         "On-device titles and descriptions: a short factual title and a one- to two-sentence "
         + "description for any passage of text."
