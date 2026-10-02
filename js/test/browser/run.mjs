@@ -38,6 +38,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const PORT = Number(process.env.DAL_BROWSER_PORT ?? 8766);
 const TIMEOUT_MS = Number(process.env.DAL_BROWSER_TIMEOUT_MS ?? 300_000);
+// DAL_BROWSER_MODEL_DIR=<dir> serves a model bundle from disk at /__model__/ and hands that URL to
+// the case as `modelBaseUrl`, to test a bundle before it is published. Unset, cases load from the Hub.
+const MODEL_DIR = process.env.DAL_BROWSER_MODEL_DIR ? path.resolve(process.env.DAL_BROWSER_MODEL_DIR) : null;
+const MODEL_PREFIX = "/__model__/";
 
 const args = process.argv.slice(2);
 const only = (() => {
@@ -153,7 +157,8 @@ function renderPage(entry) {
   const litert = ${litert ? 'await import("@litertjs/core")' : "null"};
   const mod = await import("@desert-ant-labs/${entry.model}");
   const started = performance.now();
-  run(mod, { litert, litertWasmDir: "${wasmDir}", caseDir: "${caseDir}" }).then(
+  run(mod, { litert, litertWasmDir: "${wasmDir}", caseDir: "${caseDir}",
+             modelBaseUrl: ${MODEL_DIR ? JSON.stringify(MODEL_PREFIX) : "undefined"} }).then(
     (result) => { window.__result = { result, ms: Math.round(performance.now() - started) }; },
     (error) => { window.__error = String((error && error.stack) || error); },
   );
@@ -181,9 +186,11 @@ function serve(pages) {
         res.writeHead(200, { "content-type": "text/html" });
         return res.end(pages.get(pathname));
       }
-      const file = path.join(REPO, decodeURIComponent(pathname));
-      // Everything served is inside the repo; nothing here should escape it.
-      if (!file.startsWith(REPO)) {
+      const local = MODEL_DIR && pathname.startsWith(MODEL_PREFIX);
+      const root = local ? MODEL_DIR : REPO;
+      const file = path.join(root, decodeURIComponent(local ? pathname.slice(MODEL_PREFIX.length) : pathname));
+      // Everything served is inside the repo (or the model directory); nothing should escape it.
+      if (!file.startsWith(root)) {
         res.writeHead(403);
         return res.end("forbidden");
       }

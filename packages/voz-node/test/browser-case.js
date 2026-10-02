@@ -15,7 +15,7 @@
  *  page still has to be able to resolve the bare specifier it asks for. */
 export const imports = ["onnxruntime-web/webgpu"];
 
-export async function run({ Voz }, { caseDir }) {
+export async function run({ Voz }, { caseDir, modelBaseUrl }) {
   const audio = await (await fetch(`${caseDir}/fixtures/speech.wav`)).arrayBuffer();
 
   // WebGPU where the adapter can actually run this encoder, the CPU where it
@@ -27,8 +27,9 @@ export async function run({ Voz }, { caseDir }) {
   const adapter = await navigator.gpu?.requestAdapter();
   const ep = adapter?.features?.has("shader-f16") ? "webgpu" : "wasm";
 
-  // No runtime passed: this is the browser path a consumer writes.
-  const voz = await Voz.load({ ep });
+  // No runtime passed: this is the browser path a consumer writes. modelBaseUrl is set only when
+  // the harness serves a local bundle (DAL_BROWSER_MODEL_DIR); otherwise the pinned Hub revision.
+  const voz = await Voz.load({ ep, modelBaseUrl });
   const result = await voz.transcribe(audio);
   return {
     text: result.text,
