@@ -280,5 +280,20 @@ struct RedactTests {
         #expect(restored.contains("bob@example.hu"))
         #expect(!restored.contains("[EMAIL_"))
     }
+
+    /// Run as one string, this email lost six of its seven names: the model was
+    /// trained on short strings, so it now sees sentence-packed chunks.
+    @Test func namesSurviveMultiSentenceText() async throws {
+        let text = "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning "
+            + "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. "
+            + "If anything changes, ping me or Olivia Park. Thanks, Daniel"
+        let r = try await cachedRedact().redaction(of: text)
+        for name in ["Rachel", "Adams", "Tom", "Becker", "Olivia", "Park", "Daniel"] {
+            #expect(!r.redactedText.contains(name), "\(name) leaked: \(r.redactedText)")
+        }
+        // Placeholders are numbered across chunks, so restore still round-trips.
+        #expect(r.restore(r.redactedText) == text)
+        #expect(Set(r.items.map(\.placeholder)).count == r.items.count)
+    }
 }
 #endif

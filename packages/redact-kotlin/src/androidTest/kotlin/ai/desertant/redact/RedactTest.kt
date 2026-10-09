@@ -48,6 +48,17 @@ class RedactTest {
         assertEquals(text, r.restore(r.redactedText))
     }
 
+    // One string of several sentences: chunking must run on the LiteRT path too.
+    @Test fun namesSurviveMultiSentenceText() = runTest {
+        val text = "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning " +
+            "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. " +
+            "If anything changes, ping me or Olivia Park. Thanks, Daniel"
+        val r = redact.redaction(text)
+        for (name in listOf("Rachel", "Adams", "Tom", "Becker", "Olivia", "Park", "Daniel"))
+            assertTrue("$name leaked: ${r.redactedText}", !r.redactedText.contains(name))
+        assertEquals(text, r.restore(r.redactedText))
+    }
+
     @Test fun labelFilter() = runTest {
         val r = redact.redaction("Call +34 600 100 200 or email me@x.com", Options(labels = setOf("PHONE")))
         assertTrue(r.items.all { it.label == "PHONE" })

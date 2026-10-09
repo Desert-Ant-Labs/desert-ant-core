@@ -6,6 +6,12 @@
 // structured-cloneable, since the harness reads it back out of the page. `check`
 // then runs in Node.
 
+const LONG =
+  "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning " +
+  "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. " +
+  "If anything changes, ping me or Olivia Park. Thanks, Daniel";
+const LONG_NAMES = ["Rachel", "Adams", "Tom", "Becker", "Olivia", "Park", "Daniel"];
+
 export async function run({ Redact }, { litert, litertWasmDir }) {
   const redact = await Redact.load({ litert, litertWasmDir });
   try {
@@ -13,7 +19,12 @@ export async function run({ Redact }, { litert, litertWasmDir }) {
       "Hi, I'm Anna Kowalska. Email me at anna.k@example.com or call +1 (555) 010-4477. " +
       "Card: 4539 1488 0343 6467.";
     const result = await redact.redaction(text);
+    // Multi-sentence text goes through sentence chunking, which must hold on
+    // the wasm + LiteRT.js path as well as the native ones.
+    const long = await redact.redaction(LONG);
     return {
+      longRedacted: long.redactedText,
+      longRestored: long.restore(long.redactedText),
       redactedText: result.redactedText,
       labels: result.items.map((item) => String(item.label)),
       // Reversibility is the product promise, so prove it survives the round
@@ -27,6 +38,14 @@ export async function run({ Redact }, { litert, litertWasmDir }) {
 }
 
 export function check(result) {
+  for (const name of LONG_NAMES) {
+    if (result.longRedacted.includes(name)) {
+      throw new Error(`${name} leaked from multi-sentence text: ${result.longRedacted}`);
+    }
+  }
+  if (result.longRestored !== LONG) {
+    throw new Error(`restore() did not round-trip multi-sentence text: ${result.longRestored}`);
+  }
   if (!/\[GIVEN_NAME_1\]/.test(result.redactedText)) {
     throw new Error(`expected a redacted given name, got: ${result.redactedText}`);
   }

@@ -48,6 +48,18 @@ test("restore round-trips exactly", modelOpts, async () => {
   assert.equal(r.restore(r.redactedText), text);
 });
 
+test("names survive multi-sentence text", modelOpts, async () => {
+  const text =
+    "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning " +
+    "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. " +
+    "If anything changes, ping me or Olivia Park. Thanks, Daniel";
+  const r = await redact.redaction(text);
+  for (const name of ["Rachel", "Adams", "Tom", "Becker", "Olivia", "Park", "Daniel"]) {
+    assert.ok(!r.redactedText.includes(name), `${name} leaked: ${r.redactedText}`);
+  }
+  assert.equal(r.restore(r.redactedText), text);
+});
+
 test("label filter", modelOpts, async () => {
   const r = await redact.redaction("Anna at anna@x.com, IBAN DE89370400440532013000.", { labels: ["EMAIL"] });
   assert.deepEqual(new Set(r.items.map((i) => i.label)), new Set(["EMAIL"]));
