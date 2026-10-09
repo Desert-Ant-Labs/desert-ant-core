@@ -283,7 +283,8 @@ struct RedactTests {
 
     /// Run as one string, this email lost six of its seven names: the model was
     /// trained on short strings, so it now sees sentence-packed chunks.
-    @Test func namesSurviveMultiSentenceText() async throws {
+    /// `.needsNeuralEngine` for the reason on `neuralNameDetection`.
+    @Test(.needsNeuralEngine) func namesSurviveMultiSentenceText() async throws {
         let text = "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning "
             + "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. "
             + "If anything changes, ping me or Olivia Park. Thanks, Daniel"
