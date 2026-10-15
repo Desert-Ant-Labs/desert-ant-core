@@ -1,7 +1,7 @@
 // Real inference under Node, on the same WebAssembly core the browser runs.
 //
-// Gated, like the Swift suites that need a model: the bundle is 395 MB and
-// expands to 1.19 GB resident, which is not something `mise run test:node`
+// Gated, like the Swift suites that need a model: the bundle is 409 MB, which
+// is not something `mise run test:node`
 // should download on every run. Point it at a bundle and pass a runtime:
 //
 //     npm i onnxruntime-node

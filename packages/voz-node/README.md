@@ -154,8 +154,8 @@ To serve the weights yourself, copy the `web/` directory of the weights repo
 next to your app and point `modelBaseUrl` at it. `meta.json` names the rest, so
 there is no file list to keep in sync here.
 
-One instance holds three compiled graphs and about 1.2 GB of resident weights,
-so load it once and reuse it. A transcription holds the instance for its whole
+One instance holds three compiled graphs and about 1.2 GB of memory (349 MB of
+it weights), so load it once and reuse it. A transcription holds the instance for its whole
 run, and concurrent calls queue rather than interleave.
 
 ## Requirements

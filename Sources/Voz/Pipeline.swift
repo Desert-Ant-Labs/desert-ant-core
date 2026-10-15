@@ -133,6 +133,9 @@ final class Pipeline: @unchecked Sendable {
     private var logitsOut: Buffer { buffers.logitsOut }
     private var hOut: Buffer { buffers.hOut }
     private var cOut: Buffer { buffers.cOut }
+    /// The current transcription's vocabulary bias, set by `Voz`.
+    var booster: Booster?
+    var vocabulary: [String] { assets.vocabulary }
     /// Filled by an engine that reduces in the graph; empty otherwise.
     private var tok: [Int32] = []
     private var dur: [Int32] = []
@@ -313,6 +316,19 @@ final class Pipeline: @unchecked Sendable {
         var label = [Int](repeating: blank, count: lanes)
         var emitted = [Int](repeating: 0, count: lanes)
         var limit = [Int](repeating: 0, count: lanes)
+        // An engine that reduces in the graph hands over no logits to bias.
+        let booster = engine.reducesInGraph ? nil : self.booster
+        var boost = [Booster.State](repeating: [], count: lanes)
+        // Lane state from before a biased choice, kept until its word ends. If
+        // the word is abandoned the lane restores it and redecides that point
+        // without the bias (`veto`).
+        struct Trial {
+            var position: Int, label: Int, emitted: Int, count: Int
+            var h: [Element], c: [Element], boost: Booster.State, frame: Int
+            var atWordEnd: Bool
+        }
+        var trial = [Trial?](repeating: nil, count: lanes)
+        var veto = [(frame: Int, count: Int)](repeating: (-1, -1), count: lanes)
         hIn.zero(); cIn.zero(); embed.zero(); encStep.zero()
 
         func admit(_ lane: Int) async {
@@ -322,10 +338,29 @@ final class Pipeline: @unchecked Sendable {
             position[lane] = 0
             label[lane] = blank
             emitted[lane] = 0
+            boost[lane] = []
+            trial[lane] = nil
+            veto[lane] = (-1, -1)
             limit[lane] = max(1, min(total, valids[pending]))
             (hIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             (cIn.ptr + lane * hidden).update(repeating: 0, count: hidden)
             pending += 1
+        }
+        func rollBack(_ lane: Int, _ window: Int) {
+            guard let saved = trial[lane] else { return }
+            position[lane] = saved.position
+            label[lane] = saved.label
+            emitted[lane] = saved.emitted
+            boost[lane] = saved.boost
+            tokens[window].removeLast(tokens[window].count - saved.count)
+            frames[window].removeLast(frames[window].count - saved.count)
+            ends[window].removeLast(ends[window].count - saved.count)
+            assert(frames[window].count == tokens[window].count
+                   && ends[window].count == tokens[window].count)
+            (hIn.ptr + lane * hidden).update(from: saved.h, count: hidden)
+            (cIn.ptr + lane * hidden).update(from: saved.c, count: hidden)
+            veto[lane] = (saved.frame, saved.count)
+            trial[lane] = nil
         }
         func fill() async {
             for lane in 0..<lanes where slot[lane] < 0 && pending < valids.count {
@@ -375,6 +410,7 @@ final class Pipeline: @unchecked Sendable {
                     // over whole; see `Engine.reducesInGraph`.
                     var best = 0
                     var bestDuration = 0
+                    var argmax = 0
                     if engine.reducesInGraph {
                         best = Int(tok[lane * width + offset])
                         bestDuration = Int(dur[lane * width + offset])
@@ -383,6 +419,20 @@ final class Pipeline: @unchecked Sendable {
                         for k in 1...vocab {
                             let value = Float(laneLogits[k * width + offset])
                             if value > bestValue { bestValue = value; best = k }
+                        }
+                        argmax = best
+                        if let booster, best != blank,
+                           veto[lane] != (position[lane] + offset, tokens[window].count) {
+                            // Biases which token is written, never whether one is.
+                            let floor = bestValue - booster.margin
+                            var bestScore = bestValue
+                            let maxBonus = booster.maxBonus
+                            for k in 0..<vocab where k != blank {
+                                let value = Float(laneLogits[k * width + offset])
+                                guard value >= floor, value + maxBonus > bestScore else { continue }
+                                let bonus = booster.step(boost[lane], token: k, chosen: argmax).bonus
+                                if value + bonus > bestScore { bestScore = value + bonus; best = k }
+                            }
                         }
                         var bestDurationValue = Float(laneLogits[(vocab + 1) * width + offset])
                         for k in 1..<c.durations.count {
@@ -397,6 +447,31 @@ final class Pipeline: @unchecked Sendable {
                         throw VozError.invalidModel("decode step returned duration index \(bestDuration)")
                     }
                     let duration = c.durations[bestDuration]
+                    if best != blank, let booster {
+                        let step = booster.step(boost[lane], token: best, chosen: argmax)
+                        if let open = trial[lane] {
+                            switch booster.verdict(after: best, step, atWordEnd: open.atWordEnd) {
+                            case .abandoned:
+                                rollBack(lane, window)
+                                didEmit = true
+                            case .confirmed:
+                                trial[lane] = nil
+                            case .pending:
+                                trial[lane]?.atWordEnd = step.finishedWord
+                            }
+                            if didEmit { break }
+                        }
+                        if best != argmax && trial[lane] == nil {
+                            trial[lane] = Trial(
+                                position: position[lane], label: label[lane], emitted: emitted[lane],
+                                count: tokens[window].count,
+                                h: Array(UnsafeBufferPointer(start: hIn.ptr + lane * hidden, count: hidden)),
+                                c: Array(UnsafeBufferPointer(start: cIn.ptr + lane * hidden, count: hidden)),
+                                boost: boost[lane], frame: position[lane] + offset,
+                                atWordEnd: step.finishedWord)
+                        }
+                        boost[lane] = step.next
+                    }
                     if best != blank {
                         tokens[window].append(best)
                         frames[window].append(position[lane] + offset)
@@ -421,7 +496,16 @@ final class Pipeline: @unchecked Sendable {
                     offset += duration > 0 ? duration : 1
                 }
                 if !didEmit { position[lane] += max(offset, 1) }
-                if position[lane] >= limit[lane] { slot[lane] = -1 }
+                if position[lane] >= limit[lane] {
+                    // Window ended mid-trial: keep the word only if complete.
+                    if let open = trial[lane], let booster,
+                       booster.verdictAtEnd(atWordEnd: open.atWordEnd) == .abandoned {
+                        rollBack(lane, window)
+                    } else {
+                        trial[lane] = nil
+                        slot[lane] = -1
+                    }
+                }
             }
             await fill()
         }

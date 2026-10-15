@@ -157,9 +157,9 @@ export async function fetchVozBundle(baseUrl, { webnn = hasWebNN(), fetchFile } 
   const metaBytes = await get("meta.json");
   const meta = JSON.parse(new TextDecoder().decode(metaBytes));
   const step = decodeStepFor(meta, webnn);
-  // encoder.weights is deliberately absent. When the bundle is packed the
-  // weights come from encoder.q4 and are expanded at load; when it is not, the
-  // graph carries them inline.
+  // encoder.weights is deliberately absent: the encoder's weights come from the
+  // file `encoder_external` or `encoder_packed` names below, or the graph
+  // carries them inline.
   const names = ["vocab.json", "embedding.f16", "encoder.onnx", step.file];
   // A bundle carries its encoder weights one of two ways. `encoder_external`
   // names a file the graph refers to directly, which is what a quantized
@@ -285,8 +285,9 @@ export async function createVozSessions({
   }
   // The caller's copy of any external weights is dead once every session has
   // been created. Releasing it before anything else allocates matters: it is
-  // 1.19 GB, and holding it costs a page that much on top of the copy the
-  // runtime has already uploaded to the GPU.
+  // the whole weights file (349 MB quantized, 1.19 GB for a float16 encoder),
+  // and holding it costs a page that much on top of the copy the runtime has
+  // already uploaded to the GPU.
   onLoaded?.();
   return sessions;
 }

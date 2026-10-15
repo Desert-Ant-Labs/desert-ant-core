@@ -31,7 +31,7 @@ function resample(samples, from, to) {
 export function makeVoz(platform) {
   /**
    * An on-device recogniser. One instance holds three compiled graphs and about
-   * 1.2 GB of resident weights, so load it once and reuse it; a transcription
+   * 1.2 GB of memory, 349 MB of it weights, so load it once and reuse it; a transcription
    * holds the instance for its whole run and concurrent calls queue.
    */
   return class Voz {
@@ -96,7 +96,7 @@ export function makeVoz(platform) {
         ep: ep === "auto" ? await platform.bestProvider() : ep,
         wasmDir: wasmDir ?? (await platform.defaultOrtWasmDir()),
         webnn,
-        // 390 MB over the wire and 1.19 GB expanded: a reload that re-downloads
+        // 409 MB over the wire: a reload that re-downloads
         // it is not something a consumer should have to build themselves.
         fetchFile: await platform.makeFetchFile({
           info, revision: revision ?? info.revision, cache, onProgress,

@@ -263,11 +263,21 @@ struct VozStress {
             .filter { ["wav", "flac", "m4a", "mp3"].contains($0.pathExtension) }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let voz = try Voz(modelDirectory: URL(fileURLWithPath: models))
+        // A vocabulary for every file (VOZ_VOCAB_FILE, one phrase per line), or
+        // per file in <name>.vocab beside it.
+        func phrases(_ url: URL) -> [String]? {
+            (try? String(contentsOf: url, encoding: .utf8))?
+                .split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+        }
+        let shared = environment["VOZ_VOCAB_FILE"].flatMap { phrases(URL(fileURLWithPath: $0)) } ?? []
         for file in files {
+            let vocabulary = phrases(file.deletingPathExtension().appendingPathExtension("vocab"))
+                ?? shared
             // Deliberately does not decode the file here. Doing so to work out
             // the duration would hold the whole recording in memory and hide
             // the very thing the streaming path exists to avoid.
-            let result = try await voz.transcribe(file)
+            let result = try await voz.transcribe(file, vocabulary: vocabulary)
             let duration = result.duration
             let name = file.deletingPathExtension().lastPathComponent
             try? result.text.write(to: root.appendingPathComponent(name + ".hyp"),

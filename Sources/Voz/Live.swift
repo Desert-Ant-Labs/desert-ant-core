@@ -22,6 +22,8 @@ public extension Voz {
         /// same word. A frame is 80 ms; this allows a couple of frames of
         /// wobble from the re-crop.
         public var agreementTolerance: TimeInterval = 0.25
+        /// See ``Voz/transcribe(samples:vocabulary:progress:)``.
+        public var vocabulary: [String] = []
 
         public init() {}
 
@@ -155,12 +157,14 @@ public actor LiveTranscriber {
         // and those samples belong to the next pass.
         let samples = buffer
         let start = bufferStart
+        let final = finishRequested
 
         var words: [Word] = []
         if !samples.isEmpty {
             // A failed pass is retried by the next one with more audio; only a
             // final pass surfaces nothing rather than hanging the stream.
-            if let result = try? await voz.transcribe(samples: samples) {
+            if let result = try? await voz.transcribe(samples: samples,
+                                                      vocabulary: configuration.vocabulary) {
                 words = result.words.map {
                     Word(text: $0.text, start: $0.start + start, end: $0.end + start)
                 }
@@ -175,7 +179,7 @@ public actor LiveTranscriber {
             $0.start >= committedEnd - configuration.agreementTolerance / 2
         }
 
-        if finishRequested {
+        if final {
             committed += fresh
             buffer.removeAll()
             done = true
