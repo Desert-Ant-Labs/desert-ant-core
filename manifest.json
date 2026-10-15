@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "3.6.0",
+  "sdkVersion": "4.0.0",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -212,29 +212,29 @@
     {
       "id": "eye",
       "name": "Eye",
-      "tagline": "Tag and rank images.",
-      "summary": "On-device frame scoring: which shot to keep from a burst or a clip.",
-      "category": "Image and video scoring",
-      "lifecycle": "closed-beta",
-      "visibility": "internal",
-      "home": null,
+      "tagline": "Score, tag, and crop photos.",
+      "summary": "On-device photo understanding: scenes, quality, faces, people, pets, crops and sharpness.",
+      "category": "Photo understanding",
+      "lifecycle": "beta",
+      "visibility": "public",
+      "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
+        "swift": { "status": "live", "package": "Eye", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:eye", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/eye", "platforms": ["web", "node"] }
       },
       "weights": {
         "source": "hub",
         "repo": "desert-ant-labs/eye",
         "url": "https://huggingface.co/desert-ant-labs/eye",
-        "revision": "main",
+        "revision": "v1.0.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
-      "runtime": ["coreml"],
+      "runtime": ["coreml", "litert"],
       "variants": [],
       "hub": {
-        "tags": ["image", "video", "frame-scoring", "aesthetics", "clip", "on-device", "core-ml"],
-        "pipelineTag": "image-feature-extraction",
+        "tags": ["image", "image-classification", "aesthetics", "face-analysis", "object-detection", "on-device", "core-ml", "litert", "tflite"],
+        "pipelineTag": "image-classification",
         "libraryName": null
       },
       "languages": null,
@@ -328,7 +328,7 @@
       "tagline": "Flag nudity before upload or display.",
       "summary": "On-device NSFW image detection, trained only on licensed and synthetic data.",
       "category": "Content moderation",
-      "lifecycle": "beta",
+      "lifecycle": "stable",
       "visibility": "public",
       "home": "desert-ant-core",
       "sdks": {
@@ -455,7 +455,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/shapes",
         "url": "https://huggingface.co/desert-ant-labs/shapes",
-        "revision": "v0.3.0",
+        "revision": "v1.0.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": ["coreml", "litert"],
@@ -645,11 +645,16 @@
           "package": "Voz",
           "platforms": [
             "apple",
+            "linux",
             "windows"
           ]
         },
         "kotlin": {
-          "status": "none"
+          "status": "live",
+          "package": "ai.desertant:voz",
+          "platforms": [
+            "android"
+          ]
         },
         "js": {
           "status": "live",
@@ -664,11 +669,12 @@
         "source": "hub",
         "repo": "desert-ant-labs/voz",
         "url": "https://huggingface.co/desert-ant-labs/voz",
-        "revision": "v0.3.0",
+        "revision": "v0.4.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": [
         "coreml",
+        "litert",
         "onnx"
       ],
       "variants": [],
@@ -680,6 +686,7 @@
           "word-timestamps",
           "on-device",
           "core-ml",
+          "litert",
           "apple-neural-engine",
           "multilingual"
         ],
@@ -726,25 +733,28 @@
       "tagline": "Label who said what in audio and video.",
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
       "category": "Speaker diarization",
-      "lifecycle": "closed-beta",
+      "lifecycle": "beta",
       "visibility": "internal",
-      "home": null,
+      "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
+        "swift": { "status": "live", "package": "Who", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:who", "platforms": ["android"] },
         "js": { "status": "none" }
       },
       "weights": {
         "source": "hub",
         "repo": "desert-ant-labs/who",
         "url": "https://huggingface.co/desert-ant-labs/who",
-        "revision": "main",
+        "revision": "v0.3.1",
         "license": "desert-ant-labs-source-available-1.0"
       },
-      "runtime": ["coreml"],
-      "variants": [],
+      "runtime": ["coreml", "litert"],
+      "variants": [
+        { "id": "fp16", "default": true, "note": "Weights as float16 Core ML graphs, about 81 MB; Apple platforms only." },
+        { "id": "int8", "default": false, "note": "Weights stored as 8-bit integers: about 42 MB of Core ML graphs on Apple platforms, the same turns; the one precision elsewhere, about 49 MB of LiteRT graphs, where it is the default." }
+      ],
       "hub": {
-        "tags": ["audio", "speaker-diarization", "diarization", "speech", "on-device", "core-ml"],
+        "tags": ["audio", "speaker-diarization", "diarization", "speech", "on-device", "core-ml", "litert"],
         "pipelineTag": "voice-activity-detection",
         "libraryName": null
       },
