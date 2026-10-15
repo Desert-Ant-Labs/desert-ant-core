@@ -1,5 +1,6 @@
 #if canImport(CoreML)
 import CoreML
+import DesertAnt
 import Foundation
 
 /// The Core ML engine: three compiled programs, driven with preallocated
@@ -96,6 +97,7 @@ final class CoreMLEngine: Engine, @unchecked Sendable {
         func options(_ units: MLComputeUnits) -> MLModelConfiguration {
             let options = MLModelConfiguration()
             options.computeUnits = units
+            NeuralEngineCompile.apply(to: options)
             return options
         }
         func load(_ name: String, _ options: MLModelConfiguration) throws -> MLModel {

@@ -88,6 +88,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
             configuration.computeUnits = requested.mlComputeUnits
             #endif
         }
+        NeuralEngineCompile.apply(to: configuration)
         return configuration
     }
 
@@ -128,10 +129,10 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 // (`ANEProgramProcessRequestDirect ... status=0x16`) rather than
                 // queueing it. So a failure is retried once, alone, and if that
                 // works the session runs alone from then on. The retry is this
-                // one prediction inside this one `run`, so a caller (and the
-                // usage count around it) sees one call either way. A model that
-                // fails alone as well was not a concurrency problem, and the
-                // original error is the one worth reporting.
+                // one prediction inside this one `run`, so a caller sees one
+                // call either way. A model that fails alone as well was not a
+                // concurrency problem, and the original error is the one worth
+                // reporting.
                 markSerialized()
                 guard let retried = try? predictAlone(binding.provider) else { throw error }
                 prediction = retried
