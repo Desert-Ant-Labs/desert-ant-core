@@ -36,6 +36,7 @@ jobs:
   checks:
     name: checks (versions, JS units)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -67,6 +68,7 @@ jobs:
   apple:
     name: Apple (macOS)
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: maxim-lobanov/setup-xcode@v1
@@ -125,6 +127,7 @@ jobs:
   apple-ios:
     name: Apple (iOS)
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: maxim-lobanov/setup-xcode@v1
@@ -185,6 +188,7 @@ jobs:
     # the task set's only cover for the empty-array expansion the Linux jobs
     # accept.
     runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -203,6 +207,7 @@ jobs:
   linux:
     name: Linux (Swift)
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }} # glibc 2.35; the *published* natives build on 2.26 in release.yml
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
@@ -242,6 +247,14 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2
+      - name: Cache mise tool installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/mise/installs
+          key: mise-installs-linux-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
+          restore-keys: |
+            mise-installs-linux-${{ runner.os }}-
+            mise-installs-
       # `mise run` vendors libLiteRt.so out of the ai-edge-litert wheel with uv.
       - uses: astral-sh/setup-uv@v7
         with:
@@ -279,6 +292,7 @@ jobs:
   js-browser:
     name: JavaScript (wasm, browser/SSR bundles)
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
@@ -388,11 +402,20 @@ jobs:
   js-wasi:
     name: JavaScript (Swift tests on wasm)
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2
+      - name: Cache mise tool installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/mise/installs
+          key: mise-installs-wasi-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
+          restore-keys: |
+            mise-installs-wasi-${{ runner.os }}-
+            mise-installs-
       - uses: actions/cache@v6
         with:
           path: |
@@ -406,6 +429,7 @@ jobs:
     # glibc 2.35. The published Linux natives build on an older floor (2.26) in
     # release.yml; this job proves the native path, not that floor.
     runs-on: ubuntu-22.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - name: Build deps (static Foundation autolinks these)
@@ -549,11 +573,12 @@ jobs:
     # models (Core ML or MLX runtimes) never enter this job.
     name: Windows (Swift)
     runs-on: windows-latest
+    timeout-minutes: 40
     # The one job that runs swift directly rather than through mise, so it does
-    # not inherit mise.toml's switch: without it every model test posts a real
-    # usage event.
+    # not inherit mise.toml's [env]: without it every model test posts a real
+    # license grant.
     env:
-      DAL_USAGE_DISABLED: "1"
+      DAL_LICENSE_ENDPOINT: "http://127.0.0.1:9/api/v1"
     steps:
       - uses: actions/checkout@v5
       - uses: compnerd/gha-setup-swift@v0.4.0
@@ -684,6 +709,19 @@ jobs:
           }
           if ($failed) { exit 1 }
 
+      # The model suites never reach the CNG license verifier, so its vector tests run here.
+      - name: Test license verification (CNG)
+        shell: pwsh
+        run: |
+          $env:Path = "$PWD\Vendor\litert\lib\windows-x64;$env:Path"
+          $log = "test-license.log"
+          swift test --skip-build -c debug -Xswiftc -O --filter "LicenseVectorTests|HostLicenseVerifierTests|InstalledLicenseVerifierTests" -Xlinker /LIBPATH:Vendor/litert/lib/windows-x64 -Xlinker /LIBPATH:Vendor/onnxruntime/lib/windows-x64 2>&1 | Tee-Object -FilePath $log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Select-String -Path $log -Pattern 'Test run with [1-9]' -Quiet)) {
+            Write-Host "::error::the license suites discovered no tests, so this run proves nothing"
+            exit 1
+          }
+
   android:
     name: Android (natives, AARs, on-device)
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
@@ -691,6 +729,7 @@ jobs:
     # snapshot tarball built for this Ubuntu release, so the cross-compile and
     # the emulator can share one job.
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -754,6 +793,14 @@ jobs:
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2
+      - name: Cache mise tool installs
+        uses: actions/cache@v6
+        with:
+          path: ~/.local/share/mise/installs
+          key: mise-installs-android-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
+          restore-keys: |
+            mise-installs-android-${{ runner.os }}-
+            mise-installs-
 
       # The snapshot toolchain (~1.2 GB), the Android SDK bundles (~330 MB), and
       # the NDK install on demand; cache them so only the first run pays.
@@ -764,7 +811,7 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.1.6
+          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.2.0
 
       # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
       - uses: gradle/actions/setup-gradle@v4
