@@ -45,6 +45,12 @@ import JavaScriptKit
     @JSFunction public func run(
         _ inputs: [String: HostTensor]
     ) async throws(JSException) -> [String: HostTensor]
+
+    /// Run one named signature of the compiled model: a model that carries one
+    /// graph per task (Eye) compiles once and runs each by name.
+    @JSFunction public func runSignature(
+        _ signature: String, _ inputs: [String: HostTensor]
+    ) async throws(JSException) -> [String: HostTensor]
 }
 
 /// The host the JS seam supplied at instantiation.

@@ -27,6 +27,7 @@ const imports = {
     createSessionFromPath: unreachable,
     createSessionFromBytes: unreachable,
     run: unreachable,
+    runSignature: unreachable,
   },
 };
 

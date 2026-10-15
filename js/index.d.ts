@@ -58,6 +58,7 @@ export interface ModelHost {
   createSessionFromPath(path: string): Promise<void>;
   createSessionFromBytes(bytes: Uint8Array): Promise<void>;
   run(inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
+  runSignature(signature: string, inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
 }
 
 /** The import object a core is instantiated with. */
@@ -76,7 +77,7 @@ export function makeModelHostSeam(): {
 /** The LiteRT.js implementation of that contract, plus the `setModel` hook the
  *  `modelBaseUrl` path uses to supply a model the page compiled itself. */
 export function makeLiteRtHost(options: {
-  accelerator?: "wasm" | "webgpu" | string;
+  accelerator?: "auto" | "wasm" | "webgpu" | string;
   loadAndCompile: (data: Uint8Array, opts: { accelerator: string }) => Promise<any>;
   Tensor: new (data: any, dims: number[]) => any;
   readModelSource: (source: any) => Promise<any>;
@@ -106,11 +107,11 @@ export function fetchSelfHostedModel(
   files: ModelFileNames,
 ): Promise<{ sidecars: Record<string, Uint8Array>; modelBytes: Uint8Array }>;
 
-/** How a call is billed and attributed. */
+/** Per-call options. */
 export interface CallOptions {
-  /** Bills this call as part of a group from {@link LoadedModel.withCallGroup}. */
+  /** @deprecated Has no effect. */
   group?: string;
-  /** Attributes usage to an end-user device; resolved per call. */
+  /** The end-user device for this call; resolved per call. Licensing does not read it yet. */
   deviceId?: string | (() => string);
 }
 
@@ -121,8 +122,9 @@ export class LoadedModel {
    *  every modality. */
   run(input: Uint8Array, options: Uint8Array, call?: CallOptions): Promise<FfiReader>;
   isDownloaded(): boolean;
+  /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
-  /** Emit recorded usage and await the POST. One load per device per call. */
+  /** Wait for the license requests in flight. */
   flushTelemetry(): Promise<boolean>;
   dispose(): void;
 }
@@ -136,7 +138,9 @@ export interface ModelLoadOptions {
   onProgress?: (fraction: number) => void;
   litert?: unknown;
   litertWasmDir?: string;
-  accelerator?: "wasm" | "webgpu" | "webnn";
+  /** `"auto"`: WebGPU when the page has an adapter, else (or when WebGPU fails to compile) wasm.
+   *  The default is the model package's: `"wasm"` unless it says otherwise. */
+  accelerator?: "auto" | "wasm" | "webgpu" | "webnn";
 }
 
 /** A bound SDK: `open(options)` resolves the model and returns it ready. */
@@ -159,8 +163,9 @@ export interface NormalizedCore {
     deviceId: string | null,
   ): Promise<FfiReader>;
   destroy(handle: number): void;
-  /** Emit recorded usage and await the POST, on either core. */
+  /** Wait for the license requests in flight, on either core. */
   flushTelemetry?(): Promise<boolean>;
+  /** @deprecated Has no effect. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
 }
 
@@ -180,14 +185,16 @@ export function readyModel(options: {
 export function createWasmSdk(options: {
   platform: any;
   packageName: string;
+  /** The accelerator when load options name none. Default `"wasm"`. */
+  defaultAccelerator?: "auto" | "wasm" | "webgpu";
 }): Promise<ModelSdk>;
 
-/** Mint a call-group id, run the body, release the group. */
-export function makeCallGroups(endGroup: (id: string) => void): {
+/** @deprecated Has no effect: `withCallGroup` runs the body with a group id that nothing reads. */
+export function makeCallGroups(endGroup?: (id: string) => void): {
   withCallGroup: <T>(body: (group: string) => Promise<T>) => Promise<T>;
 };
 
-/** The generic C prototype every SDK core exports to release a call group. */
+/** @deprecated The C prototype of a call-group release the core no longer needs. */
 export const CALL_GROUP_END_SYMBOL: string;
 
 /** The model-agnostic WebAssembly ABI a Desert Ant core exports, the twin of the

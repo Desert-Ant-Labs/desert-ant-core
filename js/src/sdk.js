@@ -6,8 +6,8 @@
 // koffi), so the only difference between a package's browser entry and its native entry is
 // which core it binds and, for the browser, the LiteRT.js session it has to set
 // up first. Everything after that (create or adopt, download with progress,
-// encode options, run, decode, group calls, dispose) is identical for every
-// model on every runtime, so it lives here once.
+// encode options, run, decode, dispose) is identical for every model on every
+// runtime, so it lives here once.
 //
 // A model package is then: its payload codecs, its public class over
 // `LoadedModel`, and two lines of wiring per entry point.
@@ -16,6 +16,7 @@ import { FfiReader } from "./ffi.js";
 import {
   assertBrowserRuntime,
   fetchSelfHostedModel,
+  compileModel,
   makeLiteRtHost,
   loadLiteRt,
 } from "./litert.js";
@@ -45,14 +46,13 @@ export class LoadedModel {
    *
    * @param {Uint8Array} input the model's encoded input
    * @param {Uint8Array} options the model's encoded options
-   * @param {{ group?: string, deviceId?: string | (() => string) }} [call]
+   * @param {{ group?: string, deviceId?: string | (() => string) }} [call] `group` has no effect
    */
   async run(input, options, call = {}) {
     if (this.#handle == null) throw new Error(`${this.#packageName}: model disposed`);
-    const group = call.group != null ? String(call.group) : null;
     const deviceId = typeof call.deviceId === "function" ? call.deviceId() : call.deviceId;
     return this.#core.run(
-      this.#handle, input, options, group, deviceId != null ? String(deviceId) : null);
+      this.#handle, input, options, null, deviceId != null ? String(deviceId) : null);
   }
 
   /** Whether the model is usable with no network. */
@@ -60,19 +60,14 @@ export class LoadedModel {
     return this.#handle != null && this.#core.isDownloaded(this.#handle);
   }
 
-  /**
-   * Run `body(group)` with a fresh call-group id, so every call inside that
-   * passes `{ group }` bills as a single usage call. Released when `body`
-   * settles.
-   */
+  /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup(body) {
     return this.#core.withCallGroup(body);
   }
 
   /**
-   * Emit the usage this runtime has recorded and await the POST, so a process
-   * that ends immediately after an inference does not exit before it lands. One
-   * load per device per call, whatever the re-emit window says.
+   * Wait for the license requests in flight, so a process that ends right
+   * after loading a model does not exit before they finish.
    */
   flushTelemetry() {
     // Every core built from this source binds the hook; this covers one that does
@@ -108,8 +103,7 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
 
 /**
  * Normalize the WebAssembly ABI (the module's BridgeJS exports) to the core shape
- * `LoadedModel` uses: a run that yields an `FfiReader`, plus the call-group
- * helper.
+ * `LoadedModel` uses: a run that yields an `FfiReader`.
  *
  * `download` always passes a progress function: BridgeJS does not accept an
  * optional closure parameter, so "no callback" is a no-op rather than `null`.
@@ -125,7 +119,7 @@ export function wasmCore(exports) {
         await exports.run(handle, input, options ?? null, group ?? null, deviceId ?? null)),
     destroy: (handle) => exports.destroy(handle),
     flushTelemetry: () => exports.flushTelemetry(),
-    ...makeCallGroups((id) => exports.endCallGroup(id)),
+    ...makeCallGroups(),
   };
 }
 
@@ -148,19 +142,18 @@ export function wasmCore(exports) {
  * @param {object} o
  * @param {any} o.platform the package's `#platform` module
  * @param {string} o.packageName consumer package (for error messages)
+ * @param {string} [o.defaultAccelerator] when load options name none: "wasm", or "auto" (WebGPU when available)
  */
-export async function createWasmSdk({ platform, packageName }) {
+export async function createWasmSdk({ platform, packageName, defaultAccelerator = "wasm" }) {
   // The core instantiates at import time (the package's entry top-level awaits
   // this); the model is only wired in open().
   const { exports, installHost } = await platform.setupCore();
   const core = wasmCore(exports);
   const { artifact, sidecars } = exports.modelInfo();
 
-  // Debug-only hook for forcing the usage POST out and awaiting it (the browser
-  // example and the browser suite do this before asserting). The core's exports
-  // belong to this module instance rather than a global registry, so this is how
-  // a page reaches them; it exists only under the same flag the telemetry log
-  // itself needs.
+  // Debug-only hook for awaiting the license requests in flight. The core's
+  // exports belong to this module instance rather than a global registry, so
+  // this is how a page reaches them; it exists only under the HTTP debug flag.
   if (globalThis.__dalHttpDebug) {
     globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
   }
@@ -175,7 +168,7 @@ export async function createWasmSdk({ platform, packageName }) {
         defaultWasmDir: platform.defaultWasmDir,
         packageName,
       });
-      const accelerator = options.accelerator ?? "wasm";
+      const accelerator = options.accelerator ?? defaultAccelerator;
       // Generic tensor I/O with the wasm core (JSInferenceSession): the host
       // owns the LiteRT session and tensor memory, and `setModel` lets the
       // modelBaseUrl branch feed the same run() implementation.
@@ -192,7 +185,8 @@ export async function createWasmSdk({ platform, packageName }) {
       if (options.modelBaseUrl != null) {
         const { sidecars: fetched, modelBytes } =
           await fetchSelfHostedModel(options.modelBaseUrl, { model: artifact, sidecars });
-        setModel(await lrt.loadAndCompile(modelBytes, { accelerator }));
+        const compiled = await compileModel(lrt.loadAndCompile, modelBytes, accelerator);
+        setModel(compiled.model, compiled.accelerator);
         handle = core.createSelfHosted(fetched);
       } else {
         // `directory` (node) adopts a folder you populated. Base for the managed

@@ -45,6 +45,21 @@ Align weights, calibration policy and Swift implementation are distributed under
 
 ---
 
+## Eye
+
+### Model
+- **PE-Core S/16-384** (Perception Encoder) - Meta - **Apache-2.0**. The image encoder
+  of the `photo_peak` and `spatial` functions, from the OpenCLIP port
+  `timm/PE-Core-S-16-384` at revision `3249a38`; some blocks fine-tuned and every head
+  trained by Desert Ant Labs. Copyright (c) Meta Platforms, Inc. and affiliates.
+
+The face detector, face analyzer and sharpness model are trained from scratch and
+contain no third-party weights. On platforms other than Apple, Eye runs its LiteRT
+export through LiteRT (Google, Apache-2.0). The model repo's notices are at
+https://huggingface.co/desert-ant-labs/eye/blob/main/THIRD_PARTY_NOTICES.md.
+
+---
+
 ## Emo, Clear
 
 Not yet recorded here. Their notices live on their Hugging Face model cards; move

@@ -101,12 +101,39 @@ export function makeModelHostSeam() {
         createSessionFromPath: async (path) => live().createSessionFromPath(path),
         createSessionFromBytes: async (bytes) => live().createSessionFromBytes(bytes),
         run: async (inputs) => live().run(inputs),
+        runSignature: async (signature, inputs) => live().runSignature(signature, inputs),
       },
     },
     install: (implementation) => {
       host = implementation;
     },
   };
+}
+
+/** Whether this page can run LiteRT.js on WebGPU: the API exists and an adapter is there. */
+async function hasWebGpu() {
+  try {
+    return Boolean(await globalThis.navigator?.gpu?.requestAdapter());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compile `source` for `accelerator`, where `"auto"` means WebGPU when the page
+ * has an adapter and wasm otherwise, or when compiling for WebGPU fails.
+ * Resolves to the model and the accelerator it was compiled for.
+ */
+export async function compileModel(loadAndCompile, source, accelerator = "wasm") {
+  if (accelerator !== "auto") return { model: await loadAndCompile(source, { accelerator }), accelerator };
+  if (await hasWebGpu()) {
+    try {
+      return { model: await loadAndCompile(source, { accelerator: "webgpu" }), accelerator: "webgpu" };
+    } catch {
+      // a driver or op the WebGPU delegate rejects: the CPU path below still works
+    }
+  }
+  return { model: await loadAndCompile(source, { accelerator: "wasm" }), accelerator: "wasm" };
 }
 
 /**
@@ -116,6 +143,10 @@ export function makeModelHostSeam() {
  */
 export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, readModelSource }) {
   let model;
+  let active = accelerator === "auto" ? "wasm" : accelerator;
+  const compile = async (source) => {
+    ({ model, accelerator: active } = await compileModel(loadAndCompile, source, accelerator));
+  };
 
   const typedArray = (t) => {
     const bytes = t.data.slice(); // own, aligned buffer
@@ -131,44 +162,48 @@ export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, r
     }
   };
 
+  // Tensors in, LiteRT.js run through `invoke`, plain bytes out; every tensor
+  // made on the way is freed.
+  const runModel = async (inputs, invoke) => {
+    const feeds = {};
+    const made = [];
+    for (const [name, t] of Object.entries(inputs)) {
+      const tensor = new Tensor(typedArray(t), Array.from(t.dims));
+      feeds[name] = tensor;
+      made.push(tensor);
+    }
+    const results = await invoke(feeds);
+    const outputs = {};
+    const toDelete = [...made];
+    for (const [name, out] of Object.entries(results)) {
+      const host = active === "wasm" ? out : await out.moveTo("wasm");
+      const arr = host.toTypedArray();
+      outputs[name] = {
+        data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
+        dims: Array.from(host.type.layout.dimensions),
+        type: host.type.dtype,
+      };
+      toDelete.push(out);
+      if (host !== out) toDelete.push(host);
+    }
+    for (const t of toDelete) t.delete();
+    return outputs;
+  };
+
   return {
     host: {
       // node hands over the cached path, the browser the bytes it fetched: two
       // methods rather than one union, as the typed contract requires.
-      createSessionFromPath: async (path) => {
-        model = await loadAndCompile(await readModelSource(path), { accelerator });
-      },
-      createSessionFromBytes: async (bytes) => {
-        model = await loadAndCompile(await readModelSource(bytes), { accelerator });
-      },
-      run: async (inputs) => {
-        const feeds = {};
-        const made = [];
-        for (const [name, t] of Object.entries(inputs)) {
-          const tensor = new Tensor(typedArray(t), Array.from(t.dims));
-          feeds[name] = tensor;
-          made.push(tensor);
-        }
-        const results = await model.run(feeds);
-        const outputs = {};
-        const toDelete = [...made];
-        for (const [name, out] of Object.entries(results)) {
-          const host = accelerator === "wasm" ? out : await out.moveTo("wasm");
-          const arr = host.toTypedArray();
-          outputs[name] = {
-            data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
-            dims: Array.from(host.type.layout.dimensions),
-            type: host.type.dtype,
-          };
-          toDelete.push(out);
-          if (host !== out) toDelete.push(host);
-        }
-        for (const t of toDelete) t.delete();
-        return outputs;
-      },
+      createSessionFromPath: async (path) => compile(await readModelSource(path)),
+      createSessionFromBytes: async (bytes) => compile(await readModelSource(bytes)),
+      run: async (inputs) => runModel(inputs, (feeds) => model.run(feeds)),
+      // A model with one graph per task: each run names its signature.
+      runSignature: async (signature, inputs) =>
+        runModel(inputs, (feeds) => model.run(signature, feeds)),
     },
-    setModel: (m) => {
+    setModel: (m, compiledFor = active) => {
       model = m;
+      active = compiledFor;
     },
   };
 }
