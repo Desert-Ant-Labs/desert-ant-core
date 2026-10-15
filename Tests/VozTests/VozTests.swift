@@ -9,7 +9,7 @@ import Testing
 // that produces timestamps. Anything needing the weights lives in the
 // parakeet-ane repo's evaluation harness, which scores WER against a manifest.
 
-@Test func catalogDeclaresAppleAndWeb() {
+@Test func catalogDeclaresItsPlatforms() {
     #expect(VozModel.id == "voz")
     #expect(VozModel.repo == "desert-ant-labs/voz")
     #expect(VozModel.supports(.apple))
@@ -17,10 +17,19 @@ import Testing
     // Web, from a separate export: a Neural Engine wants 1x1 convolutions and a
     // GPU wants matmuls.
     #expect(VozModel.supports(.web))
-    let unsupported: [ModelPlatform] = [.android, .linux, .windows]
-    for platform in unsupported {
-        #expect(!VozModel.supports(platform), "voz has no \(platform) backend")
+    // Android and Linux run the same pipeline over LiteRT, from the .tflite
+    // export, which ships its own geometry (float32, one lane).
+    for platform in [ModelPlatform.android, .linux] {
+        #expect(VozModel.supports(platform))
+        let files = VozModel.files[platform] ?? []
+        #expect(files.contains("encoder.tflite"))
+        #expect(files.contains("mel.tflite"))
+        #expect(files.contains("decoder.tflite"))
+        #expect(files.contains("meta.litert.json"))
+        #expect(files.contains("vocab.json"))
+        #expect(files.contains("embedding.f16"))
     }
+    #expect(!VozModel.supports(.windows), "voz has no windows backend")
 }
 
 @Test func webBundleIsSelfContainedUnderWeb() {
@@ -32,8 +41,9 @@ import Testing
     // Both decode steps: WebNN wants narrow lanes, WebGPU wants wide ones.
     #expect(files.contains(VozModel.webDecodeStep))
     #expect(files.contains(VozModel.webDecodeStepGPU))
-    // The expanded weights are produced at load, not downloaded.
-    #expect(!files.contains { $0.hasSuffix("encoder.weights") })
+    // The quantized encoder's external data, which the runtime reads as is.
+    #expect(files.contains(VozModel.webEncoderWeights))
+    #expect(VozModel.webEncoderWeights == "web/encoder.onnx.data")
     #expect(VozModel.artifact(for: .web) == "web/encoder.onnx")
 }
 

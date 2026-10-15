@@ -11,6 +11,47 @@ import Musl
 import Darwin
 #endif
 
+/// One compiled `.tflite`, shared by sessions over its signatures, so a model
+/// with several (one per task) loads and packs its weights once. LiteRT does not
+/// run a compiled model reentrantly, even on different signatures, so every
+/// session of a model runs under the model's lock.
+final class LiteRTModel: @unchecked Sendable {
+    let handle: OpaquePointer
+    let lock = PlatformMutex()
+    /// The signature keys, in the model's order.
+    let signatures: [String]
+
+    init(modelPath: String, modelBytes: [UInt8]? = nil,
+         accelerator: LiteRTSession.Accelerator = .auto) throws {
+        var errbuf = [CChar](repeating: 0, count: 256)
+        let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
+            if let modelBytes {
+                return modelBytes.withUnsafeBytes { bytes in
+                    dal_lrt_model_create(nil, bytes.baseAddress, bytes.count,
+                                         accelerator.rawValue, 0, 0,
+                                         err.baseAddress, Int32(err.count))
+                }
+            } else {
+                return modelPath.withCString { path in
+                    dal_lrt_model_create(path, nil, 0, accelerator.rawValue, 0, 0,
+                                         err.baseAddress, Int32(err.count))
+                }
+            }
+        }
+        guard let handle else {
+            throw InferenceError.sessionUnavailable(decodeCString(errbuf))
+        }
+        self.handle = handle
+        signatures = (0..<Int(dal_lrt_model_num_signatures(handle))).map {
+            dal_lrt_model_signature_key(handle, Int32($0)).map(decodeCString) ?? ""
+        }
+    }
+
+    deinit {
+        dal_lrt_model_release(handle)
+    }
+}
+
 /// LiteRT (formerly TensorFlow Lite) inference backend (Android / Linux) over
 /// the LiteRT C API, behind the shared ``InferenceSession`` API. Load from a
 /// `.tflite` file path or from in-memory model bytes (e.g. classpath resources
@@ -21,16 +62,18 @@ import Darwin
 /// buffer requirements, lock/unlock) lives in the C shim in `CLiteRt`; this type
 /// marshals named ``Tensor`` inputs and outputs across it. Hardware acceleration
 /// (XNNPACK on CPU by default; GPU/NPU when requested) is selected in the shim.
+/// A session runs one signature; ``init(model:signature:)`` opens another
+/// signature of an already compiled model.
 final class LiteRTSession: InferenceSession, @unchecked Sendable {
     private let session: OpaquePointer
     private let inputNames: [String]
     private let outputNames: [String]
     private let outputIndex: [String: Int]
-    // The C shim owns one compiled model plus a single set of fixed-shape host
-    // tensor buffers, so a run (and the output reads that follow it, which read
-    // those same buffers) is not reentrant. Serialize the whole run+read so
-    // concurrent callers on one session are safe.
-    private let lock = PlatformMutex()
+    // The model's compiled model and this session's fixed-shape host buffers are
+    // not reentrant, so a run (and the output reads that follow it, which read
+    // those same buffers) holds the model's lock: concurrent callers on one
+    // session, or on sessions of one model, are safe.
+    private let model: LiteRTModel
 
     /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 =
     /// CPU, 2 = GPU, 4 = NPU. `.auto` (GPU|CPU) prefers the GPU and falls back
@@ -46,24 +89,29 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         case auto = 3   // gpu | cpu
     }
 
-    init(modelPath: String, modelBytes: [UInt8]? = nil,
-                accelerator: Accelerator = .auto) throws {
+    /// A model of its own, run at its first signature.
+    convenience init(modelPath: String, modelBytes: [UInt8]? = nil,
+                     accelerator: Accelerator = .auto) throws {
+        try self.init(model: LiteRTModel(modelPath: modelPath, modelBytes: modelBytes,
+                                         accelerator: accelerator), signature: nil)
+    }
+
+    /// One signature of `model`, by key (`nil`: the first).
+    init(model: LiteRTModel, signature: String?) throws {
         var errbuf = [CChar](repeating: 0, count: 256)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
-            if let modelBytes {
-                return modelBytes.withUnsafeBytes { bytes in
-                    dal_lrt_create(nil, bytes.baseAddress, bytes.count,
-                                   accelerator.rawValue, err.baseAddress, Int32(err.count))
-                }
-            } else {
-                return modelPath.withCString { path in
-                    dal_lrt_create(path, nil, 0, accelerator.rawValue, err.baseAddress, Int32(err.count))
+            if let signature {
+                return signature.withCString {
+                    dal_lrt_session_create(model.handle, $0, err.baseAddress, Int32(err.count))
                 }
             }
+            return dal_lrt_session_create(model.handle, nil, err.baseAddress, Int32(err.count))
         }
         guard let handle else {
-            throw InferenceError.sessionUnavailable(decodeCString(errbuf))
+            throw InferenceError.sessionUnavailable(
+                "\(decodeCString(errbuf))\(signature.map { " ('\($0)')" } ?? "")")
         }
+        self.model = model
         session = handle
         inputNames = (0..<Int(dal_lrt_num_inputs(handle))).map {
             dal_lrt_input_name(handle, Int32($0)).map(decodeCString) ?? ""
@@ -80,8 +128,8 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
-        lock.lock()
-        defer { lock.unlock() }
+        model.lock.lock()
+        defer { model.lock.unlock() }
         // Assemble input byte buffers in the model's declared input order.
         var buffers: [[UInt8]] = []
         buffers.reserveCapacity(inputNames.count)
