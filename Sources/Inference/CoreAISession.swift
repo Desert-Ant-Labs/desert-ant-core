@@ -4,39 +4,49 @@ import CoreAI
 import Foundation
 
 /// Core AI inference backend (iOS 27, macOS 27): a `.aimodel` asset behind the shared ``InferenceSession`` API.
+///
+/// Runs never overlap on one `AIModel`: on iOS 27.0 and macOS 27.0, runs that
+/// start together on one model can return all zeros.
 @available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *)
 final class CoreAISession: InferenceSession, @unchecked Sendable {
-    /// Core AI places concurrent runs itself, which is how a two-engine part
-    /// gets both engines from one session. That is only true because a run owns
-    /// its input arrays - see ``lease(_:)``.
     let runsConcurrently = true
 
-    private let function: InferenceFunction
+    /// Inputs are reused: the runtime binds a buffer on first use, and a new
+    /// one per call costs more than the model.
+    private final class Instance: @unchecked Sendable {
+        let function: InferenceFunction
+        var inputs: [String: NDArray] = [:]
+        init(function: InferenceFunction) { self.function = function }
+    }
+
+    /// The depth `ParallelRuns` keeps in flight.
+    static let instanceCount = 4
+
     private let descriptor: InferenceFunctionDescriptor
     private let lock = NSLock()
-    /// Input arrays, leased per run rather than shared.
-    ///
-    /// A shared set cannot overlap: the runtime binds a buffer on first use,
-    /// so a second run reaching `bind` would
-    /// overwrite the inputs of the first while it was still reading them. The
-    /// lock covers taking a set out and putting it back, not the run.
-    private var idle: [[String: NDArray]] = []
-    /// Sets kept when a run gives one back; beyond this they are dropped,
-    /// because a model's inputs are the caller's memory too.
-    private static let pooled = 8
+    private var idle: [Instance]
+    private var waiting: [CheckedContinuation<Instance, Never>] = []
 
     init(modelPath: String, computeUnits: ComputeUnits = .all) throws {
         let url = URL(fileURLWithPath: modelPath)
         let options = CoreAISession.options(for: computeUnits)
         // Specialization is async-only; the session factory is synchronous.
-        let model = try CoreAISession.blocking { try await AIModel(contentsOf: url, options: options) }
-        guard let name = model.functionNames.first,
-              let function = try model.loadFunction(named: name),
-              let descriptor = model.functionDescriptor(for: name) else {
+        let models = try CoreAISession.blocking {
+            var models = [AIModel]()
+            for _ in 0..<Self.instanceCount { models.append(try await AIModel(contentsOf: url, options: options)) }
+            return models
+        }
+        guard let name = models[0].functionNames.first,
+              let descriptor = models[0].functionDescriptor(for: name) else {
             throw InferenceError.sessionUnavailable("'\(modelPath)' exposes no inference function")
         }
-        self.function = function
         self.descriptor = descriptor
+        self.idle = try models.map { model in
+            guard let function = try model.loadFunction(named: name) else {
+                throw InferenceError.sessionUnavailable("'\(modelPath)' exposes no '\(name)'")
+            }
+            return Instance(function: function)
+        }
     }
 
     static func options(for units: ComputeUnits) -> SpecializationOptions {
@@ -54,9 +64,18 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
     }
 
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor] {
-        let arrays = try lease(inputs)
-        defer { release(arrays) }
-        var produced = try await function.run(inputs: arrays)
+        let instance = await acquire()
+        defer { release(instance) }
+        for (name, tensor) in inputs {
+            guard case .ndArray(let declared)? = descriptor.inputDescriptor(of: name) else {
+                throw InferenceError.invalidTensor("the model has no tensor input '\(name)'")
+            }
+            if instance.inputs[name]?.shape != tensor.shape {
+                instance.inputs[name] = NDArray(shape: tensor.shape, scalarType: declared.scalarType)
+            }
+            try write(tensor, into: &instance.inputs[name]!, scalarType: declared.scalarType)
+        }
+        var produced = try await instance.function.run(inputs: instance.inputs)
         return try outputs.map { name in
             guard let value = produced.remove(name), let array = value.ndArray else {
                 throw InferenceError.runFailed("the model returned no '\(name)'")
@@ -65,35 +84,23 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
         }
     }
 
-    /// A set of input arrays this run owns until it is done with them.
-    ///
-    /// Reused rather than freshly allocated: the runtime binds a buffer on
-    /// first use, and a new one per call costs more than the model does.
-    private func lease(_ inputs: [String: Tensor]) throws -> [String: NDArray] {
-        lock.lock()
-        let index = idle.firstIndex { set in
-            set.count == inputs.count
-                && inputs.allSatisfy { set[$0.key]?.shape == $0.value.shape }
-        }
-        var arrays = index.map { idle.remove(at: $0) } ?? [:]
-        lock.unlock()
-
-        for (name, tensor) in inputs {
-            guard case .ndArray(let declared)? = descriptor.inputDescriptor(of: name) else {
-                throw InferenceError.invalidTensor("the model has no tensor input '\(name)'")
+    private func acquire() async -> Instance {
+        await withCheckedContinuation { continuation in
+            let instance: Instance? = lock.withLock {
+                if let instance = idle.popLast() { return instance }
+                waiting.append(continuation)
+                return nil
             }
-            if arrays[name]?.shape != tensor.shape {
-                arrays[name] = NDArray(shape: tensor.shape, scalarType: declared.scalarType)
-            }
-            try write(tensor, into: &arrays[name]!, scalarType: declared.scalarType)
+            if let instance { continuation.resume(returning: instance) }
         }
-        return arrays
     }
 
-    private func release(_ arrays: [String: NDArray]) {
-        lock.lock(); defer { lock.unlock() }
-        guard idle.count < Self.pooled else { return }
-        idle.append(arrays)
+    private func release(_ instance: Instance) {
+        let waiter: CheckedContinuation<Instance, Never>? = lock.withLock {
+            if waiting.isEmpty { idle.append(instance); return nil }
+            return waiting.removeFirst()
+        }
+        waiter?.resume(returning: instance)
     }
 
     private func write(_ tensor: Tensor, into array: inout NDArray, scalarType: NDArray.ScalarType) throws {
