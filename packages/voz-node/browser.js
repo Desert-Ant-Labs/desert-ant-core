@@ -9,7 +9,7 @@
 // references `node:*`.
 //
 // Nothing instantiates at import time, unlike the LiteRT models' entries: this
-// core is a large module and its weights are 1.19 GB resident, so a page that
+// core is a large module and the model takes about 1.2 GB resident, so a page that
 // imports `Voz` without calling `Voz.load()` pays nothing.
 import * as platform from "#platform";
 import { makeVoz } from "./voz.js";

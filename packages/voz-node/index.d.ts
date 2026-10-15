@@ -74,7 +74,7 @@ export type VozAudio =
 
 export declare class Voz {
   /** Fetch the bundle, compile it, and load the core. Hold the instance and
-   *  reuse it: it carries three compiled graphs and 1.19 GB of weights. */
+   *  reuse it: it carries three compiled graphs and about 1.2 GB of memory. */
   static load(options?: VozLoadOptions): Promise<Voz>;
   /** Transcribe audio, with a start and an end on every word. */
   transcribe(input: VozAudio, options?: VozTranscribeOptions): Promise<VozResult>;
