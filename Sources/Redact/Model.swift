@@ -7,6 +7,7 @@ final class Model: @unchecked Sendable {
     private let session: any InferenceSession
     private let tokenizer: Tokenizer
     private let id2label: [Int: String]
+    private let chunking: Chunking
 
     private static let seq = 256
     private static let maxContent = seq - 2      // room for <s> … </s>
@@ -19,9 +20,10 @@ final class Model: @unchecked Sendable {
     private static let positionIDs: [Int32] = (0..<seq).map(Int32.init)
     private static let typeIDs = [Int32](repeating: 0, count: seq)
 
-    init(assets: ModelAssets) throws {
+    init(assets: ModelAssets, chunking: Chunking = .default) throws {
         guard let tok = Tokenizer(bytes: assets.tokenizer) else { throw RedactError.resourceMissing }
         tokenizer = tok
+        self.chunking = chunking
         id2label = try Model.parseLabels(assets.labelsJSON)
         session = assets.session
     }
@@ -51,14 +53,30 @@ final class Model: @unchecked Sendable {
     // MARK: Neural spans
     private func mlSpans(_ text: String, minScore: Double) async throws -> [Span] {
         let t = UTF16Text(text)
-        let tokens = tokenizer.tokenize(text)
-        let offsets = reconstructOffsets(t, tokens)
         let low = min(Model.lowScore, minScore)
 
-        // Overlapping windows re-emit spans; keep one per (start, end, label) at
-        // its best score, in first-seen order.
+        // Overlapping chunks and windows re-emit spans; keep one per
+        // (start, end, label) at its best score, in first-seen order.
         var best: [String: Int] = [:]
         var scored: [(Span, Double)] = []
+        for range in Chunks.ranges(t, chunking) {
+            try await scoreChunk(t.slice(range.lowerBound, range.upperBound), at: range.lowerBound,
+                                 low: low, best: &best, scored: &scored)
+        }
+
+        var kept = Pipeline.hysteresis(t, scored, minScore)
+        kept = Pipeline.mergePriority(kept)
+        kept = Pipeline.attachBuildingNumbers(t, Pipeline.extendParticleNames(t, Pipeline.bridgeNameGaps(t, Pipeline.snapSpans(t, kept))))
+        kept = Pipeline.redactSecondaryAddress(t, Pipeline.attachStateCodes(t, Pipeline.redactUsStreet(t, kept)))
+        return Pipeline.mergePriority(kept)
+    }
+
+    /// Score one chunk in 254-token windows, adding its spans at `base` (the
+    /// chunk's UTF-16 offset in the full text).
+    private func scoreChunk(_ text: String, at base: Int, low: Double,
+                            best: inout [String: Int], scored: inout [(Span, Double)]) async throws {
+        let tokens = tokenizer.tokenize(text)
+        let offsets = reconstructOffsets(UTF16Text(text), tokens)
         var i = 0
         while !tokens.isEmpty {
             let end = min(i + Model.maxContent, tokens.count)
@@ -72,23 +90,18 @@ final class Model: @unchecked Sendable {
                 for (k, (a, b)) in tagOffsets.enumerated() where b > a && max(a, span.start) < min(b, span.end) {
                     mx = max(mx, probs[k])
                 }
-                let key = "\(span.start):\(span.end):\(span.label)"
+                let global = Span(base + span.start, base + span.end, span.label)
+                let key = "\(global.start):\(global.end):\(global.label)"
                 if let at = best[key] {
                     if mx > scored[at].1 { scored[at].1 = mx }
                 } else {
                     best[key] = scored.count
-                    scored.append((span, mx))
+                    scored.append((global, mx))
                 }
             }
             if end == tokens.count { break }
             i += Model.step
         }
-
-        var kept = Pipeline.hysteresis(t, scored, minScore)
-        kept = Pipeline.mergePriority(kept)
-        kept = Pipeline.attachBuildingNumbers(t, Pipeline.extendParticleNames(t, Pipeline.bridgeNameGaps(t, Pipeline.snapSpans(t, kept))))
-        kept = Pipeline.redactSecondaryAddress(t, Pipeline.attachStateCodes(t, Pipeline.redactUsStreet(t, kept)))
-        return Pipeline.mergePriority(kept)
     }
 
     /// Run one window (<= 256 incl. specials); returns (tags, offsets, probs).
