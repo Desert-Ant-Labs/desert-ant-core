@@ -16,7 +16,7 @@ Word-timestamp refinement for any transcript, on device.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "3.6.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
 ```
 
 Then add the `Align` product to your target.
@@ -91,7 +91,7 @@ The `/native` subpath runs inference in plain Node. The subpath ships prebuilt f
 import { Align } from "@desert-ant-labs/align/native";
 
 const align = await Align.load();
-const fixed = await align.refine(samples, 16000, words, { language: "en", deviceId: userId });
+const fixed = await align.refine(samples, 16000, words, { language: "en" });
 align.dispose();
 ```
 
