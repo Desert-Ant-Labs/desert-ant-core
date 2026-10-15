@@ -8,12 +8,13 @@
 // implements the same C symbols and identifies its one model by `modelId`.
 //
 // Node-only (uses node:*, koffi). Browser code never imports this file.
+import { createPublicKey, verify } from "node:crypto";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 import { FfiReader } from "./ffi.js";
-import { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./callgroup.js";
+import { makeCallGroups } from "./callgroup.js";
 
 const require = createRequire(import.meta.url);
 
@@ -31,7 +32,7 @@ const coreFile = (name) => ({ linux: `lib${name}.so`, darwin: `lib${name}.dylib`
 
 // The Linux core opens the system libcurl itself (Tools/curlcompat) rather
 // than linking it, so a host without one still loads the library and would
-// only fail at the first download or usage report, as an abort. Asked right
+// only fail at the first download or license request, as an abort. Asked right
 // after the core loads, before any other call, so it is an ordinary error from
 // load() instead. A core built before the probe existed has no such symbol;
 // its dlopen already failed on a missing libcurl, so there is nothing to check.
@@ -47,10 +48,63 @@ export function checkLibcurl(core, packageName, platform = process.platform) {
   }
   if (available()) return;
   throw new Error(
-    `${packageName}: libcurl is required (downloads and usage reporting) but ` +
+    `${packageName}: libcurl is required (downloads and licensing) but ` +
       `libcurl.so.4 could not be loaded. Install libcurl4 (Debian, Ubuntu) or ` +
       `libcurl (Fedora, Amazon Linux).`,
   );
+}
+
+export function verifyLicenseSignature(signature, message, publicKey) {
+  if (signature.length !== 64 || publicKey.length !== 65 || publicKey[0] !== 4) return false;
+  const coordinate = (start) => Buffer.from(publicKey.subarray(start, start + 32)).toString("base64url");
+  try {
+    const key = createPublicKey({
+      key: { kty: "EC", crv: "P-256", x: coordinate(1), y: coordinate(33) },
+      format: "jwk",
+    });
+    return verify("sha256", message, { key, dsaEncoding: "ieee-p1363" }, signature);
+  } catch {
+    return false;
+  }
+}
+
+export function licenseVerifyCallback(koffi) {
+  const bytes = (pointer, length) =>
+    length > 0 ? Uint8Array.from(koffi.decode(pointer, koffi.array("uint8", length))) : new Uint8Array();
+  return (signature, signatureLength, message, messageLength, publicKey, publicKeyLength) =>
+    verifyLicenseSignature(
+      bytes(signature, signatureLength),
+      bytes(message, messageLength),
+      bytes(publicKey, publicKeyLength),
+    )
+      ? 1
+      : 0;
+}
+
+// Before 2.16.3 (3.1.2 on 3.x), a koffi callback from a core thread can crash Node, or hang or crash it at exit.
+export function koffiCallbacksAreSafe(version) {
+  const [major, minor, patch] = String(version).split(".").map(Number);
+  const since = (m, n, p) => major === m && (minor > n || (minor === n && patch >= p));
+  return major > 3 || since(3, 1, 2) || since(2, 16, 3);
+}
+
+// The Linux core has no crypto of its own, so it checks license signatures through Node.
+export function installLicenseVerifier(core, koffi, platform = process.platform) {
+  if (platform !== "linux" || !koffiCallbacksAreSafe(koffi.version)) return;
+  const verifier = koffi.pointer(
+    koffi.proto("int", ["const uint8_t *", "int", "const uint8_t *", "int", "const uint8_t *", "int"]),
+  );
+  let install;
+  try {
+    install = core.func("dal_set_license_verifier", "int", [verifier]);
+  } catch {
+    return;
+  }
+  install(koffi.register(licenseVerifyCallback(koffi), verifier));
+  // A core thread's call waits for this event loop, so the loop stays up until none is in flight.
+  process.on("beforeExit", () => {
+    if (install(null) > 0) setTimeout(() => {}, 10);
+  });
 }
 
 /**
@@ -67,8 +121,8 @@ export const dalSymbols = (modelId) => ({
   // options and the result. A video model needs no new symbol here.
   run: "void* dal_run(void*, const uint8_t*, int, const uint8_t*, int, const char*, const char*)",
   destroy: "void dal_destroy(void*)",
-  // The `flushTelemetry()` behind the SDKs': force pending usage telemetry out
-  // and block until the sends finish.
+  // The `flushTelemetry()` behind the SDKs': block until the license requests
+  // in flight finish.
   flushTelemetry: "void dal_flush_telemetry()",
   bufferFree: "void dal_buffer_free(void*)",
 });
@@ -140,11 +194,9 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     if (runtime && fs.existsSync(path.join(dir, runtime))) koffi.load(path.join(dir, runtime));
     const core = koffi.load(path.join(dir, CORE[process.platform] || CORE.linux));
     checkLibcurl(core, packageName);
+    installLicenseVerifier(core, koffi);
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
-    // Every core exports the generic call-group release symbol; bound here so
-    // `withCallGroup` works without each SDK declaring it.
-    lib.dalCallGroupEnd ??= core.func(CALL_GROUP_END_SYMBOL);
     return lib;
   }
 
@@ -175,9 +227,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
   // is owned by desert-ant-core's Swift ModelStore, so there is no JS-side
   // model-path computation.
 
-  // Reusable call-group API: mint an id, run the body, release the native group.
-  // A logical operation wraps several `{ group }` calls to bill them as one.
-  const { withCallGroup } = makeCallGroups((id) => loadLib().dalCallGroupEnd(id));
+  const { withCallGroup } = makeCallGroups();
 
   return {
     get koffi() {

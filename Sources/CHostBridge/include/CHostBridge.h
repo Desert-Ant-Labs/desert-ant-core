@@ -56,7 +56,8 @@ int32_t host_http_download(const char *url, const char *dest_path,
 
 // Generic HTTP request (Android): the host performs `method url` with an optional
 // body, content type and headers, returning a malloc'd buffer laid out as:
-//   4-byte big-endian status, 4-byte big-endian body length, then body bytes.
+//   4-byte big-endian status, 4-byte big-endian body length, body bytes, then
+//   the Retry-After value (empty when absent), NUL-terminated.
 // Returns NULL on transport failure. `body`/`content_type`/`headers` may be
 // NULL; `headers` is "Name: value" lines separated by '\n'.
 typedef char *(*HostHttpRequestFn)(const char *method, const char *url,
@@ -69,7 +70,7 @@ char *host_http_request(const char *method, const char *url,
 
 // Preferences (Android): the host persists small string values keyed by name,
 // backed by SharedPreferences. get returns a malloc'd value string (NULL if
-// absent or no host); set stores value under key. Used for UsageState.
+// absent or no host); set stores value under key. Used for the install id and stored licenses.
 typedef char *(*HostPrefsGetFn)(const char *key);
 void host_set_prefs_get(HostPrefsGetFn fn);
 char *host_prefs_get(const char *key);
@@ -79,30 +80,17 @@ void host_set_prefs_set(HostPrefsSetFn fn);
 void host_prefs_set(const char *key, const char *value);
 
 // App identity (Android): the host returns its package name (context.packageName)
-// as a malloc'd string (NULL if unset). Used as the usage turnstile key.
+// as a malloc'd string (NULL if unset). Sent as the license grant's app id.
 typedef char *(*HostAppIdFn)(void);
 void host_set_app_id(HostAppIdFn fn);
 char *host_app_id(void);
 
 // API key (Android): the key the host app set in code (Kotlin's
 // DesertAnt.apiKey), as a malloc'd string, empty when unset (NULL if not
-// installed). Read when a usage client is built.
+// installed). Read on each license request.
 typedef char *(*HostApiKeyFn)(void);
 void host_set_api_key(HostApiKeyFn fn);
 char *host_api_key(void);
-
-// Device context (Android): the coarse device facts the usage `context` carries,
-// which the pure-Swift core cannot read itself there. device_context returns a
-// malloc'd string of "key=value" lines (NULL if not installed); the host
-// computes them once. sends_device_context returns 1 when the host allows the
-// context, 0 when it opted out, and -1 when not installed.
-typedef char *(*HostDeviceContextFn)(void);
-void host_set_device_context(HostDeviceContextFn fn);
-char *host_device_context(void);
-
-typedef int32_t (*HostSendsDeviceContextFn)(void);
-void host_set_sends_device_context(HostSendsDeviceContextFn fn);
-int32_t host_sends_device_context(void);
 
 // Audio decode (Android / hosts with no in-process audio decoder): the host
 // decodes the file at `path` (or, when `path` is NULL, the `byte_count` bytes at
@@ -116,6 +104,15 @@ typedef char *(*HostAudioDecodeFn)(const char *path, const unsigned char *bytes,
 void host_set_audio_decode(HostAudioDecodeFn fn);
 char *host_audio_decode(const char *path, const unsigned char *bytes,
                         int64_t byte_count, double target_sample_rate);
+
+// License signature (Android): 1 when an ES256 R||S signature verifies against an X9.63 P-256 key, 0 when not, -1 with no host.
+typedef int32_t (*HostLicenseVerifyFn)(const uint8_t *signature, int32_t signature_len,
+                                       const uint8_t *message, int32_t message_len,
+                                       const uint8_t *public_key, int32_t public_key_len);
+void host_set_license_verify(HostLicenseVerifyFn fn);
+int32_t host_license_verify(const uint8_t *signature, int32_t signature_len,
+                            const uint8_t *message, int32_t message_len,
+                            const uint8_t *public_key, int32_t public_key_len);
 
 void host_free(char *ptr);
 

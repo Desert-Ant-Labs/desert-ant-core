@@ -50,10 +50,9 @@ export function makeEar(sdk) {
      * which the model confuses confidently rather than uncertainly - so their
      * probability does not reveal the problem.
      *
-     * `options.deviceId` (a string or a zero-arg function returning one)
-     * attributes usage to a specific end-user device; it is collected per call,
-     * so it is safe for concurrent multi-tenant hosts. `options.group` (an id
-     * from {@link withCallGroup}) bills several calls as one.
+     * `options.deviceId` (a string or a zero-arg function returning one) names
+     * the end-user device for the call; licensing does not read it yet.
+     * `options.group` has no effect.
      */
     async identify(samples, sampleRate = SAMPLE_RATE, options = {}) {
       return decodeResult(await this.#model.run(
@@ -65,17 +64,12 @@ export function makeEar(sdk) {
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }
 
-    /**
-     * Run `body(group)` with a fresh call-group id, so every
-     * `identify({ group })` inside it bills as a single usage call. The group is
-     * released when `body` settles.
-     */
+    /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
     /**
-     * Send the usage recorded so far and await the POST, so a short-lived process
-     * (a CLI, a Lambda) does not exit before it lands. Usage is reported on its own
-     * otherwise; such a process has no idle gap for the debounce to fire in.
+     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * a Lambda) does not exit before they finish.
      */
     flushTelemetry() { return this.#model.flushTelemetry(); }
 

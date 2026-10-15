@@ -35,8 +35,7 @@ private nonisolated(unsafe) var gPrefsSet: jmethodID?
 private nonisolated(unsafe) var gAppId: jmethodID?
 private nonisolated(unsafe) var gApiKey: jmethodID?
 private nonisolated(unsafe) var gAudioDecode: jmethodID?
-private nonisolated(unsafe) var gDeviceContext: jmethodID?
-private nonisolated(unsafe) var gSendsDeviceContext: jmethodID?
+private nonisolated(unsafe) var gLicenseVerify: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -168,7 +167,7 @@ private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointe
     }
 }
 
-// UsageState persistence: read a stored value string (empty/absent -> "").
+// Persistence: read a stored value string (empty/absent -> "").
 private func hostPrefsGet(_ key: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let k = hostMakeBytes(env, cStringBytes(key!)) else { return nil }
@@ -195,34 +194,6 @@ private func hostApiKey() -> UnsafeMutablePointer<CChar>? {
         let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gApiKey, nil)
         return resultBytes(env, result)
     }
-}
-
-// Device context: the host's "key=value" device facts for the usage context.
-private func hostDeviceContext() -> UnsafeMutablePointer<CChar>? {
-    withHostEnv { env in
-        let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gDeviceContext, nil)
-        return resultBytes(env, result)
-    }
-}
-
-// The host's context opt-out: 1 sends the context, 0 opted out, -1 unknown.
-private func hostSendsDeviceContext() -> Int32 {
-    guard let vm = gVM else { return -1 }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
-        env = e; attached = true
-    }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
-
-    let sends = env.pointee!.pointee.CallStaticBooleanMethodA(env, gHostClass, gSendsDeviceContext, nil)
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
-    return sends == JNI_TRUE ? 1 : 0
 }
 
 private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<CChar>?) {
@@ -338,6 +309,35 @@ private func hostHttpRequest(_ method: UnsafePointer<CChar>?, _ url: UnsafePoint
     }
 }
 
+private func hostLicenseVerify(_ signature: UnsafePointer<UInt8>?, _ signatureLength: Int32,
+                               _ message: UnsafePointer<UInt8>?, _ messageLength: Int32,
+                               _ publicKey: UnsafePointer<UInt8>?, _ publicKeyLength: Int32) -> Int32 {
+    guard let vm = gVM else { return -1 }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+
+    let arrays = [(signature, signatureLength), (message, messageLength), (publicKey, publicKeyLength)].map {
+        hostMakeBytes(env, Array(UnsafeBufferPointer(start: $0.0, count: Int($0.1))))
+    }
+    defer { for array in arrays { if let array { env.pointee!.pointee.DeleteLocalRef(env, array) } } }
+    guard arrays.allSatisfy({ $0 != nil }) else { return 0 }
+    let args = arrays.map { jvalue(l: $0) }
+    let valid = args.withUnsafeBufferPointer {
+        env.pointee!.pointee.CallStaticBooleanMethodA(env, gHostClass, gLicenseVerify, $0.baseAddress)
+    }
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return 0 }
+    return valid == JNI_TRUE ? 1 : 0
+}
+
 // MARK: install
 
 /// Wire the CHostBridge regex/JSON/normalize callbacks to the host class's
@@ -373,20 +373,19 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     // Optional: only wired if the host class provides them (ModelStore download).
     gHttpTree = optionalStaticMethod(env, cls, "httpTree", "([B)[B")
     gHttpDownload = optionalStaticMethod(env, cls, "httpDownload", "([B[B)I")
-    // Optional: generic requests (the usage POST).
+    // Optional: generic requests (the license requests).
     gHttpRequest = optionalStaticMethod(env, cls, "httpRequest", "([B[B[B[B[B)[B")
-    // Optional: UsageState persistence via SharedPreferences.
+    // Optional: persistence via SharedPreferences.
     gPrefsGet = optionalStaticMethod(env, cls, "prefsGet", "([B)[B")
     gPrefsSet = optionalStaticMethod(env, cls, "prefsSet", "([B[B)V")
-    // Optional: the app identity used as the usage turnstile key.
+    // Optional: the app identity a license grant names.
     gAppId = optionalStaticMethod(env, cls, "appId", "()[B")
     // Optional: the API key the host app set in code.
     gApiKey = optionalStaticMethod(env, cls, "apiKey", "()[B")
     // Optional: audio decode (AudioIO on Android) via MediaExtractor/MediaCodec.
     gAudioDecode = optionalStaticMethod(env, cls, "audioDecode", "([B[BD)[B")
-    // Optional: the usage context's device facts and the host's opt-out.
-    gDeviceContext = optionalStaticMethod(env, cls, "deviceContext", "()[B")
-    gSendsDeviceContext = optionalStaticMethod(env, cls, "sendsDeviceContext", "()Z")
+    // Optional: the license token's ES256 check (java.security).
+    gLicenseVerify = optionalStaticMethod(env, cls, "verifyLicense", "([B[B[B)Z")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
@@ -399,7 +398,6 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gAppId != nil { host_set_app_id(hostAppId) }
     if gApiKey != nil { host_set_api_key(hostApiKey) }
     if gAudioDecode != nil { host_set_audio_decode(hostAudioDecode) }
-    if gDeviceContext != nil { host_set_device_context(hostDeviceContext) }
-    if gSendsDeviceContext != nil { host_set_sends_device_context(hostSendsDeviceContext) }
+    if gLicenseVerify != nil { host_set_license_verify(hostLicenseVerify) }
 }
 #endif

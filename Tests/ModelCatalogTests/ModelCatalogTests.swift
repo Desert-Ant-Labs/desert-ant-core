@@ -33,6 +33,10 @@ struct ModelCatalogTests {
     @Test func everyEntryHasWellFormedCoordinates() {
         for model in catalog {
             #expect(model.id == model.id.lowercased() && !model.id.isEmpty)
+            #expect(model.id.count <= 64 && model.id.first != "-"
+                    && model.id.allSatisfy { ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" },
+                    "\(model.id): the license server takes ids matching ^[a-z0-9][a-z0-9-]{0,63}$")
+            #expect(model.revision.count <= 64, "\(model.id): the license server takes a modelVersion of at most 64")
             #expect(model.repo == "desert-ant-labs/\(model.id)")
             // A v-tag; or, for a model whose latest tag lacks one of its
             // platform artifacts, a documented pin of `main` itself or a full
@@ -51,7 +55,7 @@ struct ModelCatalogTests {
         #expect(Set(ids).count == ids.count)
     }
 
-    /// A model's `sdkVersion` is what its usage attributes to, and it is declared
+    /// A model's `sdkVersion` is part of its declared identity, and it is declared
     /// here rather than read from the package files (Swift cannot see them at
     /// build time), so this test is what keeps the three copies honest.
     @Test func sdkVersionsMatchThePublishedPackages() throws {
@@ -60,8 +64,9 @@ struct ModelCatalogTests {
                 model.sdkVersion.split(separator: ".").count == 3,
                 "\(model.id): sdkVersion must be X.Y.Z, got '\(model.sdkVersion)'")
             #expect(
-                model.sdkInfo == SDKInfo(name: model.product, version: model.sdkVersion),
-                "\(model.id): usage identity must derive from the declaration")
+                model.sdkInfo == SDKInfo(name: model.product, version: model.sdkVersion,
+                                         model: model.id, modelVersion: model.revision),
+                "\(model.id): the license identity must derive from the declaration")
 
             if let npm = try packageVersion(model, "packages/\(model.id)-node/package.json") {
                 #expect(

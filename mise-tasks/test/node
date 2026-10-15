@@ -20,11 +20,11 @@ case "$(dal_host_os)" in
     *) key="linux-$arch" ;;
 esac
 
-# Every package's test script is POSIX shell ("DAL_USAGE_DISABLED=1 node --test
-# ..."), and npm runs scripts through cmd.exe on Windows, which cannot parse an
-# inline variable assignment and fails with "'DAL_USAGE_DISABLED' is not
-# recognized". Point npm at the bash this task is already running in, rather
-# than rewriting the script in seven published package.json files.
+# Every package's test script is POSIX shell ("DAL_LICENSE_ENDPOINT=... node
+# --test ..."), and npm runs scripts through cmd.exe on Windows, which cannot
+# parse an inline variable assignment and fails with "'DAL_LICENSE_ENDPOINT' is
+# not recognized". Point npm at the bash this task is already running in, rather
+# than rewriting the script in every published package.json file.
 npm_args=()
 [ "$(dal_host_os)" = windows ] && npm_args=(--script-shell=bash)
 

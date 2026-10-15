@@ -9,7 +9,7 @@
 @_exported import JSON
 @_exported import TextNormalization
 
-// Environment, HTTP, and the usage turnstile.
+// Environment, HTTP, and licensing.
 @_exported import PlatformSupport
 @_exported import Usage
 

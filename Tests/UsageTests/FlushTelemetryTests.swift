@@ -6,25 +6,11 @@ import Darwin
 import Glibc
 #endif
 
-/// Flipped once, read synchronously from a hook's `isAlive`. No lock: it is set
-/// before the `flushAndWait` that reads it, and the actor hop orders the two.
-private final class Doomed: @unchecked Sendable {
-    private(set) var isSet = false
-    func set() { isSet = true }
-}
-
-private actor Counter {
-    private(set) var value = 0
-    func increment() { value += 1 }
-}
-
 private actor Flag {
     private(set) var isSet = false
     func set() { isSet = true }
 }
 
-/// A gate the test opens by hand, so a send stays in flight for as long as the
-/// test needs it to.
 private actor Gate {
     private var open = false
     private var waiting: [CheckedContinuation<Void, Never>] = []
@@ -41,140 +27,74 @@ private actor Gate {
     }
 }
 
-// Serialized: the 32 held sends in makeSendRegistersItsSendBeforeReturning share
-// URLSession's per-host connections with the timeout test and would queue it.
-@Suite(.serialized)
-struct FlushTelemetryTests {
-    /// The handshake the flush rests on: a send registered from a separate task
-    /// would be invisible for an unbounded moment after `send` returned.
-    /// Checked synchronously, with the work held open, so nothing can
-    /// have run in between: only a registration made before return passes.
-    @Test func aSendIsRegisteredBeforeDispatchReturns() async {
-        let registry = InflightSends()
+@Suite(.serialized) struct FlushTelemetryTests {
+    @Test func workIsRegisteredBeforeDispatchReturns() async {
+        let registry = InflightWork()
         let gate = Gate()
+        dispatchTracked(into: registry) { await gate.wait() }
+        #expect(registry.count == 1, "the work was not registered when dispatch returned")
+        await gate.release()
+        await TelemetryDebug(work: registry).flushAndWait()
+    }
+
+    @Test func aFlushWaitsForTheWorkInFlight() async {
+        let registry = InflightWork()
         let done = Flag()
-        dispatchTrackedSend(into: registry) {
-            await gate.wait()
+        dispatchTracked(into: registry) {
+            try? await Task.sleep(nanoseconds: 300_000_000)
             await done.set()
         }
-        #expect(registry.count == 1, "the send was not registered when dispatch returned")
-
-        let pending = registry.drain()
-        #expect(registry.count == 0)
-        await gate.release()
-        for task in pending { await task.value }
-        #expect(await done.isSet, "awaiting the drained task did not await the send")
+        await TelemetryDebug(work: registry).flushAndWait()
+        #expect(await done.isSet, "flushAndWait returned before the work finished")
     }
 
-    /// End to end through a flush pass: a hook starts a send that is still in
-    /// flight well after the hook returns, and `flushAndWait` must not return
-    /// before it lands. Its own instance and registry: a pass on the shared one
-    /// forces every other suite's live sessions to emit mid-test.
-    @Test func aFlushAwaitsTheSendItsHookStarted() async throws {
-        let registry = InflightSends()
-        let debug = TelemetryDebug(sends: registry)
+    @Test func aFlushWaitsForWorkThatTheWorkStarted() async {
+        let registry = InflightWork()
         let done = Flag()
-        let fired = Flag()
-        await debug.registerFlushHook(
-            FlushHook(
-                isAlive: { true },
-                flush: {
-                    await fired.set()
-                    dispatchTrackedSend(into: registry) {
-                        try? await Task.sleep(nanoseconds: 300_000_000)
-                        await done.set()
-                    }
-                    return false
-                }
-            )
-        )
-        await debug.flushAndWait()
-        #expect(await fired.isSet)
-        #expect(await done.isSet, "flushAndWait returned before the send it started finished")
-    }
-
-    /// The same handshake through the real transport. It counts registrations rather than
-    /// live sends, so a send that has already failed and left the registry still
-    /// counts: a threaded host with no silent listener (Windows, Android) points
-    /// at a closed port, where the send fails at once. Where the listener exists
-    /// it holds the requests open, so none fail while the test runs.
-    @Test func makeSendRegistersItsSendBeforeReturning() async {
-        let registry = InflightSends()
-        let sends = 32
-        #if canImport(Darwin) || canImport(Glibc)
-        guard let (fd, port) = silentListener() else {
-            Issue.record("could not open a local listener")
-            return
-        }
-        let endpoint = "http://127.0.0.1:\(port)/ingest"
-        #else
-        let endpoint = "http://127.0.0.1:1/ingest"
-        #endif
-        let send = makeSend(endpoint: endpoint, registry: registry, disabled: { false })
-        // Repeated because a registration from another task can still win the
-        // race now and then; across this many sends, one of them loses it.
-        for sent in 1...sends {
-            send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())
-            #expect(registry.registeredTotal == sent, "makeSend returned before its send was registered")
-        }
-
-        let pending = registry.drain()
-        #if canImport(Darwin) || canImport(Glibc)
-        // Closing the listener resets the queued connection, so the send fails
-        // now rather than at the client's timeout.
-        close(fd)
-        for task in pending { await task.value }
-        #endif
-    }
-
-    /// A registration that prunes while a pass runs must not shrink the list under
-    /// the pass, whose merge (`live + dropFirst(marked)`) would then drop the hook
-    /// that had just registered, so that session's usage is never forced out again.
-
-    /// A pass over many hooks must not nest a stack frame per hook. wasm has no
-    /// guaranteed tail calls, so a sequential `await` per hook on its
-    /// single-threaded executor grows the stack until it overflows (the JS stack,
-    /// or the shadow stack into the heap) at a few hundred hooks. The registration
-    /// loop yields for the same reason, so only the pass is under test.
-    @Test func aPassOverAThousandHooksCompletes() async {
-        let telemetry = TelemetryDebug(sends: InflightSends())
-        let flushed = Counter()
-        for _ in 0..<1000 {
-            await Task.yield()
-            await telemetry.registerFlushHook(FlushHook(isAlive: { true }, flush: { await flushed.increment(); return true }))
-        }
-        await telemetry.flushAndWait()
-        #expect(await flushed.value == 1000)
-    }
-
-    @Test func aHookRegisteredDuringAPassSurvivesThePrune() async {
-        let telemetry = TelemetryDebug(sends: InflightSends())
-        let lateFlushed = Flag()
-        let late = FlushHook(isAlive: { true }, flush: { await lateFlushed.set(); return true })
-        // Past the prune threshold, all live while they register (so none is
-        // pruned yet), a third of them dead by the time the pass runs.
-        let doomed = Doomed()
-        for index in 0..<300 {
-            await Task.yield() // see aPassOverAThousandHooksCompletes
-            let dies = index % 3 == 0
-            await telemetry.registerFlushHook(FlushHook(
-                isAlive: { !(dies && doomed.isSet) },
-                flush: { !(dies && doomed.isSet) }
-            ))
-        }
-        let registered = Flag()
-        await telemetry.registerFlushHook(FlushHook(isAlive: { true }, flush: {
-            if await !registered.isSet {
-                await registered.set()
-                await telemetry.registerFlushHook(late)
+        dispatchTracked(into: registry) {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            dispatchTracked(into: registry) {
+                try? await Task.sleep(nanoseconds: 100_000_000)
+                await done.set()
             }
-            return true
-        }))
-        doomed.set()
-        await telemetry.flushAndWait()
-        #expect(await !lateFlushed.isSet, "a hook registered mid-pass ran in that pass")
-        await telemetry.flushAndWait()
-        #expect(await lateFlushed.isSet, "the hook registered during the first pass was dropped")
+        }
+        await TelemetryDebug(work: registry).flushAndWait()
+        #expect(await done.isSet, "flushAndWait returned before the follow-up work finished")
+    }
+
+    @Test func twoFlushesAtOnceBothWait() async {
+        let registry = InflightWork()
+        let gate = Gate()
+        dispatchTracked(into: registry) { await gate.wait() }
+        let debug = TelemetryDebug(work: registry)
+        let first = Flag()
+        let second = Flag()
+        let flushes = [
+            Task { await debug.flushAndWait(); await first.set() },
+            Task { await debug.flushAndWait(); await second.set() },
+        ]
+        try? await Task.sleep(nanoseconds: 200_000_000)
+        let early = [await first.isSet, await second.isSet]
+        #expect(early == [false, false], "a flush returned while the work was still running")
+        await gate.release()
+        for flush in flushes { await flush.value }
+        let late = [await first.isSet, await second.isSet]
+        #expect(late == [true, true])
+    }
+
+    @Test(.enabled(if: hostProvidedLicenseEndpoint() != nil))
+    func aModelLoadIsRegisteredForTheNextFlush() async {
+        let before = InflightWork.shared.registeredTotal
+        licenseOnLoad(SDKInfo(name: "Test", version: "0.0.0", model: "flush-test", modelVersion: "v0"))
+        #expect(InflightWork.shared.registeredTotal > before, "a model load started no tracked work")
+        await TelemetryDebug.shared.flushAndWait()
+    }
+
+    @Test func aFlushDoesNotWaitForARetryStillInItsDelay() async {
+        let fired = Flag()
+        scheduleLicenseRetry(after: 60_000) { await fired.set() }
+        await TelemetryDebug.shared.flushAndWait()
+        #expect(await !fired.isSet)
     }
 
     @Test func aKeyIsTrimmedAndABlankOneIsNone() {
@@ -185,30 +105,30 @@ struct FlushTelemetryTests {
     }
 
     #if canImport(Darwin) || canImport(Glibc)
-    /// A usage POST to an endpoint that accepts and never answers gives up after
-    /// the send timeout, not URLSession's 60 s default: `flushTelemetry()` awaits
-    /// it, and a worker's exit waits on that.
-    @Test func aSendToASilentEndpointGivesUpAtTheSendTimeout() async {
+    @Test func aLicenseRequestToASilentEndpointGivesUpAtItsTimeout() async {
         guard let (fd, port) = silentListener() else {
             Issue.record("could not open a listener")
             return
         }
         defer { close(fd) }
-        let registry = InflightSends()
-        let send = makeSend(endpoint: "http://127.0.0.1:\(port)/ingest", registry: registry, disabled: { false })
+        let client = LicenseClient(
+            storage: SharedStorage(),
+            schedule: { _, _ in },
+            endpoint: { "http://127.0.0.1:\(port)/api/v1" },
+            identity: { LicenseIdentity(appId: "com.acme.app", apiKey: nil, platform: "ios") })
         let clock = ContinuousClock()
         let started = clock.now
-        send(IngestBody(sentAt: "t", events: [IngestEvent(deviceId: "d")]), SendOptions())
-        for task in registry.drain() { await task.value }
-        #expect(clock.now - started < .seconds(20), "the send waited out the platform default timeout")
+        await client.modelLoaded(model: "emo", modelVersion: "v0.7.0")
+        // The client gives up at licenseTimeoutSeconds (10 s); the slack above it absorbs
+        // suite parallelism on a loaded CI runner. The bound only needs to stay well under
+        // Foundation's 60 s default to prove the timeout was passed at all.
+        #expect(clock.now - started < .seconds(30), "flushTelemetry() would wait out the platform default timeout")
     }
     #endif
 }
 
 #if canImport(Darwin) || canImport(Glibc)
-/// A 127.0.0.1 listener on a free port that never accepts: a client connects
-/// through the kernel backlog and then waits for a reply that never comes.
-private func silentListener() -> (Int32, UInt16)? {
+func silentListener() -> (Int32, UInt16)? {
     #if canImport(Glibc)
     let fd = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
     #else

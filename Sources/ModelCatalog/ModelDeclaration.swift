@@ -9,14 +9,14 @@ import Usage
 /// from, and which of them each platform needs.
 public protocol ModelDeclaration: Sendable {
     /// Canonical lowercase id: Hub repo suffix, npm/Maven coordinate, directory
-    /// name, usage-event name. Everything else derives from it.
+    /// name, the model a license names. Everything else derives from it.
     static var id: String { get }
     /// Capitalized name: Swift products, native library names, docs.
     static var product: String { get }
     /// Pinned model revision the SDK is built against (a `v`-prefixed tag).
     static var revision: String { get }
-    /// The SDK's released version, as published to npm and Maven, and what usage
-    /// attributes to. `ModelCatalogTests` checks it against
+    /// The SDK's released version, as published to npm and Maven.
+    /// `ModelCatalogTests` checks it against
     /// `packages/<id>-node/package.json` and `packages/<id>-kotlin/build.gradle.kts`.
     static var sdkVersion: String { get }
     /// One line describing what the model does.
@@ -44,10 +44,12 @@ public extension ModelDeclaration {
 
     static var runtimeFiles: [ModelRuntime: [String]] { [:] }
 
-    /// This SDK's usage identity, sent in every telemetry body's `sdk` field so usage
-    /// attributes to this model rather than to the core. Derived, so a model cannot
-    /// forget it (which silently bills to the default identity) or let it go stale.
-    static var sdkInfo: SDKInfo { SDKInfo(name: product, version: sdkVersion) }
+    /// This model's identity for licensing: the catalog id and revision a grant
+    /// names. Derived, so a model cannot forget it (which would skip its license)
+    /// or let it go stale.
+    static var sdkInfo: SDKInfo {
+        SDKInfo(name: product, version: sdkVersion, model: id, modelVersion: revision)
+    }
 
     /// Everything an SDK needs to download, adopt, or verify its model.
     static var distribution: ModelDistribution {

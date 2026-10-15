@@ -1,14 +1,10 @@
-// Cross-session persistence for the usage turnstile (the device id and the
-// re-emit state), handled internally so hosts wire no storage. `UsageStorage` is
-// a tiny string key/value seam; `makeClient` uses the platform-native backend:
+// Persistence for licensing (the install id and the stored licenses), handled
+// internally so hosts wire no storage:
 //
 //   Apple / Linux  UserDefaults (Foundation)
 //   Android        SharedPreferences, via the host bridge (CHostBridge)
 //   WebAssembly    localStorage, or a host-injected globalThis.__dalUsageStore
 //   other          in-memory (no persistence)
-//
-// Pass a `storage:` to `makeClient` to override, or drop to `createClient`/
-// `ClientDeps` for full control (tests, custom hosts).
 
 import CStrings
 
@@ -27,33 +23,14 @@ func jsHostIsNode() -> Bool {
 }
 #endif
 
-/// A minimal string key/value store the turnstile persists into.
+/// A minimal string key/value store the SDK persists into.
 public protocol UsageStorage {
     func get(_ key: String) -> String?
     func set(_ key: String, _ value: String)
 }
 
-// The generated device id is shared across SDKs in an app (one physical device);
-// the re-emit state is namespaced per app key *and* device, so a multi-tenant
-// server tracks a separate turnstile per end-user device.
+// The install id licensing sends. The key keeps its old name so an existing install keeps its id.
 let deviceIdKey = "ai.desertant.usage.deviceId"
-private func stateKey(_ appKey: String, _ deviceId: String) -> String {
-    "ai.desertant.usage.\(appKey).\(deviceId).state"
-}
-// The day of the last turnstile has a key of its own rather than a third field
-// in `.state`: earlier core releases and the Kotlin port reset a `.state` that
-// is not exactly two fields, losing the carry. Two SDKs in one app share these
-// keys, so a newer one must not break an older one reading them.
-private func emitDayKey(_ appKey: String, _ deviceId: String) -> String {
-    "ai.desertant.usage.\(appKey).\(deviceId).emitDay"
-}
-
-/// Resolve the device id for a client: an explicit one wins, then a host-provided
-/// one (JS `__dalDeviceId`, e.g. server-side Node), then the generated+persisted
-/// UUID from storage.
-func resolveDeviceId(_ explicit: String?, _ storage: UsageStorage) -> String {
-    explicit ?? hostProvidedDeviceId() ?? storage.persistentDeviceId()
-}
 
 extension UsageStorage {
     /// The stable per-install device id, generated and persisted on first use.
@@ -62,26 +39,6 @@ extension UsageStorage {
         let id = generateUUID()
         set(deviceIdKey, id)
         return id
-    }
-
-    /// The turnstile state for an (app key, device) ("lastActiveAt,carryCallCount",
-    /// plus the last emit day under its own key).
-    func loadState(_ appKey: String, _ deviceId: String) -> UsageState {
-        let emitDay = get(emitDayKey(appKey, deviceId)).flatMap { Int64($0) }
-        guard let raw = get(stateKey(appKey, deviceId)) else { return UsageState(lastEmitDay: emitDay) }
-        let parts = raw.split(separator: ",", omittingEmptySubsequences: false)
-        guard parts.count == 2, let last = Int64(parts[0]), let carry = Int(parts[1]) else {
-            return UsageState(lastEmitDay: emitDay)
-        }
-        return UsageState(lastActiveAt: last, carryCallCount: carry, lastEmitDay: emitDay)
-    }
-
-    func saveState(_ state: UsageState, _ appKey: String, _ deviceId: String) {
-        set(stateKey(appKey, deviceId), "\(state.lastActiveAt),\(state.carryCallCount)")
-        // Only when it changed: every suspend and flush saves, but the day moves once a day.
-        if let day = state.lastEmitDay.map(String.init), get(emitDayKey(appKey, deviceId)) != day {
-            set(emitDayKey(appKey, deviceId), day)
-        }
     }
 }
 
@@ -156,7 +113,7 @@ func jsProperty(_ object: JSObject, _ name: String) -> JSValue {
 /// `getItem`/`setItem`. Prefers a host-injected `globalThis.__dalUsageStore`
 /// (e.g. a Node server-side store), otherwise the browser's `localStorage`.
 ///
-/// A Node host provides persistence by setting, before creating the client:
+/// A Node host provides persistence by setting, before the first model loads:
 ///   globalThis.__dalUsageStore = { getItem: (k) => string|null, setItem: (k, v) => {} }
 public struct JSKeyValueStorage: UsageStorage {
     private let fixed: JSObject?
@@ -170,9 +127,8 @@ public struct JSKeyValueStorage: UsageStorage {
         return jsHostIsNode() ? nil : jsProperty(JSObject.global, "localStorage").object
     }
     // Through the throwing form: a full origin's `setItem` (QuotaExceededError)
-    // or a host store's error must not unwind through a flush that has already
-    // taken its event off the queue. A failed read is unset; a failed write is
-    // dropped, as reporting is best effort.
+    // or a host store's error must not unwind through the license client. A
+    // failed read is unset; a failed write is dropped.
     public func get(_ key: String) -> String? {
         guard let storage else { return nil }
         return (try? storage.throwing.getItem?(key))?.string

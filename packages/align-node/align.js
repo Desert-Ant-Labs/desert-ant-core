@@ -39,14 +39,12 @@ export function makeAlign(sdk, sdkVersion) {
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }
 
-    /** Run `body(group)` with a fresh call-group id, so every `refine({ group })` inside it bills as one. */
+    /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
     /**
-     * Send the usage this refiner has recorded and await the POST, so a worker
-     * that stops right after a refinement does not exit before it lands. Usage is
-     * reported on its own; this is for a short-lived process, which has no idle
-     * gap for the debounce to fire in.
+     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * a Lambda) does not exit before they finish.
      */
     flushTelemetry() { return this.#model.flushTelemetry(); }
 

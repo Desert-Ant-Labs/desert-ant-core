@@ -2,8 +2,6 @@ package ai.desertant.gradle
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
-import org.gradle.api.tasks.JavaExec
-import org.gradle.api.tasks.testing.Test
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 /**
@@ -35,11 +33,6 @@ class JvmModelSdkPlugin : Plugin<Project> {
         }
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")
-
-        // This repo's own runs must not count as billable devices; consumers
-        // get usage reporting on by default.
-        project.tasks.withType(Test::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
-        project.tasks.withType(JavaExec::class.java).configureEach { it.environment("DAL_USAGE_DISABLED", "1") }
 
         project.configureDesertAntPublishing(ext, jvm = true)
     }

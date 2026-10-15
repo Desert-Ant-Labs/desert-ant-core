@@ -193,12 +193,12 @@ struct HTTPClientTests {
     }
 
     @Test func postSendsRequestHeaders() async throws {
-        // The usage transport carries the API key here on every build but wasm,
-        // whose unload flush is a header-less sendBeacon.
+        // The license client carries the API key here on every build but wasm,
+        // which sends it in the body.
         //
         // Asserted through the body rather than the echoed response header: the wasm
-        // client surfaces only Content-Type from a response, and Node's fetch does
-        // not enforce the browser's forbidden-header rules, so this runs everywhere.
+        // client surfaces only Content-Type and Retry-After from a response, and Node's
+        // fetch does not enforce the browser's forbidden-header rules, so this runs everywhere.
         let sent = Array(#"{"ping":true}"#.utf8)
         let response = try await httpPOST(
             "\(Self.base)/echo",
@@ -214,7 +214,7 @@ struct HTTPClientTests {
     #if !os(WASI)
     @Test func postEchoesRequestHeadersAsResponseHeaders() async throws {
         // Apple and Linux read the whole response header list back, so the echo is
-        // asserted directly there too. Skipped on wasm, which surfaces Content-Type only.
+        // asserted directly there too. Skipped on wasm, which surfaces Content-Type and Retry-After only.
         let sent = Array(#"{"ping":true}"#.utf8)
         let response = try await httpPOST(
             "\(Self.base)/echo",
@@ -225,6 +225,13 @@ struct HTTPClientTests {
         #expect(response.header("X-Dal-Test") == "1")
     }
     #endif
+
+    @Test func postSurfacesRetryAfter() async throws {
+        let response = try await httpPOST(
+            "\(Self.base)/echo", body: Array("{}".utf8), contentType: "application/json",
+            headers: ["Retry-After": "120"])
+        #expect(response.header("Retry-After") == "120")
+    }
 
     @Test func getReturnsOKWithEmptyBody() async throws {
         let response = try await httpGET("\(Self.base)/health")

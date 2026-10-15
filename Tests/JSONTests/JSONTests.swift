@@ -28,6 +28,14 @@ struct JSONTests {
         }
     }
 
+    @Test func invalidJSONThrows() {
+        for text in ["not json", "<html>Bad Gateway</html>", "", "{\"a\":"] {
+            #expect(throws: (any Error).self, "\(text)") {
+                try JSONDecoder().decode([String: String].self, from: text)
+            }
+        }
+    }
+
     @Test func encodeCodableSortedKeysCompact() throws {
         let p = Person(name: "Anna", age: 33, admin: true, scores: [1.5, 2], nick: nil)
         // Object keys are sorted; nil optionals are omitted; output is compact.

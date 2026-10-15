@@ -51,26 +51,21 @@ public func nativeRun(
     inputLen: Int32,
     options: UnsafePointer<UInt8>?,
     optionsLen: Int32,
-    groupId: UnsafePointer<CChar>?,
     deviceId: UnsafePointer<CChar>?
 ) -> UnsafeMutablePointer<CChar>? {
     guard let model = model(handle) else { return nil }
     let inputReader = FFIReader(input, inputLen)
     let optionsReader = FFIReader(options, optionsLen)
-    let group = string(groupId)
     let device = string(deviceId)
     let payload: [UInt8]? = blockingValue(with: model) { model in
         await InferenceContext.$deviceId.withValue(device) {
-            await InferenceContext.withCallGroup(id: group) {
-                await model.run(input: inputReader, options: optionsReader)
-            }
+            await model.run(input: inputReader, options: optionsReader)
         }
     }
     return payload.flatMap(ffiEmit)
 }
 
-/// Force every tracked session to emit usage now (bypassing the debounce and the
-/// re-emit window) and block until the sends complete. The C ABI's
+/// Block until the license requests in flight finish. The C ABI's
 /// `dal_flush_telemetry`, behind the SDKs' `flushTelemetry()`.
 public func nativeFlushTelemetry() {
     blockingValue { await TelemetryDebug.shared.flushAndWait() }

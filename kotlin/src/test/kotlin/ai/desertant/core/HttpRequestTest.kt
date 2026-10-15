@@ -3,9 +3,13 @@ package ai.desertant.core
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.Socket
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.nio.ByteBuffer
 import kotlin.concurrent.thread
 
@@ -18,7 +22,7 @@ class HttpRequestTest {
 
     @After fun stop() = server.close()
 
-    private fun serve(status: Int, reply: String) = thread {
+    private fun serve(status: Int, reply: String, headers: String = "") = thread {
         server.accept().use { socket ->
             val input = socket.getInputStream().bufferedReader()
             val head = generateSequence { input.readLine() }.takeWhile { it.isNotEmpty() }.toList()
@@ -28,7 +32,7 @@ class HttpRequestTest {
             request = (head + String(body)).joinToString("\n")
             val bytes = reply.toByteArray()
             socket.getOutputStream().write(
-                "HTTP/1.1 $status X\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray() + bytes,
+                "HTTP/1.1 $status X\r\n${headers}Content-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray() + bytes,
             )
         }
     }
@@ -39,6 +43,12 @@ class HttpRequestTest {
         val status = buffer.int
         val body = ByteArray(buffer.int).also { buffer.get(it) }
         return status to body.decodeToString()
+    }
+
+    private fun retryAfter(result: ByteArray): String {
+        val buffer = ByteBuffer.wrap(result)
+        buffer.position(8 + buffer.getInt(4))
+        return ByteArray(buffer.remaining()).also { buffer.get(it) }.decodeToString()
     }
 
     @Test fun postSendsTheBodyContentTypeAndHeadersAndReturnsTheResponse() {
@@ -64,11 +74,50 @@ class HttpRequestTest {
         val result = HostBridge.httpRequest("POST".toByteArray(), url.toByteArray(), ByteArray(0), null)
         serving.join()
         assertEquals(400 to "bad body", decode(result!!))
+        assertEquals("", retryAfter(result))
+    }
+
+    @Test fun retryAfterFollowsTheBody() {
+        val serving = serve(503, "busy", "Retry-After: 120\r\n")
+        val result = HostBridge.httpRequest("POST".toByteArray(), url.toByteArray(), ByteArray(0), null)
+        serving.join()
+        assertEquals(503 to "busy", decode(result!!))
+        assertEquals("120", retryAfter(result))
     }
 
     @Test fun aTransportFailureIsNull() {
         val closed = url
         server.close()
         assertNull(HostBridge.httpRequest("POST".toByteArray(), closed.toByteArray(), ByteArray(0), null))
+    }
+
+    @Test fun aServerThatNeverAnswersIsNullAtTheReadTimeout() {
+        var accepted: Socket? = null
+        val holding = thread { accepted = runCatching { server.accept() }.getOrNull() }
+        val started = System.nanoTime()
+
+        val result = HostBridge.httpRequest(
+            "POST".toByteArray(), url.toByteArray(), """{"model":"emo"}""".toByteArray(), "application/json".toByteArray(),
+        )
+
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        holding.join()
+        accepted?.close()
+        assertNull(result)
+        assertTrue("${HostBridge.lastHttpRequestError}", HostBridge.lastHttpRequestError is SocketTimeoutException)
+        assertTrue("gave up after $elapsedMs ms", elapsedMs in 4_000..11_000)
+    }
+
+    @Test fun aHostThatDoesNotResolveIsNull() {
+        val started = System.nanoTime()
+
+        val result = HostBridge.httpRequest(
+            "POST".toByteArray(), "http://license.invalid/api/v1/license".toByteArray(), ByteArray(0), null,
+        )
+
+        val elapsedMs = (System.nanoTime() - started) / 1_000_000
+        assertNull(result)
+        assertTrue("${HostBridge.lastHttpRequestError}", HostBridge.lastHttpRequestError is UnknownHostException)
+        assertTrue("took $elapsedMs ms", elapsedMs < 11_000)
     }
 }

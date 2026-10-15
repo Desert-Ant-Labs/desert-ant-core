@@ -209,7 +209,7 @@ struct ClearTests {
         #expect(energy > 0)                             // not silent
         #expect(result.measuredLUFS != nil)
         // The run identifies the artifact that produced it (read off the cached
-        // file name), so a benchmark or usage event is self-describing.
+        // file name), so a benchmark is self-describing.
         #expect(result.modelVariant == .clearStudio)
     }
 

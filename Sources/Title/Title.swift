@@ -127,6 +127,7 @@ public actor Titles {
         self.model = try await #huggingFaceLoadModelContainer(
             configuration: ModelConfiguration(directory: directory))
         self.maxTokens = maxTokens
+        licenseOnLoad(TitleModel.sdkInfo)
     }
 
     /// A title and description for any passage of text.

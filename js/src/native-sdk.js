@@ -27,33 +27,19 @@ function hostDeviceId() {
 }
 
 /**
- * The core's `flagIsSet`: `true`, a finite non-zero number, or a string other
- * than "", "0" and "false".
- */
-function flagIsSet(value) {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) && value !== 0;
-  return typeof value === "string" && value !== "" && value !== "0" && value !== "false";
-}
-
-/**
- * The native core reads usage identity and settings from the environment
- * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_APP_VERSION,
- * DAL_USAGE_DISABLED, DAL_USAGE_CONTEXT_DISABLED); the browser entry reads the
- * same values from `globalThis.__dal*`. Bridging them means a host sets one
- * spelling on either runtime, and a server that sets the global is not silently
- * unattributed. Each may be a string or a zero-arg function, the two forms the
- * core's own JS host read accepts, and the two opt-out flags may also be `true`
- * or a finite non-zero number, as they may in a page. An environment variable
- * already set wins, except that a flag is an opt-out from either side, as in
- * the core: a set global turns on a flag the environment has off.
+ * The native core reads its host settings from the environment
+ * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_LICENSE_ENDPOINT); the browser
+ * entry reads the same values from `globalThis.__dal*`. Bridging them means a
+ * host sets one spelling on either runtime. Each may be a string or a zero-arg
+ * function, the two forms the core's own JS host read accepts. An environment
+ * variable already set wins.
  *
  * Run at each load rather than once at import, so a host that imports the package
- * before setting the global is still attributed, but only until a native model
+ * before setting the global is still picked up, but only until a native model
  * first loads in this process: from then on core threads read the environment,
  * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
- * later still counts, since `run` passes it per call; a key, app id, app version,
- * usage switch or context flag set after the first load has to be in the environment already.
+ * later still reaches the core, since `run` passes it per call; a key, app id or
+ * endpoint set after the first load has to be in the environment already.
  */
 function bridgeHostIdentity() {
   if (globalThis[NATIVE_STARTED]) return;
@@ -61,19 +47,13 @@ function bridgeHostIdentity() {
     ["__dalAppId", "DAL_APP_ID"],
     ["__dalApiKey", "DAL_API_KEY"],
     ["__dalDeviceId", "DAL_DEVICE_ID"],
-    ["__dalAppVersion", "DAL_APP_VERSION"],
-    ["__dalUsageDisabled", "DAL_USAGE_DISABLED"],
-    ["__dalUsageContextDisabled", "DAL_USAGE_CONTEXT_DISABLED"],
+    ["__dalLicenseEndpoint", "DAL_LICENSE_ENDPOINT"],
   ]) {
     let value;
     try {
       const raw = globalThis[name];
       value = typeof raw === "function" ? raw() : raw;
     } catch {
-      continue;
-    }
-    if (env === "DAL_USAGE_DISABLED" || env === "DAL_USAGE_CONTEXT_DISABLED") {
-      if (flagIsSet(value) && !flagIsSet(process.env[env])) process.env[env] = "1";
       continue;
     }
     if (typeof value === "string" && value && !process.env[env]) process.env[env] = value;
@@ -114,14 +94,14 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       const rc = await callAsync(lib.download, handle);
       if (rc !== 0) throw new Error("the native core reported a download failure");
     },
-    async run(handle, input, options, group, deviceId) {
+    async run(handle, input, options, _group, deviceId) {
       const payload = options ?? new Uint8Array();
       // Per call rather than through the environment, which is not written
       // once a native model has started (see bridgeHostIdentity). The
       // environment still wins, as it does in the bridge.
       const device = deviceId ?? (process.env.DAL_DEVICE_ID ? null : hostDeviceId());
       const ptr = await callAsync(
-        lib.run, handle, input, input.length, payload, payload.length, group, device);
+        lib.run, handle, input, input.length, payload, payload.length, null, device);
       if (!ptr) throw new Error(`${packageName}: the model failed to run`);
       try {
         return decodeResult(ptr);
@@ -141,10 +121,9 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     withCallGroup,
   };
 
-  // Global hook for forcing the usage POST out and awaiting it without a model
-  // reference, mirroring the wasm entry (`createWasmSdk`). Gated on the same flag
-  // the telemetry log itself needs; a host holding a model calls its
-  // `flushTelemetry()` instead.
+  // Global hook for awaiting the license requests in flight without a model
+  // reference, mirroring the wasm entry (`createWasmSdk`). Gated on
+  // DAL_HTTP_DEBUG; a host holding a model calls its `flushTelemetry()` instead.
   if (process.env.DAL_HTTP_DEBUG) {
     globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
   }

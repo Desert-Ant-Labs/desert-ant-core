@@ -1,5 +1,5 @@
 // Re-exported so SDKs importing `Inference` (for the session factory) also get
-// the usage wire types (`SDKInfo`, `IngestBody`, ...) without a separate import.
+// `SDKInfo` and the licensing entry points without a separate import.
 @_exported import Usage
 
 /// Errors from building or running an inference session.
@@ -31,11 +31,10 @@ public enum InferenceError: Error, Sendable {
 /// set once at init; Core ML is reentrant, LiteRT runs are serialized around
 /// its fixed buffers, and wasm is single-threaded.
 public protocol InferenceSession: Sendable {
-    /// Run the model. `deviceId` attributes usage to a specific end-user device
-    /// for multi-tenant hosts (e.g. a server serving many users); `nil` uses the
-    /// default device (the app's persisted id, or a host-provided one). The
-    /// concrete backends ignore it; only the usage-tracking wrapper uses it.
-    /// Most callers use the two-argument convenience below.
+    /// Run the model. `deviceId` names the end-user device for multi-tenant
+    /// hosts (e.g. a server serving many users); `nil` uses the default device.
+    /// The backends ignore it, and licensing does not read it yet. Most callers
+    /// use the two-argument convenience below.
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor]
 
     /// The last-dimension extent this graph was compiled at for a named input (its sequence
@@ -64,13 +63,13 @@ public extension InferenceSession {
     /// from "it is 128".
     func inputWidth(_ name: String) -> Int? { nil }
 
-    /// Run, resolving the device id for usage attribution without the SDK having
-    /// to pass one. Precedence:
+    /// Run, resolving the device id without the SDK having to pass one.
+    /// Precedence:
     ///   1. `InferenceContext.deviceId`: a per-call task-local the host binds
     ///      around this call (the correct path for concurrent multi-tenant hosts).
     ///   2. `hostProvidedDeviceId()`: a host default (`globalThis.__dalDeviceId`
     ///      on WASI; native host id elsewhere).
-    ///   3. `nil`: the app's persisted/default device, resolved downstream.
+    ///   3. `nil`: the default device.
     func run(inputs: [String: Tensor], outputs: [String]) async throws -> [Tensor] {
         let deviceId = InferenceContext.deviceId ?? hostProvidedDeviceId()
         return try await run(inputs: inputs, outputs: outputs, deviceId: deviceId)

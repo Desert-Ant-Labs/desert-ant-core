@@ -1,0 +1,293 @@
+{
+  "description": "Shared license contract vectors for dal-core and the SDKs. Test material only; never use these keys or this secret outside tests.",
+  "licenseIdSecret": "dal-license-test-secret-0123456789abcdef",
+  "licenseIdEncoding": "HMAC-SHA256(secret, for each of [\"dal-license-id/v1\", installId, app, model, period]: 4-byte big-endian UTF-8 length then the UTF-8 bytes); first 16 bytes; byte 6 = (b & 0x0f) | 0x80; byte 8 = (b & 0x3f) | 0x80; lowercase 8-4-4-4-12 hex",
+  "keys": [
+    {
+      "kid": "test-1",
+      "sdkFrom": "0.0.0",
+      "privateKeyPkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgOwfsLRvFsr//Werl+iPoIaCbxEsNSwmZZM5b+E1HlAqhRANCAASnRJQOem2iTlZXqFVSgux1au++qWdUGNjIWHd/kShdizuiCxdyWa0Ik88Cv9SeTdOZthd0/7jIxnuPxjUAJsui",
+      "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEp0SUDnptok5WV6hVUoLsdWrvvqlnVBjYyFh3f5EoXYs7ogsXclmtCJPPAr/Unk3TmbYXdP+4yMZ7j8Y1ACbLog==",
+      "publicKeyX963": "BKdElA56baJOVleoVVKC7HVq776pZ1QY2MhYd3+RKF2LO6ILF3JZrQiTzwK/1J5N05m2F3T/uMjGe4/GNQAmy6I="
+    },
+    {
+      "kid": "test-2",
+      "sdkFrom": "3.7.0",
+      "privateKeyPkcs8": "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgpB0RnuSqHadJpbmOiPuyu/da2UE+BcXV2V8z9DEI0fyhRANCAAQzNgRG/vdYhWlqc+L2E/l/pizHhnBTbUxnJGwk983PdHpgiwgs75JlOaja04iM2ANT1NyTInBKrZe24c3YSmX2",
+      "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEMzYERv73WIVpanPi9hP5f6Ysx4ZwU21MZyRsJPfNz3R6YIsILO+SZTmo2tOIjNgDU9TckyJwSq2XtuHN2Epl9g==",
+      "publicKeyX963": "BDM2BEb+91iFaWpz4vYT+X+mLMeGcFNtTGckbCT3zc90emCLCCzvkmU5qNrTiIzYA1PU3JMicEqtl7bhzdhKZfY="
+    }
+  ],
+  "keySelection": [
+    {
+      "sdkVersion": "3.6.0",
+      "kid": "test-1"
+    },
+    {
+      "sdkVersion": "3.7.0",
+      "kid": "test-2"
+    },
+    {
+      "sdkVersion": "3.7.0-rc.1",
+      "kid": "test-2"
+    },
+    {
+      "sdkVersion": "4.1.2",
+      "kid": "test-2"
+    },
+    {
+      "sdkVersion": "not-a-version",
+      "kid": "test-1"
+    }
+  ],
+  "licenseIds": [
+    {
+      "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
+      "app": "ios:com.acme.app",
+      "model": "emo",
+      "period": "2026-10",
+      "licenseId": "efe0d0d2-a957-8026-8b33-e6618d4f4dff"
+    },
+    {
+      "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
+      "app": "ios:com.acme.app",
+      "model": "emo",
+      "period": "2026-11",
+      "licenseId": "bf321334-9e93-8b14-becc-df6c85017435"
+    },
+    {
+      "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
+      "app": "ios:com.acme.app",
+      "model": "redact",
+      "period": "2026-10",
+      "licenseId": "5cdcd9d9-3ecf-83c4-93f9-ca60d56b5957"
+    },
+    {
+      "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
+      "app": "android:com.acme.app",
+      "model": "emo",
+      "period": "2026-10",
+      "licenseId": "ca4596ac-1f44-802b-82bb-681f09b0519a"
+    },
+    {
+      "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
+      "app": "web:acme.co.uk",
+      "model": "clear",
+      "period": "2027-01",
+      "licenseId": "e0a73f5a-008c-831d-9d72-ca0aca801793"
+    },
+    {
+      "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
+      "app": "ios:ab",
+      "model": "c",
+      "period": "2026-10",
+      "licenseId": "f6626fad-79c1-87f0-8616-0815b564d503"
+    },
+    {
+      "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
+      "app": "ios:a",
+      "model": "bc",
+      "period": "2026-10",
+      "licenseId": "05240fc4-a78b-8420-ae40-b8f0adc3aa0c"
+    }
+  ],
+  "periods": [
+    {
+      "serverTime": "2026-10-07T12:00:00Z",
+      "period": "2026-10",
+      "periodEnd": "2026-11-01T00:00:00Z"
+    },
+    {
+      "serverTime": "2026-10-31T23:59:59.999Z",
+      "period": "2026-10",
+      "periodEnd": "2026-11-01T00:00:00Z"
+    },
+    {
+      "serverTime": "2026-11-01T00:00:00Z",
+      "period": "2026-11",
+      "periodEnd": "2026-12-01T00:00:00Z"
+    },
+    {
+      "serverTime": "2026-12-15T08:30:00Z",
+      "period": "2026-12",
+      "periodEnd": "2027-01-01T00:00:00Z"
+    }
+  ],
+  "appIdentity": [
+    {
+      "platform": "web",
+      "origin": "https://app.acme.co.uk",
+      "app": "web:acme.co.uk"
+    },
+    {
+      "platform": "web",
+      "origin": "https://www.acme.com:8443",
+      "app": "web:acme.com"
+    },
+    {
+      "platform": "web",
+      "origin": "http://localhost:3000",
+      "app": "web:localhost"
+    },
+    {
+      "platform": "web",
+      "origin": "http://192.168.1.5:8080",
+      "app": "web:192.168.1.5"
+    },
+    {
+      "platform": "web",
+      "origin": null,
+      "app": "web:_unknown"
+    },
+    {
+      "platform": "web",
+      "origin": "null",
+      "app": "web:_unknown"
+    },
+    {
+      "platform": "ios",
+      "appId": "Com.Acme.App",
+      "app": "ios:com.acme.app"
+    },
+    {
+      "platform": "android",
+      "appId": "com.acme.app\u0007",
+      "app": "android:com.acme.app"
+    },
+    {
+      "platform": "server",
+      "appId": "Acme-Backend",
+      "app": "server:acme-backend"
+    }
+  ],
+  "tokens": [
+    {
+      "name": "valid",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1SUJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "expect": "valid",
+      "payload": {
+        "v": 1,
+        "lid": "efe0d0d2-a957-8026-8b33-e6618d4f4dff",
+        "period": "2026-10",
+        "periodEnd": "2026-11-01T00:00:00Z",
+        "app": "ios:com.acme.app",
+        "model": "emo",
+        "modelVersion": "1.2.0",
+        "sdk": "desert-ant-core",
+        "sdkVersion": "3.7.0",
+        "platform": "ios",
+        "iat": 1791331200
+      }
+    },
+    {
+      "name": "valid-old-key",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMSIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjYuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.-5ko_PR3uy1Fyp19T77XPR6O7IsdD_t-gyh6lQCG6jusTmVDqPAAaDWkIhmANxv5A4LF3KcOdsbt7LOR-uY4ng",
+      "expect": "valid",
+      "payload": {
+        "v": 1,
+        "lid": "efe0d0d2-a957-8026-8b33-e6618d4f4dff",
+        "period": "2026-10",
+        "periodEnd": "2026-11-01T00:00:00Z",
+        "app": "ios:com.acme.app",
+        "model": "emo",
+        "modelVersion": "1.2.0",
+        "sdk": "desert-ant-core",
+        "sdkVersion": "3.6.0",
+        "platform": "ios",
+        "iat": 1791331200
+      }
+    },
+    {
+      "name": "wrong-alg",
+      "token": "eyJhbGciOiJFUzM4NCIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.xugIx8Y-nzeIO6vsF5qNwNLJzUNqGOid502ZJwi_azpBcD2m7iaZUdT7SS8zdrJ9RRQX3QSh_HObTqBAWKl-kA",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "none-alg",
+      "token": "eyJhbGciOiJub25lIiwia2lkIjoidGVzdC0yIiwidHlwIjoiZGFsLWxpY2Vuc2Urand0In0.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "wrong-typ",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6IkpXVCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.yJjev-KTXcJ9fN-u33r3ViSbEbxS6HyJqI7XZkjHMynyAaffH8XqWLKdVTronVWZZOVRyYpBKd1k5UDcUqLBLg",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "bad-signature",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1doJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "der-signature",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.MEQCIF66-dh59vMeUTlf1uhu1S9Pioo_JBF7DwCpg5lK2VOmAiA8WXjFySZnxJDH-0718p1Z3EkUyIkV9QXkf0Y-Bdz5Kw",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "tampered-payload",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTA5IiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1SUJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "expect": "invalid_license"
+    },
+    {
+      "name": "unknown-kid",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtdW5rbm93biIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.yXsOF0yxFF_z0bbg3tPJ0id0WAYZuY0VmPP8sg9fC2Xaqx5mX13CP8BWAwP1T0snuVicnPmajsOWai4oArr9Qw",
+      "expect": "unknown_key"
+    },
+    {
+      "name": "malformed",
+      "token": "not-a-token",
+      "expect": "invalid_license"
+    }
+  ],
+  "sdkResponseRules": [
+    {
+      "status": 200,
+      "dalErrorBody": false,
+      "action": "done"
+    },
+    {
+      "status": 400,
+      "dalErrorBody": true,
+      "action": "terminal"
+    },
+    {
+      "status": 422,
+      "dalErrorBody": true,
+      "action": "terminal"
+    },
+    {
+      "status": 400,
+      "dalErrorBody": false,
+      "action": "retry"
+    },
+    {
+      "status": 403,
+      "dalErrorBody": false,
+      "action": "retry"
+    },
+    {
+      "status": 404,
+      "dalErrorBody": false,
+      "action": "retry"
+    },
+    {
+      "status": 429,
+      "dalErrorBody": true,
+      "action": "retry"
+    },
+    {
+      "status": 503,
+      "dalErrorBody": true,
+      "action": "retry"
+    },
+    {
+      "status": 500,
+      "dalErrorBody": false,
+      "action": "retry"
+    },
+    {
+      "status": 0,
+      "dalErrorBody": false,
+      "action": "retry-network"
+    }
+  ]
+}

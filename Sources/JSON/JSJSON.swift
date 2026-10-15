@@ -5,7 +5,8 @@ import JavaScriptKit
 /// `JSONValue` for the Codable decoder.
 func parseJSONValue(_ text: String) throws -> JSONValue {
     let json = JSObject.global.JSON.object!
-    return convert(json.parse!(text))
+    guard let parsed = try? json.throwing.parse!(text) else { throw JSONError.invalid }
+    return convert(parsed)
 }
 
 enum JSONError: Error { case invalid }

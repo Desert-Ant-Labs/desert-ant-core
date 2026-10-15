@@ -19,6 +19,7 @@ import JavaScriptKit
 import JavaScriptEventLoop
 #elseif os(Android)
 import CHostBridge
+import CStrings
 #endif
 
 /// A parsed HTTP response. `headers` preserves order and does not fold names.
@@ -183,11 +184,12 @@ private func performHTTPRequest(
     let status = Int(response.status.number ?? 0)
     httpDebugLog("response \(status) for \(url)")
 
-    // Content-Type is the only header consumers need; fetch's Headers object is
-    // awkward to enumerate from Swift, so read just that one.
+    // Content-Type and Retry-After are the only headers consumers need; fetch's
+    // Headers object is awkward to enumerate from Swift, so read just those.
     var headers: [(name: String, value: String)] = []
-    if let h = response.headers.object, let ct = h.get?("content-type").string {
-        headers.append(("Content-Type", ct))
+    if let h = response.headers.object {
+        if let ct = h.get?("content-type").string { headers.append(("Content-Type", ct)) }
+        if let retryAfter = h.get?("retry-after").string { headers.append(("Retry-After", retryAfter)) }
     }
 
     guard let arrayBuffer = response.arrayBuffer.function,
@@ -217,7 +219,8 @@ private func performHTTPRequest(
     timeout: Double? = nil
 ) async throws -> HTTPResponse {
     // The host (java.net/OkHttp) performs the request via CHostBridge and returns
-    // a malloc'd buffer: 4-byte BE status, 4-byte BE body length, then the body.
+    // a malloc'd buffer: 4-byte BE status, 4-byte BE body length, the body, then
+    // the Retry-After value, NUL-terminated.
     // Headers cross as newline-separated lines, so a line break inside one would
     // split it into a second header; refuse it, as the other transports do.
     for (name, value) in headers where (name + value).contains(where: { $0 == "\n" || $0 == "\r" }) {
@@ -245,7 +248,8 @@ private func performHTTPRequest(
     let status = Int(base[0]) << 24 | Int(base[1]) << 16 | Int(base[2]) << 8 | Int(base[3])
     let length = Int(base[4]) << 24 | Int(base[5]) << 16 | Int(base[6]) << 8 | Int(base[7])
     let body = [UInt8](UnsafeBufferPointer(start: base + 8, count: length))
-    return HTTPResponse(status: status, headers: [], body: body)
+    let retryAfter = decodeCString(raw + 8 + length)
+    return HTTPResponse(status: status, headers: retryAfter.isEmpty ? [] : [("Retry-After", retryAfter)], body: body)
 }
 
 #else

@@ -3,6 +3,9 @@ import Testing
 #if canImport(Foundation) && !os(Android) && !os(WASI)
 import Foundation
 #endif
+#if os(WASI)
+import JavaScriptKit
+#endif
 
 struct StorageTests {
     @Test func inMemoryGetSet() {
@@ -19,39 +22,6 @@ struct StorageTests {
         #expect(store.persistentDeviceId() == id)     // stable across calls
     }
 
-    @Test func explicitDeviceIdWinsOverGenerated() {
-        let store = InMemoryStorage()
-        // An explicit id (e.g. a server-side Node process supplies its own) is used
-        // as-is; otherwise it falls back to the generated, persisted UUID.
-        #expect(resolveDeviceId("server-device-1", store) == "server-device-1")
-        let generated = resolveDeviceId(nil, store)
-        #expect(generated.count == 36)
-        #expect(resolveDeviceId(nil, store) == generated)   // stable
-    }
-
-    @Test func stateRoundTripsPerKeyAndDevice() {
-        let store = InMemoryStorage()
-        #expect(store.loadState("acme", "dev-1") == UsageState())   // unset -> default
-        store.saveState(UsageState(lastActiveAt: 123, carryCallCount: 4), "acme", "dev-1")
-        #expect(store.loadState("acme", "dev-1") == UsageState(lastActiveAt: 123, carryCallCount: 4))
-        #expect(store.loadState("acme", "dev-2") == UsageState())   // namespaced per device
-        #expect(store.loadState("other", "dev-1") == UsageState())  // and per key
-    }
-
-    /// The emit day lives under its own key, so `.state` keeps the two-field
-    /// shape older readers (earlier core, the Kotlin port) require.
-    @Test func emitDayRoundTripsBesideTheTwoFieldState() {
-        let store = InMemoryStorage()
-        store.saveState(UsageState(lastActiveAt: 123, carryCallCount: 4, lastEmitDay: 19754), "acme", "dev-1")
-        #expect(store.get("ai.desertant.usage.acme.dev-1.state") == "123,4")
-        #expect(store.get("ai.desertant.usage.acme.dev-1.emitDay") == "19754")
-        #expect(store.loadState("acme", "dev-1") == UsageState(lastActiveAt: 123, carryCallCount: 4, lastEmitDay: 19754))
-
-        // State an older release wrote has no day: unknown, not today.
-        let legacy = InMemoryStorage(["ai.desertant.usage.acme.dev-1.state": "123,4"])
-        #expect(legacy.loadState("acme", "dev-1") == UsageState(lastActiveAt: 123, carryCallCount: 4))
-    }
-
     #if canImport(Foundation) && !os(Android) && !os(WASI)
     @Test func userDefaultsPersists() throws {
         let suite = "dal.usage.test.\(UUID().uuidString)"
@@ -62,9 +32,44 @@ struct StorageTests {
         #expect(store.get("x") == nil)
         store.set("x", "y")
         #expect(store.get("x") == "y")
-        // deviceId + state helpers persist through it.
+        // The install id persists through it.
         let id = store.persistentDeviceId()
         #expect(UserDefaultsStorage(defaults: defaults).persistentDeviceId() == id)
+    }
+    #endif
+
+    #if os(WASI)
+    @Test func aJSStoreRoundTripsAndKeepsTheInstallId() {
+        let make = JSObject.global.Function.function!.new("""
+            return { m: new Map(),
+                     getItem(k) { return this.m.has(k) ? this.m.get(k) : null },
+                     setItem(k, v) { this.m.set(k, String(v)) } }
+            """)
+        let store = JSKeyValueStorage(object: make().object!)
+        #expect(store.get("missing") == nil)
+        store.set("k", "v")
+        #expect(store.get("k") == "v")
+        let id = store.persistentDeviceId()
+        #expect(store.persistentDeviceId() == id)
+    }
+
+    @Test func aThrowingJSStoreReadsAsUnsetAndDropsTheWrite() {
+        let throwing = JSObject.global.Function.function!.new("k", "v", "throw new Error('quota')")
+        let object = JSObject.global.Object.function!.new()
+        object.getItem = .object(throwing)
+        object.setItem = .object(throwing)
+        let store = JSKeyValueStorage(object: object)
+        store.set("k", "v")
+        #expect(store.get("k") == nil)
+        store.saveLicense(StoredLicense(token: "t"), "acme", "emo")
+        #expect(store.loadLicense("acme", "emo") == StoredLicense())
+    }
+
+    @Test func aPropertyWhoseGetterThrowsReadsAsAbsent() {
+        let make = JSObject.global.Function.function!.new("""
+            const o = {}; Object.defineProperty(o, "localStorage", { get() { throw new Error("SecurityError") } }); return o
+            """)
+        #expect(jsProperty(make().object!, "localStorage").isUndefined)
     }
     #endif
 }

@@ -14,7 +14,7 @@ const core = (probe) => ({
 
 test("a Linux core that cannot open libcurl throws the install hint", () => {
   assert.throws(() => checkLibcurl(core(() => 0), "@desert-ant-labs/align", "linux"), {
-    message: /^@desert-ant-labs\/align: libcurl is required \(downloads and usage reporting\).*Install libcurl4/,
+    message: /^@desert-ant-labs\/align: libcurl is required \(downloads and licensing\).*Install libcurl4/,
   });
 });
 

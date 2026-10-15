@@ -1,5 +1,5 @@
 // The model-specific half of this package's types. Everything that is the same
-// for every model - how a model is loaded, how a call is billed and attributed -
+// for every model, such as how a model is loaded and its per-call options,
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
 
@@ -82,9 +82,9 @@ export declare class Clear {
           sampleRate?: number, options?: EnhanceOptions): Promise<ClearResult>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
-  /** Bill every call made inside `body` as one usage call. */
+  /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
-  /** Send recorded usage and await the POST. One load per device per call. */
+  /** Wait for the license requests in flight. */
   flushTelemetry(): Promise<boolean>;
   /** Release the model. */
   dispose(): void;

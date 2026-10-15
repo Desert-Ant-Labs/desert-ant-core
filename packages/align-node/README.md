@@ -64,32 +64,21 @@ A directory that already holds the model files is used offline, as-is. An empty 
 
 Which file format the core opens is its own business: it resolves the artifacts for the host it is running on from the catalog, so your code never names a model file.
 
-## Usage metering
+## Model licenses
 
-Two optional per-call knobs, both accepted by `refine`:
+Loading the model requests and activates that month's license in the background, as [Model licenses](https://github.com/Desert-Ant-Labs/desert-ant-core#model-licenses) in the core README describes. The refiner never waits for the license. A server that wants to name itself instead of sending its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`. A registered API key goes in `DAL_API_KEY` or `globalThis.__dalApiKey`, and the SDK sends it as an `Authorization: Bearer` header.
 
-- `deviceId` attributes a call to a specific end-user device. It is read per call, so a multi-tenant host can serve many devices from one loaded model.
-- `group` bills several calls as one. Get an id from `withCallGroup`, which releases it when the body settles:
-
-```js
-await align.withCallGroup(async (group) => {
-  for (const segment of segments) {
-    await align.refine(segment.samples, 16000, segment.words, { language: "en", group });
-  }
-});
-```
-
-Attribution is automatic: this package reports the platform it runs on, and the endpoint counts distinct devices per month. A server that wants to name itself instead of reporting its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`, and a registered API key goes in `DAL_API_KEY` or `globalThis.__dalApiKey`, sent as an `Authorization: Bearer` header. Each event also carries the OS name and major version, plus an app version (`DAL_APP_VERSION` sets it, as does `globalThis.__dalAppVersion` set before the first model loads), and nothing else about the host; `DAL_USAGE_CONTEXT_DISABLED=1` leaves it out, as does `globalThis.__dalUsageContextDisabled` set before the first model loads. `DAL_USAGE_DISABLED=1` turns usage reporting off altogether, as does `globalThis.__dalUsageDisabled`. In a browser the global is read on every call, so a page can keep it set until its visitor consents and clear it then. On the native build it is read only until the first model loads: set before that, it keeps usage off for the life of the process, and changing it later has no effect.
-
-A process that exits without flushing reports nothing, because the usage POST is debounced. `flushTelemetry()` forces it out and resolves once the endpoint has answered, so a worker calls it before it exits:
+A worker that exits right after loading the model calls `flushTelemetry()` first. The promise resolves once the license requests in flight have finished:
 
 ```js
 await align.flushTelemetry();
 ```
 
+`refine` still accepts `deviceId` and `group`, and `withCallGroup` still runs its body. Neither option changes licensing.
+
 ## Platforms
 
-The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. All three were verified by hand from the packed tarball in a clean project, refining real audio: `darwin-arm64` on macOS on the Core ML backend, and both Linux targets on LiteRT in a `node:22` container, the `linux-x64` run under emulation. No CI lane covers this path yet, so treat those as point-in-time checks rather than a standing guarantee. `linux-x64` needs glibc 2.28 or newer, so it loads on Ubuntu 20.04+, Debian 11+ and AWS Lambda's managed Node runtimes. `linux-arm64` needs glibc 2.34, which the LiteRT runtime it links sets, so Ubuntu 22.04+, Debian 12+ and Lambda. Linux also needs the system libcurl, for downloads and usage reporting: `apt install libcurl4` where it is missing. Without it `load()` throws an error saying so. On Lambda's arm64 runtime the CPU backend also needs `/sys/devices/system/cpu`, which Lambda does not mount, so preload the `libdalcpushim.so` that ships in `native/linux-arm64` first (the root README covers it under "AWS Lambda on arm64"). x86_64 needs none of that. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
+The native core ships for `darwin-arm64`, `linux-x64` and `linux-arm64`. All three were verified by hand from the packed tarball in a clean project, refining real audio: `darwin-arm64` on macOS on the Core ML backend, and both Linux targets on LiteRT in a `node:22` container, the `linux-x64` run under emulation. No CI lane covers this path yet, so treat those as point-in-time checks rather than a standing guarantee. `linux-x64` needs glibc 2.28 or newer, so it loads on Ubuntu 20.04+, Debian 11+ and AWS Lambda's managed Node runtimes. `linux-arm64` needs glibc 2.34, which the LiteRT runtime it links sets, so Ubuntu 22.04+, Debian 12+ and Lambda. Linux also needs the system libcurl, for downloads and licensing: `apt install libcurl4` where it is missing. Without it `load()` throws an error saying so. On Lambda's arm64 runtime the CPU backend also needs `/sys/devices/system/cpu`, which Lambda does not mount, so preload the `libdalcpushim.so` that ships in `native/linux-arm64` first (the root README covers it under "AWS Lambda on arm64"). x86_64 needs none of that. Any other Node platform throws a clear error at `load()`, naming the targets that exist. Use the Swift package there instead.
 
 If you import this package from a framework that bundles server code, mark it external so the bundler leaves the native binary alone. In Next.js:
 

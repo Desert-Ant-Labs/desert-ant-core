@@ -2,7 +2,7 @@ import DesertAnt
 
 /// A published variant of the clear model. Its `rawValue` is the artifact stem
 /// on the Hub (`clear-studio.mlmodelc`, `clear-studio.tflite`, ...), so a
-/// persisted selection and a telemetry field are the same string.
+/// persisted selection names the artifact directly.
 public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiable {
     /// Studio: the more aggressive denoise/dereverb. The SDK default.
     case clearStudio = "clear-studio"

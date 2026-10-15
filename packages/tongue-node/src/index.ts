@@ -16,10 +16,9 @@
 import { normalize, MAX_CHARACTERS } from "./normalize.js";
 import { route, type Route, type Verdict } from "./router.js";
 import { Weights, type Metadata, type Prediction } from "./model.js";
-import { UsageTurnstile } from "./usage.js";
 // Resolved per platform by the "browser" condition in package.json, so a
 // browser build contains no node: specifiers at all. See platform.browser.ts.
-import { installUsageStorage, readModel } from "./platform.js";
+import { readModel } from "./platform.js";
 
 export { normalize, MAX_CHARACTERS, route };
 export type { Route, Verdict, Metadata, Prediction };
@@ -52,24 +51,16 @@ export interface Detection {
   readonly isTooCloseToCall: boolean;
 }
 
-/** Kept in step with package.json by `mise run set-version`. */
-const SDK_VERSION = "3.6.0";
-
 export interface LoadOptions {
   /** Directory or base URL holding tongue_int8.bin and tongue_meta.json. */
   readonly from?: string;
 }
 
 export class Tongue {
-  /** One turnstile per instance. See usage.ts. */
-  private readonly usage: UsageTurnstile;
-
   private constructor(
     private readonly metadata: Metadata,
     private readonly weights: Weights,
-  ) {
-    this.usage = UsageTurnstile.create(SDK_VERSION);
-  }
+  ) {}
 
   /** Load from explicit bytes: the platform-free path. */
   static fromBytes(metadata: Metadata, weightBytes: Uint8Array): Tongue {
@@ -95,14 +86,12 @@ export class Tongue {
    * ```
    */
   static async load(options: LoadOptions = {}): Promise<Tongue> {
-    await installUsageStorage();
     const { metadata, bytes } = await readModel(options.from);
     return Tongue.fromBytes(metadata, bytes);
   }
 
   /** Identify the language of a short string. */
   detect(text: string, topK = 3): Detection {
-    this.usage.record();
     const normalized = normalize(text);
     const routed = route(normalized);
     const finish = (
@@ -140,18 +129,9 @@ export class Tongue {
     return finish(candidates, this.reliability(normalized, ranked), ranked);
   }
 
-  /**
-   * Send the usage this instance has recorded and await the POST, so a process
-   * that ends right after a detection does not exit before it lands. Useful in a
-   * short-lived script or worker, which has no idle gap for the debounce to fire
-   * in. Usage is reported on its own; this is not required.
-   *
-   * Resolves true once the POST has finished, false only when the flush itself
-   * threw. The endpoint's answer is not reported, as in core: reporting is best
-   * effort.
-   */
+  /** @deprecated Has no effect. Resolves true. */
   async flushTelemetry(): Promise<boolean> {
-    return this.usage.flushTelemetry();
+    return true;
   }
 
   private reliability(text: string, ranked: readonly Prediction[]): Reliability {

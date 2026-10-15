@@ -4,8 +4,11 @@ import ai.desertant.DesertAntNative
 import ai.desertant.core.HostBridge
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -29,34 +32,9 @@ class CoreBridgeTest {
     }
 
     /**
-     * The facts Kotlin reads reach the context the Swift client sends, and the
-     * Kotlin opt-out reaches the Swift one: with it on, not even osName goes,
-     * which emptying the facts alone would still have sent.
-     */
-    @Test
-    fun theUsageContextCarriesTheDeviceFactsAndHonoursTheOptOut() {
-        HostBridge.attach(InstrumentationRegistry.getInstrumentation().targetContext)
-
-        val context = CoreBridge.usageContext(DesertAntNative::class.java).lines()
-            .filter { it.isNotEmpty() }
-            .associate { it.substringBefore('=') to it.substringAfter('=') }
-        assertEquals("Android", context["osName"])
-        for (key in listOf("osVersion", "deviceModel", "formFactor", "locale")) {
-            assertFalse("no $key in $context", context[key].isNullOrEmpty())
-        }
-
-        HostBridge.sendsDeviceContext = false
-        try {
-            assertEquals("", CoreBridge.usageContext(DesertAntNative::class.java))
-        } finally {
-            HostBridge.sendsDeviceContext = true
-        }
-    }
-
-    /**
      * A POST from the Swift core reaches a server, headers included, and its
      * response comes back: the host's httpRequest callback is installed. Without
-     * it every usage send on Android failed before leaving the device. The
+     * it every license request on Android failed before leaving the device. The
      * Kotlin transport is checked on its own first, so a failure says which
      * layer broke.
      */
@@ -101,6 +79,25 @@ class CoreBridgeTest {
             assertEquals(listOf("Authorization: Bearer pk_test"), request.filter { it.startsWith("Authorization:", ignoreCase = true) })
             assertEquals("""{"events":[]}""", request.last())
         }
+    }
+
+    // Every vector token gets the verdict the contract gives it: the host's verifyLicense is installed and Conscrypt agrees.
+    @Test
+    fun theSwiftCoreVerifiesLicenseTokensThroughTheHost() {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val vectors = Json.parseToJsonElement(assets.open("license_vectors.json").use { it.readBytes().decodeToString() }).jsonObject
+        val keys = vectors["keys"]!!.jsonArray.joinToString("\n") {
+            "${it.jsonObject["kid"]!!.jsonPrimitive.content}=${it.jsonObject["publicKeyX963"]!!.jsonPrimitive.content}"
+        }
+        val verdicts = vectors["tokens"]!!.jsonArray.map { it.jsonObject }.associate { vector ->
+            val token = vector["token"]!!.jsonPrimitive.content
+            vector["name"]!!.jsonPrimitive.content to
+                CoreBridge.verifyLicense(DesertAntNative::class.java, token.toByteArray(), keys.toByteArray())
+        }
+        val expected = vectors["tokens"]!!.jsonArray.map { it.jsonObject }.associate {
+            it["name"]!!.jsonPrimitive.content to (it["expect"]!!.jsonPrimitive.content == "valid")
+        }
+        assertEquals(expected, verdicts)
     }
 
     /**

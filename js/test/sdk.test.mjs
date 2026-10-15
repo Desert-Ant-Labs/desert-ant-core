@@ -1,4 +1,4 @@
-// The shared model-SDK runtime: load / run / group / dispose, written once for
+// The shared model-SDK runtime: load / run / dispose, written once for
 // both cores. Driven here through a fake core with the normalized shape, which
 // is exactly what `wasmCore` and `createNativeSdk` produce, so this covers the
 // logic every model package inherits.
@@ -84,14 +84,14 @@ test("a null handle is a create failure, not a download attempt", async () => {
   assert.deepEqual(core.calls, []);
 });
 
-test("run passes the options payload, group, and resolved device id through", async () => {
+test("run passes the options payload and resolved device id through, and drops the group", async () => {
   const core = fakeCore();
   const model = await readyModel({ core, packageName: "@x/y", handle: core.create("/c", "") });
   const options = new FfiWriter().u32(3).done();
   const r = await model.run("hello", options, { group: 7, deviceId: () => "device-42" });
   assert.equal(r.str(), "ran:hello");
   const run = core.calls.find((c) => c[0] === "run");
-  assert.deepEqual(run.slice(2), ["hello", options, "7", "device-42"]);
+  assert.deepEqual(run.slice(2), ["hello", options, null, "device-42"]);
 });
 
 test("dispose releases the handle once and makes later calls throw", async () => {
@@ -103,7 +103,7 @@ test("dispose releases the handle once and makes later calls throw", async () =>
   await assert.rejects(() => model.run("x", new Uint8Array()), /@x\/y: model disposed/);
 });
 
-test("withCallGroup opens and releases a group around the body", async () => {
+test("withCallGroup still runs the body with a group id", async () => {
   const core = fakeCore();
   const model = await readyModel({ core, packageName: "@x/y", handle: core.create("/c", "") });
   const seen = await model.withCallGroup(async (group) => {
@@ -111,10 +111,7 @@ test("withCallGroup opens and releases a group around the body", async () => {
     return group;
   });
   assert.equal(seen, "group-1");
-  assert.deepEqual(
-    core.calls.map((c) => c[0]).filter((n) => n.startsWith("group") || n === "run"),
-    ["groupStart", "run", "groupEnd"],
-  );
+  assert.equal(core.calls.find((c) => c[0] === "run")[4], null);
 });
 
 test("flushTelemetry reaches the core, and a core without the hook is not an error", async () => {
@@ -147,8 +144,9 @@ test("wasmCore adapts the wasm ABI to the shared core shape", async () => {
   // audio, video, anything a model takes.
   const reader = await core.run(5, new FfiWriter().str("hi").done(), null, null, null);
   assert.equal(reader.str(), "hi", "run yields a reader over the payload");
-  await core.withCallGroup(async () => {});
-  assert.deepEqual(seen.map((c) => c[0]), ["create", "run", "endCallGroup"]);
+  const group = await core.withCallGroup(async (id) => id);
+  assert.equal(typeof group, "string");
+  assert.deepEqual(seen.map((c) => c[0]), ["create", "run"], "a group releases nothing in the core");
 });
 
 // The wasm SDK's two load paths, with a fake `#platform` seam and LiteRT.js.

@@ -4,14 +4,14 @@
 <dict>
 	<!--
 	  Apple requires a privacy manifest from any SDK that collects data or calls a
-	  "required reason" API. The usage turnstile (the `Usage` target) does both, and
-	  every model links it through DesertAnt (Title links it but sends nothing).
-	  Where a model meters usage, the turnstile reports a generated device
-	  identifier and a call count for licence metering, and it persists that
-	  identifier and its re-emit state in UserDefaults. Without this file, apps
-	  embedding the SDK can be rejected at App Store review.
+	  "required reason" API. Licensing (the `Usage` target) does both, and every
+	  model links it through DesertAnt. When a model loads without an activated
+	  license for the month, it sends a generated install identifier to request
+	  and activate one, and it persists that identifier and the license in
+	  UserDefaults. Without this file, apps embedding the SDK can be rejected at
+	  App Store review.
 
-	  No model input or output is ever reported: no text, audio, or results.
+	  No model input or output is ever sent: no text, audio, or results.
 	-->
 	<key>NSPrivacyTracking</key>
 	<false/>
@@ -30,43 +30,6 @@
 			<false/>
 			<key>NSPrivacyCollectedDataTypePurposes</key>
 			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
-				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeProductInteraction</string>
-			<!-- `callCount`: how many times the app ran a model since the last send. -->
-			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypePurposes</key>
-			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
-				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
-			</array>
-		</dict>
-		<dict>
-			<key>NSPrivacyCollectedDataType</key>
-			<string>NSPrivacyCollectedDataTypeOtherDiagnosticData</string>
-			<!-- The platform tag, the app's bundle id, and the SDK's name and
-			     version. Each event's `context` adds the app version, the OS
-			     name and version, the model identifier (such as iPhone16,2),
-			     the form factor (desktop, mobile or tablet) and the
-			     language-region locale; on the web, the browser name and major
-			     version instead of the model. A native macOS app (reported as
-			     a server), or an app given a device id by its caller or
-			     DAL_DEVICE_ID, sends only the OS name, its major version and
-			     the app version. No name, serial, screen or time zone. -->
-			<key>NSPrivacyCollectedDataTypeLinked</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypeTracking</key>
-			<false/>
-			<key>NSPrivacyCollectedDataTypePurposes</key>
-			<array>
-				<string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
@@ -77,8 +40,8 @@
 			<key>NSPrivacyAccessedAPIType</key>
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<!-- CA92.1: access to data stored by this app or its containing app
-			     group. The turnstile reads and writes only its own
-			     `ai.desertant.usage.*` keys. -->
+			     group. Licensing reads and writes only its own
+			     `ai.desertant.usage.deviceId` and `ai.desertant.license.*` keys. -->
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
 				<string>CA92.1</string>

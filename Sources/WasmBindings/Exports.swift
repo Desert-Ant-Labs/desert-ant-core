@@ -86,29 +86,26 @@ import JavaScriptKit
 /// Run the model over its own input and options payloads, returning its own
 /// result payload (see `ModelBinding`). What the input bytes mean is the model's
 /// business - text, samples and a rate, video frames - so this one entry serves
-/// every modality and a new kind of model adds nothing here. `group` bills several
-/// runs as one usage call (release it with `endCallGroup`); `deviceId` attributes
-/// the call to one end-user device.
+/// every modality and a new kind of model adds nothing here. `group` has no
+/// effect; `deviceId` names the call's end-user device.
 @JS public func run(
     handle: Int, input: JSUint8Array, options: JSUint8Array?,
     group: String?, deviceId: String?
 ) async throws(JSException) -> JSUint8Array {
     try await installedHost().run(
-        handle: handle, input: input, options: options, group: group, deviceId: deviceId)
+        handle: handle, input: input, options: options, deviceId: deviceId)
 }
 
-/// Release a call group opened by passing `group` to `run`.
-@JS public func endCallGroup(id: String?) {
-    installedModelHost?.endCallGroup(id: id)
-}
+/// Has no effect. Kept so an older `@desert-ant-labs/core` still finds it.
+@JS public func endCallGroup(id: String?) {}
 
 /// Release the model behind `handle`. Later calls with it fail.
 @JS public func destroy(handle: Int) {
     installedModelHost?.destroy(handle: handle)
 }
 
-/// Emit any usage the tracked sessions have recorded and await the POST, so it
-/// lands before the caller continues.
+/// Wait for the license requests in flight, so a short-lived process does not
+/// exit before they finish.
 @JS public func flushTelemetry() async -> Bool {
     await installedModelHost?.flushTelemetry() ?? false
 }

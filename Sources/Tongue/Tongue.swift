@@ -40,9 +40,6 @@ public struct Detection: Sendable {
 public struct Tongue: Sendable {
     private let weights: Weights
     private let metadata: Metadata
-    /// One turnstile per instance, shared by copies of this value. See
-    /// UsageTracking.swift and docs/USAGE.md.
-    private let usage: UsageTurnstile
 
     /// Load from raw bytes. The core initializer: no file system, no Foundation,
     /// so the pipeline cross-compiles as pure Swift. `Tongue()` and
@@ -50,14 +47,11 @@ public struct Tongue: Sendable {
     public init(metadataJSON: String, weightBytes: [UInt8]) throws {
         self.metadata = try Metadata(json: metadataJSON)
         self.weights = try Weights(bytes: weightBytes, metadata: metadata)
-        self.usage = makeTurnstile()
+        licenseLoad()
     }
 
     /// Identify the language of a short string.
     public func detect(_ text: String, topK: Int = 3) -> Detection {
-        // Fire-and-forget: the turnstile must never sit between a keystroke
-        // and its answer.
-        usage.recordInBackground()
         let normalized = Normalizer.normalize(text)
         let route = Router.route(normalized)
 
