@@ -9,6 +9,10 @@ public struct ShapeSnappingConfiguration: Sendable {
     public var pauseDelay: TimeInterval = 0.3
     /// Opacity of the faded preview shown while the pen is still down.
     public var previewOpacity: Float = 0.5
+    /// The kinds to recognize and how to snap rotation. A scribble erases the
+    /// strokes inside its hull. To keep scribbles as ink, leave `.scribble` out
+    /// of `options.kinds`.
+    public var options = Options()
 
     /// Creates a configuration with default values.
     public init() {}
@@ -17,9 +21,10 @@ public struct ShapeSnappingConfiguration: Sendable {
 public extension PKCanvasView {
     /// Recognize and snap hand-drawn strokes to clean shapes, in one line.
     ///
-    /// While drawing, pausing briefly shows a faded preview of the recognized
-    /// shape; lifting the pen replaces the raw stroke with the clean one. The
-    /// swap is registered with the canvas's undo manager, so undo/redo work.
+    /// When the user pauses mid-stroke, the canvas shows a faded preview of the
+    /// recognized shape. When the user lifts the pen, the clean shape replaces
+    /// the stroke, and a scribble erases the strokes inside its hull. The SDK
+    /// registers each change with the canvas's undo manager, so undo and redo work.
     /// Call again to update the recognizer or configuration;
     /// ``disableShapeSnapping()`` to stop.
     ///
@@ -213,8 +218,9 @@ final class ShapeSnapper: NSObject {
         guard extent >= Self.minimumExtent else { return }
 
         let token = generation
+        let options = configuration.options
         Task { [weak self, shapes] in
-            let shape = try? await shapes.recognize(points: pts)
+            let shape = try? await shapes.recognize(points: pts, options: options)
             await MainActor.run { self?.applyPreview(shape, token: token) }
         }
     }
@@ -229,7 +235,7 @@ final class ShapeSnapper: NSObject {
         }
         currentShape = shape
         previewing = true
-        showPreview(shape)
+        if case .scribble = shape { hidePreview() } else { showPreview(shape) }
     }
 
     private func showPreview(_ shape: Shape) {
@@ -237,8 +243,7 @@ final class ShapeSnapper: NSObject {
         overlay.frame = canvas.bounds
         canvas.bringSubviewToFront(overlay)
 
-        let stroke = makeStroke(shape, ink: currentInk(in: canvas), width: currentPreviewWidth())
-        let drawing = PKDrawing(strokes: [stroke])
+        let drawing = PKDrawing(strokes: makeStrokes(shape, ink: currentInk(in: canvas), width: currentPreviewWidth()))
         let rect = CGRect(origin: canvas.contentOffset, size: canvas.bounds.size)
         let traits = canvas.window?.traitCollection ?? canvas.traitCollection
         let scale = traits.displayScale > 0 ? traits.displayScale : 2
@@ -273,8 +278,9 @@ final class ShapeSnapper: NSObject {
         // exact coordinate space of the ink it replaces.
         let pts = strokePoints(last)
         let token = generation
+        let options = configuration.options
         Task { [weak self, shapes] in
-            let shape = try? await shapes.recognize(points: pts)
+            let shape = try? await shapes.recognize(points: pts, options: options)
             await MainActor.run { self?.applySnap(shape, to: last, token: token) }
         }
     }
@@ -287,14 +293,21 @@ final class ShapeSnapper: NSObject {
             hidePreview()
             return
         }
-        let perfect = makeStroke(shape, ink: last.ink, width: drawnWidth(of: last))
-
         // Drop the raw stroke (coalesces with the user's draw in the undo stack),
-        // then replace it with the clean one as a single undoable change.
+        // then apply the result as a single undoable change.
         isProgrammatic = true
         canvas.undoManager?.undo()
         isProgrammatic = false
-        setDrawing(PKDrawing(strokes: canvas.drawing.strokes + [perfect]), on: canvas)
+        if case let .scribble(hull) = shape {
+            let region = hull.map(\.cgPoint)
+            let kept = canvas.drawing.strokes.filter { stroke in
+                !strokePoints(stroke).contains { Self.contains(region, $0) }
+            }
+            setDrawing(PKDrawing(strokes: kept), on: canvas)
+        } else {
+            let perfect = makeStrokes(shape, ink: last.ink, width: drawnWidth(of: last))
+            setDrawing(PKDrawing(strokes: canvas.drawing.strokes + perfect), on: canvas)
+        }
 
         previewing = false
         currentShape = nil
@@ -313,15 +326,27 @@ final class ShapeSnapper: NSObject {
 
     // MARK: Shape → PKStroke
 
-    private func makeStroke(_ shape: Shape, ink: PKInk, width: CGFloat) -> PKStroke {
-        let outline = shape.cgOutline(samples: 96)
-        // For closed shapes, start (and end) the loop at the midpoint of the first
-        // edge so the path seam lands on a straight section rather than a corner,
-        // which would render sharp while the spline rounds the others.
-        let isLine: Bool
-        if case .line = shape { isLine = true } else { isLine = false }
-        let loop = isLine ? outline : Self.closedLoopFromMidEdge(outline)
-        let pts = Self.densify(loop, maxSpacing: 6)
+    private func makeStrokes(_ shape: Shape, ink: PKInk, width: CGFloat) -> [PKStroke] {
+        switch shape {
+        case .scribble:
+            return []
+        case .arrow:
+            let shaft = shape.cgOutline(samples: 64)
+            let length = zip(shaft, shaft.dropFirst()).reduce(0) { $0 + hypot($1.1.x - $1.0.x, $1.1.y - $1.0.y) }
+            let headLength = min(Double(length) * 0.25, Double(width) * 3 + 10)
+            let heads = shape.arrowheads(length: headLength).map { $0.map(\.cgPoint) }
+            return ([shaft] + heads).map { stroke($0, ink: ink, width: width) }
+        default:
+            let outline = shape.cgOutline(samples: 96)
+            // A closed shape's stroke starts and ends at the midpoint of the first
+            // edge. A stroke that starts at a corner renders that corner sharp,
+            // while PencilKit's spline rounds the other corners.
+            return [stroke(shape.isClosed ? Self.closedLoopFromMidEdge(outline) : outline, ink: ink, width: width)]
+        }
+    }
+
+    private func stroke(_ polyline: [CGPoint], ink: PKInk, width: CGFloat) -> PKStroke {
+        let pts = Self.densify(polyline, maxSpacing: 6)
         let n = pts.count
         let sp = pts.enumerated().map { i, pt in
             PKStrokePoint(location: pt,
@@ -336,6 +361,22 @@ final class ShapeSnapper: NSObject {
         // initializer is iOS 27 / visionOS 27, which the pinned Xcode has no SDK
         // for, so it cannot compile even behind `#available`.
         return PKStroke(ink: ink, path: path, transform: .identity)
+    }
+
+    /// Whether `point` is inside the polygon (even-odd).
+    private static func contains(_ polygon: [CGPoint], _ point: CGPoint) -> Bool {
+        guard polygon.count >= 3 else { return false }
+        var inside = false
+        var j = polygon.count - 1
+        for i in 0..<polygon.count {
+            let a = polygon[i], b = polygon[j]
+            if (a.y > point.y) != (b.y > point.y),
+               point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x {
+                inside.toggle()
+            }
+            j = i
+        }
+        return inside
     }
 
     /// Reorders a closed polygon's vertices so the loop begins and ends at the

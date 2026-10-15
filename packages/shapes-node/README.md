@@ -1,8 +1,8 @@
 # @desert-ant-labs/shapes
 
-On-device single-stroke shape recognition for JavaScript that runs in the browser and in Node. Give Shapes one hand-drawn stroke and it returns a clean vector shape: a line, rectangle, triangle, ellipse, or star. Strokes stay local.
+Shapes turns a hand-drawn stroke into a clean shape, connector, or arrow, in the browser and in Node. Shapes recognizes 13 kinds: a straight or curved connector, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon, a hexagon, a star, a heart, a cloud, and a scribble, which your app can use as an erase gesture. For any other stroke, such as handwriting, `recognize` returns `null`, so you can keep that stroke as ink. The stroke never leaves the device.
 
-A small classifier proposes a shape, a geometric fitter produces the clean parameters, and the stroke is accepted only if it clears that class's calibrated confidence and residual gates. The result snaps to nice axes, circles, squares, and 15 degree rotations.
+A small model scores each kind and marks the points that belong to an arrowhead. A geometric fitter then computes the clean shape. Shapes accepts a stroke only if the model's confidence and the fit both clear that kind's calibrated thresholds. By default, Shapes snaps lines and edges to the axes, near-circles to circles, near-squares to squares, near-regular polygons to regular ones, and rotations to 15° steps.
 
 Two entries share one `Shapes` API:
 
@@ -24,7 +24,7 @@ import { Shapes } from "@desert-ant-labs/shapes";
 
 const shapes = await Shapes.load();
 const shape = await shapes.recognize(points);   // [{x, y}, ...] or [x0, y0, ...]
-// { kind: "ellipse", center: {x, y}, semiMajor, semiMinor, rotation }
+// { kind: "ellipse", center: {x, y}, semiMajor, semiMinor, rotation, outline: [...] }
 
 shapes.dispose(); // release the model (both builds)
 ```
@@ -38,17 +38,26 @@ import { Shapes } from "@desert-ant-labs/shapes/native"; // server only
 
 ## Shapes
 
-`recognize` returns `null` when the stroke is rejected or degenerate, otherwise one of these, discriminated by `kind`:
+`recognize` returns `null` when the stroke isn't a shape. Otherwise `recognize` returns one of these objects, discriminated by `kind`. Every shape also has `outline`, a polyline you can draw. A closed shape's outline doesn't repeat its first point, and an arrow's outline is its shaft.
 
 - `line` - `from`, `to`
+- `curve` - `from`, `control1`, `control2`, `to` (a cubic Bezier)
+- `arrow` - `from`, `control1`, `control2`, `to`, `startHead`, `endHead`. `arrowheads(shape, length)` returns the heads as `[barb, tip, barb]` polylines.
 - `rectangle` - `corners`, four points around the perimeter
-- `triangle` - `vertices`, three points
 - `ellipse` - `center`, `semiMajor`, `semiMinor`, `rotation` (radians)
-- `star` - `center`, `outerRadius`, `innerRadius`, `rotation` (radians), `pointCount`
+- `triangle`, `diamond`, `pentagon`, `hexagon` - `vertices`, around the perimeter
+- `star` - `center`, `outerRadius`, `innerRadius`, `rotation` (radians, 0 puts a tip straight up), `pointCount`
+- `heart` - `center`, `width`, `height`
+- `cloud` - `outline` only
+- `scribble` - `hull`, the convex hull of the scribble. Delete the content inside the hull.
 
 The kinds and field names are identical in Swift and Kotlin, so a stroke recognized on one platform describes itself the same way on every other.
 
-`recognize(points, { minimumConfidence })` raises the classifier threshold on top of each class's calibrated gate; the default `0` applies only the model's own gates.
+`recognize(points, options)` takes three options:
+
+- `rotation`: `"snapped"` is the default. It rounds a shape's rotation to 15° steps and snaps lines and edges within 5° of horizontal or vertical onto the axis. `"upright"` removes rotation. `"free"` keeps the shape as drawn and skips the snapping to circles, squares, and regular polygons.
+- `kinds`: the kinds Shapes recognizes, all 13 by default. Leave out `"scribble"` if your app has no erase gesture.
+- `minimumConfidence`: the lowest classifier confidence Shapes accepts, on top of each kind's calibrated threshold. The default `0` applies only the calibrated thresholds.
 
 ## Loading the model
 

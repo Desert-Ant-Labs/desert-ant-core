@@ -7,6 +7,8 @@ import { createNativeSdk } from "@desert-ant-labs/core/node";
 import { MODEL_ID, PACKAGE_NAME } from "./codec.js";
 import { makeShapes } from "./shapes.js";
 
+export { arrowheads } from "./shapes.js";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 export const Shapes = makeShapes(createNativeSdk({

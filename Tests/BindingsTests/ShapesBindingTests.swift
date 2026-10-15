@@ -29,10 +29,18 @@ struct ShapesBindingTests {
         return FFIReader(w.bytes)
     }
 
-    private func options(minimumConfidence: Double) -> FFIReader {
+    private func options(minimumConfidence: Double, rotation: Int? = nil, kinds: Int? = nil) -> FFIReader {
         var w = FFIWriter()
         w.f64(minimumConfidence)
+        if let rotation { w.u32(rotation) }
+        if let kinds { w.u32(kinds) }
         return FFIReader(w.bytes)
+    }
+
+    private func outline(_ reader: inout FFIReader) -> Int {
+        let n = reader.u32()
+        for _ in 0..<(2 * n) { _ = reader.f64() }
+        return n
     }
 
     /// The geometry payload contract: a stroke in through the generic
@@ -45,12 +53,37 @@ struct ShapesBindingTests {
         var reader = FFIReader(payload)
         #expect(reader.u32() == 1, "expected a recognized shape")
         #expect(reader.u32() == 4, "expected the ellipse kind")
-        #expect(abs(reader.f64() - 100) <= 8)    // center x
-        #expect(abs(reader.f64() - 100) <= 8)    // center y
-        #expect(abs(reader.f64() - 80) <= 12)    // semi-major
-        #expect(abs(reader.f64() - 80) <= 12)    // semi-minor
+        #expect(abs(reader.f64() - 100) <= 4)    // center x
+        #expect(abs(reader.f64() - 100) <= 4)    // center y
+        #expect(abs(reader.f64() - 80) <= 4)     // semi-major
+        #expect(abs(reader.f64() - 80) <= 4)     // semi-minor
         _ = reader.f64()                         // rotation
+        #expect(outline(&reader) == wireOutlineSamples, "every shape ends with its outline")
         #expect(reader.isAtEnd, "the ellipse payload is fully consumed")
+    }
+
+    /// The kinds mask has bit n for wire kind n. With the ellipse (4) left out,
+    /// Shapes returns no shape for a circle. With the ellipse in, Shapes returns
+    /// the ellipse.
+    @Test func kindsMaskFiltersTheResult() async throws {
+        let without = try #require(await recognizer().run(
+            input: stroke(ShapesTestStrokes.circle()),
+            options: options(minimumConfidence: 0, rotation: 0, kinds: (1 << 1) | (1 << 2))))
+        var r = FFIReader(without)
+        #expect(r.u32() == 0)
+        let with = try #require(await recognizer().run(
+            input: stroke(ShapesTestStrokes.circle()),
+            options: options(minimumConfidence: 0, rotation: 2, kinds: 1 << 4)))
+        r = FFIReader(with)
+        #expect(r.u32() == 1 && r.u32() == 4)
+    }
+
+    /// Every kind has its own wire number, and the numbers never change.
+    @Test func wireKindsAreStable() {
+        #expect(Set(wireKinds.keys) == Set(Shape.Kind.allCases))
+        #expect(Set(wireKinds.values).count == Shape.Kind.allCases.count)
+        #expect(wireKinds[.line] == 1 && wireKinds[.rectangle] == 2 && wireKinds[.triangle] == 3
+            && wireKinds[.ellipse] == 4 && wireKinds[.star] == 5)
     }
 
     /// A rejected stroke is a result, not a failure: the host gets a payload
@@ -67,8 +100,9 @@ struct ShapesBindingTests {
         #expect(reader.isAtEnd, "nothing follows a 0 present flag")
     }
 
-    /// An empty options payload means the SDK defaults, which for shapes is
-    /// `minimumConfidence: 0` - the same stroke the explicit `1` above rejected.
+    /// An empty options payload means the SDK defaults: `minimumConfidence` 0,
+    /// snapped rotation, and every kind. Shapes recognizes the stroke that a
+    /// `minimumConfidence` of 1 rejected above.
     @Test func emptyOptionsMeansTheSDKDefaults() async throws {
         let payload = try #require(
             await recognizer().run(input: stroke(ShapesTestStrokes.circle()), options: FFIReader([])),

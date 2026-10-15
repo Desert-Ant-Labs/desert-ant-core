@@ -1,20 +1,23 @@
 import DesertAnt
 
 /// Options controlling recognition.
-public struct Options: Sendable {
-    /// Minimum classifier confidence, on top of each class's calibrated gate.
-    /// `0` (the default) applies only the model's own gates.
+public struct Options: Sendable, Equatable {
+    /// The lowest classifier confidence Shapes accepts, on top of each kind's
+    /// calibrated threshold. The default `0` applies only the calibrated thresholds.
     public var minimumConfidence: Double
-    /// Geometry regularization ("smart shape" snapping) applied to the fitted
-    /// output. Defaults to the standard snaps (axis-aligned lines, circles,
-    /// squares, equilateral/isosceles triangles).
-    var snap: SnapConfig
+    /// How Shapes snaps rotation. `.snapped`, the default, rounds rotations to
+    /// 15° steps. `.upright` removes rotation, and `.free` keeps the shape as drawn.
+    public var rotation: Rotation
+    /// The kinds Shapes recognizes, all of them by default. For a stroke of any
+    /// other kind, `recognize` returns `nil`. For example, leave out `.scribble`
+    /// if your app has no erase gesture.
+    public var kinds: Set<Shape.Kind>
 
-    public init(minimumConfidence: Double = 0) {
-        self.minimumConfidence = minimumConfidence.isFinite
-            ? min(1, max(0, minimumConfidence))
-            : 0
-        self.snap = .standard
+    public init(minimumConfidence: Double = 0, rotation: Rotation = .snapped,
+                kinds: Set<Shape.Kind> = Set(Shape.Kind.allCases)) {
+        self.minimumConfidence = minimumConfidence.isFinite ? min(1, max(0, minimumConfidence)) : 0
+        self.rotation = rotation
+        self.kinds = kinds
     }
 }
 
@@ -37,16 +40,23 @@ public enum ShapesError: MessageError, Sendable {
 
 /// On-device single-stroke shape recognition.
 ///
-/// `Shapes` turns one hand-drawn stroke into a clean vector ``Shape`` (line,
-/// rectangle, triangle, ellipse, or star), fully on device. A small classifier
-/// proposes a shape, a geometric fitter produces the clean parameters and a fit
-/// residual, and the stroke is accepted only if it clears that class's calibrated
-/// confidence and residual gates. Create one once and reuse it.
+/// `Shapes` turns a hand-drawn stroke into a clean ``Shape`` on the device: a
+/// line or curve, an arrow, a rectangle, an ellipse, a triangle, a diamond, a
+/// pentagon, a hexagon, a star, a heart, a cloud, or a scribble, which your app
+/// can use as an erase gesture. For any other stroke, such as handwriting,
+/// `recognize` returns `nil`, so you can keep that stroke as ink.
+///
+/// A small model scores each kind, and a geometric fitter computes the clean
+/// shape. Shapes accepts a stroke only if the model's confidence and the fit
+/// both clear that kind's calibrated thresholds. Create one `Shapes` and reuse it.
 ///
 /// ```swift
 /// let shapes = Shapes()
-/// if let shape = try await shapes.recognize(points: strokePoints) {
-///     // shape == .rectangle(corners: [...]) etc.
+/// switch try await shapes.recognize(points: strokePoints) {
+/// case let .rectangle(corners)?: draw(corners)
+/// case let .scribble(hull)?: erase(under: hull)
+/// case nil: keepInk()
+/// default: break
 /// }
 /// ```
 public final class Shapes: @unchecked Sendable {
@@ -105,9 +115,12 @@ public final class Shapes: @unchecked Sendable {
         _ = try await model.value()
     }
 
-    /// Recognize a stroke given as ordered ``Point`` values (canvas
-    /// coordinates). Returns the snapped ``Shape``, or `nil` when the stroke is
-    /// rejected or degenerate.
+    /// The loaded model, for tests that read its raw outputs.
+    func loadedModel() async throws -> Model { try await model.value() }
+
+    /// Recognizes a stroke given as ordered ``Point`` values in canvas
+    /// coordinates. Returns the clean ``Shape``, or `nil` for a stroke that
+    /// isn't a shape or isn't one of `options.kinds`.
     public func recognize(points: [Point], options: Options = .init()) async throws -> Shape? {
         try await model.value().recognize(points: points, options: options)
     }
