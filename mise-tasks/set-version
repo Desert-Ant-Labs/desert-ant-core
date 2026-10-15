@@ -27,7 +27,7 @@ sed -i.bak -E 's|("sdkVersion": ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
 for model in $(dal_models); do
     product=$(dal_product "$model")
 
-    # The SDK version each model reports at runtime (usage headers, telemetry).
+    # The SDK version each model declares in its catalog.
     sed -i.bak -E 's|(sdkVersion = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
         "Sources/$product/Catalog.swift" && rm -f "Sources/$product/Catalog.swift.bak"
 
@@ -47,18 +47,10 @@ for model in $(dal_models); do
     ' "$dir" "$version"
 done
 
-# The identity core's own usage reports when no model names one (Usage/Wire.swift).
+# The `sdk.version` every license grant sends (Usage/Wire.swift).
 # It said 0.1.0 through 3.4.0 because nothing rewrote it.
 sed -i.bak -E 's|(defaultSDKVersion = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
     Sources/Usage/Wire.swift && rm -f Sources/Usage/Wire.swift.bak
-
-# tongue's Node and Kotlin ports are standalone (no Swift core underneath), so
-# each carries its own reported SDK version literal.
-sed -i.bak -E 's|(const SDK_VERSION = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
-    packages/tongue-node/src/index.ts && rm -f packages/tongue-node/src/index.ts.bak
-sed -i.bak -E 's|(const val SDK_VERSION: String = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
-    packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/usage/UsageTurnstile.kt \
-    && rm -f packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/usage/UsageTurnstile.kt.bak
 
 # The install snippets in the README (SwiftPM `from:` and every ai.desertant
 # Maven coordinate, models included).

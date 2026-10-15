@@ -27,8 +27,6 @@ import java.util.Locale
  */
 class MainActivity : Activity() {
 
-    // The Context gives the usage turnstile somewhere to persist its device id;
-    // without it every launch looks like a new device.
     private val tongue: Tongue by lazy { Tongue.bundled(this) }
 
     private lateinit var headline: TextView

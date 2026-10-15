@@ -10,12 +10,12 @@ package ai.desertant.core
  * ```
  *
  * Mirrors core's Swift `DesertAnt.apiKey`, and covers every model in the app.
- * The key is read when a model builds its usage client, on its first call, so
- * a value set after that does not re-attribute it. Null (the default) or blank
- * means unset, and attribution uses the app identity instead.
+ * The key is read on each model load, when the SDK requests or activates that
+ * model's license. Null (the default) or blank means unset, and the license is
+ * activated without a key.
  */
 object DesertAnt {
-    /** The publishable API key used for usage attribution. Null means unset. */
+    /** The publishable API key sent with license grants and activations. Null means unset. */
     @JvmStatic
     @Volatile
     var apiKey: String? = null

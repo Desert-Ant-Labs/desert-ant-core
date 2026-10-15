@@ -2,7 +2,7 @@
 //
 // A model conforms in its own module and exports its entry points from a small
 // native target, so its artifacts pull in no unrelated model. NativeBindings owns
-// the shared handle, download, blocking, and call-group implementation.
+// the shared handle, download, and blocking implementation.
 
 import FFIBuffer
 

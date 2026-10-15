@@ -32,7 +32,7 @@ object DesertAntNative {
     fun httpDownload(urlUtf8: ByteArray, destUtf8: ByteArray): Int =
         HostBridge.httpDownload(urlUtf8, destUtf8)
 
-    // HTTP request callback the Swift usage transport POSTs through.
+    // HTTP request callback the Swift license client POSTs through.
     @JvmStatic
     fun httpRequest(
         methodUtf8: ByteArray,
@@ -42,7 +42,7 @@ object DesertAntNative {
         headersUtf8: ByteArray?,
     ): ByteArray? = HostBridge.httpRequest(methodUtf8, urlUtf8, body, contentTypeUtf8, headersUtf8)
 
-    // Usage state persistence + app identity (SharedPreferences via the host app).
+    // Install id and license persistence + app identity (SharedPreferences via the host app).
     @JvmStatic
     fun prefsGet(keyUtf8: ByteArray): ByteArray = HostBridge.prefsGet(keyUtf8)
 
@@ -55,10 +55,7 @@ object DesertAntNative {
     @JvmStatic
     fun apiKey(): ByteArray = (DesertAnt.apiKey ?: "").toByteArray(Charsets.UTF_8)
 
-    // The usage context's device facts, and whether the host lets them go out.
     @JvmStatic
-    fun deviceContext(): ByteArray = HostBridge.deviceContext()
-
-    @JvmStatic
-    fun sendsDeviceContext(): Boolean = HostBridge.sendsDeviceContext
+    fun verifyLicense(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean =
+        HostBridge.verifyLicense(signature, message, publicKey)
 }

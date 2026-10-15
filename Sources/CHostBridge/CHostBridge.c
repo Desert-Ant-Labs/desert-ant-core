@@ -65,21 +65,23 @@ static HostApiKeyFn g_api_key = 0;
 void host_set_api_key(HostApiKeyFn fn) { g_api_key = fn; }
 char *host_api_key(void) { return g_api_key ? g_api_key() : 0; }
 
-static HostDeviceContextFn g_device_context = 0;
-static HostSendsDeviceContextFn g_sends_device_context = 0;
-
-void host_set_device_context(HostDeviceContextFn fn) { g_device_context = fn; }
-char *host_device_context(void) { return g_device_context ? g_device_context() : 0; }
-
-void host_set_sends_device_context(HostSendsDeviceContextFn fn) { g_sends_device_context = fn; }
-int32_t host_sends_device_context(void) { return g_sends_device_context ? g_sends_device_context() : -1; }
-
 static HostAudioDecodeFn g_audio_decode = 0;
 
 void host_set_audio_decode(HostAudioDecodeFn fn) { g_audio_decode = fn; }
 char *host_audio_decode(const char *path, const unsigned char *bytes,
                         int64_t byte_count, double target_sample_rate) {
     return g_audio_decode ? g_audio_decode(path, bytes, byte_count, target_sample_rate) : 0;
+}
+
+static HostLicenseVerifyFn g_license_verify = 0;
+
+void host_set_license_verify(HostLicenseVerifyFn fn) { g_license_verify = fn; }
+int32_t host_license_verify(const uint8_t *signature, int32_t signature_len,
+                            const uint8_t *message, int32_t message_len,
+                            const uint8_t *public_key, int32_t public_key_len) {
+    return g_license_verify
+        ? g_license_verify(signature, signature_len, message, message_len, public_key, public_key_len)
+        : -1;
 }
 
 void host_free(char *ptr) { free(ptr); }

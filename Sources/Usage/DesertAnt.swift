@@ -8,19 +8,18 @@ import Dispatch
 
 /// Process-wide Desert Ant configuration.
 ///
-/// Set once at launch, before the first model session is created:
+/// Set once at launch, before the first model loads:
 ///
 /// ```swift
 /// DesertAnt.apiKey = "pk_live_..."
 /// ```
 ///
-/// The key is read when a usage client is built (lazily, on a session's first
-/// run), so a value set after that does not retroactively re-attribute clients
-/// already built. When unset, resolution falls back to the `DAL_API_KEY`
+/// The key is read on each model load, when the SDK requests or activates that
+/// model's license. When unset, resolution falls back to the `DAL_API_KEY`
 /// environment variable (`__dalApiKey` on JS hosts), and with neither present
-/// attribution uses the app identity instead. See `hostProvidedApiKey()`.
+/// the license is activated without a key. See `hostProvidedApiKey()`.
 public enum DesertAnt {
-    /// The publishable API key used for usage attribution, shared by every
+    /// The publishable API key sent with license grants and activations, shared by every
     /// model SDK in the process. `nil` (the default) means "not set in code";
     /// an empty string is treated as unset.
     public static var apiKey: String? {
@@ -28,29 +27,29 @@ public enum DesertAnt {
         set { withLock { storedApiKey = newValue } }
     }
 
-    /// Whether usage events carry the device `context` (OS, model, locale and
-    /// the like; see `DeviceContext`). `true` by default. Setting it to `false`
-    /// sends usage without context, the in-code form of the
-    /// `DAL_USAGE_CONTEXT_DISABLED` flag. Read per event, so it applies from
-    /// the next send on. An Android app, which has no Swift of its own, sets
-    /// `HostBridge.sendsDeviceContext = false` in Kotlin instead.
+    @available(*, deprecated, message: "Has no effect. The SDK sends no device context.")
     public static var sendsDeviceContext: Bool {
         get { withLock { storedSendsDeviceContext } }
         set { withLock { storedSendsDeviceContext = newValue } }
     }
 
-    /// Whether usage reporting is off. `false` by default. Setting it to `true`
-    /// stops every model SDK in the process from recording or sending usage, the
-    /// in-code form of the `DAL_USAGE_DISABLED` flag; either one switches it off.
-    /// Read per call and per send, so an app can hold it on until its user
-    /// consents and clear it then, or set it when consent is withdrawn:
+    /// Whether models compile faster for the Neural Engine on the M6 and A20 Pro.
+    /// `true` by default. On an iPhone 18 Pro, Voz's first load takes 9.5s with
+    /// this setting and 33.4s without it. Predictions and outputs are the same
+    /// either way.
+    ///
+    /// This setting uses a private Core ML API. To use only public APIs, set it
+    /// to `false` before the first model loads:
     ///
     /// ```swift
-    /// DesertAnt.usageDisabled = !consent.analytics
+    /// DesertAnt.fasterNeuralEngineCompile = false
     /// ```
-    public static var usageDisabled: Bool {
-        get { withLock { storedUsageDisabled } }
-        set { withLock { storedUsageDisabled = newValue } }
+    ///
+    /// Core ML caches each compiled model by its compiler options, so changing
+    /// this setting makes each model compile again on its next load.
+    public static var fasterNeuralEngineCompile: Bool {
+        get { withLock { storedFasterNeuralEngineCompile } }
+        set { withLock { storedFasterNeuralEngineCompile = newValue } }
     }
 
     // Rare writes and per-call reads make contention irrelevant, but
@@ -58,7 +57,7 @@ public enum DesertAnt {
     // package floor (iOS 17) predates Synchronization.Mutex.
     private nonisolated(unsafe) static var storedApiKey: String?
     private nonisolated(unsafe) static var storedSendsDeviceContext = true
-    private nonisolated(unsafe) static var storedUsageDisabled = false
+    private nonisolated(unsafe) static var storedFasterNeuralEngineCompile = true
 
 #if os(WASI)
     // Single-threaded host, nothing to lock.

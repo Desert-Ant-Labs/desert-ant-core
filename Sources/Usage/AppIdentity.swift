@@ -1,4 +1,4 @@
-// The application identity used as the turnstile key, derived per platform so
+// The application identity a license grant names, derived per platform so
 // hosts pass nothing:
 //
 //   Apple      Bundle.main.bundleIdentifier (e.g. com.acme.app), else process name
@@ -30,8 +30,7 @@ private func jsHostString(_ name: String) -> String? {
 
 /// `globalThis[name]`, calling it when it is a function. An accessor or a
 /// function that throws (say, one that needs a request context, called from a
-/// flush timer) reads as unset: an exception unwinding through the client
-/// would lose the event.
+/// retry timer) reads as unset instead of unwinding through the license client.
 func jsHostValue(_ name: String) -> JSValue {
     let value = jsProperty(JSObject.global, name)
     guard let getter = value.function else { return value }
@@ -51,93 +50,11 @@ public func hostProvidedAppId() -> String? {
 #endif
 }
 
-/// Whether usage reporting is switched off, right now: `DesertAnt.usageDisabled`
-/// set in code, or the host flag: `globalThis.__dalUsageDisabled` (a string, a
-/// boolean, a number, or a function returning one) on WASI, then under Node
-/// `process.env.DAL_USAGE_DISABLED`; the `DAL_USAGE_DISABLED` environment
-/// variable elsewhere. The flag follows `flagIsSet`, as the context opt-out does.
-///
-/// This is the consent switch, public on every platform: a page keeps the
-/// beacon off until its visitor agrees, then clears the flag. So it is read
-/// when a call is recorded and again when events are flushed, never cached: set
-/// after load it holds what was recorded unsent, and cleared it lets reporting
-/// resume.
-/// While it is on nothing is recorded, stored or sent, and no device id is made.
-/// Our own suites set it too, because networked CI would otherwise post a real
-/// event per model load.
-public func usageDisabled() -> Bool {
-    if DesertAnt.usageDisabled { return true }
-#if os(WASI)
-    if jsFlagIsSet(jsHostValue("__dalUsageDisabled")) { return true }
-    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_DISABLED"))
-#else
-    return flagIsSet(environmentVariable("DAL_USAGE_DISABLED"))
-#endif
-}
-
-/// A host-provided app version, overriding the bundle's own for the event
-/// `context`. On WASI reads `globalThis.__dalAppVersion` (string or function),
-/// then under Node `process.env.DAL_APP_VERSION`; elsewhere reads the
-/// `DAL_APP_VERSION` environment variable. `nil` when unset.
-/// The only appVersion a Linux or wasm host sends; on Android it overrides the
-/// package's versionName.
-func hostProvidedAppVersion() -> String? {
-#if os(WASI)
-    if let value = jsHostString("__dalAppVersion") { return value }
-    guard let value = nodeEnvironmentVariable("DAL_APP_VERSION"), !value.isEmpty else { return nil }
-    return value
-#else
-    guard let value = environmentVariable("DAL_APP_VERSION") else { return nil }
-    return value.isEmpty ? nil : value
-#endif
-}
-
-/// Whether the event `context` is switched off: `DesertAnt.sendsDeviceContext`
-/// set to false in code (on Android, Kotlin's `HostBridge.sendsDeviceContext`
-/// as well), or the host flag: `globalThis.__dalUsageContextDisabled`
-/// (a string, a boolean, a number, or a function returning one) on WASI, then
-/// under Node `process.env.DAL_USAGE_CONTEXT_DISABLED`, in the
-/// global-then-environment order tongue-node's `hostString` uses; the
-/// `DAL_USAGE_CONTEXT_DISABLED` environment variable elsewhere. The flag follows
-/// `flagIsSet`. Usage itself still reports; only the context goes.
-func deviceContextDisabled() -> Bool {
-    if !DesertAnt.sendsDeviceContext { return true }
-#if os(Android)
-    // 0 is the host's opt-out; -1, a host that predates it, is not one.
-    if host_sends_device_context() == 0 { return true }
-#endif
-#if os(WASI)
-    if jsFlagIsSet(jsHostValue("__dalUsageContextDisabled")) { return true }
-    return flagIsSet(nodeEnvironmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
-#else
-    return flagIsSet(environmentVariable("DAL_USAGE_CONTEXT_DISABLED"))
-#endif
-}
-
 #if os(WASI)
 /// `process.env[name]` when the wasm core runs under Node; `nil` in a page.
 func nodeEnvironmentVariable(_ name: String) -> String? {
     guard jsHostIsNode() else { return nil }
     return JSObject.global.process.object?.env.object?[name].string
-}
-#endif
-
-/// The truthiness rule for every opt-out flag, usage and context alike: set,
-/// and not "", "0" or "false". A JS host may also pass the boolean `true` or a
-/// finite non-zero number (`jsFlagIsSet`). It fails closed: `1`, which older
-/// tongue-node honoured, still opts out.
-func flagIsSet(_ value: String?) -> Bool {
-    guard let value else { return false }
-    return value != "" && value != "0" && value != "false"
-}
-
-#if os(WASI)
-/// `flagIsSet` for a JS value: `true`, a finite non-zero number, or a string
-/// under `flagIsSet`. `false`, 0, NaN, null and undefined are unset.
-func jsFlagIsSet(_ value: JSValue) -> Bool {
-    if let boolean = value.boolean { return boolean }
-    if let number = value.number { return number.isFinite && number != 0 }
-    return flagIsSet(value.string)
 }
 #endif
 
@@ -174,7 +91,8 @@ func trimmedKey(_ key: String?) -> String? {
 /// persisted UUID doesn't fit, chiefly a server-side Node process (no per-device
 /// storage; the "device" is the host's own notion). On WASI reads
 /// `globalThis.__dalDeviceId` (string or function); elsewhere reads the
-/// `DAL_DEVICE_ID` environment variable. `nil` when unset.
+/// `DAL_DEVICE_ID` environment variable. `nil` when unset. Licensing counts the
+/// install and does not read it yet.
 public func hostProvidedDeviceId() -> String? {
 #if os(WASI)
     return jsHostString("__dalDeviceId")
@@ -184,20 +102,18 @@ public func hostProvidedDeviceId() -> String? {
 #endif
 }
 
-/// A host-provided ingest endpoint, overriding the built-in one. On WASI reads
-/// `globalThis.__dalIngestEndpoint` (string or function); elsewhere reads the
-/// `DAL_INGEST_ENDPOINT` environment variable. `nil` when unset. Intended for
-/// tests, local capture, and diagnostics; production uses the built-in default.
-public func hostProvidedIngestEndpoint() -> String? {
+func hostProvidedLicenseEndpoint() -> String? {
 #if os(WASI)
-    return jsHostString("__dalIngestEndpoint")
+    if let value = jsHostString("__dalLicenseEndpoint") { return value }
+    guard let value = nodeEnvironmentVariable("DAL_LICENSE_ENDPOINT"), !value.isEmpty else { return nil }
+    return value
 #else
-    guard let value = environmentVariable("DAL_INGEST_ENDPOINT") else { return nil }
+    guard let value = environmentVariable("DAL_LICENSE_ENDPOINT") else { return nil }
     return value.isEmpty ? nil : value
 #endif
 }
 
-/// The application identity for the current platform. Used as the wire key.
+/// The application identity for the current platform, sent as `app.id`.
 public func defaultAppIdentifier() -> String {
 #if os(macOS) || os(iOS) || os(tvOS) || os(visionOS) || os(watchOS)
     if let bundleID = Bundle.main.bundleIdentifier, !bundleID.isEmpty { return bundleID }

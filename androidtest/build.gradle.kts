@@ -34,6 +34,8 @@ android {
 
     // libCoreAndroidTests.so + libc++_shared.so are staged here by the mise task.
     sourceSets["main"].jniLibs.srcDir("src/main/jniLibs")
+    // license_vectors.json, from the copy the Swift tests read.
+    sourceSets["androidTest"].assets.srcDir("../Tests/UsageTests/Resources")
 }
 
 // Reuse HostBridge, and DesertAntNative (the host class the SDKs install, which

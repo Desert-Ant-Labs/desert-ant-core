@@ -65,7 +65,7 @@ public func androidRun(
                 androidPointer(handle),
                 input: input.baseAddress, inputLen: Int32(input.count),
                 options: options.baseAddress, optionsLen: Int32(options.count),
-                groupId: nil, deviceId: nil)
+                deviceId: nil)
         }
     }
     return hostTakeBuffer(env, buffer)

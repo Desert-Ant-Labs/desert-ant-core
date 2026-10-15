@@ -37,8 +37,9 @@ export function makeModerator(sdk) {
      *
      * `options.threshold` (default `0.5`), `options.policy` (`"standard"` or
      * `"allowTopless"`), `options.quality` (`"fast"`, `"balanced"`, or
-     * `"accurate"`, the default). `options.deviceId` and `options.group` attribute
-     * and bill usage as in every other model.
+     * `"accurate"`, the default). `options.deviceId` names the end-user device
+     * for the call; licensing does not read it yet. `options.group` has no
+     * effect.
      */
     async analyze(image, options = {}) {
       const pixels = await toPixels(image);
@@ -47,16 +48,15 @@ export function makeModerator(sdk) {
     }
 
     /**
-     * Send the usage recorded so far and await the POST, so a short-lived process
-     * (a CLI, a Lambda) does not exit before it lands. Usage is reported on its own
-     * otherwise; such a process has no idle gap for the debounce to fire in.
+     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * a Lambda) does not exit before they finish.
      */
     flushTelemetry() { return this.#model.flushTelemetry(); }
 
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }
 
-    /** Run `body(group)` with a fresh call-group id, so every call inside bills once. */
+    /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
     /** Release the model. The moderator is unusable afterwards. */

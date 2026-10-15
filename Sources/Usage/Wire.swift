@@ -1,30 +1,16 @@
-// Wire format for the usage turnstile, a native port of desert-ant-web's core.
-//
-// The one billed signal is a `load` event. The server dedups by device
-// (COUNT DISTINCT deviceId per company per month) and SUMS callCount across
-// events, so emitting an extra `load` never over-bills and a session's calls
-// can be split across several events and still add up.
-//
-// The types are `Codable`; serialization goes through the `JSON` module's
-// `JSONEncoder` (Foundation-backed on Apple/Linux, a native tree encoder on
-// Android/wasm), so no JSON is hand-written here.
-
-import JSON
 #if os(WASI)
 import JavaScriptKit
 #endif
 
-/// SDK identity attached to a body's `sdk` field when the caller names none.
-/// Every model passes its catalog's `sdkInfo` instead, so this only labels usage
-/// that reaches core without a model: the package itself, at the version in
+/// The `sdk` a license grant names: the package itself, at the version in
 /// `VERSION`. `mise run set-version` rewrites it and `check:version` holds it.
 public let defaultSDKName = "desert-ant-core"
-public let defaultSDKVersion = "3.6.0"
+public let defaultSDKVersion = "4.0.0"
 
 /// The platform tag put on the wire's `platform` field, derived from the build
-/// target. `IngestBody` defaults to this, so callers never pass it by hand.
+/// target.
 ///
-/// The ingest API accepts exactly `ios | android | web | server`, so the build
+/// The license API accepts exactly `ios | android | web | server`, so the build
 /// targets are mapped onto those: Apple device platforms (iPhone, TV, watch,
 /// Vision) report `ios`, and everything that runs on a desktop or a server
 /// (macOS, Linux, Node-native hosts) reports `server`. The wasm build serves
@@ -48,45 +34,35 @@ public var defaultPlatform: String {
 public let defaultPlatform = "server"
 #endif
 
-/// SDK identity block. Optional fields on the wire are omitted when `nil`
-/// (Codable synthesizes `encodeIfPresent` for optionals).
+/// SDK identity block.
 public struct SDKInfo: Codable, Sendable, Equatable {
     public var name: String
     public var version: String
+    // A grant sends these as its own fields; `sdk` on the wire is name and version only.
+    package var model: String? = nil
+    package var modelVersion: String? = nil
 
     public init(name: String = defaultSDKName, version: String = defaultSDKVersion) {
         self.name = name
         self.version = version
     }
-}
 
-/// A single ingest event. `name` is always `"load"`; the optional fields are
-/// omitted from the wire when unset.
-public struct IngestEvent: Codable, Sendable, Equatable {
-    public var name: String
-    public var deviceId: String
-    public var callCount: Int?
-    public var timestamp: String?
-    public var context: [String: String]?
-
-    public init(
-        name: String = "load",
-        deviceId: String,
-        callCount: Int? = nil,
-        timestamp: String? = nil,
-        context: [String: String]? = nil
-    ) {
+    package init(name: String, version: String, model: String, modelVersion: String) {
         self.name = name
-        self.deviceId = deviceId
-        self.callCount = callCount
-        self.timestamp = timestamp
-        self.context = context
+        self.version = version
+        self.model = model
+        self.modelVersion = modelVersion
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name
+        case version
     }
 }
 
-/// App identity for keyless attribution. Native platforms have no browser
+/// App identity for a license grant. Native platforms have no browser
 /// `Origin`, so they identify by `app.id` (the platform app identifier: bundle
-/// id on Apple, package name on Android, etc.). Rides the body as a nested
+/// id on Apple, package name on Android, etc.), sent as a nested
 /// `{"app":{"id":"..."}}`.
 public struct AppInfo: Codable, Sendable, Equatable {
     public var id: String
@@ -94,39 +70,4 @@ public struct AppInfo: Codable, Sendable, Equatable {
     public init(id: String) {
         self.id = id
     }
-}
-
-/// The request body posted to the ingest endpoint. Attribution is either a
-/// publishable `key` or, keyless and off-browser, the app identity in `app`.
-/// Field order on the wire follows declaration order.
-public struct IngestBody: Codable, Sendable, Equatable {
-    public var platform: String
-    public var key: String?
-    public var app: AppInfo?
-    public var sdk: SDKInfo
-    public var sentAt: String
-    public var events: [IngestEvent]
-
-    public init(
-        platform: String = defaultPlatform,
-        key: String? = nil,
-        app: AppInfo? = nil,
-        sdk: SDKInfo = SDKInfo(),
-        sentAt: String,
-        events: [IngestEvent]
-    ) {
-        self.platform = platform
-        self.key = key
-        self.app = app
-        self.sdk = sdk
-        self.sentAt = sentAt
-        self.events = events
-    }
-}
-
-/// Serialize a body to the exact JSON the ingest endpoint expects. The key rides
-/// the body only where the send cannot set a header; elsewhere the transport
-/// sends it as `Authorization: Bearer` and leaves this field nil.
-public func buildBody(_ body: IngestBody) throws -> String {
-    try JSONEncoder().encodeToString(body)
 }

@@ -12,10 +12,7 @@ const { Emo } = await import("@desert-ant-labs/emo");
 const emo = await Emo.load({});
 
 const start = Date.now();
-// `deviceId` attributes usage to a specific end-user device on multi-tenant
-// hosts (a string, or a zero-arg function returning one). Omit for the host
-// device. Collected per call, so it is safe under concurrency.
-const suggestions = await emo.suggestions("Pay my bills", { limit: 3, deviceId: "user-42" });
+const suggestions = await emo.suggestions("Pay my bills", { limit: 3 });
 console.log("suggestions:", suggestions.map((s) => s.emoji).join(" "));
 console.log(JSON.stringify(suggestions, null, 2));
 console.log(`(${Date.now() - start} ms)`);

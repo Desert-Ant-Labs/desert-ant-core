@@ -9,7 +9,7 @@
 // `/redirect/<n-1>`, and `/redirect/0` to `/bytes/1024`; `GET /bytes/<n>`
 // serves that many 'A's. So a client can be pointed at a chain of any length --
 // including one longer than any sane limit -- and checked for what came out the
-// far end.
+// far end. A request to `/silent...` is never answered.
 //
 // Standalone (compiled ad-hoc with `swiftc`, not a SwiftPM target) so it stays
 // out of the library/iOS/wasm build graph. It runs as a separate host process;
@@ -122,11 +122,11 @@ FileHandleWriteStderr("echo-server listening on 127.0.0.1:\(port)\n")
 while true {
     let client = accept(listenFD, nil, nil)
     if client == invalidSocket { break }
-    handle(client)
-    socketClose(client)
+    if handle(client) { socketClose(client) }
 }
 
-func handle(_ fd: SocketHandle) {
+/// False when the connection must stay open with no reply.
+func handle(_ fd: SocketHandle) -> Bool {
     var data = [UInt8]()
     var chunk = [UInt8](repeating: 0, count: 4096)
     func recvChunk() -> Int { chunk.withUnsafeMutableBytes { socketRecv(fd, $0.baseAddress, $0.count) } }
@@ -134,7 +134,7 @@ func handle(_ fd: SocketHandle) {
     var split = indexOfCRLFCRLF(data)
     while split == nil {
         let n = recvChunk()
-        if n <= 0 { return }
+        if n <= 0 { return true }
         data.append(contentsOf: chunk[0..<n])
         split = indexOfCRLFCRLF(data)
     }
@@ -144,6 +144,7 @@ func handle(_ fd: SocketHandle) {
     // "GET /path HTTP/1.1" -> "/path"
     let requestLine = String(decoding: lines.first ?? [], as: UTF8.self).split(separator: " ")
     let target = requestLine.count > 1 ? String(requestLine[1]) : "/"
+    if target.hasPrefix("/silent") { return false }
     if let hops = countInTarget(target, after: "/redirect/") {
         // 1024 rather than a global: top-level code here runs the accept
         // loop before any declaration below it is initialised.
@@ -151,7 +152,7 @@ func handle(_ fd: SocketHandle) {
         let head = "HTTP/1.1 302 Found\r\nLocation: \(next)\r\n"
             + "Content-Length: 0\r\nConnection: close\r\n\r\n"
         sendAll(fd, Array(head.utf8))
-        return
+        return true
     }
     if let count = countInTarget(target, after: "/bytes/") {
         let head = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
@@ -159,7 +160,7 @@ func handle(_ fd: SocketHandle) {
         var out = Array(head.utf8)
         out.append(contentsOf: [UInt8](repeating: 0x41, count: count))
         sendAll(fd, out)
-        return
+        return true
     }
 
     var headers: [(name: String, value: String)] = []
@@ -201,6 +202,7 @@ func handle(_ fd: SocketHandle) {
     var out = Array(head.utf8)
     out.append(contentsOf: body)
     sendAll(fd, out)
+    return true
 }
 
 func sendAll(_ fd: SocketHandle, _ bytes: [UInt8]) {

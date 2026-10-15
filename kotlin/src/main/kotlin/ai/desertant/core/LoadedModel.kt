@@ -31,7 +31,7 @@ import kotlinx.coroutines.withContext
  *   model-agnostic native ABI is asked for this model.
  * @param name the public SDK name, used in its existing creation/closed errors.
  * @param context the base of the managed model cache (its cache dir), and the
- *   source of the app identity and usage store ([HostBridge.attach]).
+ *   source of the app identity and license store ([HostBridge.attach]).
  * @param directory the model's home. Files already there are adopted (so an app
  *   that ships the model points at the folder it unpacked it into), otherwise
  *   the model is downloaded into it. Null uses the managed cache.

@@ -6,48 +6,6 @@
  * and friends cannot break a webpack or esbuild build.
  */
 import type { Metadata } from "./model.js";
-import { setUsageStorage } from "./usage.js";
-
-/**
- * Give the usage turnstile somewhere durable to keep its device id.
- *
- * Node has no `localStorage`, so without this every process would mint a fresh
- * id, and since billing counts distinct devices, a server-side caller would be
- * billed once per process start. Best-effort: an unwritable home directory
- * leaves the turnstile in memory.
- */
-export async function installUsageStorage(): Promise<void> {
-  try {
-    const [fs, path, os] = await Promise.all([
-      import("node:fs"),
-      import("node:path"),
-      import("node:os"),
-    ]);
-    const file = path.join(os.homedir(), ".desert-ant", "usage.json");
-    const read = (): Record<string, string> => {
-      try {
-        return JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, string>;
-      } catch {
-        return {};
-      }
-    };
-    setUsageStorage({
-      get: (key) => read()[key] ?? null,
-      set: (key, value) => {
-        try {
-          const all = read();
-          all[key] = value;
-          fs.mkdirSync(path.dirname(file), { recursive: true });
-          fs.writeFileSync(file, JSON.stringify(all), "utf8");
-        } catch {
-          /* unwritable home; reporting is best-effort */
-        }
-      },
-    });
-  } catch {
-    /* builtins unavailable */
-  }
-}
 
 /**
  * Read the model from disk, defaulting to the package's own `dist/`.

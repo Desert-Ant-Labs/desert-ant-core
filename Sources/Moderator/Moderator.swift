@@ -195,10 +195,7 @@ public final class Moderator: @unchecked Sendable {
         try Task.checkCancellation()
         let model = try await model.value()
         try Task.checkCancellation()
-        // One image is one billed call, however many crops it runs.
-        let regions = try await InferenceContext.withCallGroup {
-            try await model.regions(for: image, quality: options.quality)
-        }
+        let regions = try await model.regions(for: image, quality: options.quality)
         return Moderation(regions: regions, options: options)
     }
 }

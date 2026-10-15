@@ -22,8 +22,8 @@ public struct WasmModel {
     let selfHosted: ([String: [UInt8]], any InferenceSession) throws -> any BoundModel
 
     /// - Parameters:
-    ///   - declaration: the model's catalog entry; supplies the id and the usage
-    ///     identity every session is tracked under.
+    ///   - declaration: the model's catalog entry; supplies the id and the
+    ///     identity every session is licensed under.
     ///   - binding: the model's `ModelBinding`, as used by the C ABI.
     ///   - selfHosted: build the model from the sidecar files the host fetched
     ///     (keyed by their catalog file names) and a session backed by the host's
@@ -157,31 +157,23 @@ public final class ModelHost {
     /// stays model-agnostic - and modality-agnostic with it.
     func run(
         handle: Int, input: JSUint8Array, options: JSUint8Array?,
-        group: String?, deviceId: String?
+        deviceId: String?
     ) async throws(JSException) -> JSUint8Array {
         let instance = try loaded(handle)
         let payload = await InferenceContext.$deviceId.withValue(present(deviceId)) {
-            await InferenceContext.withCallGroup(id: present(group)) {
-                await instance.run(
-                    input: FFIReader(bytes(input)), options: FFIReader(bytes(options)))
-            }
+            await instance.run(
+                input: FFIReader(bytes(input)), options: FFIReader(bytes(options)))
         }
         guard let payload else { throw failure("the model failed to run") }
         return JSUint8Array(payload)
-    }
-
-    /// Release a call group opened by passing `group` to `run`.
-    func endCallGroup(id: String?) {
-        if let id = present(id) { InferenceContext.endCallGroup(id) }
     }
 
     func destroy(handle: Int) {
         models[handle] = nil
     }
 
-    /// Emit recorded usage now (bypassing the debounce + re-emit window) and await
-    /// the send, so the usage POST goes out before the caller continues. The
-    /// `flushTelemetry()` a browser or Node host calls.
+    /// Wait for the license requests in flight. The `flushTelemetry()` a
+    /// browser or Node host calls.
     func flushTelemetry() async -> Bool {
         await TelemetryDebug.shared.flushAndWait()
         return true

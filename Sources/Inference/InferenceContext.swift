@@ -10,157 +10,43 @@
 //     try await InferenceContext.$deviceId.withValue(id) {
 //         try await emo.suggestions(for: text)
 //     }
-
-// pthread on the threaded platforms (matches Lifecycle/LiteRTSession); WASI is
-// single-threaded, so its call group needs no lock (see below).
-import CStrings
-
-#if os(Android)
-import Android
-#elseif canImport(Glibc)
-import Glibc
-#elseif canImport(Musl)
-import Musl
-#elseif canImport(Darwin)
-import Darwin
-#endif
+//
+// Licensing counts the install and does not read the device id yet.
 
 public enum InferenceContext {
     /// The end-user device id for the current call, or `nil` for the default
     /// device. Read by `InferenceSession.run(inputs:outputs:)`.
     @TaskLocal public static var deviceId: String?
 
-    /// The active call group, if the current call is running inside
-    /// `withCallGroup`. Read by the usage-tracking session to coalesce the runs
-    /// it wraps into a single billed call. `nil` means each run counts on its own.
+    @available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
     @TaskLocal public static var callGroup: InferenceCallGroup?
 
-    /// Coalesce every inference run made inside `body` into a single tracked
-    /// usage call (per device). Use it when one logical operation performs
-    /// several `run`s (e.g. a multi-stage or autoregressive model) but should
-    /// bill as one call:
-    ///
-    ///     try await InferenceContext.withCallGroup {
-    ///         let a = try await session.run(...)   // records the call
-    ///         let b = try await session.run(...)   // same group -> not counted again
-    ///     }
-    ///
-    /// Runs outside any group count individually. Nesting reuses the
-    /// enclosing group, so wrapping an already-grouped operation is a no-op.
-    /// Mixing the two APIs does not: `withCallGroup(id:)` with a non-nil id
-    /// inside this one binds its own group, so a device already counted by the
-    /// outer group counts again inside it. A `nil` id opens nothing and stays
-    /// in this group. Combine with `$deviceId` freely; the two task-locals are
-    /// independent.
+    @available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
     public static func withCallGroup<T>(
         _ body: () async throws -> T
     ) async rethrows -> T {
-        // Already inside a group: reuse it so nested wraps still bill as one.
-        if callGroup != nil { return try await body() }
-        return try await $callGroup.withValue(InferenceCallGroup()) { try await body() }
+        try await body()
     }
 
-    /// Bind the process-global call group named `id` for `body` (created on first
-    /// use), so every run inside bills as one call. A `nil` id opens no group of
-    /// its own, leaving any enclosing one in effect.
-    ///
-    /// This is the reuse path for hosts whose calls cross a boundary that does
-    /// not preserve a task-local, chiefly a native C ABI invoked once per host
-    /// call (the JS/koffi SDKs): the host passes a stable id per logical
-    /// operation and releases it with `endCallGroup(_:)` (or the
-    /// `dal_call_group_end` C entry point) when done. Every SDK reuses this
-    /// registry, so none reimplements the grouping bookkeeping. Release it: a
-    /// group remembers the devices it has counted for as long as the id lives,
-    /// so an id never released suppresses every later run for those devices.
-    /// The JS hosts release in a `finally`.
+    @available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
     public static func withCallGroup<T>(
         id: String?,
         _ body: () async throws -> T
     ) async rethrows -> T {
-        guard let id else { return try await body() }
-        return try await $callGroup.withValue(CallGroupRegistry.shared.group(id)) { try await body() }
+        try await body()
     }
 
-    /// Release the process-global call group named `id`. Safe to call for an
-    /// unknown id (no-op). Pairs with `withCallGroup(id:)`.
-    public static func endCallGroup(_ id: String) {
-        CallGroupRegistry.shared.end(id)
-    }
+    @available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
+    public static func endCallGroup(_ id: String) {}
 }
 
-/// Process-global registry of call groups by id, so several host calls (each a
-/// separate C-ABI invocation) that share an id coalesce into one billed usage
-/// call. Shared by every SDK; created lazily per id, dropped by `endCallGroup`.
-#if os(WASI)
-final class CallGroupRegistry: @unchecked Sendable {
-    static let shared = CallGroupRegistry()
-    private var groups: [String: InferenceCallGroup] = [:]   // single-threaded: no lock
-
-    func group(_ id: String) -> InferenceCallGroup {
-        if let existing = groups[id] { return existing }
-        let group = InferenceCallGroup(); groups[id] = group; return group
-    }
-    func end(_ id: String) { groups[id] = nil }
-}
-#else
-final class CallGroupRegistry: @unchecked Sendable {
-    static let shared = CallGroupRegistry()
-    private let mutex = PlatformMutex()
-    private var groups: [String: InferenceCallGroup] = [:]
-
-    func group(_ id: String) -> InferenceCallGroup {
-        mutex.lock(); defer { mutex.unlock() }
-        if let existing = groups[id] { return existing }
-        let group = InferenceCallGroup(); groups[id] = group; return group
-    }
-    func end(_ id: String) {
-        mutex.lock(); defer { mutex.unlock() }
-        groups[id] = nil
-    }
-}
-#endif
-
-// Generic C entry point to release a call group, exported by every SDK's native
-// core (they all link Inference). The JS/koffi hosts bind this one symbol rather
-// than each SDK shipping its own `*_group_end`. Native only (no C ABI on WASI).
+// An older @desert-ant-labs/core binds this symbol at load, so it stays, as a no-op.
 #if !os(WASI)
 @_cdecl("dal_call_group_end")
-public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {
-    guard let id else { return }
-    InferenceContext.endCallGroup(decodeCString(id))
-}
+public func dal_call_group_end(_ id: UnsafePointer<CChar>?) {}
 #endif
 
-/// Identity for a set of inference runs that should bill as a single usage call.
-/// It records which devices have already been attributed within the group, so a
-/// second run to the same device does not record another call. Created by
-/// `InferenceContext.withCallGroup`; opaque to callers.
-///
-/// Keyed on the device rather than on the usage client, because one operation can
-/// run over several sessions and each session builds its own client for the same
-/// device. Keying on the client would count once per session, billing a
-/// two-stage model as two calls.
-#if os(WASI)
-public final class InferenceCallGroup: @unchecked Sendable {
-    private var counted: Set<String> = []   // single-threaded: no lock
+@available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
+public final class InferenceCallGroup: Sendable {
     public init() {}
-
-    /// Mark `device` counted for this group; returns true only the first time.
-    func markCounted(_ device: String) -> Bool {
-        counted.insert(device).inserted
-    }
 }
-#else
-public final class InferenceCallGroup: @unchecked Sendable {
-    private let mutex = PlatformMutex()
-    private var counted: Set<String> = []
-
-    public init() {}
-
-    /// Mark `device` counted for this group; returns true only the first time.
-    func markCounted(_ device: String) -> Bool {
-        mutex.lock(); defer { mutex.unlock() }
-        return counted.insert(device).inserted
-    }
-}
-#endif

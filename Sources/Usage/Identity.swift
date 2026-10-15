@@ -31,7 +31,7 @@ public func systemNowMs() -> Int64 {
 }
 
 /// Format epoch milliseconds as an ISO-8601 UTC timestamp, e.g.
-/// `2024-01-02T03:04:05.678Z` (the shape the ingest endpoint expects).
+/// `2024-01-02T03:04:05.678Z`.
 public func iso8601(epochMs: Int64) -> String {
     #if os(Windows)
     let ticks = UInt64(epochMs) * 10_000 &+ 116_444_736_000_000_000
@@ -57,6 +57,45 @@ public func iso8601(epochMs: Int64) -> String {
         "T" + pad(Int(parts.tm_hour), 2) + ":" + pad(Int(parts.tm_min), 2) +
         ":" + pad(Int(parts.tm_sec), 2) + "." + pad(millis, 3) + "Z"
     #endif
+}
+
+func parseISO8601(_ text: String) -> Int64? {
+    let bytes = Array(text.utf8)
+    func number(_ start: Int, _ count: Int) -> Int64? {
+        var value: Int64 = 0
+        for byte in bytes[start..<start + count] {
+            guard byte >= 0x30, byte <= 0x39 else { return nil }
+            value = value * 10 + Int64(byte - 0x30)
+        }
+        return value
+    }
+    guard bytes.count >= 20, bytes[4] == 0x2D, bytes[7] == 0x2D, bytes[10] == 0x54,
+          bytes[13] == 0x3A, bytes[16] == 0x3A, bytes[bytes.count - 1] == 0x5A,
+          let year = number(0, 4), let month = number(5, 2), let day = number(8, 2),
+          let hour = number(11, 2), let minute = number(14, 2), let second = number(17, 2),
+          (1...12).contains(month), (1...31).contains(day), hour < 24, minute < 60, second < 61
+    else { return nil }
+    var index = 19
+    var millis: Int64 = 0
+    if bytes[index] == 0x2E {
+        index += 1
+        let start = index
+        var scale: Int64 = 100
+        while index < bytes.count - 1, bytes[index] >= 0x30, bytes[index] <= 0x39 {
+            millis += Int64(bytes[index] - 0x30) * scale
+            scale /= 10
+            index += 1
+        }
+        guard index > start else { return nil }
+    }
+    guard index == bytes.count - 1 else { return nil }
+    let shifted = month <= 2 ? year - 1 : year
+    let era = (shifted >= 0 ? shifted : shifted - 399) / 400
+    let yearOfEra = shifted - era * 400
+    let dayOfYear = (153 * ((month + 9) % 12) + 2) / 5 + day - 1
+    let dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
+    let days = era * 146_097 + dayOfEra - 719_468
+    return ((days * 24 + hour) * 60 + minute) * 60_000 + second * 1000 + millis
 }
 
 /// A random RFC 4122 v4 UUID, using the Swift stdlib system RNG (no Foundation).

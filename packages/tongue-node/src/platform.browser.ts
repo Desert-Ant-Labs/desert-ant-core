@@ -11,9 +11,6 @@
  */
 import type { Metadata } from "./model.js";
 
-/** Nothing to install: the browser turnstile persists in localStorage. */
-export async function installUsageStorage(): Promise<void> {}
-
 /**
  * Fetch the model relative to `from`.
  *

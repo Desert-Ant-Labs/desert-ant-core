@@ -2,9 +2,6 @@ package ai.desertant.core
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.content.res.Configuration
-import android.os.Build
-import android.os.LocaleList
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -15,7 +12,10 @@ import java.nio.ByteOrder
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.ByteBuffer
-import java.util.Locale
+import java.security.KeyFactory
+import java.security.PublicKey
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.regex.Pattern
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -131,9 +131,10 @@ object HostBridge {
     /**
      * Perform [methodUtf8] on [urlUtf8] with an optional [body], content type
      * and headers (`Name: value` lines), for desert-ant-core's HTTP client (the
-     * usage POST, whose key rides `Authorization`). Returns the
-     * 4-byte big-endian status, the 4-byte big-endian body length, then the
-     * body; an error status comes back the same way, with its body. Null on a
+     * license requests, whose key rides `Authorization`). Returns the
+     * 4-byte big-endian status, the 4-byte big-endian body length, the body,
+     * then the `Retry-After` value (empty when absent; the bridge appends the
+     * terminating NUL); an error status comes back the same way. Null on a
      * transport failure. Bounded by [HTTP_TIMEOUT_MS] per connect and read, as
      * the Swift side's timeout does not cross the bridge.
      */
@@ -164,7 +165,9 @@ object HostBridge {
             val status = conn.responseCode
             val stream = if (status >= 400) conn.errorStream else conn.inputStream
             val response = stream?.use { it.readBytes() } ?: ByteArray(0)
-            ByteBuffer.allocate(8 + response.size).putInt(status).putInt(response.size).put(response).array()
+            val retryAfter = conn.getHeaderField("Retry-After")?.toByteArray() ?: ByteArray(0)
+            ByteBuffer.allocate(8 + response.size + retryAfter.size)
+                .putInt(status).putInt(response.size).put(response).put(retryAfter).array()
         } catch (e: Throwable) {
             // Throwable, not Exception: an Error would only reach JNI, which
             // clears it and reads null all the same.
@@ -182,27 +185,27 @@ object HostBridge {
     private const val HTTP_TIMEOUT_MS = 5_000
 
     /**
-     * Fill in the app identity and the usage store from [context], so usage is
-     * keyed by the real package and the device id survives the process. Every
-     * [LoadedModel] built from a Context calls this before creating its native
-     * handle, so a host app does not have to.
+     * Fill in the app identity and the license store from [context], so a
+     * license names the real package and the install id survives the process.
+     * Every [LoadedModel] built from a Context calls this before creating its
+     * native handle, so a host app does not have to.
      *
      * Only unset values are filled: a host that assigned [applicationId] or
      * [preferences] itself keeps them. The store is the "desert-ant"
      * SharedPreferences file, the same one ai.desertant:tongue uses, so an app
-     * embedding both and giving them the same kind of Context keeps one device
-     * id rather than counting as two devices.
+     * embedding both and giving them the same kind of Context keeps one install
+     * id.
      *
      * The store comes from [context] as passed, not its application context, so
-     * a direct-boot-aware app that passes a device-protected Context keeps usage
-     * persisting before the first unlock. With a credential-protected Context
+     * a direct-boot-aware app that passes a device-protected Context keeps its
+     * licenses before the first unlock. With a credential-protected Context
      * before unlock, SharedPreferences throw; the store is then left unset
-     * (usage just does not persist yet) rather than failing the model's
-     * constructor, and the next model built after unlock fills it.
+     * (nothing persists yet) rather than failing the model's constructor, and
+     * the next model built after unlock fills it.
      */
     @JvmStatic
     fun attach(context: Context) {
-        attach(context.packageName, { androidDeviceFacts(context) }) {
+        attach(context.packageName) {
             context.getSharedPreferences(PREFERENCES_FILE, Context.MODE_PRIVATE)
         }
     }
@@ -210,30 +213,24 @@ object HostBridge {
     /**
      * [attach] without a Context, so its rules are testable on the JVM. [store]
      * is only opened when no store is set yet, and a RuntimeException from it
-     * (the pre-unlock IllegalStateException) leaves the store unset. [facts] is
-     * read once per process, by the first attach.
+     * (the pre-unlock IllegalStateException) leaves the store unset.
      */
     @Synchronized
-    internal fun attach(
-        packageName: String,
-        facts: () -> String = { "" },
-        store: () -> SharedPreferences,
-    ) {
+    internal fun attach(packageName: String, store: () -> SharedPreferences) {
         if (applicationId == null) applicationId = packageName
         if (preferences == null) {
             preferences = try { store() } catch (_: RuntimeException) { null }
         }
-        if (deviceFacts == null) deviceFacts = facts()
     }
 
     private const val PREFERENCES_FILE = "desert-ant"
 
     /**
-     * Small key/value persistence for desert-ant-core's `Usage` state, backed by
-     * SharedPreferences. [attach] sets it to the "desert-ant" file when a model is
-     * created; a host that wants a different store assigns it before that. While
-     * it is null get returns empty and set is a no-op (state simply doesn't
-     * persist, so every load looks like a new device).
+     * Small key/value persistence for desert-ant-core's install id and stored
+     * licenses, backed by SharedPreferences. [attach] sets it to the "desert-ant"
+     * file when a model is created; a host that wants a different store assigns
+     * it before that. While it is null get returns empty and set is a no-op
+     * (nothing persists, so every process looks like a new install).
      */
     @JvmStatic
     @Volatile
@@ -253,9 +250,9 @@ object HostBridge {
     }
 
     /**
-     * The application identity used as the usage turnstile key. [attach] sets it
-     * to the package name when a model is created; a host that wants a different
-     * key assigns it before that. While it is null the native side reports
+     * The application identity a license grant names. [attach] sets it to the
+     * package name when a model is created; a host that wants a different
+     * identity assigns it before that. While it is null the native side reports
      * "unknown".
      */
     @JvmStatic
@@ -265,108 +262,49 @@ object HostBridge {
     @JvmStatic
     fun appId(): ByteArray = (applicationId ?: "").toByteArray(Charsets.UTF_8)
 
-    /**
-     * Whether usage events carry the device context: the app version, OS
-     * version, device model, form factor and locale [attach] reads (see
-     * desert-ant-core's Sources/Usage/DeviceContext.swift). `true` by default.
-     * Setting it to `false` sends usage without any context, the Android form
-     * of Swift's `DesertAnt.sendsDeviceContext`. Read per event, so it applies
-     * from the next send on.
-     */
+    @Deprecated("Has no effect. The SDK sends no device context.")
     @JvmStatic
     @Volatile
     var sendsDeviceContext: Boolean = true
 
-    /** The facts [attach] read, as [deviceContext] returns them. Null until then. */
-    @Volatile
-    internal var deviceFacts: String? = null
-
-    /**
-     * The device facts for the usage context as `key=value` lines, empty before
-     * [attach] or while [sendsDeviceContext] is off. The native side caps and
-     * filters them, and for a host-supplied device id (`DAL_DEVICE_ID`) sends
-     * only the OS, its major version and the app version.
-     */
     @JvmStatic
-    fun deviceContext(): ByteArray =
-        (if (sendsDeviceContext) deviceFacts.orEmpty() else "").toByteArray(Charsets.UTF_8)
+    fun verifyLicense(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean = try {
+        Signature.getInstance("SHA256withECDSA").run {
+            initVerify(p256PublicKey(publicKey))
+            update(message)
+            verify(derSignature(signature))
+        }
+    } catch (_: Exception) {
+        false
+    }
 
-    /**
-     * The facts from [context]. Nothing here needs a permission, and nothing
-     * identifies the device: no serial, ANDROID_ID or build fingerprint.
-     */
-    @Suppress("DEPRECATION") // getPackageInfo(String, Int): the flags overload is API 33+.
-    private fun androidDeviceFacts(context: Context): String = deviceFactLines(
-        appVersion = { context.packageManager.getPackageInfo(context.packageName, 0).versionName },
-        osRelease = { Build.VERSION.RELEASE },
-        model = { Build.MODEL },
-        // The application's configuration, not an Activity's: a tablet Activity in
-        // split screen can report under 600dp, and the facts last the process.
-        smallestWidthDp = { (context.applicationContext ?: context).resources.configuration.smallestScreenWidthDp },
-        locale = { LocaleList.getDefault().get(0) },
+    // SubjectPublicKeyInfo up to the point: id-ecPublicKey, prime256v1, then a 66-byte BIT STRING.
+    private val p256KeyPrefix = byteArrayOf(
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86.toByte(), 0x48, 0xce.toByte(), 0x3d, 0x02, 0x01,
+        0x06, 0x08, 0x2a, 0x86.toByte(), 0x48, 0xce.toByte(), 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00,
     )
 
-    /**
-     * The context lines from each fact's reader. A reader that throws, or
-     * returns nothing usable, leaves its key out rather than failing the
-     * model's constructor.
-     */
-    internal fun deviceFactLines(
-        appVersion: () -> String?,
-        osRelease: () -> String?,
-        model: () -> String?,
-        smallestWidthDp: () -> Int,
-        locale: () -> Locale?,
-    ): String {
-        val facts = linkedMapOf<String, String?>("osName" to "Android")
-        facts["appVersion"] = read(appVersion)
-        facts["osVersion"] = read(osRelease)?.let(::majorMinor)
-        facts["deviceModel"] = read(model)
-        facts["formFactor"] = read(smallestWidthDp)?.let(::formFactor)
-        facts["locale"] = read(locale)?.let(::languageRegion)
-        return facts.entries
-            .mapNotNull { (key, raw) ->
-                // A line break would split the value into a line of its own.
-                val value = raw?.trim()
-                if (value.isNullOrEmpty() || value.any { it == '\n' || it == '\r' }) null else "$key=$value"
-            }
-            .joinToString("\n")
+    internal fun p256PublicKey(x963: ByteArray): PublicKey {
+        require(x963.size == 65 && x963[0] == 0x04.toByte()) { "not an uncompressed P-256 point" }
+        return KeyFactory.getInstance("EC").generatePublic(X509EncodedKeySpec(p256KeyPrefix + x963))
     }
 
-    private fun <T> read(fact: () -> T?): T? = try { fact() } catch (_: Exception) { null }
-
-    /** "8.1.0" -> "8.1", "14" -> "14". Null when it does not start with a number. */
-    internal fun majorMinor(release: String): String? {
-        val numeric = release.trim().takeWhile { it.isDigit() || it == '.' }
-        return numeric.split('.').filter { it.isNotEmpty() }.take(2).joinToString(".").ifEmpty { null }
+    internal fun derSignature(raw: ByteArray): ByteArray {
+        require(raw.size == 64) { "an ES256 signature is 64 bytes" }
+        val r = derInteger(raw.copyOfRange(0, 32))
+        val s = derInteger(raw.copyOfRange(32, 64))
+        return byteArrayOf(0x30, (r.size + s.size).toByte()) + r + s
     }
 
-    /** Google's own tablet line: a smallest width of 600dp or more. */
-    internal fun formFactor(smallestWidthDp: Int): String? = when {
-        smallestWidthDp == Configuration.SMALLEST_SCREEN_WIDTH_DP_UNDEFINED -> null
-        smallestWidthDp >= 600 -> "tablet"
-        else -> "mobile"
+    private fun derInteger(unsigned: ByteArray): ByteArray {
+        val trimmed = unsigned.dropWhile { it == 0.toByte() }.toByteArray()
+        val body = if (trimmed.isEmpty() || trimmed[0] < 0) byteArrayOf(0) + trimmed else trimmed
+        return byteArrayOf(0x02, body.size.toByte()) + body
     }
 
-    /**
-     * Language and region only: "zh-Hant-TW" -> "zh-TW", "fr" -> "fr". Through
-     * the language tag, so Hebrew reads "he" rather than the legacy "iw".
-     */
-    internal fun languageRegion(locale: Locale): String? {
-        val language = locale.toLanguageTag().substringBefore('-')
-        if (language.isEmpty() || language == "und") return null
-        return if (locale.country.isEmpty()) language else "$language-${locale.country}"
-    }
-
-    /**
-     * Flush pending usage for all active sessions. The host calls this from an
-     * app-background lifecycle callback, e.g.:
-     *   ProcessLifecycleOwner.get().lifecycle.addObserver(LifecycleEventObserver { _, e ->
-     *     if (e == Lifecycle.Event.ON_STOP) HostBridge.flushUsage()
-     *   })
-     * Implemented natively (desert-ant-core Inference); requires the SDK's .so loaded.
-     */
-    @JvmStatic external fun flushUsage()
+    @Deprecated("Has no effect. The SDK sends nothing when the app goes to the background.")
+    @JvmStatic
+    fun flushUsage() {}
 
     /**
      * Decode an audio file (any container/codec MediaCodec supports) to mono

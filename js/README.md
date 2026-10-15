@@ -19,9 +19,11 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
   `open(options)` either downloads the model from Hugging Face or adopts the files a
   `modelBaseUrl` serves, and returns a ready `LoadedModel`.
 - `LoadedModel` - a loaded model behind an opaque core handle: `run(text,
-  options, { group, deviceId })` returning an `FfiReader`, plus `isDownloaded`,
-  `withCallGroup`, and `dispose`. The same object on both runtimes, so a package
-  writes its public class once.
+  options, { deviceId })` returning an `FfiReader`, plus `isDownloaded`,
+  `flushTelemetry`, and `dispose`. The same object on both runtimes, so a package
+  writes its public class once. `flushTelemetry` waits for the license requests
+  in flight. `withCallGroup` and the `group` call option are still accepted and
+  have no effect.
 - `makeModelHostSeam()` / `makeLiteRtHost(...)` - the model host a wasm core is
   instantiated with (`dalModelHost` in its generated `Imports`, from
   `Sources/JSHost/Host.swift`) and the LiteRT.js implementation of it:

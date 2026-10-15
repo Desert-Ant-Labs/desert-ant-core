@@ -1,5 +1,5 @@
 // The model-specific half of this package's types. Everything that is the same
-// for every model - how a model is loaded, how a call is billed and attributed -
+// for every model, such as how a model is loaded and its per-call options,
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
 
@@ -84,14 +84,11 @@ export declare class Moderator {
   static load(options?: LoadOptions): Promise<Moderator>;
   /** Score an image for nudity or sexual activity. */
   analyze(image: ImageInput, options?: AnalyzeOptions): Promise<Moderation>;
-  /** Send recorded usage and await the POST. One load per device per call. */
+  /** Wait for the license requests in flight. */
   flushTelemetry(): Promise<boolean>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
-  /**
-   * Run `body` with a fresh call-group id, so every `analyze({ group })`
-   * inside it bills as a single usage call.
-   */
+  /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
   /** Release the model. The moderator is unusable afterwards. */
   dispose(): void;

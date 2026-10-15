@@ -3,6 +3,9 @@ import Testing
 import DesertAnt
 import TestSupport
 @testable import Emo
+#if canImport(Glibc)
+import Glibc
+#endif
 
 // The model-backed tests are wasm-guarded because the shared fixture does not
 // exist there (the model store's filesystem and transport come from the JS host
@@ -80,6 +83,192 @@ struct EmoModelTests {
         #expect(sem.encode("ở") == [1493])
         // Whichever form the caller types, NFKC composes it to the same piece.
         #expect(sem.encode("m\u{006F}\u{0323}\u{0302}t") == sem.encode("m\u{1ED9}t"))
+    }
+}
+#endif
+
+#if os(macOS) || os(Linux)
+// In EmoModelTests, so no other Emo load shares this environment or its license slot.
+extension EmoModelTests {
+    enum LicenseServer: String, CaseIterable, Sendable {
+        case silent
+        case unavailableAfterThreeSeconds
+    }
+
+    @Test(arguments: LicenseServer.allCases)
+    func aFailingLicenseServerChangesNoSuggestion(_ kind: LicenseServer) async throws {
+        let text = "Pay my bills"
+        let expected = try await Emo().suggestions(for: text, limit: 5)
+        let server = try #require(kind == .silent
+            ? StubLicenseServer()
+            : StubLicenseServer(answerAfter: 3, with: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
+        defer { server.stop() }
+
+        let keyless = getenv("DAL_API_KEY") == nil
+        let (results, returned) = try await withEnvironment([
+            "DAL_LICENSE_ENDPOINT": server.endpoint,
+            "DAL_APP_ID": "ai.desertant.emo.outage.\(UUID().uuidString)",
+        ]) {
+            let results = try await Emo().suggestions(for: text, limit: 5)
+            let returned = ContinuousClock.now
+            if keyless {
+                #expect(await server.waitUntil { $0.grantArrivedAt != nil }, "no license request reached the server")
+            }
+            return (results, returned)
+        }
+
+        // Timed from the grant's arrival, not the load's start: a busy machine slows the model load, not this.
+        if let arrived = server.grantArrivedAt {
+            #expect(returned - arrived < .seconds(2), "the load waited on the license server")
+        }
+        #expect(results.map(\.emoji) == expected.map(\.emoji))
+        #expect(zip(results, expected).allSatisfy { abs($0.confidence - $1.confidence) < 1e-5 })
+        #expect(results.map(\.emoji).contains { ["💰", "💳", "🧾", "🏦", "📄"].contains($0) }, "got \(results)")
+        if keyless, kind == .unavailableAfterThreeSeconds {
+            #expect(await server.waitUntil { $0.answered > 0 }, "the server never sent its 503")
+        }
+    }
+}
+
+private func withEnvironment<T>(_ values: [String: String], _ body: () async throws -> T) async rethrows -> T {
+    let saved = values.keys.map { ($0, getenv($0).map { String(cString: $0) }) }
+    for (name, value) in values { setenv(name, value, 1) }
+    defer {
+        for (name, value) in saved {
+            if let value { setenv(name, value, 1) } else { unsetenv(name) }
+        }
+    }
+    return try await body()
+}
+
+/// A 127.0.0.1 license server that holds Emo's grant open or answers it after a delay.
+private final class StubLicenseServer: @unchecked Sendable {
+    let port: UInt16
+    private let fd: Int32
+    private let answer: (delay: Double, response: String)?
+    private let lock = NSLock()
+    private var held: [Int32] = []
+    private var stopped = false
+    private var grantAt: ContinuousClock.Instant?
+    private var replies = 0
+
+    var endpoint: String { "http://127.0.0.1:\(port)/api/v1" }
+    var grantArrivedAt: ContinuousClock.Instant? { lock.withLock { grantAt } }
+    var answered: Int { lock.withLock { replies } }
+
+    init?(answerAfter delay: Double? = nil, with response: String = "") {
+        #if canImport(Glibc)
+        let listener = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
+        #else
+        let listener = socket(AF_INET, SOCK_STREAM, 0)
+        #endif
+        guard listener >= 0 else { return nil }
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_addr.s_addr = in_addr_t(0x7f00_0001).bigEndian
+        var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let ok = withUnsafeMutablePointer(to: &addr) { p in
+            p.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                bind(listener, $0, len) == 0 && listen(listener, 16) == 0 && getsockname(listener, $0, &len) == 0
+            }
+        }
+        guard ok else { close(listener); return nil }
+        fd = listener
+        port = UInt16(bigEndian: addr.sin_port)
+        answer = delay.map { ($0, response) }
+        Thread.detachNewThread { [self] in acceptLoop() }
+    }
+
+    func stop() {
+        lock.withLock {
+            stopped = true
+            for client in held { close(client) }
+            held = []
+        }
+    }
+
+    func waitUntil(_ condition: (StubLicenseServer) -> Bool) async -> Bool {
+        for _ in 0..<100 {
+            if condition(self) { return true }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+        return condition(self)
+    }
+
+    private var isStopped: Bool { lock.withLock { stopped } }
+
+    private func acceptLoop() {
+        var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
+        while !isStopped {
+            guard poll(&poller, 1, 50) > 0 else { continue }
+            let client = accept(fd, nil, nil)
+            guard client >= 0 else { continue }
+            var one: Int32 = 1
+            #if canImport(Darwin)
+            setsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+            #endif
+            var wait = timeval(tv_sec: 2, tv_usec: 0)
+            setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &wait, socklen_t(MemoryLayout<timeval>.size))
+            DispatchQueue.global().async { [self] in serve(client) }
+        }
+        close(fd)
+    }
+
+    private func serve(_ client: Int32) {
+        let (target, body) = readRequest(client)
+        let now = ContinuousClock.now
+        // Other suites load models under this environment too; holding their grants would fill URLSession's six connections to this host.
+        guard target.hasSuffix("/license"), (try? JSONDecoder().decode(Grant.self, from: Data(body)))?.model == "emo" else {
+            close(client)
+            return
+        }
+        lock.withLock { if grantAt == nil { grantAt = now } }
+        guard let answer else {
+            let keep = lock.withLock { () -> Bool in
+                if !stopped { held.append(client) }
+                return !stopped
+            }
+            if !keep { close(client) }
+            return
+        }
+        Thread.sleep(forTimeInterval: answer.delay)
+        if !isStopped {
+            let bytes = Array(answer.response.utf8)
+            #if canImport(Glibc)
+            _ = send(client, bytes, bytes.count, Int32(MSG_NOSIGNAL))
+            #else
+            _ = send(client, bytes, bytes.count, 0)
+            #endif
+            lock.withLock { replies += 1 }
+        }
+        close(client)
+    }
+
+    private func readRequest(_ client: Int32) -> (target: String, body: [UInt8]) {
+        var data: [UInt8] = []
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        var head = 0
+        var expected: Int?
+        while expected.map({ data.count < $0 }) ?? true {
+            let n = chunk.withUnsafeMutableBytes { recv(client, $0.baseAddress, $0.count, 0) }
+            if n <= 0 { break }
+            data.append(contentsOf: chunk[0..<n])
+            let text = String(decoding: data, as: UTF8.self)
+            if expected == nil, let end = text.range(of: "\r\n\r\n") {
+                let length = text[..<end.lowerBound].split(separator: "\r\n")
+                    .first { $0.lowercased().hasPrefix("content-length:") }
+                    .flatMap { Int($0.split(separator: ":")[1].trimmingCharacters(in: .whitespaces)) } ?? 0
+                head = text.utf8.distance(from: text.utf8.startIndex, to: end.upperBound)
+                expected = head + length
+            }
+        }
+        let line = String(decoding: data, as: UTF8.self).split(separator: "\r\n").first ?? ""
+        let parts = line.split(separator: " ")
+        return (parts.count > 1 ? String(parts[1]) : "", Array(data[min(head, data.count)...]))
+    }
+
+    private struct Grant: Decodable {
+        let model: String
     }
 }
 #endif

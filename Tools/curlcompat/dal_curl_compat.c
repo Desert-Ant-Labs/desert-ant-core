@@ -65,7 +65,7 @@ static void *curl_sym(const char *name, int required) {
   if (!dal_curl_available()) {
     fprintf(stderr,
             "desert-ant: cannot load libcurl.so.4 (%s). libcurl is required "
-            "(downloads and usage reporting); install libcurl4, or libcurl on "
+            "(downloads and licensing); install libcurl4, or libcurl on "
             "Fedora and Amazon Linux.\n",
             libcurl_error);
     abort();

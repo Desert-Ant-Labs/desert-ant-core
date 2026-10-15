@@ -6,9 +6,9 @@
 //
 // `runChecks` installs the bridge, exercises the host-backed paths (Regex, JSON
 // decode, NFKC), and returns a failure summary; an empty string means every
-// check passed. `usageContext` returns the usage context the core builds from
-// the host's device facts. `post` sends one request through the real HTTP
-// transport. Android-only; empty elsewhere.
+// check passed. `post` sends one request through the real HTTP transport.
+// `verifyLicense` checks a license token through the host's java.security
+// verifier. Android-only; empty elsewhere.
 
 #if os(Android)
 import Android
@@ -56,27 +56,10 @@ public func coreBridgeRunChecks(_ env: HostEnv, _ clazz: jclass?, _ host: jclass
     return summary.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
 }
 
-// The usage context a client on this device sends, as sorted "key=value" lines,
-// through the real path: the host's device-facts and opt-out callbacks, the
-// Android DeviceContext and the client's sanitizing. Nothing is posted; the
-// send only captures the body.
-@_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_usageContext")
-public func coreBridgeUsageContext(_ env: HostEnv, _ clazz: jclass?, _ host: jclass?) -> jstring? {
-    installHostBridge(env, host)
-    var sent: [IngestBody] = []
-    let client = makeClient(
-        appId: "ai.desertant.core.androidtest", platform: "android", storage: InMemoryStorage(),
-        send: { body, _ in sent.append(body) }
-    )
-    client.load()
-    let context = sent.first?.events.first?.context ?? [:]
-    let lines = context.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: "\n")
-    return lines.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
-}
-
 private final class Outcome: @unchecked Sendable { var text = "" }
+private final class Verdict: @unchecked Sendable { var verified = false }
 
-// One POST to `url`, key in `Authorization`, through the path a usage send takes: PlatformSupport's
+// One POST to `url`, key in `Authorization`, through the path a license request takes: PlatformSupport's
 // httpPOST, the host's httpRequest callback, HttpURLConnection. Returns
 // "<status> <body>", or "error: ..." when no response came back.
 @_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_post")
@@ -98,5 +81,27 @@ public func coreBridgePost(_ env: HostEnv, _ clazz: jclass?, _ host: jclass?, _ 
     }
     done.wait()
     return outcome.text.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
+}
+
+// Whether the core accepts `token` under the `kid=key` lines in `keys`, via verifyLicense on a non-JNI thread.
+@_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_verifyLicense")
+public func coreBridgeVerifyLicense(
+    _ env: HostEnv, _ clazz: jclass?, _ host: jclass?, _ token: jbyteArray?, _ keys: jbyteArray?
+) -> jboolean {
+    installHostBridge(env, host)
+    let text = String(decoding: hostCopyBytes(env, token) ?? [], as: UTF8.self)
+    var publicKeys: [String: String] = [:]
+    for line in String(decoding: hostCopyBytes(env, keys) ?? [], as: UTF8.self).split(separator: "\n") {
+        guard let equals = line.firstIndex(of: "=") else { continue }
+        publicKeys[String(line[..<equals])] = String(line[line.index(after: equals)...])
+    }
+    let verdict = Verdict()
+    let done = DispatchSemaphore(value: 0)
+    Task {
+        verdict.verified = await licenseTokenVerifies(text, publicKeys: publicKeys)
+        done.signal()
+    }
+    done.wait()
+    return jboolean(verdict.verified ? 1 : 0)
 }
 #endif

@@ -1,7 +1,5 @@
 package ai.desertant.tongue
 
-import ai.desertant.tongue.usage.UsageTurnstile
-
 /**
  * On-device language identification for short text, across 84 languages.
  *
@@ -24,32 +22,21 @@ import ai.desertant.tongue.usage.UsageTurnstile
 public class Tongue internal constructor(
     private val metadata: Metadata,
     private val weights: Weights,
-    private val usage: UsageTurnstile? = null,
 ) {
     public companion object {
-        private const val NO_CONTEXT =
-            "On Android, without a Context the usage device id is not persisted, so every process " +
-                "counts as a new device and inflates monthly active devices. Pass the " +
-                "Context; on a bare JVM, pass null explicitly."
+        private const val NO_CONTEXT = "Pass the Context on Android, or null on a bare JVM."
 
-        /**
-         * Load the model bundled in this artifact's resources.
-         *
-         * Deprecated because a no-argument call gives Android no `Context`, so
-         * there is nowhere durable to keep the usage device id and every process
-         * looks like a new device. Call `bundled(context)`, or
-         * `bundled(null)` on a bare JVM. See packages/tongue-node/USAGE.md.
-         */
+        /** Load the model bundled in this artifact's resources. */
         @Deprecated(NO_CONTEXT)
         @JvmStatic
         public fun bundled(): Tongue = bundled(null)
 
         /**
-         * Load the bundled model, giving usage tracking somewhere to persist.
+         * Load the model bundled in this artifact's resources.
          *
          * `context` is an `android.content.Context`, typed as `Any` so this stays
-         * a plain jar that also runs on a bare JVM; it is never compiled against
-         * the Android SDK. Anything else is ignored.
+         * a plain jar that also runs on a bare JVM. Tongue doesn't read it in this
+         * release.
          */
         @JvmStatic
         public fun bundled(context: Any?): Tongue {
@@ -80,33 +67,16 @@ public class Tongue internal constructor(
         @JvmStatic
         public fun of(metadataJson: String, weightBytes: ByteArray, context: Any? = null): Tongue {
             val metadata = Metadata.parse(metadataJson)
-            return Tongue(metadata, Weights(weightBytes, metadata), UsageTurnstile.create(context))
+            return Tongue(metadata, Weights(weightBytes, metadata))
         }
     }
 
-    /**
-     * Send the usage this instance has recorded and block until the POST has
-     * finished, so a JVM that exits right after a detection does not leave before
-     * it lands. Useful in a short-lived CLI or worker, which has no idle gap for
-     * the debounce to fire in. Usage is reported on its own; this is not required.
-     *
-     * Blocks for at most about 5 s; a POST still running then is left to finish
-     * in the background. It does network I/O, so on Android call it off the main
-     * thread.
-     *
-     * Returns true once the flush has run and its POST has finished, false only
-     * when the flush itself threw. The endpoint's answer is not reported: a
-     * refused or failed POST still returns true, as core's and the Node port's
-     * `flushTelemetry()` do, because reporting is best effort. Nothing recorded
-     * means nothing sent. While `DAL_USAGE_DISABLED` is set nothing is recorded or
-     * sent, so this sends and stores nothing and returns true.
-     */
-    public fun flushTelemetry(): Boolean = usage?.flushTelemetry() ?: true
+    @Deprecated("Has no effect: Tongue sends no requests. Returns true.")
+    public fun flushTelemetry(): Boolean = true
 
     /** Identify the language of a short string. */
     @JvmOverloads
     public fun detect(text: String, topK: Int = 3): Detection {
-        usage?.record()
         val normalized = Normalizer.normalize(text)
         val route = Router.route(normalized)
 
