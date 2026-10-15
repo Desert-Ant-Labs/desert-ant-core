@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Browser inference: run every model's real browser path in headless Chromium.
+// Browser inference: run every model's real browser path in headless Chromium (or DAL_BROWSER_ENGINE).
 //
 // Why this exists: the browser is the *default* entry of every model package
 // (`import { Emo } from "@desert-ant-labs/emo"`). The bundle matrix proves the package *builds* for
@@ -36,6 +36,8 @@ import { createRequire } from "node:module";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
+/** The case file per model; a model may keep others beside it, e.g. a benchmark. */
+const CASE = process.env.DAL_BROWSER_CASE ?? "browser-case.js";
 const PORT = Number(process.env.DAL_BROWSER_PORT ?? 8766);
 const TIMEOUT_MS = Number(process.env.DAL_BROWSER_TIMEOUT_MS ?? 300_000);
 
@@ -61,7 +63,7 @@ function findCases() {
     .readdirSync(dir)
     .filter((d) => d.endsWith("-node"))
     .map((d) => ({ model: d.slice(0, -"-node".length), dir: path.join(dir, d) }))
-    .filter((p) => fs.existsSync(path.join(p.dir, "test", "browser-case.js")))
+    .filter((p) => fs.existsSync(path.join(p.dir, "test", CASE)))
     .filter((p) => !only || only.includes(p.model))
     .sort((a, b) => a.model.localeCompare(b.model));
 }
@@ -72,7 +74,7 @@ function findCases() {
 async function loadCases(entries) {
   return Promise.all(entries.map(async (entry) => ({
     ...entry,
-    module: await import(pathToFileURL(path.join(entry.dir, "test", "browser-case.js"))),
+    module: await import(pathToFileURL(path.join(entry.dir, "test", CASE))),
   })));
 }
 
@@ -146,7 +148,7 @@ function renderPage(entry) {
 <html><body>
 <script type="importmap">${JSON.stringify({ imports: map })}</script>
 <script type="module">
-  import { run } from "${caseDir}/browser-case.js";
+  import { run } from "${caseDir}/${CASE}";
 
   // Only for the models whose runtime this is; a case that brings its own
   // imports it itself.
@@ -208,12 +210,16 @@ if (missing.length) {
   die(`no dist/ for ${missing.map((c) => c.model).join(", ")}; run \`mise run build:wasm\` first`);
 }
 
-let chromium;
+// DAL_BROWSER_ENGINE=webkit (or firefox) runs the cases in that engine instead: Safari's
+// LiteRT.js path differs from Chromium's (no JSPI), so it is worth its own run.
+const ENGINE = process.env.DAL_BROWSER_ENGINE ?? "chromium";
+let engine;
 try {
-  ({ chromium } = await import("playwright"));
+  engine = (await import("playwright"))[ENGINE];
 } catch {
   die("playwright is not installed; run `npm install` at the repo root");
 }
+if (!engine) die(`unknown DAL_BROWSER_ENGINE "${ENGINE}" (chromium, webkit, firefox)`);
 
 const pages = new Map(cases.map((c) => [`/__browser-test__/${c.model}`, renderPage(c)]));
 const server = serve(pages);
@@ -238,9 +244,9 @@ const gpuArgs = process.env.DAL_BROWSER_SOFTWARE === "1"
   : process.platform === "darwin"
     ? ["--use-angle=metal"]
     : ["--use-angle=vulkan", "--enable-unsafe-swiftshader"];
-const browser = await chromium.launch({
+const browser = await engine.launch({
   headless: !args.includes("--headed"),
-  args: [
+  args: ENGINE !== "chromium" ? [] : [
     "--enable-unsafe-webgpu",
     "--enable-features=WebNN,WebMachineLearningNeuralNetwork",
     ...gpuArgs,
@@ -250,11 +256,62 @@ const browser = await chromium.launch({
 });
 const failures = [];
 
-for (const entry of cases) {
-  const tab = await browser.newPage();
+const pageGlobals = Object.fromEntries([
+  ["__dalHfRepoSuffix", process.env.DAL_HF_REPO_SUFFIX],
+  ["__dalHfToken", process.env.HF_TOKEN],
+  ["__dalLicenseEndpoint", process.env.DAL_LICENSE_ENDPOINT],
+].filter(([, value]) => value));
+
+const LICENSE_PATH = "/__license__/api/v1";
+const outages = {
+  unavailable: (route) => route.fulfill({
+    status: 503,
+    headers: { "retry-after": "3600" },
+    contentType: "application/json",
+    body: '{"error":"retry"}',
+  }),
+  silent: () => {},
+};
+
+function sameText(a, b) {
+  if (typeof a === "number" && typeof b === "number") return true;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((x, i) => sameText(x, b[i]));
+  if (a && b && typeof a === "object" && typeof b === "object") {
+    const keys = Object.keys(a);
+    return sameText(keys, Object.keys(b)) && keys.every((k) => sameText(a[k], b[k]));
+  }
+  return a === b;
+}
+
+function waitAtMost(promise, ms) {
+  let timer;
+  const expired = new Promise((resolve) => (timer = setTimeout(resolve, ms)));
+  return Promise.race([promise, expired]).finally(() => clearTimeout(timer));
+}
+
+async function runPage(entry, context, outage) {
+  const tab = await context.newPage();
+  const globals = outage
+    ? { ...pageGlobals, __dalLicenseEndpoint: `http://localhost:${PORT}${LICENSE_PATH}` }
+    : pageGlobals;
+  await tab.addInitScript((g) => Object.assign(globalThis, g), globals);
+  const label = outage ? `${entry.model}, license ${outage}` : entry.model;
   const logs = [];
-  tab.on("console", (m) => logs.push(`[${entry.model}] ${m.text()}`));
-  tab.on("pageerror", (e) => logs.push(`[${entry.model}] pageerror: ${e.message}`));
+  const errors = [];
+  tab.on("console", (m) => logs.push(`[${label}] ${m.text()}`));
+  tab.on("pageerror", (e) => {
+    errors.push(e.message);
+    logs.push(`[${label}] pageerror: ${e.message}`);
+  });
+  const license = { requests: 0 };
+  const licenseRequested = new Promise((resolve) => (license.seen = resolve));
+  if (outage) {
+    await tab.route(`**${LICENSE_PATH}/**`, (route) => {
+      license.requests += 1;
+      license.seen();
+      outages[outage](route);
+    });
+  }
 
   try {
     await tab.goto(`http://localhost:${PORT}/__browser-test__/${entry.model}`);
@@ -267,16 +324,45 @@ for (const entry of cases) {
     // failure inside the model rather than as a harness timeout.
     const value = await handle.jsonValue();
     if (typeof value === "string") throw new Error(value);
-
-    // The case owns its own assertion, so the harness stays model-agnostic.
-    entry.module.check(value.result);
-    log(`ok   ${entry.model}  (${value.ms} ms in browser)  ${JSON.stringify(value.result).slice(0, 120)}`);
+    if (outage) await waitAtMost(licenseRequested, 10_000);
+    if (outage && errors.length) throw new Error(`license ${outage}: the page threw ${errors.join("; ")}`);
+    return { ...value, licenseRequests: license.requests };
   } catch (error) {
     const detail = await tab.evaluate(() => window.__error).catch(() => null);
-    failures.push(`${entry.model}: ${detail ?? error.message}`);
     logs.forEach((l) => console.error(l));
+    throw new Error(detail ?? error.message);
   } finally {
     await tab.close();
+  }
+}
+
+for (const entry of cases) {
+  const context = await browser.newContext();
+  try {
+    const baseline = await runPage(entry, context, null);
+    // The case owns its own assertion, so the harness stays model-agnostic.
+    entry.module.check(baseline.result);
+    log(`ok   ${entry.model}  (${baseline.ms} ms in browser)  ${JSON.stringify(baseline.result).slice(0, 120)}`);
+
+    // A license server that answers 503 or never answers must change neither the output nor the time.
+    const runs = {};
+    for (const outage of Object.keys(outages)) {
+      const run = await runPage(entry, context, outage);
+      entry.module.check(run.result);
+      if (!run.licenseRequests) throw new Error(`license ${outage}: the page sent no license request`);
+      if (!sameText(run.result, baseline.result)) {
+        throw new Error(`license ${outage}: the output changed to ${JSON.stringify(run.result).slice(0, 200)}`);
+      }
+      runs[outage] = run;
+      log(`ok   ${entry.model}  license ${outage}  (${run.ms} ms in browser)`);
+    }
+    if (runs.silent.ms - runs.unavailable.ms > 5000) {
+      throw new Error(`license silent: the page took ${runs.silent.ms} ms against ${runs.unavailable.ms} ms`);
+    }
+  } catch (error) {
+    failures.push(`${entry.model}: ${error.message}`);
+  } finally {
+    await context.close();
   }
 }
 

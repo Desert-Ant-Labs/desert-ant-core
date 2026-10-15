@@ -13,11 +13,17 @@ import { readFileSync } from "node:fs";
 
 const models = JSON.parse(readFileSync("manifest.json", "utf8")).models;
 
+const hfToken = process.env.HF_TOKEN;
+const hubWeights = (url) => {
+  const repo = url.match(/^https:\/\/huggingface\.co\/([^/]+\/[^/]+)\/?$/)?.[1];
+  return hfToken && repo ? `https://huggingface.co/api/models/${repo}` : url;
+};
+const auth = (url) =>
+  hfToken && url.startsWith("https://huggingface.co/api/") ? { Authorization: `Bearer ${hfToken}` } : {};
+
 const targets = [];
 for (const m of models) {
-  // A gated repo answers 401 to anonymous requests, which is correct rather
-  // than broken, so it is not something this can check.
-  if (m.weights?.url && m.visibility !== "internal") targets.push([m.id, "weights.url", m.weights.url]);
+  if (m.weights?.url && m.visibility !== "internal") targets.push([m.id, "weights.url", hubWeights(m.weights.url)]);
   if (m.demo?.page) targets.push([m.id, "demo.page", m.demo.page]);
   if (m.demo?.embed) targets.push([m.id, "demo.embed", m.demo.embed]);
   if (m.demo?.space) targets.push([m.id, "demo.space", `https://huggingface.co/spaces/${m.demo.space}`]);
@@ -28,7 +34,7 @@ const results = await Promise.all(
   targets.map(async ([id, field, url]) => {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const res = await fetch(url, { redirect: "follow", signal: AbortSignal.timeout(15000) });
+        const res = await fetch(url, { redirect: "follow", headers: auth(url), signal: AbortSignal.timeout(15000) });
         if (res.ok) return null;
         if (attempt === 2) return `  ${id} ${field}: ${res.status} ${url}`;
       } catch (error) {
