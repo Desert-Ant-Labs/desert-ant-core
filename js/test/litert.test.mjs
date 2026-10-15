@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  compileModel,
   makeLiteRtHost,
   makeModelHostSeam,
   loadLiteRt,
@@ -56,6 +57,31 @@ test("makeLiteRtHost creates a session and marshals + frees tensors", async () =
   // Every tensor made (input) and produced (output) must be deleted.
   assert.ok(lrt.deleted.length >= 2, `all tensors freed (got ${lrt.deleted.length})`);
   assert.ok(lrt.deleted.every((t) => t.deleted), "each freed tensor marked deleted");
+});
+
+test("makeLiteRtHost runs a named signature of one compiled model", async () => {
+  const lrt = fakeLiteRt();
+  const ran = [];
+  let compiled = 0;
+  const { host } = makeLiteRtHost({
+    loadAndCompile: async () => {
+      compiled += 1;
+      return {
+        run: async (signature, feeds) => {
+          ran.push(signature);
+          return { out: { ...lrt.Tensor.prototype, toTypedArray: () => Float32Array.of(1), type: { dtype: "float32", layout: { dimensions: [1] } }, delete() {} } };
+        },
+      };
+    },
+    Tensor: lrt.Tensor,
+    readModelSource: async (s) => s,
+  });
+  await host.createSessionFromBytes(new Uint8Array([1]));
+  const x = { image: { data: new Uint8Array(new Float32Array([1]).buffer), dims: [1], type: "float32" } };
+  await host.runSignature("photo", x);
+  await host.runSignature("spatial", x);
+  assert.deepEqual(ran, ["photo", "spatial"]);
+  assert.equal(compiled, 1, "one compile serves every signature");
 });
 
 test("makeLiteRtHost setModel lets the modelBaseUrl path share run()", async () => {
@@ -141,5 +167,30 @@ test("fetchSelfHostedModel fetches the catalog file names and normalizes the bas
     ]);
   } finally {
     globalThis.fetch = orig;
+  }
+});
+
+test("compileModel: auto takes WebGPU when there is an adapter, wasm otherwise or when WebGPU fails", async () => {
+  const asked = [];
+  const ok = async (_, { accelerator }) => (asked.push(accelerator), { accelerator });
+  const failsOnGpu = async (_, { accelerator }) => {
+    asked.push(accelerator);
+    if (accelerator === "webgpu") throw new Error("unsupported op");
+    return { accelerator };
+  };
+  const saved = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const setGpu = (adapter) =>
+    Object.defineProperty(globalThis, "navigator", { value: { gpu: { requestAdapter: async () => adapter } }, configurable: true });
+  try {
+    setGpu({});
+    assert.equal((await compileModel(ok, "m", "auto")).accelerator, "webgpu");
+    assert.equal((await compileModel(failsOnGpu, "m", "auto")).accelerator, "wasm");
+    setGpu(null);
+    assert.equal((await compileModel(ok, "m", "auto")).accelerator, "wasm");
+    assert.equal((await compileModel(ok, "m", "webgpu")).accelerator, "webgpu");
+    assert.deepEqual(asked, ["webgpu", "webgpu", "wasm", "wasm", "webgpu"]);
+  } finally {
+    if (saved) Object.defineProperty(globalThis, "navigator", saved);
+    else delete globalThis.navigator;
   }
 });

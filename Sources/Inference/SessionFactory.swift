@@ -18,15 +18,15 @@ public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .al
     if modelPath.hasSuffix(".aimodel") {
         #if canImport(CoreAI)
         if #available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *) {
-            return tracked(try CoreAISession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
+            return licensed(try CoreAISession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
         }
         #endif
         throw InferenceError.sessionUnavailable("Core AI assets need iOS 27 / macOS 27")
     }
-    return tracked(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits,
+    return licensed(try CoreMLSession(modelPath: modelPath, computeUnits: computeUnits,
                                      functionName: functionName), sdk: sdk)
     #elseif canImport(CLiteRt)
-    return tracked(try LiteRTSession(modelPath: modelPath), sdk: sdk)
+    return licensed(try LiteRTSession(modelPath: modelPath), sdk: sdk)
     #else
     throw InferenceError.sessionUnavailable("no on-device inference runtime on this platform")
     #endif
@@ -36,19 +36,25 @@ public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .al
 /// classpath resources.
 public func inferenceSession(modelBytes: [UInt8], sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if canImport(CLiteRt)
-    return tracked(try LiteRTSession(modelPath: "", modelBytes: modelBytes), sdk: sdk)
+    return licensed(try LiteRTSession(modelPath: "", modelBytes: modelBytes), sdk: sdk)
     #else
     throw InferenceError.sessionUnavailable("in-memory models need LiteRT (Android/Linux)")
     #endif
 }
 
 #if os(WASI)
-/// A tracked inference session driven by the JS host, for SDKs that had the host
+/// An inference session driven by the JS host, for SDKs that had the host
 /// compile the model itself (the `modelBaseUrl` path) rather than going through
-/// `StoredModel.inferenceSession(model:)`. Usage is tracked like every other
+/// `StoredModel.inferenceSession(model:)`. It is licensed like every other
 /// platform's session.
 public func inferenceSession(sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
-    tracked(JSInferenceSession(), sdk: sdk)
+    licensed(JSInferenceSession(), sdk: sdk)
+}
+
+/// One signature of the model the JS host compiled itself, for a model with one
+/// graph per task (the `modelBaseUrl` path of ``StoredModel/inferenceSessions(model:functions:computeUnits:sdk:)``).
+public func inferenceSession(signature: String, sdk: SDKInfo = SDKInfo()) -> any InferenceSession {
+    licensed(JSInferenceSession(signature: signature), sdk: sdk)
 }
 #endif
 
@@ -64,10 +70,53 @@ public extension StoredModel {
                           sdk: SDKInfo = SDKInfo()) async throws -> any InferenceSession {
         #if os(WASI)
         try await createJavaScriptSession(modelFile: model)
-        return tracked(JSInferenceSession(), sdk: sdk)
+        return licensed(JSInferenceSession(), sdk: sdk)
         #else
         return try Inference.inferenceSession(modelPath: path(model), computeUnits: computeUnits,
-                                              functionName: functionName, sdk: sdk)  // already tracked
+                                              functionName: functionName, sdk: sdk)  // already licensed
+        #endif
+    }
+}
+
+// Every session the factory builds starts its model's license check, which never blocks the session.
+func licensed(_ session: any InferenceSession, sdk: SDKInfo) -> any InferenceSession {
+    licenseOnLoad(sdk)
+    return session
+}
+
+public extension StoredModel {
+    /// One session per named function of an artifact that carries several graphs
+    /// (one per task): Core ML functions on Apple platforms, LiteRT signatures on
+    /// Android/Linux/Windows and in the native Node core, LiteRT.js signatures on
+    /// wasm. The names are the same on every platform. Where the runtime allows,
+    /// the artifact compiles once and its functions share it: one LiteRT model
+    /// with a session per signature, one JS-hosted model run by signature.
+    func inferenceSessions(model: String, functions: [String], computeUnits: ComputeUnits = .all,
+                           sdk: SDKInfo = SDKInfo()) async throws -> [String: any InferenceSession] {
+        #if os(WASI)
+        try await createJavaScriptSession(modelFile: model)
+        return Dictionary(uniqueKeysWithValues: functions.map {
+            ($0, licensed(JSInferenceSession(signature: $0), sdk: sdk))
+        })
+        #elseif canImport(CoreML)
+        var sessions: [String: any InferenceSession] = [:]
+        for function in functions {
+            sessions[function] = try Inference.inferenceSession(
+                modelPath: path(model), computeUnits: computeUnits, functionName: function, sdk: sdk)
+        }
+        return sessions
+        #elseif canImport(CLiteRt)
+        let compiled = try LiteRTModel(modelPath: path(model))
+        var sessions: [String: any InferenceSession] = [:]
+        for function in functions {
+            guard compiled.signatures.contains(function) else {
+                throw InferenceError.sessionUnavailable("\(model) has no signature '\(function)'")
+            }
+            sessions[function] = licensed(try LiteRTSession(model: compiled, signature: function), sdk: sdk)
+        }
+        return sessions
+        #else
+        throw InferenceError.sessionUnavailable("no on-device inference runtime on this platform")
         #endif
     }
 }
