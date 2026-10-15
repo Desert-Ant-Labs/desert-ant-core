@@ -16,6 +16,7 @@
 #define ODML_LITERT_LITERT_C_LITERT_COMMON_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "litert/build_common/build_config.h"  // IWYU pragma: keep
 
@@ -32,11 +33,13 @@ extern "C" {
 // Define LITERT_CAPI_EXPORT macro to export a function properly with a shared
 // library.
 #if defined(LITERT_WINDOWS_OS)
-#ifdef LITERT_COMPILE_LIBRARY
+#if defined(LITERT_STATIC)
+#define LITERT_CAPI_EXPORT
+#elif defined(LITERT_COMPILE_LIBRARY)
 #define LITERT_CAPI_EXPORT __declspec(dllexport)
 #else
 #define LITERT_CAPI_EXPORT __declspec(dllimport)
-#endif  // LITERT_COMPILE_LIBRARY
+#endif  // LITERT_STATIC
 #else
 #define LITERT_CAPI_EXPORT __attribute__((visibility("default")))
 #endif  // LITERT_WINDOWS_OS
@@ -330,6 +333,11 @@ typedef enum {
   kLiteRtDelegatePrecisionDefault = 0,
   kLiteRtDelegatePrecisionFp16 = 1,
   kLiteRtDelegatePrecisionFp32 = 2,
+  // FP16 storage and arithmetic with FP32 accumulation where supported.
+  // Currently the option is only for the GPU backend and only impacts the
+  // CONV_2D, DEPTHWISE_CONV_2D, FULLY_CONNECTED, TRANSPOSE_CONV and
+  // BATCH_MAT_MUL operators and any stablehlo composite op that uses them.
+  kLiteRtDelegatePrecisionFp16WithFp32Accum = 3,
 } LiteRtDelegatePrecision;
 
 typedef enum {

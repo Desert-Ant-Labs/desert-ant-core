@@ -1,4 +1,4 @@
-#if canImport(CoreML) || canImport(COnnxRuntime)
+#if canImport(CoreML) || canImport(COnnxRuntime) || canImport(CLiteRt)
 import AudioIO
 #if canImport(CoreML)
 import CoreML
@@ -8,8 +8,11 @@ import Foundation
 public extension Voz {
     /// Transcribe an audio file. Any format `AudioIO` can decode is accepted and
     /// is downmixed and resampled to the rate the model expects.
+    ///
+    /// `vocabulary`: see ``transcribe(samples:vocabulary:progress:)``.
     func transcribe(
         path: String,
+        vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
         #if canImport(AVFoundation)
@@ -18,34 +21,37 @@ public extension Voz {
         let stream = try FileAudioStream(url: URL(fileURLWithPath: path),
                                          sampleRate: sampleRate)
         let duration = Double(stream.totalSamples ?? 0) / sampleRate
-        return try await transcribe(stream: stream, duration: duration, progress: progress)
+        return try await transcribe(stream: stream, duration: duration, vocabulary: vocabulary,
+                                    progress: progress)
         #else
         let samples = try await AudioIO.decode(path: path, sampleRate: sampleRate)
         guard !samples.isEmpty else {
             throw VozError.invalidAudio("\(path) decoded to no audio")
         }
-        return try await transcribe(samples: samples, progress: progress)
+        return try await transcribe(samples: samples, vocabulary: vocabulary, progress: progress)
         #endif
     }
 
     /// Transcribe an audio file at `url`.
     func transcribe(
         _ url: URL,
+        vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
-        try await transcribe(path: url.path, progress: progress)
+        try await transcribe(path: url.path, vocabulary: vocabulary, progress: progress)
     }
 
     /// Transcribe already-decoded audio at an arbitrary rate.
     func transcribe(
         samples: [Float],
         sampleRate rate: Double,
+        vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
         let converted = rate == sampleRate
             ? samples
             : Resample.linear(samples, from: rate, to: sampleRate)
-        return try await transcribe(samples: converted, progress: progress)
+        return try await transcribe(samples: converted, vocabulary: vocabulary, progress: progress)
     }
 }
 #endif

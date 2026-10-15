@@ -76,12 +76,6 @@ public actor Voz {
             waiting.removeFirst().resume()
         }
     }
-    /// One turnstile per instance. This model drives Core ML directly rather
-    /// than through `Inference`, so it opens its own; see UsageTracking.swift,
-    /// which is Core ML only.
-    #if canImport(CoreML)
-    private let usage: UsageTurnstile?
-    #endif
     /// Audio rate the model expects. Input at another rate is resampled.
     public nonisolated let sampleRate: Double
 
@@ -123,7 +117,7 @@ public actor Voz {
 
     // MARK: - Creation
 
-    #if canImport(CoreML)
+    #if canImport(CoreML) || canImport(CLiteRt)
     /// Load the model, downloading it first if needed.
     public init(
         directory: String? = nil,
@@ -135,7 +129,9 @@ public actor Voz {
                                                      progress: progress)
         try self.init(modelDirectory: URL(fileURLWithPath: stored.rootPath))
     }
+    #endif
 
+    #if canImport(CoreML)
     /// Load from a directory of model files you manage yourself.
     public init(modelDirectory: URL, computeUnits: MLComputeUnits = .cpuAndNeuralEngine) throws {
         func read(_ name: String) throws -> Data {
@@ -157,9 +153,25 @@ public actor Voz {
                                       buffers: buffers)
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
-        #if canImport(CoreML)
-        usage = makeTurnstile()
-        #endif
+        licenseOnLoad(VozModel.sdkInfo)
+    }
+    #elseif canImport(CLiteRt)
+    /// Load from a directory of model files you manage yourself.
+    ///
+    /// The LiteRT bundle carries its own geometry (`meta.litert.json`): the
+    /// export differs from the Core ML one (float32 I/O, one decode lane at
+    /// width 1), and reading the Apple file would size every buffer wrong.
+    public init(modelDirectory: URL) throws {
+        func read(_ name: String) throws -> Data {
+            try Data(contentsOf: modelDirectory.appendingPathComponent(name))
+        }
+        let assets = try Assets(meta: try read(VozModel.litertMeta),
+                                vocab: try read("vocab.json"),
+                                embeddingBytes: try read("embedding.f16"))
+        let (engine, buffers) = try LiteRTEngine.load(directory: modelDirectory,
+                                                      configuration: assets.configuration)
+        pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
+        sampleRate = Double(assets.configuration.sampleRate)
     }
     #endif
 
@@ -200,23 +212,25 @@ public actor Voz {
     init(assets: Assets, engine: Engine, buffers: PipelineBuffers) {
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
-        #if canImport(CoreML)
-        usage = makeTurnstile()
-        #endif
+        licenseOnLoad(VozModel.sdkInfo)
     }
 
     // MARK: - Transcription
 
     /// Transcribe mono samples at ``sampleRate``.
+    ///
+    /// `vocabulary`: names and terms the audio likely contains, cased as they
+    /// should be written. Keep it relevant to the recording.
     public func transcribe(
         samples: [Float],
+        vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void = { _ in }
     ) async throws -> Result {
         guard !samples.isEmpty else { throw VozError.invalidAudio("no samples") }
         let stream = ArrayAudioStream(samples)
         return try await transcribe(stream: stream,
                               duration: Double(samples.count) / sampleRate,
-                              progress: progress)
+                              vocabulary: vocabulary, progress: progress)
     }
 
     /// Transcribe from a source that is read as it goes, so that a long
@@ -224,18 +238,16 @@ public actor Voz {
     func transcribe(
         stream: some AudioStream,
         duration: Double,
+        vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void
     ) async throws -> Result {
         await acquirePipeline()
-        defer { releasePipeline() }
-        // Every public entry point funnels through here, so this is the one
-        // place a transcription is counted. Awaited rather than left to a task
-        // of its own, so a flush after the transcript returns always sees the
-        // call. The hop only records and schedules the send; it never waits on
-        // the network.
-        #if canImport(CoreML)
-        if let usage { await usage.record() }
-        #endif
+        defer {
+            pipeline.booster = nil
+            releasePipeline()
+        }
+        pipeline.booster = vocabulary.isEmpty ? nil
+            : Booster(phrases: vocabulary, vocabulary: pipeline.vocabulary)
         let started = Date()
         let (text, words) = try await pipeline.run(stream: stream) {
             progress(Progress(fractionCompleted: min(1, max(0, $0))))
