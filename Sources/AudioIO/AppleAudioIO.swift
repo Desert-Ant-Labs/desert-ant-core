@@ -82,7 +82,10 @@ extension AudioIO {
                   let outBuffer = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: outCapacity)
             else { throw AudioIOError.decodeFailed("cannot build buffers") }
 
+            // The whole output is reserved once, so the arrays never double their way up.
+            let expectedFrames = Int(Double(file.length) * sampleRate / inFormat.sampleRate) + 4096
             var channelsOut = [[Float]](repeating: [], count: Int(convChannels))
+            for c in 0..<Int(convChannels) { channelsOut[c].reserveCapacity(expectedFrames) }
             var drained = false
             while !drained {
                 inBuffer.frameLength = 0

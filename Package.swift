@@ -152,6 +152,11 @@ struct ModelPackage {
     /// Whether this model gets an `Android` dynamic library. `Align` has no `.android` artifact:
     /// the host bridge has no NFC, so the lexical bytes could not match training.
     var androidLibrary: Bool = true
+    /// Whether this model has a `Web/` entry point and so a wasm product. `Who` ships Android before
+    /// the web: its host would need several sessions per model, which the wasm host does not give yet.
+    var web: Bool = true
+    /// Whether this model gets a `Node` dynamic library; `Who` has no Node package yet.
+    var nodeLibrary: Bool = true
 }
 
 let models: [ModelPackage] = [
@@ -177,6 +182,20 @@ let models: [ModelPackage] = [
         dependencies: ["AudioIO", "AudioDSP"],
         testResources: [.copy("Resources/ear_frontend_golden.json")]
     ),
+    // Five graphs tiled over a recording: Core ML programs on Apple platforms, LiteRT
+    // models on Android, Linux and Windows; the frontend runs on Accelerate or on plain
+    // arithmetic. No wasm entry point and no Node package yet.
+    .init(
+        name: "Who",
+        dependencies: ["AudioIO", .product(name: "RealModule", package: "swift-numerics")],
+        testDependencies: ["AudioIO"],
+        testResources: [
+            .copy("Resources/who_frontend_golden.json"),
+            .copy("Resources/who_parity_golden.json"),
+        ],
+        web: false,
+        nodeLibrary: false
+    ),
     .init(
         name: "Gist",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
@@ -190,6 +209,17 @@ let models: [ModelPackage] = [
     .init(
         name: "Shapes",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")]
+    ),
+    // One multifunction model (a Core ML function / LiteRT signature per task);
+    // pure-Swift Pillow resampling, whose Lanczos and bicubic kernels need sin.
+    .init(
+        name: "Eye",
+        dependencies: [.product(name: "RealModule", package: "swift-numerics")],
+        testResources: [
+            .copy("Resources/eye_golden.json"),
+            .copy("Resources/eye_fixture.gray"),
+            .copy("Resources/eye_tag_cases.json"),
+        ]
     ),
     // Image in, pure-Swift resampling (bit-exact with the Pillow eval pipeline),
     // so it needs nothing beyond the core.
@@ -237,7 +267,7 @@ let tongueTargets: [Target] = [
         resources: [
             .copy("Resources/tongue_int8.bin"),
             .copy("Resources/tongue_meta.json"),
-            // No privacy manifest here: the usage turnstile's is `UsagePrivacy`'s,
+            // No privacy manifest here: licensing's is `UsagePrivacy`'s,
             // which Tongue reaches through DesertAnt -> Usage like every model.
         ]
     ),
@@ -285,7 +315,7 @@ let products: [Product] = [
     : [])
 
 // `appleOnly` models (Title) have no `Web/` entry point, so they get no wasm product.
-let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
+let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly && $0.web }.map { model in
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
@@ -296,10 +326,12 @@ let modelProducts: [Product] = models.flatMap { model -> [Product] in
             + (model.androidLibrary
                 ? [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
                 : [])
-            + [.library(name: "\(model.name)Node", type: .dynamic, targets: [model.name])]
+            + (model.nodeLibrary
+                ? [.library(name: "\(model.name)Node", type: .dynamic, targets: [model.name])]
+                : [])
 } + modelWasmProducts
 
-let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly }.map { model in
+let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly && $0.web }.map { model in
     .executableTarget(
         name: "\(model.name)Web",
         dependencies: [
@@ -318,7 +350,7 @@ let modelTargets: [Target] = models.map { model in
         path: "Sources/\(model.name)",
         // Only models with a wasm entry point have a `Web/` directory to exclude. An exclude
         // naming a path that does not exist is a warning today and could become an error.
-        exclude: model.appleOnly ? [] : ["Web"],
+        exclude: model.appleOnly || !model.web ? [] : ["Web"],
         resources: model.resources
     )
 } + modelWasmTargets
@@ -349,7 +381,13 @@ let libraryTargets: [Target] = [
         ),
         .target(
             name: "CLiteRt",
-            linkerSettings: [.linkedLibrary("LiteRt")]
+            linkerSettings: [
+                .linkedLibrary("LiteRt"),
+                // The shim owns a surfaceless EGL context on Android so the
+                // GPU accelerator's GL tensor buffers can be created and
+                // host-mapped (see dal_egl_create in shim.c).
+                .linkedLibrary("EGL", .when(platforms: [.android])),
+            ]
         ),
         .target(
             name: "CBCrypt",
@@ -429,13 +467,14 @@ let libraryTargets: [Target] = [
             name: "Usage",
             dependencies: [
                 "PlatformSupport", "JSON", "CStrings",
+                .target(name: "CBCrypt", condition: .when(platforms: [.windows])),
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 .target(name: "UsagePrivacy",
                         condition: .when(platforms: [.iOS, .macOS, .macCatalyst, .tvOS, .visionOS, .watchOS])),
-            ] + jsWasi
+            ] + jsWasi + jsEventLoop
         ),
         // Apple requires a privacy manifest from any SDK that collects data or
-        // calls a required-reason API, and the turnstile above does both. Every
+        // calls a required-reason API, and licensing above does both. Every
         // model links it through DesertAnt. It is its own target, reached only
         // on Apple, because a resource would make SwiftPM generate a Foundation
         // `Bundle.module` accessor for Usage, and Usage keeps Foundation off
@@ -507,8 +546,12 @@ let libraryTargets: [Target] = [
 
 let testTargets: [Target] = [
         .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsWasi + jsTestSupport),
-        .testTarget(name: "UsageTests", dependencies: ["Usage"] + jsWasi),
-        .testTarget(name: "InferenceUsageTests", dependencies: ["Inference", "Usage"]),
+        .testTarget(
+            name: "UsageTests",
+            dependencies: ["Usage"] + jsWasi + jsTestSupport,
+            resources: [.copy("Resources/license_vectors.json")]
+        ),
+        .testTarget(name: "LicenseE2ETests", dependencies: ["Usage", "Emo"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
@@ -536,17 +579,26 @@ let testTargets: [Target] = [
 ]
 
 
-// Voz runs on Apple (Core ML), in the browser and Node (VozWeb, wasm), and on
-// Windows (ONNX Runtime on DirectML), and gets no Android products and no
-// NativeBindings. It bundles nothing: its models are downloaded on demand via
-// Sources/Voz/Catalog.swift. It drives each runtime directly rather than going
-// through `InferenceSession`, because preallocated buffers, output binding and
-// a lane-batched decode loop are not expressible through a generic
+// Voz runs on Apple (Core ML), Android/Linux (LiteRT), Windows (ONNX Runtime
+// on DirectML), and in the browser and Node (VozWeb, wasm). It bundles
+// nothing: its models are downloaded on demand via Sources/Voz/Catalog.swift.
+// It drives each runtime directly rather than going through
+// `InferenceSession`, because preallocated buffers, output binding and a
+// lane-batched decode loop are not expressible through a generic
 // run(inputs:outputs:) call, and dropping them costs roughly 127x on load and
 // about a third of decode throughput. Sources/Voz/Engine.swift is the seam.
 let vozProducts: [Product] = [
     .library(name: "Voz", targets: ["Voz"]),
-] + (noJavaScriptKit ? [] : [.executable(name: "VozWeb", targets: ["VozWeb"])])
+]
+// The dynamic products exist for the Android and Node pipelines only and
+// follow the same wasm gate as the models' (dynamic libraries cannot link for
+// wasm32); the web entry point takes the opposite side of the same gate.
++ (noJavaScriptKit
+    ? [
+        .library(name: "VozAndroid", type: .dynamic, targets: ["Voz"]),
+        .library(name: "VozNode", type: .dynamic, targets: ["Voz"]),
+    ]
+    : [.executable(name: "VozWeb", targets: ["VozWeb"])])
 
 // Typed on their own: concatenated inline, these lists sit inside the
 // `vozTargets` expression below, and Swift 6.2 (check:swift-floor) gives up
@@ -554,6 +606,8 @@ let vozProducts: [Product] = [
 let vozDependencies: [Target.Dependency] = [
     .byName(name: "DesertAnt"),
     .byName(name: "AudioIO"),
+    .byName(name: "NativeBindings"),
+    .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
 ] + onnxProducts
 // AudioIO for the portable WAV decoder the ONNX end-to-end test reads its
 // fixture with; COnnxRuntime so `canImport` can gate that test.
