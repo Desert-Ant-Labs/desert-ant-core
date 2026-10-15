@@ -14,9 +14,14 @@ export async function run({ Shapes }, { litert, litertWasmDir }) {
       return { x: 100 + 80 * Math.cos(t), y: 100 + 80 * Math.sin(t) };
     });
     const drag = Array.from({ length: 41 }, (_, i) => ({ x: i * 5, y: i * 2 }));
+    const zigzag = [];
+    for (let i = 0; i < 7; i++) {
+      for (let s = 0; s < 10; s++) zigzag.push({ x: (i + s / 10) * 18, y: (i % 2 ? 80 : 0) + (s / 10) * (i % 2 ? -80 : 80) });
+    }
     return {
       circle: await shapes.recognize(circle),
       line: await shapes.recognize(drag),
+      zigzag: await shapes.recognize(zigzag),
       degenerate: await shapes.recognize([{ x: 1, y: 1 }]),
     };
   } finally {
@@ -30,11 +35,14 @@ export function check(result) {
   if (result.circle?.kind !== "ellipse") {
     throw new Error(`expected an ellipse from a traced circle, got ${JSON.stringify(result.circle)}`);
   }
-  if (Math.abs(result.circle.center.x - 100) > 8 || Math.abs(result.circle.semiMajor - 80) > 12) {
+  if (Math.abs(result.circle.center.x - 100) > 4 || Math.abs(result.circle.semiMajor - 80) > 4) {
     throw new Error(`ellipse geometry is off: ${JSON.stringify(result.circle)}`);
   }
   if (result.line?.kind !== "line") {
     throw new Error(`expected a line from a straight drag, got ${JSON.stringify(result.line)}`);
+  }
+  if (result.zigzag?.kind !== "scribble" || !(result.zigzag.hull?.length >= 3)) {
+    throw new Error(`expected a scribble from a zigzag, got ${JSON.stringify(result.zigzag)}`);
   }
   if (result.degenerate !== null) {
     throw new Error(`expected null for a one-point stroke, got ${JSON.stringify(result.degenerate)}`);

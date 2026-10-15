@@ -11,6 +11,8 @@ import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME } from "./codec.js";
 import { makeShapes } from "./shapes.js";
 
+export { arrowheads } from "./shapes.js";
+
 // The wasm core instantiates at import time (top-level await); the model is only
 // wired in Shapes.load().
 export const Shapes = makeShapes(await createWasmSdk({

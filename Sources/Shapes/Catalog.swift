@@ -4,11 +4,11 @@ import DesertAnt
 public enum ShapesModel: ModelDeclaration {
     public static let id = "shapes"
     public static let product = "Shapes"
-    public static let revision = "v0.3.0"
-    public static let sdkVersion = "3.6.0"
+    public static let revision = "v1.0.0"
+    public static let sdkVersion = "4.0.0"
     public static let summary = "On-device single-stroke shape recognition."
 
-    /// Class order, calibrated gates, and the frozen preprocessing constants.
+    /// Class order, input length, and the calibrated gates.
     public static let meta = "shapes_meta.json"
     /// LiteRT export: Android/Linux/Windows + wasm.
     public static let tflite = "shapes.tflite"
@@ -26,9 +26,10 @@ public enum ShapesModel: ModelDeclaration {
         .web: [tflite] + sidecars,
     ]
 
-    /// Both exports share one graph: a fixed 256-length window of
-    /// `[distance, cos, sin]` features plus a 1/0 validity mask, so there is no
-    /// per-artifact tensor shaping to track.
+    /// Both exports have the same tensors: input `points` [1, 128, 2] (the
+    /// stroke as `Preprocess` resamples and normalizes it), outputs `probs`
+    /// [1, 13] and `head` [1, 128] (the arrowhead probability of each point).
+    /// The SDK needs no per-artifact tensor shaping.
     public static func artifact(for platform: ModelPlatform) -> String {
         platform == .apple ? coreML : tflite
     }

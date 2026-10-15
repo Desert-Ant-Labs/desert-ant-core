@@ -1,208 +1,230 @@
 import RealModule
 
-/// Geometry regularization ("smart shape" snapping). After the fitter produces
-/// an accurate fit, these cheap snaps clean the output to nice axes, angles,
-/// circles, and squares.
-struct SnapConfig: Sendable {
-    /// Snap a line to the horizontal/vertical axis within this angle (degrees).
-    var lineAxisThresholdDeg: Double = 5
-    /// Snap an ellipse to a circle when `minAxis / maxAxis >= 1 - ratio`.
-    var ellipseCircleRatio: Double = 0.25
-    /// Snap ellipse rotation to multiples of this (degrees).
-    var ellipseRotationIncrementDeg: Double = 15
-    /// Snap a rectangle to a square when `minSide / maxSide >= 1 - ratio`.
-    var rectangleSquareRatio: Double = 0.25
-    /// Snap rectangle rotation to multiples of this (degrees).
-    var rectangleRotationIncrementDeg: Double = 15
-    /// Snap a triangle's base edge to the horizontal/vertical axis within this
-    /// angle (degrees).
-    var triangleAxisThresholdDeg: Double = 5
-    /// Snap a triangle to equilateral when `(maxSide - minSide) / maxSide <= ratio`.
-    var triangleEquilateralRatio: Double = 0.25
-    /// Snap a triangle to isosceles when its two most-equal legs are within this
-    /// ratio.
-    var triangleIsoscelesRatio: Double = 0.25
-
-    /// Standard defaults.
-    static let standard = SnapConfig()
-
-    /// No regularization (thresholds and increments disabled).
-    static let disabled = SnapConfig(
-        lineAxisThresholdDeg: 0, ellipseCircleRatio: 0, ellipseRotationIncrementDeg: 0,
-        rectangleSquareRatio: 0, rectangleRotationIncrementDeg: 0,
-        triangleAxisThresholdDeg: 0, triangleEquilateralRatio: 0, triangleIsoscelesRatio: 0
-    )
+/// How Shapes snaps a recognized shape's rotation.
+public enum Rotation: Sendable, Equatable {
+    /// The default. Shapes rounds rotations to 15° steps and snaps lines and
+    /// edges within 5° of horizontal or vertical onto the axis.
+    case snapped
+    /// Shapes removes rotation. Rectangles and ellipses align with the axes,
+    /// each polygon has a horizontal edge or a vertex straight up, and each
+    /// star has a tip straight up.
+    case upright
+    /// Shapes keeps the fitted shape as drawn, and skips the snapping to
+    /// circles, squares, and regular polygons.
+    case free
 }
 
-extension Fitter {
-    /// Apply regularization snapping to a fitted shape. Geometry-only cleanup;
-    /// the caller keeps the residual from the raw (pre-snap) fit for gating.
-    static func snap(_ shape: Shape, config c: SnapConfig) -> Shape {
+/// Snapping after the fit. A shape within a tolerance of regular becomes
+/// regular, and then its rotation follows ``Rotation``. The gates check the
+/// residual of the fit before snapping, so snapping can't make Shapes accept a
+/// stroke it rejected.
+enum Snapping {
+    /// Lines and edges within this many degrees of horizontal or vertical snap onto the axis.
+    static let axisDegrees = 5.0
+    /// Rotation step for `.snapped`.
+    static let stepDegrees = 15.0
+    /// `minAxis / maxAxis` at or above which an ellipse becomes a circle.
+    static let circleRatio = 0.85
+    /// `minSide / maxSide` at or above which a rectangle becomes a square.
+    static let squareRatio = 0.9
+    /// `(maxSide - minSide) / maxSide` at or below which a polygon becomes regular.
+    static let regularSpread = 0.15
+    /// `(longer - shorter) / longer` for two legs at or below which a triangle becomes isosceles.
+    static let isoscelesSpread = 0.1
+
+    static func apply(_ shape: Shape, rotation: Rotation) -> Shape {
+        if rotation == .free { return shape }
+        let upright = rotation == .upright
         switch shape {
-        case let .line(from, to):
-            return snapLine(from, to, c)
+        case let .line(a, b):
+            let (p, q) = axisSnapped(v(a), v(b))
+            return .line(from: pt(p), to: pt(q))
         case let .rectangle(corners):
-            return snapRectangle(corners, c)
-        case let .triangle(verts):
-            return snapTriangle(verts, c)
-        case let .ellipse(center, major, minor, rotation):
-            return snapEllipse(center, major, minor, rotation, c)
-        case .star:
-            return shape  // template already regular
+            return .rectangle(corners: rectangle(corners.map(v), upright: upright).map(pt))
+        case let .ellipse(c, a, b, rot):
+            return ellipse(c, a, b, rot, upright: upright)
+        case let .triangle(vs):
+            return .triangle(vertices: triangle(vs.map(v), upright: upright).map(pt))
+        case let .diamond(vs):
+            return .diamond(vertices: diamond(vs.map(v), upright: upright).map(pt))
+        case let .pentagon(vs):
+            return .pentagon(vertices: polygon(vs.map(v), upright: upright, uprightPhase: -Double.pi / 2).map(pt))
+        case let .hexagon(vs):
+            return .hexagon(vertices: polygon(vs.map(v), upright: upright, uprightPhase: 0).map(pt))
+        case let .star(c, outer, inner, rot, count):
+            let period = 2 * Double.pi / Double(count)
+            let r = upright ? 0 : step(rot)
+            return .star(center: c, outerRadius: outer, innerRadius: inner,
+                         rotation: (r.truncatingRemainder(dividingBy: period) + period).truncatingRemainder(dividingBy: period),
+                         pointCount: count)
+        case .curve, .arrow, .heart, .cloud, .scribble:
+            return shape
         }
     }
 
-    // MARK: Angle helpers
+    // MARK: Helpers
 
-    private static func snapToIncrement(_ angle: Double, incrementDeg: Double) -> Double {
-        guard incrementDeg > 0 else { return angle }
-        let inc = incrementDeg * .pi / 180
-        return (angle / inc).rounded() * inc
+    private static func v(_ p: Point) -> V2 { V2(p.x, p.y) }
+    private static func pt(_ p: V2) -> Point { Point(x: p.x, y: p.y) }
+    private static func angle(_ d: V2) -> Double { Double.atan2(y: d.y, x: d.x) }
+
+    /// `angle` to the nearest multiple of `period`.
+    private static func nearest(_ angle: Double, _ period: Double) -> Double {
+        (angle / period).rounded() * period
     }
 
-    /// If `angle` is within `thresholdDeg` of the nearest multiple of 90°, return
-    /// that snapped angle; otherwise `nil`.
-    private static func snapToAxis(_ angle: Double, thresholdDeg: Double) -> Double? {
-        guard thresholdDeg > 0 else { return nil }
-        let quarter = Double.pi / 2
-        let nearest = (angle / quarter).rounded() * quarter
-        return abs(angle - nearest) <= thresholdDeg * .pi / 180 ? nearest : nil
+    private static func step(_ angle: Double) -> Double {
+        nearest(angle, stepDegrees * Double.pi / 180)
     }
 
-    private static func v2(_ p: Point) -> V2 { V2(p.x, p.y) }
-    private static func point(_ v: V2) -> Point { Point(x: v.x, y: v.y) }
-
-    // MARK: Line
-
-    private static func snapLine(_ from: Point, _ to: Point, _ c: SnapConfig) -> Shape {
-        let a = v2(from), b = v2(to)
-        let ang = Double.atan2(y: b.y - a.y, x: b.x - a.x)
-        guard let snapped = snapToAxis(ang, thresholdDeg: c.lineAxisThresholdDeg) else {
-            return .line(from: from, to: to)
-        }
-        let mid = (a + b) / 2
-        let half = (b - a).length / 2
-        let dir = V2(Double.cos(snapped), Double.sin(snapped))
-        return .line(from: point(mid - half * dir), to: point(mid + half * dir))
+    /// The turn from `angle` onto the nearest axis, or nil when the turn is
+    /// larger than `axisDegrees`.
+    private static func toAxis(_ angle: Double) -> Double? {
+        let target = nearest(angle, Double.pi / 2)
+        return abs(angle - target) <= axisDegrees * Double.pi / 180 ? target - angle : nil
     }
 
-    // MARK: Ellipse
-
-    private static func snapEllipse(
-        _ center: Point, _ major: Double, _ minor: Double, _ rotation: Double,
-        _ c: SnapConfig
-    ) -> Shape {
-        let maj = major, min_ = minor
-        let hi = Swift.max(maj, min_), lo = Swift.min(maj, min_)
-        if c.ellipseCircleRatio > 0, hi > 0, lo / hi >= 1 - c.ellipseCircleRatio {
-            let r = (maj + min_) / 2
-            return .ellipse(center: center, semiMajor: r, semiMinor: r, rotation: 0)
-        }
-        let rot = snapToIncrement(rotation, incrementDeg: c.ellipseRotationIncrementDeg)
-        return .ellipse(center: center, semiMajor: major, semiMinor: minor, rotation: rot)
+    private static func rotate(_ ps: [V2], by a: Double, about c: V2) -> [V2] {
+        let m = Mat2.rotation(a)
+        return ps.map { c + m * ($0 - c) }
     }
 
-    // MARK: Rectangle
+    private static func centroid(_ ps: [V2]) -> V2 { ps.reduce(V2(0, 0), +) / Double(ps.count) }
 
-    private static func snapRectangle(_ corners: [Point], _ c: SnapConfig) -> Shape {
-        guard corners.count == 4 else { return .rectangle(corners: corners) }
-        let p = corners.map(v2)
-        let center = (p[0] + p[1] + p[2] + p[3]) / 4
-        var w = (p[1] - p[0]).length
-        var h = (p[3] - p[0]).length
-        var ang = Double.atan2(y: (p[1] - p[0]).y, x: (p[1] - p[0]).x)
-
-        let hi = Swift.max(w, h), lo = Swift.min(w, h)
-        if c.rectangleSquareRatio > 0, hi > 0, lo / hi >= 1 - c.rectangleSquareRatio {
-            let s = (w + h) / 2
-            w = s; h = s
-        }
-        ang = snapToIncrement(ang, incrementDeg: c.rectangleRotationIncrementDeg)
-
-        let r = Mat2.rotation(ang)
-        let hw = w / 2, hh = h / 2
-        let local = [V2(-hw, -hh), V2(hw, -hh), V2(hw, hh), V2(-hw, hh)]
-        return .rectangle(corners: local.map { point(center + r * $0) })
+    private static func axisSnapped(_ a: V2, _ b: V2) -> (V2, V2) {
+        guard let turn = toAxis(angle(b - a)) else { return (a, b) }
+        let r = rotate([a, b], by: turn, about: (a + b) / 2)
+        return (r[0], r[1])
     }
 
-    // MARK: Triangle
+    // MARK: Kinds
 
-    private static func snapTriangle(_ verts: [Point], _ c: SnapConfig) -> Shape {
-        guard verts.count == 3 else { return .triangle(vertices: verts) }
-        var v = verts.map(v2)
-        let centroid = (v[0] + v[1] + v[2]) / 3
-
-        let lAB = (v[0] - v[1]).length
-        let lBC = (v[1] - v[2]).length
-        let lCA = (v[2] - v[0]).length
-        let sides = [lAB, lBC, lCA]
-        let mx = sides.max() ?? 0, mn = sides.min() ?? 0
-
-        if c.triangleEquilateralRatio > 0, mx > 0, (mx - mn) / mx <= c.triangleEquilateralRatio {
-            v = makeEquilateral(v, centroid: centroid)
-        } else if c.triangleIsoscelesRatio > 0 {
-            v = makeIsosceles(v, legs: [lAB, lBC, lCA], ratio: c.triangleIsoscelesRatio) ?? v
+    private static func ellipse(_ c: Point, _ a: Double, _ b: Double, _ rot: Double, upright: Bool) -> Shape {
+        if a > 0 && min(a, b) / max(a, b) >= circleRatio {
+            let r = (a + b) / 2
+            return .ellipse(center: c, semiMajor: r, semiMinor: r, rotation: 0)
         }
-
-        return alignTriangleToAxis(v, thresholdDeg: c.triangleAxisThresholdDeg)
+        var r = upright ? nearest(rot, Double.pi / 2) : step(rot)
+        // keep the rotation in (-pi/2, pi/2]
+        while r <= -Double.pi / 2 { r += Double.pi }
+        while r > Double.pi / 2 { r -= Double.pi }
+        return .ellipse(center: c, semiMajor: a, semiMinor: b, rotation: r)
     }
 
-    private static func makeEquilateral(_ v: [V2], centroid c: V2) -> [V2] {
-        let r = ((v[0] - c).length + (v[1] - c).length + (v[2] - c).length) / 3
-        // Circular mean of (angle_i - i*120°) gives a stable base orientation.
-        var sx = 0.0, sy = 0.0
-        for i in 0..<3 {
-            let a = Double.atan2(y: v[i].y - c.y, x: v[i].x - c.x) - Double(i) * 2 * Double.pi / 3
-            sx += Double.cos(a); sy += Double.sin(a)
-        }
-        let base = Double.atan2(y: sy, x: sx)
-        return (0..<3).map { i in
-            let a = base + Double(i) * 2 * Double.pi / 3
-            return c + r * V2(Double.cos(a), Double.sin(a))
-        }
+    private static func rectangle(_ p: [V2], upright: Bool) -> [V2] {
+        guard p.count == 4 else { return p }
+        let c = centroid(p)
+        var w = (p[1] - p[0]).length, h = (p[3] - p[0]).length
+        let a = angle(p[1] - p[0])
+        if max(w, h) > 0 && min(w, h) / max(w, h) >= squareRatio { w = (w + h) / 2; h = w }
+        let r = upright ? nearest(a, Double.pi / 2) : step(a)
+        let m = Mat2.rotation(r)
+        return [V2(-w / 2, -h / 2), V2(w / 2, -h / 2), V2(w / 2, h / 2), V2(-w / 2, h / 2)].map { c + m * $0 }
     }
 
-    /// Equalize the two most-similar legs about their shared apex.
-    private static func makeIsosceles(_ v: [V2], legs: [Double], ratio: Double) -> [V2]? {
-        // Apex candidates: (apex, leg1, leg2) by vertex index.
-        let cand: [(apex: Int, b: Int, cc: Int, l1: Double, l2: Double)] = [
-            (0, 1, 2, legs[0], legs[2]),  // v0 between edges v0v1, v2v0
-            (1, 0, 2, legs[0], legs[1]),  // v1 between edges v0v1, v1v2
-            (2, 0, 1, legs[2], legs[1]),  // v2 between edges v2v0, v1v2
-        ]
-        let best = cand.min { rel($0.l1, $0.l2) < rel($1.l1, $1.l2) }!
-        guard rel(best.l1, best.l2) <= ratio else { return nil }
-        let apex = v[best.apex]
-        let avg = (best.l1 + best.l2) / 2
-        func leg(_ to: Int) -> V2 {
-            let d = v[to] - apex
-            let n = d.length
-            return apex + (n > 0 ? d / n : d) * avg
+    /// Makes the triangle equilateral or isosceles when it's close to one, then
+    /// turns its edge nearest an axis onto that axis: within the threshold for
+    /// `.snapped`, always for `.upright`.
+    private static func triangle(_ p: [V2], upright: Bool) -> [V2] {
+        guard p.count == 3 else { return p }
+        let sides = [(p[1] - p[0]).length, (p[2] - p[1]).length, (p[0] - p[2]).length]
+        var out = p
+        if let hi = sides.max(), let lo = sides.min(), hi > 0, (hi - lo) / hi <= regularSpread {
+            out = regular(p)
+        } else {
+            out = isosceles(p) ?? p
         }
-        var out = v
-        out[best.b] = leg(best.b)
-        out[best.cc] = leg(best.cc)
+        let edges = (0..<3).map { out[($0 + 1) % 3] - out[$0] }
+        let turns = edges.map { nearest(angle($0), Double.pi / 2) - angle($0) }
+        let best = turns.indices.min { abs(turns[$0]) < abs(turns[$1]) }!
+        if upright {
+            // turn the most horizontal edge flat
+            let horizontal = edges.map { nearest(angle($0), Double.pi) - angle($0) }
+            let i = horizontal.indices.min { abs(horizontal[$0]) < abs(horizontal[$1]) }!
+            return rotate(out, by: horizontal[i], about: centroid(out))
+        }
+        return abs(turns[best]) <= axisDegrees * Double.pi / 180 ? rotate(out, by: turns[best], about: centroid(out)) : out
+    }
+
+    /// Makes the two most similar legs equal, keeping their shared apex.
+    private static func isosceles(_ p: [V2]) -> [V2]? {
+        var best: (Int, Double)?
+        for apex in 0..<3 {
+            let l1 = (p[(apex + 1) % 3] - p[apex]).length, l2 = (p[(apex + 2) % 3] - p[apex]).length
+            let spread = abs(l1 - l2) / max(l1, l2, 1e-12)
+            if best == nil || spread < best!.1 { best = (apex, spread) }
+        }
+        guard let (apex, spread) = best, spread <= isoscelesSpread else { return nil }
+        let a = p[apex]
+        let l = ((p[(apex + 1) % 3] - a).length + (p[(apex + 2) % 3] - a).length) / 2
+        var out = p
+        for k in [(apex + 1) % 3, (apex + 2) % 3] {
+            let d = p[k] - a
+            out[k] = a + d / max(d.length, 1e-12) * l
+        }
         return out
     }
 
-    private static func rel(_ a: Double, _ b: Double) -> Double {
-        let m = Swift.max(a, b)
-        return m > 0 ? abs(a - b) / m : 0
+    /// A regular polygon around the centroid, with the mean radius, the
+    /// vertices' circular-mean phase, and the original vertex order and winding.
+    private static func regular(_ p: [V2]) -> [V2] {
+        let k = p.count, c = centroid(p)
+        let r = p.map { ($0 - c).length }.reduce(0, +) / Double(k)
+        let wind: Double = crossZ(p[1] - p[0], p[2] - p[1]) >= 0 ? 1 : -1
+        var sx = 0.0, sy = 0.0
+        for (i, q) in p.enumerated() {
+            let a = angle(q - c) - wind * Double(i) * 2 * Double.pi / Double(k)
+            sx += Double.cos(a); sy += Double.sin(a)
+        }
+        let base = Double.atan2(y: sy, x: sx)
+        return (0..<k).map { i in
+            let a = base + wind * Double(i) * 2 * Double.pi / Double(k)
+            return c + V2(Double.cos(a), Double.sin(a)) * r
+        }
     }
 
-    /// Rotate the triangle about its centroid so its longest edge aligns to the
-    /// nearest axis, when within threshold.
-    private static func alignTriangleToAxis(_ v: [V2], thresholdDeg: Double) -> Shape {
-        let edges = [(v[0], v[1]), (v[1], v[2]), (v[2], v[0])]
-        let longest = edges.max { ($0.1 - $0.0).length < ($1.1 - $1.0).length }!
-        let dir = longest.1 - longest.0
-        let ang = Double.atan2(y: dir.y, x: dir.x)
-        guard let snapped = snapToAxis(ang, thresholdDeg: thresholdDeg) else {
-            return .triangle(vertices: v.map(point))
+    /// The phase of a k-gon's vertices (any vertex's angle, modulo 2 pi / k).
+    private static func phase(_ p: [V2]) -> Double {
+        let k = Double(p.count), c = centroid(p)
+        var sx = 0.0, sy = 0.0
+        for q in p { let a = angle(q - c) * k; sx += Double.cos(a); sy += Double.sin(a) }
+        return Double.atan2(y: sy, x: sx) / k
+    }
+
+    private static func polygon(_ p: [V2], upright: Bool, uprightPhase: Double) -> [V2] {
+        let k = p.count
+        guard k >= 3 else { return p }
+        let sides = (0..<k).map { (p[($0 + 1) % k] - p[$0]).length }
+        var out = p
+        if let hi = sides.max(), let lo = sides.min(), hi > 0, (hi - lo) / hi <= regularSpread {
+            out = regular(p)
         }
-        let centroid = (v[0] + v[1] + v[2]) / 3
-        let r = Mat2.rotation(snapped - ang)
-        let out = v.map { centroid + r * ($0 - centroid) }
-        return .triangle(vertices: out.map(point))
+        let period = 2 * Double.pi / Double(k)
+        let ph = phase(out)
+        // Upright puts a vertex at `uprightPhase` (a pentagon's top) or halfway
+        // between (a pentagon pointing down, a flat-topped hexagon), whichever
+        // is nearer.
+        let target = upright
+            ? uprightPhase + nearest(ph - uprightPhase, period / 2)
+            : step(ph)
+        return rotate(out, by: target - ph, about: centroid(out))
+    }
+
+    /// A rhombus with perpendicular diagonals. `.upright` turns the diagonals
+    /// onto the axes, and `.snapped` rounds their angle to a 15° step.
+    private static func diamond(_ p: [V2], upright: Bool) -> [V2] {
+        guard p.count == 4 else { return p }
+        let c = centroid(p)
+        let d1 = (p[0] - p[2]) / 2
+        var d2 = (p[1] - p[3]) / 2
+        // make the second diagonal perpendicular to the first, keeping its
+        // length and side
+        let n = V2(-d1.y, d1.x) / max(d1.length, 1e-12)
+        d2 = n * (dot(d2, n) >= 0 ? d2.length : -d2.length)
+        var out = [c + d1, c + d2, c - d1, c - d2]
+        let a = angle(d1)
+        let target = upright ? nearest(a, Double.pi / 2) : step(a)
+        out = rotate(out, by: target - a, about: c)
+        return out
     }
 }
