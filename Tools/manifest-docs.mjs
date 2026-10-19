@@ -33,6 +33,11 @@ export function docsURL(model, org) {
   return `${org.github}/desert-ant-core/blob/main/${docsPath(model)}`;
 }
 
+/// The model page on the website. Hub cards link here instead of to GitHub.
+export function siteDocsURL(model, org) {
+  return `${org.site}/docs/${model.id}/`;
+}
+
 export function docsPath(model) {
   return `docs/models/${model.id}.md`;
 }
@@ -79,7 +84,7 @@ export function renderTable(models, org) {
 /// of install lines and examples rather than at a repo root to go hunting in.
 export function renderCardBody(model, org) {
   const links = ships(model)
-    ? [`- **SDKs, install and examples:** ${docsURL(model, org)}`]
+    ? [`- **SDKs, install and examples:** ${siteDocsURL(model, org)}`]
     : [`- **GitHub:** ${model.home ? `${org.github}/${model.home}` : org.github}`];
   if (model.demo?.page) links.push(`- **Website:** ${model.demo.page}`);
   return [`# ${model.name}`, "", model.tagline, "", model.summary, "", ...links, ""].join("\n");
