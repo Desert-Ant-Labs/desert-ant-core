@@ -3,7 +3,8 @@ import DesertAnt
 /// The uhm model: on-device filler-word detection ("uh", "um", "hmm", ...)
 /// with one prediction every 20 ms. One published tier (``Uhm/Quality``; the
 /// HuBERT-base tier is disabled until republished): the small DistilHuBERT
-/// `uhm`, hosted on the Hub as an unzipped `.mlmodelc/`.
+/// `uhm`, hosted on the Hub as an unzipped `.mlmodelc/`, with a Core AI
+/// `.aimodel/` beside it for iOS 27 and macOS 27.
 public enum UhmModel: ModelDeclaration {
     public static let id = "uhm"
     public static let product = "Uhm"
@@ -12,11 +13,13 @@ public enum UhmModel: ModelDeclaration {
     // takes a pre-tiled window and returns BC1S probabilities, which is why
     // `FillerDetector` reads its layout off the artifact. A pin is exact and a
     // published tag never moves, so older SDKs keep resolving `v1.0.0`.
-    public static let revision = "v1.1.0"
+    // `v1.2.0` keeps the weights and rebuilds both Apple exports from one graph
+    // that runs on the Neural Engine of current chips, and adds `uhm.aimodel`.
+    public static let revision = "v1.2.0"
     /// No published npm/Maven package, so nothing cross-checks this the way
     /// ModelCatalogTests checks emo and redact; keep it in step with
     /// packages/uhm-* if they land.
-    public static let sdkVersion = "4.0.0"
+    public static let sdkVersion = "4.1.0"
     public static let summary = "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans."
 
     /// The SDK default. A caller-selected tier (`Uhm(quality:)`) downloads
@@ -27,6 +30,10 @@ public enum UhmModel: ModelDeclaration {
     /// Core ML export (a directory on the Hub). No LiteRT export is published,
     /// so Apple is the only platform in `files`.
     public static let coreML = quality.coreML
+
+    /// Core AI export: preferred on iOS 27 and macOS 27, with `files` as the fallback.
+    public static let coreAI = quality.coreAI
+    public static let runtimeFiles: [ModelRuntime: [String]] = quality.runtimeFiles
 
     /// The ~13 KB per-filler type-labeler head (SoundAnalysis, Apple-only),
     /// downloaded alongside the detector. Tier-independent: both qualities'

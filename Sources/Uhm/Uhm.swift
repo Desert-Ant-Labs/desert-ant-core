@@ -161,12 +161,18 @@ public final class Uhm: @unchecked Sendable {
         public let audioDuration: Double
         /// Per-phase breakdown of the `analyze(...)` call this `Result` came from.
         public let phaseTimings: PhaseTimings
+        /// Which runtime ran the detector: Core AI on iOS 27 and macOS 27 when
+        /// the asset loaded, Core ML otherwise. Nil when the bindings supplied
+        /// the session.
+        public let modelRuntime: ModelRuntime?
 
         /// Creates a result. You normally receive this from `analyze(...)`.
-        public init(fillers: [Detection], audioDuration: Double, phaseTimings: PhaseTimings = PhaseTimings()) {
+        public init(fillers: [Detection], audioDuration: Double, phaseTimings: PhaseTimings = PhaseTimings(),
+                    modelRuntime: ModelRuntime? = nil) {
             self.fillers = fillers
             self.audioDuration = audioDuration
             self.phaseTimings = phaseTimings
+            self.modelRuntime = modelRuntime
         }
     }
 
@@ -225,9 +231,13 @@ public final class Uhm: @unchecked Sendable {
         // that distribution rather than the catalog entry's default one.
         let resolved = quality.resolved
         resolvedQuality = resolved
+        // On iOS 27 and macOS 27 the Core AI asset is preferred. When it is not
+        // in `directory` or fails to load, `LoadedModel` builds the Core ML one,
+        // and hands over the platform-default distribution to say so.
         model = LoadedModel(resolved.distribution,
-                            directory: directory, cacheRoot: cacheRoot) { files in
-            try await .uhm(files: files, quality: resolved, computeUnits: computeUnits)
+                            directory: directory, cacheRoot: cacheRoot) { files, distribution in
+            try await .uhm(files: files, quality: resolved, runtime: distribution.runtime(of: files),
+                           computeUnits: computeUnits)
         }
     }
 
@@ -344,7 +354,8 @@ public final class Uhm: @unchecked Sendable {
             timings.labelingSec = elapsedSeconds(since: labelStart)
         }
 
-        return Result(fillers: detections, audioDuration: audioDuration, phaseTimings: timings)
+        return Result(fillers: detections, audioDuration: audioDuration, phaseTimings: timings,
+                      modelRuntime: assets.runtime)
     }
 
     /// Detects filler words in in-memory audio-file `bytes` (WAV and the

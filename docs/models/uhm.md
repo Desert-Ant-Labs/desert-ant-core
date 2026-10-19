@@ -9,7 +9,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
 | **Languages** | 5 |
-| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/uhm) |
+| **Weights** | [v1.2.0](https://huggingface.co/desert-ant-labs/uhm) |
 | **Demo** | https://desertant.com/models/uhm/ |
 
 ## Install
@@ -17,7 +17,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
 ```
 
 Then add the `Uhm` product to your target.
