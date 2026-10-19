@@ -28,12 +28,20 @@ extension Uhm {
         /// The artifact stem on the Hub for the resolved tier.
         var stem: String { "uhm" }
 
-        /// Core ML export (a directory on the Hub), the only published export.
+        /// Core ML export (a directory on the Hub).
         public var coreML: String { "\(stem).mlmodelc" }
+
+        /// Core AI export (a directory on the Hub): iOS 27 and macOS 27.
+        public var coreAI: String { "\(stem).aimodel" }
 
         /// The runnable artifact for `platform`. Only Apple ships, so every
         /// platform answers the Core ML name.
         public func artifact(for platform: ModelPlatform) -> String { coreML }
+
+        /// The runnable artifact for `runtime`.
+        public func artifact(for runtime: ModelRuntime) -> String {
+            runtime == .coreAI ? coreAI : coreML
+        }
 
         /// Repo-relative entries each platform needs for this tier: the
         /// detector plus the tier-independent type-labeler head.
@@ -41,10 +49,18 @@ extension Uhm {
             [.apple: [coreML + "/", UhmModel.labeler]]
         }
 
+        /// Repo-relative entries for the Core AI runtime, preferred on iOS 27 and
+        /// macOS 27. `files` stands in below that, and when the asset is missing
+        /// or fails to load. The type labeler is Core ML on both.
+        public var runtimeFiles: [ModelRuntime: [String]] {
+            [.coreAI: [coreAI + "/", UhmModel.labeler]]
+        }
+
         /// This tier's slice of the model repo: the same repo and pinned
         /// revision as the catalog entry, but only this tier's files.
         public var distribution: ModelDistribution {
-            ModelDistribution(repo: UhmModel.repo, revision: UhmModel.revision, files: files)
+            ModelDistribution(repo: UhmModel.repo, revision: UhmModel.revision, files: files,
+                              runtimeFiles: runtimeFiles)
         }
 
         /// The tier an artifact path belongs to, by its file name

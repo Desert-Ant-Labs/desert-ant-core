@@ -79,17 +79,30 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
     /// one artifact set under one catalog entry (clear's studio/natural variants).
     /// Passing a variant's own slice of the repo means choosing one never
     /// downloads the other.
-    public init(
+    public convenience init(
         _ distribution: ModelDistribution,
         directory: String? = nil,
         cacheRoot: String? = nil,
         build: @escaping @Sendable (StoredModel) async throws -> Runtime
     ) {
+        self.init(distribution, directory: directory, cacheRoot: cacheRoot) { files, _ in
+            try await build(files)
+        }
+    }
+
+    /// Like the init above, but `build` also gets the distribution the files came from. After a
+    /// fallback that is the platform default, so ask it, not the one passed in, which runtime to open.
+    public init(
+        _ distribution: ModelDistribution,
+        directory: String? = nil,
+        cacheRoot: String? = nil,
+        build: @escaping @Sendable (StoredModel, ModelDistribution) async throws -> Runtime
+    ) {
         // The loader's Double carries both phases: [0, 0.5) is the download
         // fraction (halved), [0.5, 1] is preparing/build. `decode` splits them back.
         loader = LazyLoader { progress in
             try await Self.load(distribution, directory: directory, cacheRoot: cacheRoot,
-                                progress: progress) { files, _ in try await build(files) }
+                                progress: progress, build: build)
         }
         availability = { distribution.isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot) }
     }
