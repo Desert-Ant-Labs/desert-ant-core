@@ -27,7 +27,7 @@ public enum ClipModel: ModelDeclaration {
     /// needs two sessions, which the wasm host cannot give it). Nothing
     /// cross-checks this the way `ModelCatalogTests` checks emo and redact; keep
     /// it in step with `packages/clips-*` if they land.
-    public static let sdkVersion = "4.0.0"
+    public static let sdkVersion = "4.1.0"
     public static let summary = "Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device."
 
     /// The artifact family this SDK is built against. Every file name below derives
@@ -50,11 +50,23 @@ public enum ClipModel: ModelDeclaration {
     /// Half of the pipeline: the artifact to open, and which function inside it
     /// to run when it carries more than one graph. A file name alone does not
     /// identify a model on Core ML.
+    ///
+    /// The tensor names are the graph's own, in the order the pipeline uses them
+    /// (selector: ids, mask, disc -> saliency, start_p, end_p; scorer: ids, mask
+    /// -> score). They differ per runtime: the Core ML package names its tensors,
+    /// while the LiteRT converter numbers them by position (`args_N`, `output_N`)
+    /// and drops the names from training. `clips_meta.json` records that order.
+    /// Its LiteRT `outputs` field lists the Core ML names, so the order is the
+    /// only part of that field to trust.
     public struct Export: Sendable, Equatable {
         /// Repo-relative artifact, exactly as it appears in ``files``.
         public let file: String
         /// The Core ML function to load, or `nil` for a single-graph artifact.
         public let function: String?
+        /// Input tensor names, in pipeline order.
+        public let inputs: [String]
+        /// Output tensor names, in pipeline order.
+        public let outputs: [String]
     }
 
     /// Core ML export (a directory on the Hub): one multifunction package
@@ -93,16 +105,21 @@ public enum ClipModel: ModelDeclaration {
     /// shared declaration considers *the* model.
     public static func selector(for platform: ModelPlatform) -> Export {
         platform == .apple
-            ? Export(file: coreML, function: selectFunction)
-            : Export(file: selectorTFLite, function: nil)
+            ? Export(file: coreML, function: selectFunction,
+                     inputs: ["ids", "mask", "disc"], outputs: ["saliency", "start_p", "end_p"])
+            : Export(file: selectorTFLite, function: nil,
+                     inputs: ["args_0", "args_1", "args_2"],
+                     outputs: ["output_0", "output_1", "output_2"])
     }
 
     /// The span scorer, the second half of the pipeline. On Apple this is the
     /// same file as ``selector(for:)`` under a different function.
     public static func scorer(for platform: ModelPlatform) -> Export {
         platform == .apple
-            ? Export(file: coreML, function: scoreFunction)
-            : Export(file: scorerTFLite, function: nil)
+            ? Export(file: coreML, function: scoreFunction,
+                     inputs: ["ids", "mask"], outputs: ["score"])
+            : Export(file: scorerTFLite, function: nil,
+                     inputs: ["args_0", "args_1"], outputs: ["output_0"])
     }
 
     public static func artifact(for platform: ModelPlatform) -> String {

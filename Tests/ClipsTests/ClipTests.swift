@@ -289,6 +289,23 @@ struct ClipCatalogTests {
         }
     }
 
+    /// `Model` indexes the names by role (selector: ids, mask, disc -> saliency,
+    /// start_p, end_p; scorer: ids, mask -> score), so every platform must
+    /// declare exactly that many, and no name twice.
+    @Test func everyPlatformNamesEachTensorTheGraphTakes() {
+        for platform in ClipModel.files.keys {
+            let selector = ClipModel.selector(for: platform)
+            let scorer = ClipModel.scorer(for: platform)
+            #expect(selector.inputs.count == 3 && selector.outputs.count == 3,
+                    "\(platform.rawValue): selector takes ids, mask, disc and gives three")
+            #expect(scorer.inputs.count == 2 && scorer.outputs.count == 1,
+                    "\(platform.rawValue): scorer takes ids, mask and gives a score")
+            for names in [selector.inputs, selector.outputs, scorer.inputs, scorer.outputs] {
+                #expect(Set(names).count == names.count, "\(platform.rawValue): \(names)")
+            }
+        }
+    }
+
     /// No `.web` manifest: the wasm host holds one compiled model per module and
     /// selection needs two sessions. Declaring web files would resolve artifacts
     /// the browser could not both compile.
