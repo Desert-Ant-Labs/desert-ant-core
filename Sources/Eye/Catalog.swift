@@ -13,7 +13,7 @@ public enum EyeModel: ModelDeclaration {
     public static let id = "eye"
     public static let product = "Eye"
     public static let revision = "v1.0.0"
-    public static let sdkVersion = "4.0.0"
+    public static let sdkVersion = "4.1.0"
     public static let summary = "On-device photo understanding: scenes, quality, faces, people, pets, crops and sharpness."
     /// `eye.mlmodelc` is a multifunction package, an iOS 18 feature.
     public static let osFloor = OSFloor.multifunction

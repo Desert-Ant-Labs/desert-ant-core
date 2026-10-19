@@ -16,7 +16,7 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
 ```
 
 Then add the `Voz` product to your target.
@@ -24,7 +24,7 @@ Then add the `Voz` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:voz:4.0.0")
+implementation("ai.desertant:voz:4.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
