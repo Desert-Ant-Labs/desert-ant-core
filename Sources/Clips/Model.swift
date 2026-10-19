@@ -13,7 +13,9 @@ import Transcript
 ///
 /// The signatures above are the 128 package's. The two functions can run at
 /// different sequence lengths, so widths are read from the loaded graph (see
-/// ``Model/scoreSeqLen``).
+/// ``Model/scoreSeqLen``). The names are Core ML's; each runtime's own come
+/// from ``ClipModel/Export`` (LiteRT numbers them), and the ids and mask are
+/// int32 here and widened by the LiteRT session where the graph takes int64.
 ///
 /// Fixed shapes throughout: sessions cache their input buffers per shape and
 /// rebuild whenever one changes, so feeding arbitrary lengths would trade
@@ -51,15 +53,20 @@ final class Model: @unchecked Sendable {
     private let selector: any InferenceSession
     private let scorer: any InferenceSession
     private let tokenizer: Tokenizer
+    /// This runtime's tensor names for each graph.
+    private let select: ClipModel.Export
+    private let score: ClipModel.Export
 
     /// Buffer widths taken from the loaded graphs, so one binary serves the 128 and 256
     /// packages without a rebuild and a 256 artifact is never silently truncated to 128.
-    private var selectWidth: Int { selector.inputWidth("ids") ?? Self.seqLen }
-    private var scoreWidth: Int { scorer.inputWidth("ids") ?? Self.scoreSeqLen }
+    private var selectWidth: Int { selector.inputWidth(select.inputs[0]) ?? Self.seqLen }
+    private var scoreWidth: Int { scorer.inputWidth(score.inputs[0]) ?? Self.scoreSeqLen }
 
-    init(assets: ModelAssets) throws {
+    init(assets: ModelAssets, platform: ModelPlatform = .current) throws {
         selector = assets.selector
         scorer = assets.scorer
+        select = ClipModel.selector(for: platform)
+        score = ClipModel.scorer(for: platform)
         guard let tokenizer = Tokenizer(bytes: assets.tokenizer) else {
             throw ClipError.modelNotFound
         }
@@ -105,10 +112,10 @@ final class Model: @unchecked Sendable {
                 for (c, value) in features.enumerated() { disc[r * 5 + c] = value }
             }
             let out = try await selector.run(
-                inputs: ["ids": Tensor(int32: ids, shape: [Self.batch, selectWidth]),
-                         "mask": Tensor(int32: mask, shape: [Self.batch, selectWidth]),
-                         "disc": Tensor(float32: disc, shape: [Self.batch, 5])],
-                outputs: ["saliency", "start_p", "end_p"])
+                inputs: [select.inputs[0]: Tensor(int32: ids, shape: [Self.batch, selectWidth]),
+                         select.inputs[1]: Tensor(int32: mask, shape: [Self.batch, selectWidth]),
+                         select.inputs[2]: Tensor(float32: disc, shape: [Self.batch, 5])],
+                outputs: select.outputs)
             guard out.count == 3, let values = out[0].float32Values, values.count >= slice.count else {
                 throw ClipError.predictionFailed
             }
@@ -129,9 +136,9 @@ final class Model: @unchecked Sendable {
                 write(text, row: r, ids: &ids, mask: &mask, width: scoreWidth)
             }
             let out = try await scorer.run(
-                inputs: ["ids": Tensor(int32: ids, shape: [Self.batch, scoreWidth]),
-                         "mask": Tensor(int32: mask, shape: [Self.batch, scoreWidth])],
-                outputs: ["score"])
+                inputs: [score.inputs[0]: Tensor(int32: ids, shape: [Self.batch, scoreWidth]),
+                         score.inputs[1]: Tensor(int32: mask, shape: [Self.batch, scoreWidth])],
+                outputs: score.outputs)
             guard let values = out.first?.float32Values, values.count >= slice.count else {
                 throw ClipError.predictionFailed
             }

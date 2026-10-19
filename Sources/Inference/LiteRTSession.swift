@@ -67,6 +67,10 @@ final class LiteRTModel: @unchecked Sendable {
 final class LiteRTSession: InferenceSession, @unchecked Sendable {
     private let session: OpaquePointer
     private let inputNames: [String]
+    /// Each input's declared element type and shape, in `inputNames` order.
+    /// `nil` element: a type ``Tensor`` cannot carry (the run rejects it).
+    private let inputElements: [Tensor.Element?]
+    private let inputShapes: [[Int]]
     private let outputNames: [String]
     private let outputIndex: [String: Int]
     // The model's compiled model and this session's fixed-shape host buffers are
@@ -113,8 +117,18 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         }
         self.model = model
         session = handle
-        inputNames = (0..<Int(dal_lrt_num_inputs(handle))).map {
+        let inputCount = Int(dal_lrt_num_inputs(handle))
+        inputNames = (0..<inputCount).map {
             dal_lrt_input_name(handle, Int32($0)).map(decodeCString) ?? ""
+        }
+        inputElements = (0..<inputCount).map {
+            Self.element(dal_lrt_input_element_type(handle, Int32($0)))
+        }
+        inputShapes = (0..<inputCount).map { index in
+            let rank = Int(dal_lrt_input_rank(handle, Int32(index)))
+            var dims = [Int32](repeating: 0, count: max(rank, 1))
+            dims.withUnsafeMutableBufferPointer { dal_lrt_input_dims(handle, Int32(index), $0.baseAddress) }
+            return dims.prefix(rank).map(Int.init)
         }
         let outs = (0..<Int(dal_lrt_num_outputs(handle))).map {
             dal_lrt_output_name(handle, Int32($0)).map(decodeCString) ?? ""
@@ -127,17 +141,65 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         dal_lrt_free(session)
     }
 
+    /// The shim's element codes are `LiteRtElementType`: 1 float32, 2 int32, 4 int64.
+    private static func element(_ code: Int32) -> Tensor.Element? {
+        switch code {
+        case 1: return .float32
+        case 2: return .int32
+        case 4: return .int64
+        default: return nil
+        }
+    }
+
+    func inputWidth(_ name: String) -> Int? {
+        guard let index = inputNames.firstIndex(of: name),
+              let width = inputShapes[index].last, width > 0 else { return nil }
+        return width
+    }
+
+    /// `tensor`'s bytes in the layout input `index` declares.
+    ///
+    /// The shim copies at most the buffer's size and never complains, so a
+    /// mismatch here would run on garbage rather than fail: an int32 batch fed to
+    /// an int64 graph fills half the buffer with pairs of ids. So the element
+    /// type and count are checked, and the one lossless conversion is made:
+    /// int32 widened to int64. Exporters disagree on index types (the clips
+    /// `.tflite` files take int64 ids where Core ML takes int32), and widening
+    /// here keeps that out of every model's code.
+    private func bytes(of tensor: Tensor, forInput index: Int) throws -> [UInt8] {
+        let name = inputNames[index]
+        guard let declared = inputElements[index] else {
+            throw InferenceError.invalidTensor("input '\(name)' has an element type Tensor cannot carry")
+        }
+        // A dynamic dimension (-1) has no count to check against up front.
+        let shape = inputShapes[index]
+        guard shape.contains(where: { $0 <= 0 }) || tensor.count == shape.reduce(1, *) else {
+            throw InferenceError.invalidTensor(
+                "input '\(name)' takes \(inputShapes[index]), got \(tensor.shape)")
+        }
+        switch (tensor.element, declared) {
+        case let (given, wanted) where given == wanted:
+            return tensor.bytes
+        case (.int32, .int64):
+            let wide = (tensor.int32Values ?? []).map(Int64.init)
+            return wide.withUnsafeBytes { Array($0) }
+        default:
+            throw InferenceError.invalidTensor(
+                "input '\(name)' takes \(declared.rawValue), got \(tensor.element.rawValue)")
+        }
+    }
+
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) throws -> [Tensor] {
         model.lock.lock()
         defer { model.lock.unlock() }
         // Assemble input byte buffers in the model's declared input order.
         var buffers: [[UInt8]] = []
         buffers.reserveCapacity(inputNames.count)
-        for name in inputNames {
+        for (index, name) in inputNames.enumerated() {
             guard let tensor = inputs[name] else {
                 throw InferenceError.invalidTensor("missing input '\(name)'")
             }
-            buffers.append(tensor.bytes)
+            buffers.append(try bytes(of: tensor, forInput: index))
         }
 
         var errbuf = [CChar](repeating: 0, count: 256)
@@ -173,12 +235,8 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
             bytes = []
         }
 
-        let element: Tensor.Element
-        switch dal_lrt_output_element_type(session, index) {
-        case 1: element = .float32
-        case 2: element = .int32
-        case 4: element = .int64
-        default: throw InferenceError.runFailed("unsupported LiteRT output element type")
+        guard let element = Self.element(dal_lrt_output_element_type(session, index)) else {
+            throw InferenceError.runFailed("unsupported LiteRT output element type")
         }
         return try Tensor(element: element, shape: shape, bytes: bytes)
     }
