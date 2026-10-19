@@ -16,7 +16,7 @@ On-device spoken language identification across 102 languages.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
 ```
 
 Then add the `Ear` product to your target.
@@ -24,7 +24,7 @@ Then add the `Ear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:ear:4.0.0")
+implementation("ai.desertant:ear:4.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -37,7 +37,7 @@ npm i @desert-ant-labs/ear                  # Node, prebuilt native core
 
 ## Usage
 
-Ear detects the language of a recording, so your app can pick the right recognizer before transcription starts. Ear analyzes three 30s windows instead of the whole file. Detection takes 250ms.
+Ear detects the language of a recording, so your app can pick the right recognizer before transcription starts. Ear analyzes three 30s windows instead of the whole file. Each window takes 7.6ms on the Neural Engine of a MacBook Pro.
 
 ### Swift
 
@@ -91,7 +91,7 @@ ear.dispose();
 
 ### Deciding what to do with the answer
 
-Branch on `isReliable`. `isReliable` is false when the top two candidates are too close to separate. `isReliable` is also false for Norwegian, Swedish and Danish. Ear confuses those three with each other at high confidence, so their probability doesn't show the error.
+Branch on `isReliable`. `isReliable` is false when the top two candidates are less than 0.25 apart. `isReliable` is also always false for Norwegian, Swedish and Danish. Ear tells Norwegian and Swedish apart 98.5-100% of the time, but the SDK marks all three as unreliable so you can route them to a recognizer that handles them well.
 
 ```swift
 guard detection.isReliable, let language = detection.language else {
@@ -101,7 +101,14 @@ guard detection.isReliable, let language = detection.language else {
 
 Every SDK reads `isReliable` from the same shared core, so the same recording gets the same answer on every platform.
 
-We set the threshold by sweeping it against 162 recordings. 98.5% of the answers above the threshold route correctly. On files in a language the primary recognizer supports, 100% of those answers route correctly, and 86% of files clear the threshold.
+Most answers are reliable, and reliable answers are almost always right:
+
+| Corpus | Clips | Reliable | Right when reliable |
+| --- | ---: | ---: | ---: |
+| Common Voice | 7,500 | 98.6% | 99.4% |
+| VoxPopuli | 3,221 | 99.5% | 99.9% |
+| Multilingual LibriSpeech | 2,660 | 99.4% | 99.8% |
+| English, four recording conditions | 1,660 | 97.2% | 99.1% |
 
 ### Downloading ahead of time
 
@@ -121,25 +128,36 @@ let ear = Ear(directory: "/path/to/model")
 
 Most recordings aren't speech from start to end, so Ear doesn't analyze the whole file. Ear ranks candidate windows by how much of their loudness varies at syllable rate, and analyzes the three most speech-like windows. Speech rises and falls three to six times a second and has gaps between words. Music sustains notes. Silence doesn't vary at all.
 
-Windows picked by position find the language 4% of the time on a five-minute recording with speech in a tenth of it. The loudest windows find the language 50% of the time on a file with a music intro and outro. An intro is mixed louder than the voice after it, so ranking by loudness picks the music.
-
 ## Accuracy
 
-We measured Ear end to end through the SDK, on real uploads:
+Ear sends a recording to the right transcription model 99% of the time: a model that handles the recording's language. We measured Ear on speakers who weren't in the training data.
 
-| | exact | confident | of those, right |
+How often Ear's top answer is the right language, by clip length:
+
+| Corpus | 5s | 10s | 30s |
 | --- | ---: | ---: | ---: |
-| Ordinary recordings | 12/12 | 12/12 | **12/12** |
-| The same, rebuilt as podcasts | 9/10 | 8/10 | **8/8** |
+| Common Voice, 15 languages | 94.6% | 98.0% | 99.5% |
+| VoxPopuli, 16 languages | 97.8% | 99.6% | 100% |
+| Multilingual LibriSpeech, 7 languages | 97.9% | 99.2% | 99.4% |
+| English, NOTSOFAR-1 meetings | 90.0% | 89.0% | 98.0% |
 
-Ear gave no wrong confident answer in either set. The podcast miss is a German episode that Ear identified as English under its jingle. Ear marked that answer as unreliable.
+Whole recordings, three 30s windows each:
+
+| Corpus | Recordings | Right model | Reliable | Right when reliable |
+| --- | ---: | ---: | ---: | ---: |
+| Common Voice | 457 | 99.3% | 99.6% | 99.6% |
+| VoxPopuli | 256 | 100% | 100% | 100% |
+| Multilingual LibriSpeech | 173 | 100% | 100% | 100% |
+| English, four recording conditions | 128 | 98.4% | 98.4% | 99.2% |
+
+The full tables are on the [model card](https://huggingface.co/desert-ant-labs/ear).
 
 ## Limits
 
-- Ear identifies speech mixed under louder music correctly 60% of the time. Better window selection doesn't change that, because the errors come from the model itself.
-- Ear doesn't reliably tell Norwegian, Swedish and Danish apart. `isReliable` is false for all three, even when Ear reports one of them at high confidence.
-- Ear analyzes a recording shorter than 30s as a single window. With nothing to average, the answer is less certain than the confidence suggests.
+- Ear is less accurate when the speakers are far from the microphone. On NOTSOFAR-1 meetings, Ear finds the language 90% of the time on 5s clips, versus 98% on 30s clips. For room recordings, pass Ear the full 30s.
+- Ear labels Galician as Spanish about 4% of the time.
 - Ear reports a multilingual recording as the language of the chosen windows. Ear doesn't report a mixture of languages.
+- For a language outside the 102, Ear returns the closest supported language. `isReliable` catches most of these answers, but not all of them.
 
 ## License
 
