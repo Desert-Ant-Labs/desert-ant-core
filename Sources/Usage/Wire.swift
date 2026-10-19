@@ -5,7 +5,7 @@ import JavaScriptKit
 /// The `sdk` a license grant names: the package itself, at the version in
 /// `VERSION`. `mise run set-version` rewrites it and `check:version` holds it.
 public let defaultSDKName = "desert-ant-core"
-public let defaultSDKVersion = "4.0.0"
+public let defaultSDKVersion = "4.1.0"
 
 /// The platform tag put on the wire's `platform` field, derived from the build
 /// target.

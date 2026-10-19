@@ -16,7 +16,7 @@ On-device photo understanding: scenes, quality, faces, people, pets, crops and s
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
 ```
 
 Then add the `Eye` product to your target.
@@ -24,7 +24,7 @@ Then add the `Eye` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:eye:4.0.0")
+implementation("ai.desertant:eye:4.1.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

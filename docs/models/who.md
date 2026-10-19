@@ -16,7 +16,7 @@ On-device speaker labeling: per-person turns with timestamps.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
 ```
 
 Then add the `Who` product to your target.
@@ -24,7 +24,7 @@ Then add the `Who` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:who:4.0.0")
+implementation("ai.desertant:who:4.1.0")
 ```
 <!-- model:end -->
 
