@@ -101,8 +101,7 @@ second table under it, which promises nothing to install. Do not mark a model
 stable to move it up: ship an SDK.
 
 **Internal models.** `visibility: internal` is separate from lifecycle and means
-the Hub card is never touched. `eye` and `face` are gated on the Hub; `who` is
-public but not advertised.
+the Hub card is never touched. `face` is gated on the Hub.
 
 **Versions.** One `VERSION` governs every artifact in this repo. Use
 `mise run set-version X.Y.Z`, which also renders the docs. Do not set a version

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "4.0.0",
+  "sdkVersion": "4.1.0",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -606,7 +606,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/uhm",
         "url": "https://huggingface.co/desert-ant-labs/uhm",
-        "revision": "v1.1.0",
+        "revision": "v1.2.0",
         "license": "desert-ant-labs-source-available-1.0"
       },
       "runtime": ["coreml"],
@@ -734,7 +734,7 @@
       "summary": "On-device speaker labeling: per-person turns with timestamps.",
       "category": "Speaker diarization",
       "lifecycle": "beta",
-      "visibility": "internal",
+      "visibility": "public",
       "home": "desert-ant-core",
       "sdks": {
         "swift": { "status": "live", "package": "Who", "platforms": ["apple", "linux", "windows"] },
@@ -754,7 +754,7 @@
         { "id": "int8", "default": false, "note": "Weights stored as 8-bit integers: about 42 MB of Core ML graphs on Apple platforms, the same turns; the one precision elsewhere, about 49 MB of LiteRT graphs, where it is the default." }
       ],
       "hub": {
-        "tags": ["audio", "speaker-diarization", "diarization", "speech", "on-device", "core-ml", "litert"],
+        "tags": ["audio", "speaker-diarization", "diarization", "speech", "on-device", "core-ml", "litert", "onnx"],
         "pipelineTag": "voice-activity-detection",
         "libraryName": null
       },
