@@ -1,5 +1,6 @@
 #if canImport(COnnxRuntime)
 import COnnxRuntime
+import CStrings
 
 /// ONNX Runtime inference backend, behind the shared ``InferenceSession`` API.
 /// Windows uses it because that is where the NPU execution providers live; the
@@ -73,15 +74,15 @@ final class OnnxSession: InferenceSession, @unchecked Sendable {
             }
         }
         guard let handle else {
-            throw InferenceError.sessionUnavailable(String(cString: errbuf))
+            throw InferenceError.sessionUnavailable(decodeCString(errbuf))
         }
         session = handle
         accelerators = Accelerator.Set(rawValue: dal_ort_accelerators(handle))
         inputNames = (0..<Int(dal_ort_num_inputs(handle))).map {
-            dal_ort_input_name(handle, Int32($0)).map(String.init(cString:)) ?? ""
+            dal_ort_input_name(handle, Int32($0)).map(decodeCString) ?? ""
         }
         let outs = (0..<Int(dal_ort_num_outputs(handle))).map {
-            dal_ort_output_name(handle, Int32($0)).map(String.init(cString:)) ?? ""
+            dal_ort_output_name(handle, Int32($0)).map(decodeCString) ?? ""
         }
         outputNames = outs
         outputIndex = Dictionary(uniqueKeysWithValues: outs.enumerated().map { ($1, $0) })
@@ -135,7 +136,7 @@ final class OnnxSession: InferenceSession, @unchecked Sendable {
             }
         }
         guard status == 0 else {
-            throw InferenceError.runFailed(String(cString: errbuf))
+            throw InferenceError.runFailed(decodeCString(errbuf))
         }
 
         return try outputs.map { name in

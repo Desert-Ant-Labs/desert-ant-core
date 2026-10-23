@@ -8,7 +8,7 @@
 // loads the model. A host binding must construct lazily (no work until the
 // first run), so the bound object is a thin shell around it.
 
-#if !os(WASI) && (canImport(CoreML) || canImport(CLiteRt))
+#if canImport(CoreML) || canImport(CLiteRt) || os(WASI)
 import DesertAnt
 import Foundation
 
@@ -22,6 +22,14 @@ public final class WhoBound: BoundModel, @unchecked Sendable {
     init(cacheRoot: String?, directory: String?) {
         self.cacheRoot = cacheRoot
         self.directory = directory
+    }
+
+    /// A bound instance around a model built from supplied assets, for a host that resolved the files itself.
+    @_spi(WhoBindings)
+    public init(_ who: Who) {
+        cacheRoot = nil
+        directory = nil
+        self.who = who
     }
 
     public func isDownloaded() -> Bool {

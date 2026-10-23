@@ -9,14 +9,14 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 25 |
-| **Weights** | [v0.4.0](https://huggingface.co/desert-ant-labs/voz) |
+| **Weights** | [v0.5.0](https://huggingface.co/desert-ant-labs/voz) |
 
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.0")
 ```
 
 Then add the `Voz` product to your target.
@@ -24,7 +24,7 @@ Then add the `Voz` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:voz:4.1.0")
+implementation("ai.desertant:voz:4.2.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

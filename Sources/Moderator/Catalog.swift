@@ -5,7 +5,7 @@ public enum ModeratorModel: ModelDeclaration {
     public static let id = "moderator"
     public static let product = "Moderator"
     public static let revision = "v1.0.0"
-    public static let sdkVersion = "4.1.0"
+    public static let sdkVersion = "4.2.0"
     public static let summary = "On-device NSFW image detection, trained only on licensed and synthetic data."
 
     /// LiteRT export (int8, ~9.2 MB): Android/Linux/Windows + wasm.

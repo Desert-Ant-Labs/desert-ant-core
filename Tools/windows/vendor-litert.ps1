@@ -25,12 +25,19 @@ $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToS
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     Write-Host "Fetching ai-edge-litert $version (win_amd64 libLiteRt.dll, one-time)..."
-    pip download "ai-edge-litert==$version" --only-binary=:all: --no-deps -d $tmp | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "pip download failed" }
+    $download = pip download "ai-edge-litert==$version" --only-binary=:all: --no-deps -d $tmp 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # The wheel exists for a few Python versions only; a newer Python finds nothing and pip says so tersely.
+        $download | ForEach-Object { Write-Host $_ }
+        $python = (& python --version 2>&1) -join " "
+        throw "no ai-edge-litert $version wheel for $python; use a Python the wheel is built for (3.12 works)"
+    }
 
     $whl = Get-ChildItem $tmp -Filter *.whl | Select-Object -First 1
     if (-not $whl) { throw "no wheel downloaded" }
-    Expand-Archive $whl.FullName -DestinationPath "$tmp/whl"
+    # Windows PowerShell 5.1's Expand-Archive takes .zip only (PowerShell 7 does not care), so the wheel is copied to that name.
+    Copy-Item $whl.FullName "$tmp/wheel.zip"
+    Expand-Archive "$tmp/wheel.zip" -DestinationPath "$tmp/whl"
 
     $dll = "$tmp/whl/ai_edge_litert/libLiteRt.dll"
     if (-not (Test-Path $dll)) { throw "libLiteRt.dll is not in the ai-edge-litert wheel" }
