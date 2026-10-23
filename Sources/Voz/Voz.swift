@@ -117,7 +117,7 @@ public actor Voz {
 
     // MARK: - Creation
 
-    #if canImport(CoreML) || canImport(CLiteRt)
+    #if canImport(CoreML) || canImport(CLiteRt) || canImport(COnnxRuntime)
     /// Load the model, downloading it first if needed.
     public init(
         directory: String? = nil,
@@ -127,7 +127,15 @@ public actor Voz {
         guard VozModel.supports(.current) else { throw VozError.unsupportedPlatform }
         let stored = try await VozModel.resolve(directory: directory, cacheRoot: cacheRoot,
                                                      progress: progress)
-        try self.init(modelDirectory: URL(fileURLWithPath: stored.rootPath))
+        let root = URL(fileURLWithPath: stored.rootPath)
+        #if canImport(COnnxRuntime) && !canImport(CoreML)
+        // Named in full: CLiteRt is visible here on Windows too, and the bare
+        // `init(modelDirectory:)` would pick the LiteRT loader.
+        try self.init(modelDirectory: root.appendingPathComponent(VozModel.onnxDirectory),
+                      useGPU: true)
+        #else
+        try self.init(modelDirectory: root)
+        #endif
     }
     #endif
 

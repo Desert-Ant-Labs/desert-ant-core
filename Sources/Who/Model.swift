@@ -21,7 +21,8 @@ final class Model: @unchecked Sendable {
             let log_floor: Float
         }
         struct Frames: Decodable { let step_s: Double; let first_centre_s: Double; let downsample: Int }
-        struct Graph: Decodable { let compiled: String; let inputs: [String]; let outputs: [String] }
+        /// One graph: its file, the signature within it when the file holds several (the LiteRT file), its tensor names.
+        struct Graph: Decodable { let compiled: String; let signature: String?; let inputs: [String]; let outputs: [String] }
         /// One window length, with the pair of graphs traced for it.
         struct WindowInfo: Decodable {
             let seconds: Double
@@ -37,6 +38,7 @@ final class Model: @unchecked Sendable {
         /// The voice graph: the released trunk over its own filterbank, read in windows.
         struct VoiceInfo: Decodable {
             let compiled: String
+            let signature: String?
             let inputs: [String]
             let outputs: [String]
             let mel_frames: Int
@@ -102,7 +104,7 @@ final class Model: @unchecked Sendable {
                 throw WhoError.invalidModel("the \(window.seconds) s window's chunks do not cover it")
             }
             for graph in [window.encoder, window.queries] {
-                guard assets.sessions[Model.name(of: graph.compiled)] != nil else { throw WhoError.invalidModel("no session for \(graph.compiled)") }
+                guard assets.sessions[Model.key(graph.compiled, graph.signature)] != nil else { throw WhoError.invalidModel("no session for \(graph.compiled)") }
             }
         }
         self.meta = meta
@@ -116,7 +118,7 @@ final class Model: @unchecked Sendable {
             guard voice.mel_frames % voice.mel_frames_per_column == 0, voice.margin_mel_frames % voice.mel_frames_per_column == 0 else {
                 throw WhoError.invalidModel("the voice window is not whole columns")
             }
-            guard assets.sessions[Model.name(of: voice.compiled)] != nil else { throw WhoError.invalidModel("no session for \(voice.compiled)") }
+            guard assets.sessions[Model.key(voice.compiled, voice.signature)] != nil else { throw WhoError.invalidModel("no session for \(voice.compiled)") }
             voiceFrontend = try Frontend(geometry: Model.geometry(voice.frontend, rate: meta.audio.sample_rate), banksTable: assets.voiceBanks)
             let layer = try Embedding(sidecar: assets.embedding)
             guard layer.columns == voice.columns_dim, layer.out == voice.embedding.dim else {
@@ -130,7 +132,10 @@ final class Model: @unchecked Sendable {
         sessions = assets.sessions
     }
 
-    private static func name(of compiled: String) -> String { String(compiled.split(separator: "/").last ?? "").components(separatedBy: ".").first ?? compiled }
+    /// The session a graph runs on: named by its signature when its file holds several graphs, else by its file.
+    private static func key(_ compiled: String, _ signature: String?) -> String {
+        signature ?? (String(compiled.split(separator: "/").last ?? "").components(separatedBy: ".").first ?? compiled)
+    }
 
     private static func geometry(_ info: Meta.FrontendInfo, rate: Int) -> Frontend.Geometry {
         Frontend.Geometry(sampleRate: rate, frame: info.frame_samples, shift: info.shift_samples, nFFT: info.n_fft, mels: info.n_mels,
@@ -212,7 +217,7 @@ final class Model: @unchecked Sendable {
             var input = [Float](repeating: 0, count: width * mels)
             let available = min(width, used - window.start)
             input.replaceSubrange(0..<(available * mels), with: voiceFrontend.features(audio, frames: window.start..<(window.start + available), means: voiceMeans))
-            let out = try await run(voice.compiled, inputs: [voice.inputs[0]: Tensor(float32: input, shape: [1, width, mels])],
+            let out = try await run(Model.key(voice.compiled, voice.signature), inputs: [voice.inputs[0]: Tensor(float32: input, shape: [1, width, mels])],
                                     outputs: voice.outputs, expected: [(width / perColumn) * embedding.columns])[0]
             for row in window.keepLow..<window.keepHigh {
                 let column = window.placeLow + (row - window.keepLow)
@@ -273,7 +278,7 @@ final class Model: @unchecked Sendable {
             input.replaceSubrange((frame * mels)..<((frame + 1) * mels), with: last)
         }
 
-        let encoded = try await run(window.encoder.compiled, inputs: [window.encoder.inputs[0]: Tensor(float32: input, shape: [1, window.frames, mels])],
+        let encoded = try await run(Model.key(window.encoder.compiled, window.encoder.signature), inputs: [window.encoder.inputs[0]: Tensor(float32: input, shape: [1, window.frames, mels])],
                                     outputs: window.encoder.outputs, expected: [window.low * dim, window.frames * dim])
         var inputs = [window.queries.inputs[0]: Tensor(float32: encoded[0], shape: [1, window.low, dim])]
         var at = 0
@@ -281,7 +286,7 @@ final class Model: @unchecked Sendable {
             inputs[window.queries.inputs[index + 1]] = Tensor(float32: Array(encoded[1][(at * dim)..<((at + frames) * dim)]), shape: [1, frames, dim])
             at += frames
         }
-        let out = try await run(window.queries.compiled, inputs: inputs, outputs: window.queries.outputs,
+        let out = try await run(Model.key(window.queries.compiled, window.queries.signature), inputs: inputs, outputs: window.queries.outputs,
                                 expected: [count, count * dim] + window.chunks.map { count * $0 })
         return (out[0], masks(Array(out[2...]), chunks: window.chunks, frames: piece.frames, queries: count), out[1])
     }
@@ -307,8 +312,7 @@ final class Model: @unchecked Sendable {
     }
 
     /// One graph run, its outputs as float32 of the expected lengths.
-    private func run(_ compiled: String, inputs: [String: Tensor], outputs: [String], expected: [Int]) async throws -> [[Float]] {
-        let name = Model.name(of: compiled)
+    private func run(_ name: String, inputs: [String: Tensor], outputs: [String], expected: [Int]) async throws -> [[Float]] {
         let tensors = try await sessions[name]!.run(inputs: inputs, outputs: outputs)
         return try zip(tensors, expected).map { tensor, count in
             guard let values = tensor.float32Values, values.count == count else {

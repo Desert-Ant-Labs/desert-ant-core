@@ -29,7 +29,15 @@ import Testing
         #expect(files.contains("vocab.json"))
         #expect(files.contains("embedding.f16"))
     }
-    #expect(!VozModel.supports(.windows), "voz has no windows backend")
+    // Windows runs it over ONNX Runtime from its own export under onnx-fp16/,
+    // not web/, whose mel is fused into the encoder.
+    #expect(VozModel.supports(.windows))
+    let windows = VozModel.files[.windows] ?? []
+    #expect(windows.allSatisfy { $0.hasPrefix("\(VozModel.onnxDirectory)/") })
+    #expect(windows.contains("onnx-fp16/mel.onnx"))
+    #expect(windows.contains("onnx-fp16/encoder.weights"))
+    #expect(windows.contains("onnx-fp16/meta.json"))
+    #expect(VozModel.artifact(for: .windows) == "onnx-fp16/encoder.onnx")
 }
 
 @Test func webBundleIsSelfContainedUnderWeb() {

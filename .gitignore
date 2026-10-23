@@ -62,3 +62,4 @@ js/LICENSE.md
 xcuserdata/
 *.xcuserstate
 DerivedData/
+__pycache__/
