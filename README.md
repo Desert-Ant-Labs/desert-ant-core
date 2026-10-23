@@ -48,7 +48,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Tongue** | On-device language identification for short text across 84 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) [Model](https://huggingface.co/desert-ant-labs/tongue) |
 | **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | Apple | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) [Model](https://huggingface.co/desert-ant-labs/uhm) |
 | **Voz** | On-device speech recognition: transcripts with word-level timestamps, 25 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/voz.md) [Model](https://huggingface.co/desert-ant-labs/voz) |
-| **Who** | On-device speaker labeling: per-person turns with timestamps. | Apple · Android · Linux · Windows | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/who.md) [Model](https://huggingface.co/desert-ant-labs/who) |
+| **Who** | On-device speaker labeling: per-person turns with timestamps. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/who.md) [Model](https://huggingface.co/desert-ant-labs/who) |
 
 ### In closed beta
 
@@ -71,7 +71,7 @@ On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, vis
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.0")
 ```
 
 Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
@@ -91,10 +91,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:4.1.0")
-    implementation("ai.desertant:redact:4.1.0")
-    implementation("ai.desertant:clear:4.1.0")
-    implementation("ai.desertant:tongue:4.1.0")
+    implementation("ai.desertant:emo:4.2.0")
+    implementation("ai.desertant:redact:4.2.0")
+    implementation("ai.desertant:clear:4.2.0")
+    implementation("ai.desertant:tongue:4.2.0")
 }
 ```
 
@@ -153,7 +153,7 @@ The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-a
 Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.0",
         traits: ["Xet"])
 ```
 

@@ -316,7 +316,8 @@ dal_vendor_onnxruntime() {
     tmp=$(mktemp -d)
     python -m pip download --quiet --no-deps --only-binary=:all: -d "$tmp" \
         "onnxruntime-directml==$DAL_ORT_VERSION" > /dev/null 2>&1 \
-        || { echo "error: could not download onnxruntime-directml==$DAL_ORT_VERSION" >&2
+        || { # The wheel exists for a few Python versions only; a newer Python finds nothing.
+             echo "error: no onnxruntime-directml==$DAL_ORT_VERSION wheel for $(python --version 2>&1); use a Python the wheel is built for (3.12 works)" >&2
              rm -rf "$tmp"; return 1; }
     local whl
     whl=$(find "$tmp" -name '*.whl' | head -1)
