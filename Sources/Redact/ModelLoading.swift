@@ -26,8 +26,12 @@ public struct ModelAssets: Sendable {
         ModelAssets(
             tokenizer: try files.read(RedactModel.tokenizer),
             labelsJSON: try files.readString(RedactModel.labels),
+            // Not `.all`: on CPU and GPU the v0.4.0 Core ML graph returns NaN for
+            // every logit (seen on M5 Pro, macOS 26.7.1), which silently drops all
+            // neural labels. The Neural Engine path matches LiteRT.
             session: try await files.inferenceSession(
-                model: RedactModel.artifact, sdk: RedactModel.sdkInfo))
+                model: RedactModel.artifact, computeUnits: .cpuAndNeuralEngine,
+                sdk: RedactModel.sdkInfo))
     }
 }
 
