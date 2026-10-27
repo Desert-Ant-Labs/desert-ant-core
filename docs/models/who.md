@@ -106,7 +106,7 @@ A recording of up to five minutes is read in one pass, because the part of the m
 
 ### Linux and Windows
 
-The same package and the same calls. Add the package as on Apple platforms ([requirements](../../README.md#platform-support)), add the `Who` product, and write the code above unchanged:
+The same package and the same calls. Add the package as on Apple platforms, add the `Who` product, and write the code above unchanged:
 
 ```swift
 import Who
