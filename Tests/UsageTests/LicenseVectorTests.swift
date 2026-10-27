@@ -140,7 +140,7 @@ private struct LicenseVectors: Decodable {
     }
 
     @Test func theProductionKeySetVerifiesAProductionToken() async throws {
-        // Granted by events.desertant.com to the unbilled test bundle.
+        // Granted by events.desertant.com to the test bundle.
         let token = try #require(LicenseToken("eyJhbGciOiJFUzI1NiIsImtpZCI6InByb2QtMjAyNjEwMDgiLCJ0eXAiOiJkYWwtbGljZW5zZStqd3QifQ.eyJ2IjoxLCJsaWQiOiIwNjBhYmE5YS0xMGQ0LThjN2QtODhhOC00ODUzYmIzYjNiNjQiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6ZGVzZXJ0YW50cGFja2FnZXRlc3RzLnhjdGVzdCIsIm1vZGVsIjoiZW1vIiwibW9kZWxWZXJzaW9uIjoiIiwic2RrIjoiZGVzZXJ0LWFudC1jb3JlIiwic2RrVmVyc2lvbiI6IjQuMC4wIiwicGxhdGZvcm0iOiJpb3MiLCJpYXQiOjE3OTE0OTUyNjZ9.5g1zpeyhrHVicdQV97e6CxPmPJRqlkkKuNTf6i-1QaPHHa9cpX0dLMOgGlKXNdHe7IgSaxpF37JNcA1rxBLBLg"))
         #expect(await verifyLicenseToken(token, publicKeys: licensePublicKeys, verifier: defaultLicenseVerifier()))
     }
