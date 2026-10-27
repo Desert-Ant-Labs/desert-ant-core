@@ -71,7 +71,7 @@ On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, vis
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
 ```
 
 Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
@@ -91,10 +91,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:4.2.0")
-    implementation("ai.desertant:redact:4.2.0")
-    implementation("ai.desertant:clear:4.2.0")
-    implementation("ai.desertant:tongue:4.2.0")
+    implementation("ai.desertant:emo:4.2.1")
+    implementation("ai.desertant:redact:4.2.1")
+    implementation("ai.desertant:clear:4.2.1")
+    implementation("ai.desertant:tongue:4.2.1")
 }
 ```
 
@@ -153,7 +153,7 @@ The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-a
 Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1",
         traits: ["Xet"])
 ```
 
@@ -204,17 +204,11 @@ For each model, the SDK sends two requests:
 - The license request carries a random install id that the SDK generates on the device, the model's id and revision, the SDK's name and version, the platform (`ios`, `android`, `web`, or `server`), and the app id. The app id is the bundle id on Apple platforms, the package name on Android, and the process name on a Linux server. A server can set `DAL_APP_ID`, or `globalThis.__dalAppId` in JavaScript, to name itself. In the browser, the license server reads the page's domain from the `Origin` header instead.
 - The activation carries the signed license.
 
-Both requests carry your API key if you set one, and no model input or output. The license server doesn't store the install id or the IP address a request comes from.
+Neither request carries model input or output. The license server doesn't store the install id or the IP address a request comes from.
 
 On the device, the SDK stores the install id and, for each model, the license, whether it's activated, the time of the last rejected license request, and the offset between the device clock and the server clock. Apple platforms, Linux, and Windows keep these in `UserDefaults`, Android in the app's SharedPreferences, and the browser in `localStorage`. In Node, the WebAssembly build (the package's default entry) keeps them in memory, so each process counts as a new install. To keep one install id across restarts, set `globalThis.__dalUsageStore` to an object with `getItem(key)` and `setItem(key, value)` before the first model loads.
 
 Once a model's license for the month is activated, loading that model sends nothing until the month ends. The first load in the next month requests a new license. Offline, the model runs as usual. While the app runs, the SDK retries every 5 minutes after a network error, and backs off from 1 minute to 6 hours after a server error. After the server rejects a request, or a license fails the signature check, the SDK waits at least a day before it requests a license for that model again.
-
-If you have a Desert Ant API key, set it before the first model loads, so your licenses count under your account:
-
-- Swift: `DesertAnt.apiKey = "pk_live_..."`, or `DAL_API_KEY` in the environment
-- Kotlin: `ai.desertant.core.DesertAnt.apiKey = "pk_live_..."`
-- JavaScript: `globalThis.__dalApiKey = "pk_live_..."`, or `DAL_API_KEY` with the `/native` subpath in Node
 
 A Node process that exits right after loading a model, such as a CLI or a Lambda, can call the model's `flushTelemetry()` first. The promise resolves once the license requests in flight have finished.
 
@@ -238,6 +232,8 @@ Licensing counts each install. It doesn't read the `deviceId` call option or `DA
 | Node | prebuilt native core | linux-x64, linux-arm64, darwin-arm64 |
 
 Voz uses ONNX Runtime outside Apple platforms. On Windows, Voz runs on the GPU through ONNX Runtime and DirectML. In the browser, Voz runs on WebGPU through `onnxruntime-web`, and uses WebNN where the browser supports it. In Node, Voz runs on the CPU through `onnxruntime-node`.
+
+On Android, Linux, and Windows, LiteRT uses half the CPUs the system has online by default, at most eight, and every CPU when there are four or fewer. In a container, that count can be higher than the container's CPU limit. For models that don't set their own count, set `DAL_LITERT_THREADS` to choose it, for example `DAL_LITERT_THREADS=1` in a container limited to one CPU.
 
 ### Faster first load on the M6 and A20 Pro
 
