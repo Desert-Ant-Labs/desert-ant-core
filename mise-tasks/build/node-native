@@ -114,10 +114,7 @@ for model in $(dal_select "${usage_model:-all}" node); do
         # starts higher and nothing here can lower it: Google's aarch64 LiteRT
         # wheel is tagged manylinux_2_28 but its libLiteRt.so links glibc 2.34
         # and GLIBCXX_3.4.30, so arm64 needs Ubuntu 22.04 or AL2023 anyway.
-        # DAL_GLIBC_CEILING and DAL_GLIBCXX_CEILING loosen it for builds that
-        # are never published (ci.yml's test-only natives build on newer
-        # hosts); the release workflow builds on glibc 2.26 and keeps the
-        # defaults.
+        # DAL_GLIBC_CEILING and DAL_GLIBCXX_CEILING loosen it for local builds that are never published.
         glibc_ceiling=2.28 glibcxx_ceiling=3.4.25
         [ "$arch" = arm64 ] && glibc_ceiling=2.34 glibcxx_ceiling=3.4.30
         for check in "GLIBC_:${DAL_GLIBC_CEILING:-$glibc_ceiling}" "GLIBCXX_:${DAL_GLIBCXX_CEILING:-$glibcxx_ceiling}"; do
