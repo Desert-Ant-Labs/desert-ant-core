@@ -9,7 +9,7 @@ Multilingual on-device PII detection and redaction.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 27 |
-| **Weights** | [v0.4.1](https://huggingface.co/desert-ant-labs/redact/tree/v0.4.1) |
+| **Weights** | [v0.4.2](https://huggingface.co/desert-ant-labs/redact/tree/v0.4.2) |
 | **Demo** | https://desertant.com/models/redact/ |
 <!-- model:end -->
 
@@ -28,7 +28,7 @@ Strip names, addresses, emails, phone numbers, cards, IBANs and national IDs out
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Redact` product to your target.
@@ -36,7 +36,7 @@ Then add the `Redact` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:redact:4.2.2")
+implementation("ai.desertant:redact:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
