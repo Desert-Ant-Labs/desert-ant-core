@@ -8,7 +8,7 @@ public enum WhoModel: ModelDeclaration {
     public static let id = "who"
     public static let product = "Who"
     public static let revision = "v0.3.4"
-    public static let sdkVersion = "4.2.1"
+    public static let sdkVersion = "4.2.2"
     public static let summary = "On-device speaker labeling: per-person turns with timestamps."
 
     /// The platform's default; on Apple platforms `int8` is selected with `Who(variant:)`.
