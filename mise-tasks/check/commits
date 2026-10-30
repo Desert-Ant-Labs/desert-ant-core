@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+#MISE description="Fail if any commit in a range credits Claude as author, committer, or co-author"
+#MISE dir="{{config_root}}"
+#USAGE arg "[range]" help="Commits to check (default: origin/main..HEAD)"
+set -euo pipefail
+
+range=${usage_range:-origin/main..HEAD}
+
+pattern='claude|anthropic\.com'
+bad=0
+for sha in $(git rev-list --no-merges "$range"); do
+    who=$(git log -1 --format='%an <%ae>%n%cn <%ce>' "$sha")
+    trailers=$(git log -1 --format='%B' "$sha" | grep -iE '^(co-authored-by|generated with|🤖)' || true)
+    if printf '%s\n%s\n' "$who" "$trailers" | grep -qiE "$pattern"; then
+        echo "  $(git log -1 --format='%h %s' "$sha")" >&2
+        bad=1
+    fi
+done
+
+[ "$bad" = 0 ] || { echo "error: commits above credit Claude; drop the attribution and amend" >&2; exit 1; }
+echo "no Claude attribution in $range"

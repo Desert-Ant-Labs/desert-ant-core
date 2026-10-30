@@ -128,8 +128,7 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
 // version, so this has to become `from:` a tag before a release ships it.
 #if os(Windows)
 let onnxDependencies: [Package.Dependency] = [
-    .package(url: "https://github.com/Desert-Ant-Labs/COnnxRuntime.git",
-             revision: "8bcd6d134e996ef457bd1180407e2fed3061dd82"),
+    .package(url: "https://github.com/Desert-Ant-Labs/COnnxRuntime.git", from: "1.0.0"),
 ]
 let onnxProducts: [Target.Dependency] = [
     .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
@@ -138,6 +137,18 @@ let onnxProducts: [Target.Dependency] = [
 let onnxDependencies: [Package.Dependency] = []
 let onnxProducts: [Target.Dependency] = []
 #endif
+
+// The search path for a runtime Tools/dal.sh vendored on Windows, so a consumer
+// that takes this checkout by path links with a plain `swift build` instead of
+// passing /LIBPATH: itself. Only when the folder exists: SwiftPM rejects unsafe
+// flags in a package resolved by version, and a checkout fetched that way has
+// no Vendor/ (it is gitignored), so it never sees them. The DLLs still have to
+// be on PATH, or next to the executable, to run.
+func vendoredLibPath(_ runtime: String) -> [LinkerSetting] {
+    let dir = "\(Context.packageDirectory)/Vendor/\(runtime)/lib/windows-x64"
+    guard FileManager.default.fileExists(atPath: dir) else { return [] }
+    return [.unsafeFlags(["-Xlinker", "/LIBPATH:\(dir)"], .when(platforms: [.windows]))]
+}
 
 // This is the only SwiftPM model list. Target-specific differences live here.
 struct ModelPackage {
@@ -152,10 +163,9 @@ struct ModelPackage {
     /// Whether this model gets an `Android` dynamic library. `Align` has no `.android` artifact:
     /// the host bridge has no NFC, so the lexical bytes could not match training.
     var androidLibrary: Bool = true
-    /// Whether this model has a `Web/` entry point and so a wasm product. `Who` ships Android before
-    /// the web: its host would need several sessions per model, which the wasm host does not give yet.
+    /// Whether this model has a `Web/` entry point and so a wasm product.
     var web: Bool = true
-    /// Whether this model gets a `Node` dynamic library; `Who` has no Node package yet.
+    /// Whether this model gets a `Node` dynamic library.
     var nodeLibrary: Bool = true
 }
 
@@ -182,9 +192,9 @@ let models: [ModelPackage] = [
         dependencies: ["AudioIO", "AudioDSP"],
         testResources: [.copy("Resources/ear_frontend_golden.json")]
     ),
-    // Five graphs tiled over a recording: Core ML programs on Apple platforms, LiteRT
-    // models on Android, Linux and Windows; the frontend runs on Accelerate or on plain
-    // arithmetic. No wasm entry point and no Node package yet.
+    // Five graphs tiled over a recording: Core ML programs on Apple platforms; elsewhere one
+    // LiteRT file whose signatures are the graphs, so the wasm host's one model serves all five
+    // by signature. The frontend runs on Accelerate or on plain arithmetic.
     .init(
         name: "Who",
         dependencies: ["AudioIO", .product(name: "RealModule", package: "swift-numerics")],
@@ -192,9 +202,7 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/who_frontend_golden.json"),
             .copy("Resources/who_parity_golden.json"),
-        ],
-        web: false,
-        nodeLibrary: false
+        ]
     ),
     .init(
         name: "Gist",
@@ -387,7 +395,7 @@ let libraryTargets: [Target] = [
                 // GPU accelerator's GL tensor buffers can be created and
                 // host-mapped (see dal_egl_create in shim.c).
                 .linkedLibrary("EGL", .when(platforms: [.android])),
-            ]
+            ] + vendoredLibPath("litert")
         ),
         .target(
             name: "CBCrypt",
@@ -407,7 +415,9 @@ let libraryTargets: [Target] = [
                 // invisible to that walk, so the module would import "JSHost"
                 // functions the JS side was never told to supply.
                 "JSHost",
-            ] + jsWasi + jsEventLoop + onnxProducts
+            ] + jsWasi + jsEventLoop + onnxProducts,
+            // COnnxRuntime links onnxruntime without saying where it lives.
+            linkerSettings: vendoredLibPath("onnxruntime")
         ),
         .target(
             name: "Regex",

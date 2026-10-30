@@ -24,16 +24,23 @@ public struct ModelAssets: Sendable {
         self.sessions = sessions
     }
 
-    /// Read the sidecars and open one session per graph on the requested compute units.
+    /// Read the sidecars and open a session per graph on the requested compute units: one per Core ML
+    /// program on Apple platforms; elsewhere the one LiteRT file compiled once and a session per signature,
+    /// which on wasm is the JS host's model run by signature.
     static func who(files: StoredModel, variant: ModelVariant, computeUnits: ComputeUnits) async throws -> ModelAssets {
         guard variant.isAvailable(on: .current) else {
             throw WhoError.invalidModel("the \(variant.rawValue) precision is published for Apple platforms only; this platform runs int8")
         }
+        #if canImport(CoreML)
         var sessions: [String: any InferenceSession] = [:]
         for graph in ModelVariant.graphs {
             sessions[graph] = try await files.inferenceSession(
                 model: variant.compiled(graph), computeUnits: computeUnits, sdk: WhoModel.sdkInfo)
         }
+        #else
+        let sessions = try await files.inferenceSessions(
+            model: variant.artifact(for: .current), functions: ModelVariant.graphs, computeUnits: computeUnits, sdk: WhoModel.sdkInfo)
+        #endif
         let directory = variant.directory(for: .current)
         return ModelAssets(
             metaJSON: try files.readString("\(directory)/\(WhoModel.meta)"),

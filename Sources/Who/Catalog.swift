@@ -3,12 +3,12 @@ import DesertAnt
 /// The who model: on-device speaker diarization in one pass. The artifact is a
 /// pair of fixed-shape graphs per window length and a voice graph, run over the
 /// pieces of a recording: Core ML programs on Apple platforms in two precisions,
-/// LiteRT models elsewhere at int8.
+/// one LiteRT file elsewhere at int8, every graph a signature of it.
 public enum WhoModel: ModelDeclaration {
     public static let id = "who"
     public static let product = "Who"
-    public static let revision = "v0.3.1"
-    public static let sdkVersion = "4.1.0"
+    public static let revision = "v0.3.4"
+    public static let sdkVersion = "4.2.1"
     public static let summary = "On-device speaker labeling: per-person turns with timestamps."
 
     /// The platform's default; on Apple platforms `int8` is selected with `Who(variant:)`.

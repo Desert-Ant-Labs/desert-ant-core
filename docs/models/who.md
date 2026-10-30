@@ -7,8 +7,8 @@ On-device speaker labeling: per-person turns with timestamps.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows |
-| **Weights** | [v0.3.1](https://huggingface.co/desert-ant-labs/who) |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
+| **Weights** | [v0.3.4](https://huggingface.co/desert-ant-labs/who) |
 | **Demo** | https://desertant.com/models/who/ |
 
 ## Install
@@ -16,7 +16,7 @@ On-device speaker labeling: per-person turns with timestamps.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
 ```
 
 Then add the `Who` product to your target.
@@ -24,7 +24,14 @@ Then add the `Who` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:who:4.1.0")
+implementation("ai.desertant:who:4.2.1")
+```
+
+**JavaScript** ([requirements](../../README.md#javascript-and-typescript))
+
+```bash
+npm i @desert-ant-labs/who @litertjs/core   # browser
+npm i @desert-ant-labs/who                  # Node, prebuilt native core
 ```
 <!-- model:end -->
 
@@ -71,7 +78,27 @@ for (turn in result.turns) {
 who.close()
 ```
 
-On Android the graphs run through LiteRT on the CPU, the 8-bit build, 49 MB. Create one `Who` and reuse it; `diarize` suspends on a background dispatcher. `result.keepingSpeakers(minimumShare = 0.05)` drops the speakers under a share of the recording, a laugh or a jingle that got a number of its own, as the Swift SDK's `keepingSpeakers(minimumShare:)` does.
+On Android the graphs run through LiteRT on the CPU, the 8-bit build, 32 MB. Create one `Who` and reuse it; `diarize` suspends on a background dispatcher. `result.keepingSpeakers(minimumShare = 0.05)` drops the speakers under a share of the recording, a laugh or a jingle that got a number of its own, as the Swift SDK's `keepingSpeakers(minimumShare:)` does.
+
+### JavaScript
+
+```ts
+import { Who } from "@desert-ant-labs/who";           // browser
+// import { Who } from "@desert-ant-labs/who/native"; // server-side Node
+
+const who = await Who.load();                          // downloads on first use
+const result = await who.diarize(file);                // a File or Blob, the bytes of an audio file, or samples
+
+result.speakerCount;                                   // 3
+for (const turn of result.turns) {
+  turn.speaker;                                        // 0, 1, 2: numbered in order of first appearance
+  turn.start;                                          // 12.4, seconds from the start
+  turn.end;                                            // 15.9
+}
+who.dispose();
+```
+
+`diarize` takes the bytes of an audio file (`File`, `Blob`, `ArrayBuffer`, `Uint8Array`), mono `Float32Array` samples at 16 kHz, or `{ samples, sampleRate }` at any rate. In the browser a file is decoded with Web Audio, so any format the browser plays works; in Node the portable decoder reads WAV, so decode other formats first. The browser build runs the graphs on the CPU through WebAssembly; pass `accelerator: "auto"` to `Who.load` to try WebGPU. `result.keepingSpeakers({ minimumShare: 0.05 })` drops the speakers under a share of the recording, as on the other platforms. Create one `Who` and reuse it; `Who.load` downloads the 8-bit build, 32 MB, on first use.
 
 ### Long recordings
 
@@ -79,7 +106,7 @@ A recording of up to five minutes is read in one pass, because the part of the m
 
 ### Linux and Windows
 
-The same package and the same calls. Add the package as on Apple platforms ([requirements](../../README.md#platform-support)), add the `Who` product, and write the code above unchanged:
+The same package and the same calls. Add the package as on Apple platforms, add the `Who` product, and write the code above unchanged:
 
 ```swift
 import Who
@@ -88,7 +115,7 @@ let who = Who()                                        // downloads the 8-bit bu
 let result = try await who.diarize(contentsOf: url)    // or diarize(samples:sampleRate:)
 ```
 
-What differs underneath: the model runs through LiteRT on the CPU, and the download is the 8-bit build, 49 MB, the one precision published for these platforms. `Who(variant: .fp16)` is an error here rather than a silent switch, since there is no float16 build to load. The turns match the Apple platforms' within the arithmetic of the runtimes.
+What differs underneath: the model runs through LiteRT on the CPU, and the download is the 8-bit build, 32 MB, the one precision published for these platforms. `Who(variant: .fp16)` is an error here rather than a silent switch, since there is no float16 build to load. The turns match the Apple platforms' within the arithmetic of the runtimes.
 
 Threads: LiteRT takes half the machine's logical cores, at most eight; set `DAL_LITERT_THREADS` to choose.
 

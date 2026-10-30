@@ -5,7 +5,7 @@ public enum RedactModel: ModelDeclaration {
     public static let id = "redact"
     public static let product = "Redact"
     public static let revision = "v0.4.0"
-    public static let sdkVersion = "4.1.0"
+    public static let sdkVersion = "4.2.1"
     public static let summary = "Multilingual on-device PII detection and redaction."
 
     /// Compact SentencePiece vocab.

@@ -16,7 +16,7 @@ On-device photo understanding: scenes, quality, faces, people, pets, crops and s
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.1.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
 ```
 
 Then add the `Eye` product to your target.
@@ -24,7 +24,7 @@ Then add the `Eye` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:eye:4.1.0")
+implementation("ai.desertant:eye:4.2.1")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -146,7 +146,7 @@ Everything except `details` serializes to the same JSON in every SDK (`Codable` 
 
 ### Loading the model
 
-The SDK downloads the weights from Hugging Face on first use and caches them. See [model downloads and caching](../../README.md#model-downloads-and-caching). Eye is in closed beta: its weights are in a gated repository, so set `HF_TOKEN` to a token with access.
+The SDK downloads the weights from Hugging Face on first use and caches them. See [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ## Files
 

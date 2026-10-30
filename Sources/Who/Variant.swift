@@ -1,8 +1,8 @@
 import DesertAnt
 
-/// A published precision of the who model. On Apple platforms the `rawValue` is the directory on the Hub
-/// that holds that precision's Core ML graphs and sidecars; the other platforms run the LiteRT graphs,
-/// published at one precision, int8, under `litert-int8`.
+/// A published precision of the who model. On Apple platforms its Core ML graphs and sidecars sit on the Hub
+/// under `coreml-<rawValue>`, a compiled program a graph; the other platforms run the LiteRT graphs, published
+/// at one precision, int8, under `litert-int8`, as five signatures of one file.
 public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiable {
     /// Weights as float16 in the Core ML graphs. The default on Apple platforms; not published for the others.
     case fp16
@@ -22,15 +22,19 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     /// window's filterbank frames.
     public static let graphs = ["encoder_6000", "queries_6000", "encoder_30000", "queries_30000", "voice_3256"]
 
-    /// The directory on the Hub a platform reads this variant from; off Apple platforms the one LiteRT directory.
+    /// The directory on the Hub a platform reads this variant from: `coreml-fp16` or `coreml-int8` on Apple
+    /// platforms, the one LiteRT directory elsewhere.
     public func directory(for platform: ModelPlatform) -> String {
-        platform == .apple ? rawValue : "litert-int8"
+        platform == .apple ? "coreml-\(rawValue)" : "litert-int8"
     }
 
-    /// A graph's file for a platform, relative to the repo root: a compiled Core ML program on Apple
-    /// platforms, a LiteRT model elsewhere.
+    /// The one LiteRT file off Apple platforms: every graph a signature of it, named as `graphs`.
+    public static let liteRT = "who.tflite"
+
+    /// A graph's file for a platform, relative to the repo root: its compiled Core ML program on Apple
+    /// platforms, the one LiteRT file elsewhere.
     public func file(_ graph: String, for platform: ModelPlatform) -> String {
-        "\(directory(for: platform))/\(graph)." + (platform == .apple ? "mlmodelc" : "tflite")
+        "\(directory(for: platform))/" + (platform == .apple ? "\(graph).mlmodelc" : Self.liteRT)
     }
 
     /// A graph's file on this platform.
@@ -39,12 +43,14 @@ public enum ModelVariant: String, Sendable, Equatable, CaseIterable, Identifiabl
     /// The artifact `isAvailable` and the smoke tests look for.
     public func artifact(for platform: ModelPlatform) -> String { file(Self.graphs[0], for: platform) }
 
-    /// Repo-relative entries each platform needs for this variant: the five graphs and the four sidecars,
-    /// for the platforms the precision is published for.
+    /// Repo-relative entries each platform needs for this variant: the five Core ML programs on Apple
+    /// platforms, the one LiteRT file elsewhere, and the four sidecars, for the platforms the precision is
+    /// published for.
     public var files: [ModelPlatform: [String]] {
         Dictionary(uniqueKeysWithValues: ModelPlatform.allCases.filter { isAvailable(on: $0) }.map { platform in
             let sidecars = [WhoModel.meta, WhoModel.melBanks, WhoModel.voiceBanks, WhoModel.embedding].map { "\(directory(for: platform))/\($0)" }
-            return (platform, Self.graphs.map { file($0, for: platform) + (platform == .apple ? "/" : "") } + sidecars)
+            let models = platform == .apple ? Self.graphs.map { file($0, for: platform) + "/" } : [artifact(for: platform)]
+            return (platform, models + sidecars)
         })
     }
 

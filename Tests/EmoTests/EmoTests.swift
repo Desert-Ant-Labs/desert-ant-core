@@ -92,7 +92,7 @@ struct EmoModelTests {
 extension EmoModelTests {
     enum LicenseServer: String, CaseIterable, Sendable {
         case silent
-        case unavailableAfterThreeSeconds
+        case unavailableAfterTheLoad
     }
 
     @Test(arguments: LicenseServer.allCases)
@@ -101,30 +101,35 @@ extension EmoModelTests {
         let expected = try await Emo().suggestions(for: text, limit: 5)
         let server = try #require(kind == .silent
             ? StubLicenseServer()
-            : StubLicenseServer(answerAfter: 3, with: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
+            : StubLicenseServer(answer: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
         defer { server.stop() }
 
         let keyless = getenv("DAL_API_KEY") == nil
-        let (results, returned) = try await withEnvironment([
+        let (results, abandoned) = try await withEnvironment([
             "DAL_LICENSE_ENDPOINT": server.endpoint,
             "DAL_APP_ID": "ai.desertant.emo.outage.\(UUID().uuidString)",
         ]) {
-            let results = try await Emo().suggestions(for: text, limit: 5)
-            let returned = ContinuousClock.now
+            // The load alone: resolving the files, building the session (which starts the license
+            // check), and the model. Not the first prediction, which is no part of the question.
+            let emo = Emo()
+            try await emo.download()
+            // The stub answers nothing until release(), so a load that waited on the grant could only
+            // finish once the client gave up on it. Causal rather than timed, so a busy machine cannot
+            // fail it. The grace lets a give-up that preceded the load's return reach the server.
+            try await Task.sleep(nanoseconds: 500_000_000)
+            let abandoned = server.abandoned
             if keyless {
                 #expect(await server.waitUntil { $0.grantArrivedAt != nil }, "no license request reached the server")
             }
-            return (results, returned)
+            return (try await emo.suggestions(for: text, limit: 5), abandoned)
         }
 
-        // Timed from the grant's arrival, not the load's start: a busy machine slows the model load, not this.
-        if let arrived = server.grantArrivedAt {
-            #expect(returned - arrived < .seconds(2), "the load waited on the license server")
-        }
+        #expect(!abandoned, "the load waited on the license server")
+        server.release()
         #expect(results.map(\.emoji) == expected.map(\.emoji))
         #expect(zip(results, expected).allSatisfy { abs($0.confidence - $1.confidence) < 1e-5 })
         #expect(results.map(\.emoji).contains { ["💰", "💳", "🧾", "🏦", "📄"].contains($0) }, "got \(results)")
-        if keyless, kind == .unavailableAfterThreeSeconds {
+        if keyless, kind == .unavailableAfterTheLoad {
             #expect(await server.waitUntil { $0.answered > 0 }, "the server never sent its 503")
         }
     }
@@ -141,22 +146,25 @@ private func withEnvironment<T>(_ values: [String: String], _ body: () async thr
     return try await body()
 }
 
-/// A 127.0.0.1 license server that holds Emo's grant open or answers it after a delay.
+/// A 127.0.0.1 license server that holds Emo's grant open until release(), then closes it or
+/// sends `answer`. It records a grant the client gave up on (its own timeout) while held.
 private final class StubLicenseServer: @unchecked Sendable {
     let port: UInt16
     private let fd: Int32
-    private let answer: (delay: Double, response: String)?
+    private let answer: String?
     private let lock = NSLock()
-    private var held: [Int32] = []
+    private var released = false
     private var stopped = false
     private var grantAt: ContinuousClock.Instant?
+    private var gaveUp = false
     private var replies = 0
 
     var endpoint: String { "http://127.0.0.1:\(port)/api/v1" }
     var grantArrivedAt: ContinuousClock.Instant? { lock.withLock { grantAt } }
+    var abandoned: Bool { lock.withLock { gaveUp } }
     var answered: Int { lock.withLock { replies } }
 
-    init?(answerAfter delay: Double? = nil, with response: String = "") {
+    init?(answer response: String? = nil) {
         #if canImport(Glibc)
         let listener = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         #else
@@ -175,17 +183,13 @@ private final class StubLicenseServer: @unchecked Sendable {
         guard ok else { close(listener); return nil }
         fd = listener
         port = UInt16(bigEndian: addr.sin_port)
-        answer = delay.map { ($0, response) }
+        answer = response
         Thread.detachNewThread { [self] in acceptLoop() }
     }
 
-    func stop() {
-        lock.withLock {
-            stopped = true
-            for client in held { close(client) }
-            held = []
-        }
-    }
+    func release() { lock.withLock { released = true } }
+
+    func stop() { lock.withLock { stopped = true } }
 
     func waitUntil(_ condition: (StubLicenseServer) -> Bool) async -> Bool {
         for _ in 0..<100 {
@@ -196,6 +200,7 @@ private final class StubLicenseServer: @unchecked Sendable {
     }
 
     private var isStopped: Bool { lock.withLock { stopped } }
+    private var isReleased: Bool { lock.withLock { released || stopped } }
 
     private func acceptLoop() {
         var poller = pollfd(fd: fd, events: Int16(POLLIN), revents: 0)
@@ -223,17 +228,26 @@ private final class StubLicenseServer: @unchecked Sendable {
             return
         }
         lock.withLock { if grantAt == nil { grantAt = now } }
-        guard let answer else {
-            let keep = lock.withLock { () -> Bool in
-                if !stopped { held.append(client) }
-                return !stopped
+        // Hold until released. The client sends nothing more while it waits for the response, so a
+        // readable socket that reads as end of stream is the client closing: it gave up on the grant.
+        var poller = pollfd(fd: client, events: Int16(POLLIN), revents: 0)
+        while !isReleased {
+            guard poll(&poller, 1, 20) > 0 else { continue }
+            var byte: UInt8 = 0
+            #if canImport(Glibc)
+            let peeked = recv(client, &byte, 1, Int32(MSG_PEEK | MSG_DONTWAIT))
+            #else
+            let peeked = recv(client, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+            #endif
+            if peeked == 0 || (peeked < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+                lock.withLock { gaveUp = true }
+                close(client)
+                return
             }
-            if !keep { close(client) }
-            return
+            if peeked > 0 { Thread.sleep(forTimeInterval: 0.02) }
         }
-        Thread.sleep(forTimeInterval: answer.delay)
-        if !isStopped {
-            let bytes = Array(answer.response.utf8)
+        if let answer, !isStopped {
+            let bytes = Array(answer.utf8)
             #if canImport(Glibc)
             _ = send(client, bytes, bytes.count, Int32(MSG_NOSIGNAL))
             #else

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#MISE description="Check that every package publish:npm ships names this repo in repository.url"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# npm rejects a trusted publish whose repository.url names another repo, and a token publish doesn't check, so this catches it before release day.
+repo=Desert-Ant-Labs/desert-ant-core
+[ "${DAL_PUBLISH_TARGET:-}" != github ] || repo=${GITHUB_REPOSITORY:?DAL_PUBLISH_TARGET=github needs GITHUB_REPOSITORY}
+expected="git+https://github.com/$repo.git"
+bad=0
+check() { # <directory>
+    local dir="$1" url directory
+    url=$(node -p "require('./$dir/package.json').repository?.url ?? ''")
+    directory=$(node -p "require('./$dir/package.json').repository?.directory ?? ''")
+    [ "$url" = "$expected" ] || { echo "  $dir: repository.url is ${url:-<missing>}" >&2; bad=1; }
+    [ "$directory" = "$dir" ] || { echo "  $dir: repository.directory is ${directory:-<missing>}" >&2; bad=1; }
+}
+
+check js
+for model in $(dal_models_with node); do
+    check "packages/$model-node"
+done
+
+[ "$bad" = 0 ] || { echo "error: every published package needs repository.url $expected and its own repository.directory" >&2; exit 1; }
+echo "ok"

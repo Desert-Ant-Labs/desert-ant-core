@@ -131,8 +131,7 @@ final class LiteRTEngine: Engine {
         // One thread as well as CPU-only: a decode step is a few hundred
         // kiloflops, and a thread pool spends more per step waking and
         // joining workers than the work costs (measured 60 ms against 1.5 ms
-        // per step). It is also the natural NPU target - see Tools/npu/ for
-        // why that door is not open yet.
+        // per step).
         let stepSession = try open(VozModel.decodeStepLiteRT, accelerator: 1 /* CPU */,
                                    threads: 1)
 

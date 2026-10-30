@@ -19,9 +19,9 @@ import DesertAnt
 public enum VozModel: ModelDeclaration {
     public static let id = "voz"
     public static let product = "Voz"
-    public static let revision = "v0.4.0"
+    public static let revision = "v0.5.0"
     /// Matches VERSION (check:version enforces it; this repo releases as one).
-    public static let sdkVersion = "4.1.0"
+    public static let sdkVersion = "4.2.1"
     public static let summary =
         "On-device speech recognition: transcripts with word-level timestamps, 25 languages."
 
@@ -76,6 +76,17 @@ public enum VozModel: ModelDeclaration {
     private static let litertFiles =
         [encoderLiteRT, melLiteRT, decodeStepLiteRT, litertMeta, "vocab.json", "embedding.f16"]
 
+    /// The three graphs as native ONNX, for Windows (ONNX Runtime on DirectML).
+    /// Not the `web/` export: that one fuses the mel into the encoder and reduces
+    /// the decode step in-graph, and neither fits the native engine. Under
+    /// `onnx-fp16/` with its own sidecars, since its `meta.json` declares the lanes the
+    /// export was built with. The encoder's weights are external data the graph
+    /// names as `encoder.weights`.
+    public static let onnxDirectory = "onnx-fp16"
+    private static let onnxFiles = ["mel.onnx", "encoder.onnx", "encoder.weights", "decoder.onnx",
+                                    "meta.json", "vocab.json", "embedding.f16"]
+        .map { "\(onnxDirectory)/\($0)" }
+
     public static let files: [ModelPlatform: [String]] = [
         .apple: [encoder + "/", mel + "/", decodeStep + "/",
                  "meta.json", "vocab.json", "embedding.f16"],
@@ -83,12 +94,14 @@ public enum VozModel: ModelDeclaration {
                "web/meta.json", "web/vocab.json", "web/embedding.f16"],
         .android: litertFiles,
         .linux: litertFiles,
+        .windows: onnxFiles,
     ]
 
     public static func artifact(for platform: ModelPlatform) -> String {
         switch platform {
         case .web: return webEncoder
         case .android, .linux: return encoderLiteRT
+        case .windows: return "\(onnxDirectory)/encoder.onnx"
         default: return encoder
         }
     }
