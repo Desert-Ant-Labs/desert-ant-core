@@ -47,28 +47,30 @@ kotlin {
 }
 
 val prepareLiteRt by tasks.registering {
-    val version = "2.2.0"
-    // The runtime proper, plus the OpenCL/OpenGL GPU accelerator the runtime
-    // dlopens when a session asks for kLiteRtHwAcceleratorGpu. Without the
-    // accelerator sibling the GPU request silently falls back to CPU; it costs
-    // 2.8 MB per ABI against the encoder speedup it unlocks.
-    val libs = listOf("libLiteRt.so", "libLiteRtClGlAccelerator.so")
+    val version = "2.3.2"
+    // The runtime proper (litert AAR), plus the OpenCL/OpenGL GPU accelerator
+    // the runtime dlopens when a session asks for kLiteRtHwAcceleratorGpu
+    // (litert-gpu AAR since 2.3; the litert AAR carried both through 2.2).
+    // Without the accelerator sibling the GPU request silently falls back to
+    // CPU; it costs 3.1 MB per ABI against the encoder speedup it unlocks.
+    val sources = mapOf("libLiteRt.so" to "litert", "libLiteRtClGlAccelerator.so" to "litert-gpu")
+    val libs = sources.keys.toList()
     val output = layout.projectDirectory.dir("src/main/jniLibs")
     inputs.property("litertVersion", version)
     outputs.files(
         libs.flatMap { lib -> listOf(output.file("arm64-v8a/$lib"), output.file("x86_64/$lib")) },
     )
     doLast {
-        val aar = temporaryDir.resolve("litert-$version.aar")
-        if (!aar.isFile) {
-            URI("https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$version/litert-$version.aar")
-                .toURL().openStream().use { input -> aar.outputStream().use(input::copyTo) }
-        }
-        ZipFile(aar).use { zip ->
-            listOf("arm64-v8a", "x86_64").forEach { abi ->
-                libs.forEach { lib ->
+        sources.forEach { (lib, artifact) ->
+            val aar = temporaryDir.resolve("$artifact-$version.aar")
+            if (!aar.isFile) {
+                URI("https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/$artifact/$version/$artifact-$version.aar")
+                    .toURL().openStream().use { input -> aar.outputStream().use(input::copyTo) }
+            }
+            ZipFile(aar).use { zip ->
+                listOf("arm64-v8a", "x86_64").forEach { abi ->
                     val entry = zip.getEntry("jni/$abi/$lib")
-                        ?: error("LiteRT $version has no $abi $lib")
+                        ?: error("LiteRT $version ($artifact) has no $abi $lib")
                     val destination = output.file("$abi/$lib").asFile
                     destination.parentFile.mkdirs()
                     zip.getInputStream(entry).use { input -> destination.outputStream().use(input::copyTo) }
