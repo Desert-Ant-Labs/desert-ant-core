@@ -150,46 +150,38 @@ final class Model: @unchecked Sendable {
     func diarize(samples: [Float], sampleRate: Double) async throws -> Diarization {
         let audio = resampled(samples, from: sampleRate)
         let seconds = Double(audio.count) / Double(frontend.geometry.sampleRate)
-        let (means, melFrames) = frontend.means(audio)
+        let melFrames = frontend.frames(for: audio.count)
         guard melFrames > 0 else { throw WhoError.invalidAudio("shorter than one frame") }
         let pieces = Pieces.cut(frames: melFrames, window: windows.last!.frames)
+        let joins = pieces.count > 1 && voiceFrontend != nil && embedding != nil && meta.voice != nil && meta.join != nil
+        let (means, voiceMeans) = await self.means(audio, voice: joins)
 
         if pieces.count == 1 {
-            let (presence, masks, _) = try await logits(audio, piece: pieces[0], means: means)
+            let (presence, masks, _) = try await graphs(input(audio, piece: pieces[0], means: means), piece: pieces[0])
             let stretches = decision.stretches(presence: Decision.sigmoid(presence), masks: Decision.sigmoid(masks), frames: pieces[0].frames)
             return Diarization(stretches: stretches, clock: clock, duration: seconds)
         }
 
+        // The Neural Engine reads one piece while the CPU computes the next one's features and decides the one
+        // before, so neither waits for the other. The lanes still come out in piece order.
         var lanes: [Lane] = []
+        var next = input(audio, piece: pieces[0], means: means)
+        var read: (index: Int, presence: [Float], masks: [Float])?
         for (index, piece) in pieces.enumerated() {
-            let (presence, masks, _) = try await logits(audio, piece: piece, means: means)
-            let probabilities = Decision.sigmoid(masks)
-            let stretches = decision.stretches(presence: Decision.sigmoid(presence), masks: probabilities, frames: piece.frames)
-            let offset = Double(piece.first) * meta.frames.step_s
-            let decided = Array(Set(stretches.map(\.query))).sorted()
-            var on = [[Bool]](repeating: [Bool](repeating: false, count: piece.frames), count: decided.count)
-            for (row, query) in decided.enumerated() {
-                for f in 0..<piece.frames { on[row][f] = probabilities[query * piece.frames + f] > decision.maskThreshold }
-            }
-            for (row, query) in decided.enumerated() {
-                var solo = [Float](repeating: 0, count: piece.frames)
-                for f in 0..<piece.frames where on[row][f] {
-                    var alone = true
-                    for other in on.indices where other != row && on[other][f] { alone = false; break }
-                    if alone { solo[f] = 1 }
-                }
-                let turns = stretches.filter { $0.query == query }.map { stretch -> LabelledTurn in
-                    let (start, end) = clock.bounds(stretch)
-                    return LabelledTurn(start: start + offset, end: end + offset, label: index * meta.model.queries + query)
-                }
-                lanes.append(Lane(piece: index, query: query, turns: turns, solo: solo, offset: piece.first))
-            }
+            let current = next
+            async let out = graphs(current, piece: piece)
+            next = index + 1 < pieces.count ? input(audio, piece: pieces[index + 1], means: means) : []
+            if let read { lanes += self.lanes(of: read.index, piece: pieces[read.index], presence: read.presence, masks: read.masks) }
+            let (presence, masks, _) = try await out
+            read = (index, presence, masks)
         }
+        if let read { lanes += self.lanes(of: read.index, piece: pieces[read.index], presence: read.presence, masks: read.masks) }
 
-        guard let voiceFrontend, let embedding, let voice = meta.voice, let join = meta.join else {
+        guard joins, let voiceFrontend, let embedding, let voice = meta.voice, let join = meta.join, let voiceMeans else {
             return Diarization(turns: lanes.flatMap(\.turns), duration: seconds)
         }
-        let labels = try await joined(lanes, audio: audio, melFrames: melFrames, voiceFrontend: voiceFrontend, embedding: embedding, voice: voice, join: join)
+        let labels = try await joined(lanes, audio: audio, melFrames: melFrames, voiceFrontend: voiceFrontend, voiceMeans: voiceMeans,
+                                      embedding: embedding, voice: voice, join: join)
         var turns: [LabelledTurn] = []
         for (lane, label) in zip(lanes, labels) {
             turns += lane.turns.map { LabelledTurn(start: $0.start, end: $0.end, label: label) }
@@ -197,12 +189,52 @@ final class Model: @unchecked Sendable {
         return Diarization(turns: Linker.joined(turns), duration: seconds)
     }
 
+    /// The model filterbank's means and, for a recording the join will read, the voice filterbank's, from one
+    /// spectrum per frame when the two share it.
+    private func means(_ audio: [Float], voice: Bool) async -> (model: [Float], voice: [Float]?) {
+        guard voice, let voiceFrontend else { return (await Frontend.means([frontend], samples: audio).means[0], nil) }
+        if frontend.sharesSpectrum(with: voiceFrontend) {
+            let both = await Frontend.means([frontend, voiceFrontend], samples: audio).means
+            return (both[0], both[1])
+        }
+        let model = await Frontend.means([frontend], samples: audio).means[0]
+        return (model, await Frontend.means([voiceFrontend], samples: audio).means[0])
+    }
+
+    /// One read piece's lanes: each query that speaks, its turns on the recording's clock, and the frames where
+    /// it speaks alone.
+    private func lanes(of index: Int, piece: Piece, presence: [Float], masks: [Float]) -> [Lane] {
+        let probabilities = Decision.sigmoid(masks)
+        let stretches = decision.stretches(presence: Decision.sigmoid(presence), masks: probabilities, frames: piece.frames)
+        let offset = Double(piece.first) * meta.frames.step_s
+        let decided = Array(Set(stretches.map(\.query))).sorted()
+        var on = [[Bool]](repeating: [Bool](repeating: false, count: piece.frames), count: decided.count)
+        for (row, query) in decided.enumerated() {
+            for f in 0..<piece.frames { on[row][f] = probabilities[query * piece.frames + f] > decision.maskThreshold }
+        }
+        var lanes: [Lane] = []
+        for (row, query) in decided.enumerated() {
+            var solo = [Float](repeating: 0, count: piece.frames)
+            for f in 0..<piece.frames where on[row][f] {
+                var alone = true
+                for other in on.indices where other != row && on[other][f] { alone = false; break }
+                if alone { solo[f] = 1 }
+            }
+            let turns = stretches.filter { $0.query == query }.map { stretch -> LabelledTurn in
+                let (start, end) = clock.bounds(stretch)
+                return LabelledTurn(start: start + offset, end: end + offset, label: index * meta.model.queries + query)
+            }
+            lanes.append(Lane(piece: index, query: query, turns: turns, solo: solo, offset: piece.first))
+        }
+        return lanes
+    }
+
     /// Every lane's voice, pooled over the columns where it speaks alone, clustered at the join's cut; a
     /// lane with too little solo speech has no voice and a label of its own.
-    private func joined(_ lanes: [Lane], audio: [Float], melFrames: Int, voiceFrontend: Frontend, embedding: Embedding,
+    private func joined(_ lanes: [Lane], audio: [Float], melFrames: Int, voiceFrontend: Frontend, voiceMeans: [Float], embedding: Embedding,
                         voice: Meta.VoiceInfo, join: Meta.JoinInfo) async throws -> [Int] {
         let perColumn = voice.mel_frames_per_column
-        let (voiceMeans, voiceFrames) = voiceFrontend.means(audio)
+        let voiceFrames = voiceFrontend.frames(for: audio.count)
         let used = min(voiceFrames, melFrames) / perColumn * perColumn
         let columns = used / perColumn
         let mels = voiceFrontend.geometry.mels
@@ -213,18 +245,40 @@ final class Model: @unchecked Sendable {
         }
         var pools = masks.map { $0 == nil ? nil : Embedding.Pool(columns: embedding.columns) }
         let width = voice.mel_frames
-        for window in Voices.windows(melFrames: used, width: width, margin: voice.margin_mel_frames, perColumn: perColumn) {
+        // A window whose kept columns hold no lane's solo column adds to no pool, so it is not run.
+        let needed = Voices.windows(melFrames: used, width: width, margin: voice.margin_mel_frames, perColumn: perColumn).filter { window in
+            let placed = window.placeLow..<(window.placeLow + window.keepHigh - window.keepLow)
+            return masks.contains { $0?[placed].contains(true) ?? false }
+        }
+        func input(_ window: VoiceWindow) -> [Float] {
             var input = [Float](repeating: 0, count: width * mels)
             let available = min(width, used - window.start)
             input.replaceSubrange(0..<(available * mels), with: voiceFrontend.features(audio, frames: window.start..<(window.start + available), means: voiceMeans))
-            let out = try await run(Model.key(voice.compiled, voice.signature), inputs: [voice.inputs[0]: Tensor(float32: input, shape: [1, width, mels])],
-                                    outputs: voice.outputs, expected: [(width / perColumn) * embedding.columns])[0]
+            return input
+        }
+        func pool(_ window: VoiceWindow, _ out: [Float]) {
             for row in window.keepLow..<window.keepHigh {
                 let column = window.placeLow + (row - window.keepLow)
                 for g in lanes.indices where masks[g]?[column] == true {
                     pools[g]!.add(out, offset: row * embedding.columns)
                 }
             }
+        }
+        // As with the pieces: the Neural Engine reads one window while the CPU computes the next one's features
+        // and pools the one before. The pools still take the windows in order, so their sums are the same.
+        if !needed.isEmpty {
+            let key = Model.key(voice.compiled, voice.signature)
+            var next = input(needed[0])
+            var read: (window: VoiceWindow, out: [Float])?
+            for (index, window) in needed.enumerated() {
+                let current = next
+                async let out = run(key, inputs: [voice.inputs[0]: Tensor(float32: current, shape: [1, width, mels])],
+                                    outputs: voice.outputs, expected: [(width / perColumn) * embedding.columns])
+                next = index + 1 < needed.count ? input(needed[index + 1]) : []
+                if let read { pool(read.window, read.out) }
+                read = (window, try await out[0])
+            }
+            if let read { pool(read.window, read.out) }
         }
         var voices: [[Float]] = []
         var voiced: [Int] = []
@@ -253,10 +307,11 @@ final class Model: @unchecked Sendable {
 
     /// A recording that fits the longest window, as one piece.
     func logits(_ audio: [Float]) async throws -> (presence: [Float], masks: [Float], queries: [Float], frames: Int) {
-        let (means, melFrames) = frontend.means(audio)
+        let (means, melFrames) = await Frontend.means([frontend], samples: audio)
+        let mean = means[0]
         guard melFrames > 0 else { throw WhoError.invalidAudio("shorter than one frame") }
         guard melFrames <= windows.last!.frames else { throw WhoError.invalidAudio("longer than the \(Int(maximumSeconds)) s one piece holds") }
-        let out = try await logits(audio, piece: Piece(first: 0, end: melFrames), means: means)
+        let out = try await logits(audio, piece: Piece(first: 0, end: melFrames), means: mean)
         return (out.presence, out.masks, out.queries, melFrames)
     }
 
@@ -265,11 +320,15 @@ final class Model: @unchecked Sendable {
     /// themselves `[queries * dim]`, one vector a speaker. The piece's log-mel is
     /// computed here, against the recording's `means`, so only one piece's is held.
     func logits(_ audio: [Float], piece: Piece, means: [Float]) async throws -> (presence: [Float], masks: [Float], queries: [Float]) {
-        let mels = frontend.geometry.mels, dim = meta.model.dim, count = meta.model.queries
         guard piece.frames > 0, piece.end <= frontend.frames(for: audio.count) else { throw WhoError.invalidAudio("a piece outside the recording") }
-        let window = windows[windowIndex(for: piece.frames)]
+        return try await graphs(input(audio, piece: piece, means: means), piece: piece)
+    }
 
-        // The piece, then its last frame repeated to fill the window.
+    /// The encoder's input for one piece: its log-mel against the recording's `means`, then its last frame
+    /// repeated to fill the window.
+    private func input(_ audio: [Float], piece: Piece, means: [Float]) -> [Float] {
+        let mels = frontend.geometry.mels
+        let window = windows[windowIndex(for: piece.frames)]
         let mel = frontend.features(audio, frames: piece.first..<piece.end, means: means)
         var input = [Float](repeating: 0, count: window.frames * mels)
         input.replaceSubrange(0..<(piece.frames * mels), with: mel)
@@ -277,6 +336,13 @@ final class Model: @unchecked Sendable {
         for frame in piece.frames..<window.frames {
             input.replaceSubrange((frame * mels)..<((frame + 1) * mels), with: last)
         }
+        return input
+    }
+
+    /// One piece's encoder input through both graphs, as `logits` describes.
+    private func graphs(_ input: [Float], piece: Piece) async throws -> (presence: [Float], masks: [Float], queries: [Float]) {
+        let mels = frontend.geometry.mels, dim = meta.model.dim, count = meta.model.queries
+        let window = windows[windowIndex(for: piece.frames)]
 
         let encoded = try await run(Model.key(window.encoder.compiled, window.encoder.signature), inputs: [window.encoder.inputs[0]: Tensor(float32: input, shape: [1, window.frames, mels])],
                                     outputs: window.encoder.outputs, expected: [window.low * dim, window.frames * dim])

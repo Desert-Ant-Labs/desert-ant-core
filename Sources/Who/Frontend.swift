@@ -224,7 +224,7 @@ private enum Vec {
         #endif
     }
 
-    static func mean(_ a: [Float], count: Int) -> Float {
+    static func mean(_ a: UnsafePointer<Float>, count: Int) -> Float {
         #if canImport(Accelerate) && !WHO_PORTABLE_DSP
         var out: Float = 0
         vDSP_meanv(a, 1, &out, vDSP_Length(count))
@@ -237,9 +237,9 @@ private enum Vec {
     }
 
     /// `out[i] = a[i] * b[i]` for the first `count`.
-    static func multiply(_ a: [Float], _ b: [Float], into out: inout [Float], count: Int) {
+    static func multiply(_ a: UnsafePointer<Float>, _ b: UnsafePointer<Float>, into out: UnsafeMutablePointer<Float>, count: Int) {
         #if canImport(Accelerate) && !WHO_PORTABLE_DSP
-        vDSP_vmul(a, 1, b, 1, &out, 1, vDSP_Length(count))
+        vDSP_vmul(a, 1, b, 1, out, 1, vDSP_Length(count))
         #else
         for i in 0..<count { out[i] = a[i] * b[i] }
         #endif
@@ -311,18 +311,64 @@ struct Frontend: @unchecked Sendable {
     /// frames against it, so no recording-long feature array is ever held. Summed in double, `pieceFrames` at a time.
     func means(_ samples: [Float], pieceFrames: Int = 6000) -> (means: [Float], frames: Int) {
         let total = frames(for: samples.count)
-        let mels = geometry.mels
-        var sums = [Double](repeating: 0, count: mels)
-        var piece = 0
-        while piece < total {
-            let count = min(pieceFrames, total - piece)
-            let mel = logMel(samples, firstFrame: piece, frames: count)
-            for m in 0..<mels {
-                sums[m] += Double(Vec.sum(mel, from: m, stride: mels, count: count))
-            }
-            piece += count
+        let chunks = stride(from: 0, to: total, by: pieceFrames).map {
+            Frontend.sums([self], samples: samples, firstFrame: $0, frames: min(pieceFrames, total - $0))[0]
         }
-        return (total > 0 ? sums.map { Float($0 / Double(total)) } : [Float](repeating: 0, count: mels), total)
+        return (Frontend.average(chunks, frames: total, mels: geometry.mels), total)
+    }
+
+    /// Whether `other` computes the same power spectrum of every frame: all constants alike but the mel bands
+    /// and the log floor, which act after it.
+    func sharesSpectrum(with other: Frontend) -> Bool {
+        let a = geometry, b = other.geometry
+        return a.sampleRate == b.sampleRate && a.frame == b.frame && a.shift == b.shift && a.nFFT == b.nFFT
+            && a.preemphasis == b.preemphasis && a.scale == b.scale
+    }
+
+    /// `means` for several frontends that share their spectrum, from one spectrum per frame, with up to `workers`
+    /// of `means`'s chunks computed at once. Each chunk's sums are the ones `means` takes and are added in chunk
+    /// order, so every frontend's means equal its own `means`, to the bit. Two workers, not more: each chunk holds
+    /// about 9 MB while it runs, and on an M5 Pro four raised a long recording's peak footprint by 10 MB for 3 %.
+    static func means(_ frontends: [Frontend], samples: [Float], pieceFrames: Int = 6000, workers: Int = 2) async -> (means: [[Float]], frames: Int) {
+        let first = frontends[0]
+        precondition(frontends.allSatisfy { first.sharesSpectrum(with: $0) }, "the frontends compute different spectra")
+        let total = first.frames(for: samples.count)
+        let starts = Array(stride(from: 0, to: total, by: pieceFrames))
+        var chunks = [[[Float]]](repeating: [], count: starts.count)
+        await withTaskGroup(of: (chunk: Int, sums: [[Float]]).self) { group in
+            var issued = 0
+            func issue() {
+                let chunk = issued, start = starts[chunk]
+                group.addTask { (chunk, Frontend.sums(frontends, samples: samples, firstFrame: start, frames: min(pieceFrames, total - start))) }
+                issued += 1
+            }
+            while issued < min(max(workers, 1), starts.count) { issue() }
+            while let done = await group.next() {
+                chunks[done.chunk] = done.sums
+                if issued < starts.count { issue() }
+            }
+        }
+        let means = frontends.indices.map { f in Frontend.average(chunks.map { $0[f] }, frames: total, mels: frontends[f].geometry.mels) }
+        return (means, total)
+    }
+
+    /// For each frontend, each mel's sum over `frames` frames from `firstFrame`, from one power spectrum.
+    private static func sums(_ frontends: [Frontend], samples: [Float], firstFrame: Int, frames: Int) -> [[Float]] {
+        let power = frontends[0].powerSpectra(samples, firstFrame: firstFrame, frames: frames)
+        return frontends.map { frontend in
+            let mel = frontend.logMel(power: power, frames: frames)
+            let mels = frontend.geometry.mels
+            return (0..<mels).map { Vec.sum(mel, from: $0, stride: mels, count: frames) }
+        }
+    }
+
+    /// The chunks' sums as means: added in double, in chunk order.
+    private static func average(_ chunks: [[Float]], frames total: Int, mels: Int) -> [Float] {
+        var sums = [Double](repeating: 0, count: mels)
+        for chunk in chunks {
+            for m in 0..<mels { sums[m] += Double(chunk[m]) }
+        }
+        return total > 0 ? sums.map { Float($0 / Double(total)) } : [Float](repeating: 0, count: mels)
     }
 
     /// The log-mel of the frames in `range`, `[range.count * mels]` row-major, each mel's `means` removed.
@@ -352,10 +398,13 @@ struct Frontend: @unchecked Sendable {
 
     /// The log-mel energies of `frames` consecutive frames from `firstFrame`, `[frames * mels]`, before the mean is removed.
     private func logMel(_ samples: [Float], firstFrame: Int, frames: Int) -> [Float] {
-        let mels = geometry.mels
         guard frames > 0 else { return [] }
-        let power = powerSpectra(samples, firstFrame: firstFrame, frames: frames)
-        var mel = Vec.matmul(power, banksTransposed, rows: frames, inner: geometry.bins, columns: mels)
+        return logMel(power: powerSpectra(samples, firstFrame: firstFrame, frames: frames), frames: frames)
+    }
+
+    /// The log-mel energies of `frames` power spectra, `[frames * bins]` in, `[frames * mels]` out.
+    private func logMel(power: [Float], frames: Int) -> [Float] {
+        var mel = Vec.matmul(power, banksTransposed, rows: frames, inner: geometry.bins, columns: geometry.mels)
         Vec.logFloored(&mel, floor: geometry.logFloor)
         return mel
     }
@@ -371,18 +420,35 @@ struct Frontend: @unchecked Sendable {
         var outRe = [Float](repeating: 0, count: g.nFFT)
         var outIm = [Float](repeating: 0, count: g.nFFT)
         var frame = [Float](repeating: 0, count: g.frame)
-        for f in 0..<frames {
-            let start = (firstFrame + f) * g.shift
-            for i in 0..<g.frame { frame[i] = samples[start + i] * g.scale }
-            let mean = Vec.mean(frame, count: g.frame)
-            for i in 0..<g.frame { frame[i] -= mean }
-            // From the end, so each sample still sees its unmodified predecessor.
-            for i in stride(from: g.frame - 1, through: 1, by: -1) { frame[i] -= g.preemphasis * frame[i - 1] }
-            frame[0] -= g.preemphasis * frame[0]
-            Vec.multiply(frame, window, into: &re, count: g.frame)
-            for i in g.frame..<g.nFFT { re[i] = 0 }
-            dft.transform(real: re, imaginary: im, outReal: &outRe, outImaginary: &outIm)
-            for k in 0..<g.bins { power[f * g.bins + k] = outRe[k] * outRe[k] + outIm[k] * outIm[k] }
+        // Raw buffers in the per-sample loops: through Array's subscript every element paid a bounds and a
+        // uniqueness check, a quarter of the filterbank's time. The arithmetic and its order are the same.
+        // `re` past `g.frame` stays the zero padding: only the window's product writes it, and only below.
+        samples.withUnsafeBufferPointer { x in
+            window.withUnsafeBufferPointer { w in
+                power.withUnsafeMutableBufferPointer { p in
+                    frame.withUnsafeMutableBufferPointer { s in
+                        for f in 0..<frames {
+                            let start = (firstFrame + f) * g.shift
+                            for i in 0..<g.frame { s[i] = x[start + i] * g.scale }
+                            let mean = Vec.mean(s.baseAddress!, count: g.frame)
+                            for i in 0..<g.frame { s[i] -= mean }
+                            // From the end, so each sample still sees its unmodified predecessor.
+                            for i in stride(from: g.frame - 1, through: 1, by: -1) { s[i] -= g.preemphasis * s[i - 1] }
+                            s[0] -= g.preemphasis * s[0]
+                            re.withUnsafeMutableBufferPointer { r in
+                                Vec.multiply(s.baseAddress!, w.baseAddress!, into: r.baseAddress!, count: g.frame)
+                            }
+                            dft.transform(real: re, imaginary: im, outReal: &outRe, outImaginary: &outIm)
+                            outRe.withUnsafeBufferPointer { a in
+                                outIm.withUnsafeBufferPointer { b in
+                                    let row = f * g.bins
+                                    for k in 0..<g.bins { p[row + k] = a[k] * a[k] + b[k] * b[k] }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         return power
     }
