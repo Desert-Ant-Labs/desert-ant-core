@@ -22,7 +22,7 @@ Clear reduces noise, removes room echo and normalizes volume on noisy speech, an
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Clear` product to your target.
@@ -30,7 +30,7 @@ Then add the `Clear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:clear:4.2.2")
+implementation("ai.desertant:clear:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
