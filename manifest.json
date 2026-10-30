@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "4.2.2",
+  "sdkVersion": "4.2.3",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -375,7 +375,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/redact",
         "url": "https://huggingface.co/desert-ant-labs/redact",
-        "revision": "v0.4.1",
+        "revision": "v0.4.2",
         "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
