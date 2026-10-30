@@ -44,6 +44,14 @@ const result = await moderator.analyze({ data, width: info.width, height: info.h
 
 `Moderator.load()` downloads the model from Hugging Face ([`desert-ant-labs/moderator`](https://huggingface.co/desert-ant-labs/moderator)) at the SDK's pinned tag, verifies it, and caches it. Pass `directory` (Node) or `modelBaseUrl` (browser) to use files you host yourself, and `onProgress` for download progress. The browser build also takes `litert`, `litertWasmDir`, and `accelerator` (`"wasm"`, `"webgpu"`, or `"webnn"`).
 
+<!-- license:start -->
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Free for most apps; a commercial license is required at scale.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/moderator/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

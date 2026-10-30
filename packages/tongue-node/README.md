@@ -128,7 +128,14 @@ genuinely ambiguous, Malay and Indonesian are not reliably separable at this siz
 Mongolian works only in the traditional script, and brand names and version
 strings are not language at all.
 
-## Licence
+<!-- license:start -->
+## License
 
-[Desert Ant Labs Source-Available Licence](https://license.desertant.com/1.0).
-Free for most apps; a commercial licence is required at scale.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/tongue/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

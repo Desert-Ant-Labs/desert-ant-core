@@ -9,15 +9,24 @@ Multilingual on-device emoji suggestion.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 22 |
-| **Weights** | [v0.7.0](https://huggingface.co/desert-ant-labs/emo) |
+| **Weights** | [v0.7.0](https://huggingface.co/desert-ant-labs/emo/tree/v0.7.0) |
 | **Demo** | https://desertant.com/models/emo/ |
+<!-- model:end -->
 
+Type a word or a sentence and get the emoji that fits. Emo is tuned for to-dos, calendar entries, notes, and message drafts across **22 languages** (including CJK, Arabic, Thai, Hindi, and more). The model and tokenizer together are small (**5MB** on Apple via Core ML, **11MB** via LiteRT elsewhere) and runs in well under 2ms on device.
+ > `"Dentist appointment"` → 🦷 · `"réserver un vol pour Tokyo"` → ✈️ · `"犬の散歩"` → 🐕 · `"จองโรงแรม"` → 🏨
+
+## Try it
+
+- **Live demo:** [desert-ant-labs/emo-demo](https://huggingface.co/spaces/desert-ant-labs/emo-demo): type a phrase, get emojis, fully in your browser.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Emo` product to your target.
@@ -25,7 +34,7 @@ Then add the `Emo` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:emo:4.2.1")
+implementation("ai.desertant:emo:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -34,7 +43,7 @@ implementation("ai.desertant:emo:4.2.1")
 npm i @desert-ant-labs/emo @litertjs/core   # browser
 npm i @desert-ant-labs/emo                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -106,18 +115,39 @@ Older SDK versions load `Emo.mlmodelc` and `emo.safetensors`. Those files stay o
 
 ## Inputs and outputs
 
-Pass a plain text string. Emo works best on short text that states an intent, like "Pay my bills". Emo gives each of the 800 emoji in its vocabulary a probability. Show the top suggestion, or the top few.
+Pass a plain text string. Emo works best on short text that states an intent, like "Pay my bills". Emo gives each of the 812 emoji in its vocabulary a probability. Show the top suggestion, or the top few.
 
 ## Languages
 
 English, Spanish, Portuguese, French, German, Italian, Dutch, Russian, Polish, Turkish, Arabic, Chinese (Simplified and Traditional), Japanese, Korean, Hindi, Indonesian, Thai, Vietnamese, Ukrainian, Swedish, Danish, Czech.
 
-## Limits
+## Limitations
 
 - Emo is tuned for short text that states an intent. Longer text gets noisier suggestions.
 - Emoji meanings are imprecise. Expect near-ties between the top suggestions.
 - Quality varies by language. Emo is somewhat weaker on the lower-resource languages in the set.
 
+<!-- model-footer:start -->
 ## License
 
-Emo is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Emo for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/emo/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{emo_2026,
+  title  = {Emo: Multilingual on-device emoji suggestion},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/emo},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

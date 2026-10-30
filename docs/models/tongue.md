@@ -9,15 +9,27 @@ On-device language identification for short text across 84 languages.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 84 |
-| **Weights** | Bundled with the SDK ([v1.0.0](https://huggingface.co/desert-ant-labs/tongue)) |
+| **Weights** | Bundled with the SDK ([v1.0.0](https://huggingface.co/desert-ant-labs/tongue/tree/v1.0.0)) |
 | **Demo** | https://desertant.com/models/tongue/ |
+<!-- model:end -->
 
+Name the language from three words, across 84 languages. Tongue is built for where detection is hardest and most useful on a device: search boxes, chat messages, keyboard input. The model is 2MB of int8 weights with no tokenizer and no vocabulary file, ships inside the SDK, and a detection takes tens of microseconds.
+
+> `"kann ich das haben"` → German · `"안녕하세요"` → Korean · `"привет как дела"` → Russian · `"quanto costa il biglietto"` → Italian
+
+On genuinely ambiguous input, Tongue says so rather than guessing: `"la casa"` comes back as Italian *or* Spanish, because the phrase is equally both.
+
+## Try it
+
+- **Live demo:** [desert-ant-labs/tongue-demo](https://huggingface.co/spaces/desert-ant-labs/tongue-demo): type in any language, fully in your browser.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Tongue` product to your target.
@@ -25,7 +37,7 @@ Then add the `Tongue` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:tongue:4.2.1")
+implementation("ai.desertant:tongue:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -33,7 +45,7 @@ implementation("ai.desertant:tongue:4.2.1")
 ```bash
 npm i @desert-ant-labs/tongue
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -91,6 +103,7 @@ const tongue = await Tongue.load({ from: "/models/tongue" });
 | File | Format | Size | Contents |
 |---|---|---:|---|
 | `tongue_int8.bin` | Raw int8 + fp32 | 2.01MiB | The model the SDKs load. |
+| `tongue_int4.bin` | Raw int4 + fp32 | 1.01MiB | A half-size build for tight bundles. See Sizes. |
 | `tongue.onnx` | ONNX (fp32, opset 17) | 8.4MB | Portable graph for onnxruntime and onnxruntime-web. |
 | `tongue_meta.json` | JSON | tiny | Runtime tables: label order, hashing constants, script routing. |
 | `labels.json` | JSON | tiny | The 59 model labels plus the script-decided languages, with English and native names. |
@@ -104,6 +117,20 @@ The ONNX graph holds only the classification head. The graph reads `values` (int
 ## Coverage
 
 Tongue covers 84 languages across 31 scripts, among them Latin, Cyrillic, Arabic, Greek and the CJK and Indic families. We trained the lexical model on 59 of the languages. Tongue identifies the other 25 by script alone. Tongue detects one of the 84, Mongolian, only in the traditional Mongolian script. See failure mode 3.
+
+## Sizes
+
+The Hugging Face repo holds two quantizations of the same weights. The SDKs bundle the int8 build.
+
+| | `tongue_int8.bin` | `tongue_int4.bin` |
+|---|---|---|
+| Size | 2.01MiB | **1.01MiB** |
+| FLORES 2-word | 0.869 | 0.866 |
+| FLORES 5-word | 0.974 | 0.973 |
+| Held-out single words | 0.759 | 0.752 |
+| Held-out sentences | 0.971 | 0.970 |
+
+The int4 build loses almost all of its accuracy on one- and two-word input. Full sentences are unaffected within measurement noise. Short text is what Tongue is for, so int8 is the default, and int4 is the option when a megabyte matters more than the last half point.
 
 ## Failure modes
 
@@ -151,6 +178,27 @@ eld is an independent benchmark. The table shows accuracy over the languages Ton
 
 We timed single detections in JavaScript on an Apple silicon laptop. One word takes 0.013ms. A short sentence takes 0.028ms. A 193-character input takes 0.10ms, with a p99 of 0.24ms. Phones will take longer. The design target is under 1ms.
 
+<!-- model-footer:start -->
 ## License
 
-Tongue is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Tongue for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/tongue/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{tongue_2026,
+  title  = {Tongue: On-device language identification for short text across 84 languages},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/tongue},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

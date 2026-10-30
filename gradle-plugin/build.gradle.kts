@@ -62,8 +62,8 @@ mavenPublishing {
         url.set("https://github.com/Desert-Ant-Labs/desert-ant-core")
         licenses {
             license {
-                name.set("Desert Ant Labs Source-Available License 1.0")
-                url.set("https://license.desertant.com/1.0")
+                name.set("Desert Ant Labs Source-Available License")
+                url.set("https://license.desertant.com/")
                 distribution.set("repo")
             }
         }

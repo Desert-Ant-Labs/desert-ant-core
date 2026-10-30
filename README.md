@@ -68,7 +68,7 @@ On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, vis
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
@@ -88,10 +88,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:4.2.1")
-    implementation("ai.desertant:redact:4.2.1")
-    implementation("ai.desertant:clear:4.2.1")
-    implementation("ai.desertant:tongue:4.2.1")
+    implementation("ai.desertant:emo:4.2.2")
+    implementation("ai.desertant:redact:4.2.2")
+    implementation("ai.desertant:clear:4.2.2")
+    implementation("ai.desertant:tongue:4.2.2")
 }
 ```
 
@@ -137,7 +137,7 @@ Commands pass JSON to each other, so you can transcribe a video once and cut cli
 
 ## Model downloads and caching
 
-The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-ant-labs) on first use. Each SDK version pins one model revision, so your app gets the same model until you update the SDK. The SDK verifies every download before using it. Tongue's 2MB model ships inside each package, so Tongue never downloads anything.
+The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-ant-labs) on first use. The models are public, so the download needs no Hugging Face account or token. Each SDK version pins one model revision, so your app gets the same model until you update the SDK. The SDK verifies every download before using it. Tongue's 2MB model ships inside each package, so Tongue never downloads anything.
 
 - By default, the SDK keeps the files in the platform cache directory and reuses them across launches.
 - Pass `directory` to keep the model in your own folder. If the model files are already in the folder, the SDK uses them and downloads nothing. Otherwise the SDK downloads the model into the folder.
@@ -145,18 +145,18 @@ The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-a
 
 `isDownloaded()` tells you whether a model works with no network. `download()` fetches the model ahead of time and reports progress.
 
+`HF_TOKEN` is optional. When the environment sets `HF_TOKEN`, the SDK sends the token to Hugging Face, and Hugging Face allows more downloads per hour. Leave `HF_TOKEN` unset unless downloads hit Hugging Face's rate limit.
+
 ### Faster downloads on Apple platforms (the `Xet` trait)
 
 Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2",
         traits: ["Xet"])
 ```
 
 With the trait on, the same files land in the same cache, and the SDK verifies them the same way. If a file isn't on Xet, or the Xet download fails, the SDK falls back to the ordinary HTTPS download. The trait adds [swift-xet](https://github.com/huggingface/swift-xet) and SwiftNIO to your dependencies. Every other platform and SDK downloads over plain HTTPS.
-
-Set `HF_TOKEN` in the environment for a gated or private repo. Public models need no token.
 
 ## Other notes
 

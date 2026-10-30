@@ -166,7 +166,14 @@ run, and concurrent calls queue rather than interleave.
   more slowly.
 - Node 20+ for streaming from a path, with `onnxruntime-node` installed.
 
+<!-- license:start -->
 ## License
 
-The SDK is source-available under the license in this package. The model weights
-carry their own license on Hugging Face.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/voz/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

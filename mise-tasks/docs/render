@@ -10,5 +10,5 @@ import { renderAll } from "./Tools/manifest-docs.mjs";
 
 const files = renderAll();
 for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
-console.log(`rendered ${Object.keys(files).length} files: README.md and ${Object.keys(files).length - 1} model pages`);
+console.log(`rendered ${Object.keys(files).length} files: README.md, the model pages and the npm READMEs`);
 NODE

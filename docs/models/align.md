@@ -9,14 +9,22 @@ Word-timestamp refinement for any transcript, on device.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Node |
 | **Languages** | 9 |
-| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/align) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/align/tree/v1.1.0) |
+<!-- model:end -->
 
+Align corrects the word timestamps of any transcript against its audio, so captions, highlights and cuts land on the word. Pass it the words a speech recognizer gave you, from Apple's `SpeechAnalyzer`, Whisper or anything else, and the audio they came from. You get the same words back with tighter start and end times.
+
+> Before: `"world"` 2.61-3.04s  ➜  Align: `"world"` 2.57-2.98s
+
+The models are tiny, 560KB of compiled Core ML, and refine a typical result in a few milliseconds on device. On Apple platforms, Align also attaches to `SpeechAnalyzer` (iOS 26 and later) through `StreamingRefiner`.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Align` product to your target.
@@ -26,21 +34,9 @@ Then add the `Align` product to your target.
 ```bash
 npm i @desert-ant-labs/align
 ```
-<!-- model:end -->
-
-## Changes in this release
-
-- `refine` is `async` and takes `languageCode`. `refine` works on the words of any transcript, not only on `SpeechAnalyzer` output.
-- The handle is `Align`. `SpeechTimestampRefiner` remains as a deprecated alias for the name only. A 3.x call site doesn't compile through the alias, because `Align` has no `locale:` initializer and both `refine` and `isSupported` changed shape.
-- Streaming callers move to `StreamingRefiner`. `StreamingRefiner` wraps an `Align` and keeps the `SpeechAnalyzer` integration. `SpeechTimestampRefiner(locale:)` no longer compiles.
-- On Apple platforms, corrected timestamps change at this release. We fixed a bug in the Core ML runtime's audio features, which scaled power by 4 before the log.
-- Align now runs on Linux, Windows and Node, through LiteRT.
-- The npm package runs only in Node. In the browser, `load()` throws an error that tells you to import `@desert-ant-labs/align/native` on a server instead. See [Limitations](#limitations) for why.
-- Three more changes break 3.x code. `isSupported` is now an `async throws -> Bool` method that takes a language code, where it used to be a property. The offline handle no longer has `reset()`. `AlignResourceError` is removed.
+<!-- model-install:end -->
 
 ## Usage
-
-Align corrects the word timestamps of any transcript against its audio. On Apple platforms, Align also attaches to `SpeechAnalyzer` (iOS 26 and later) through `StreamingRefiner`.
 
 ### Swift
 
@@ -147,7 +143,27 @@ On clean audio, averaged over the nine languages, Align cuts the timing error of
 
 We score both runtimes on `gold-en-us`, a set of 258 boundaries corrected by hand against the waveform. On Apple platforms, the Core ML runtime's mean boundary error on that set is 44.8ms (darwin-arm64, 2026-09-21). The training-time reference scores 45.0ms. The input timestamps, before Align, score 100.8ms. The LiteRT runtime matches the training-time reference to five significant figures. These are averages over one English set, and a single boundary can be further off.
 
-The clean, noisy, and per-language figures come from the training-time reference, not from an on-device runtime. The on-device Core ML figures from v1.0.0 no longer apply, because the Core ML runtime's audio features changed at this release. The [model card](https://huggingface.co/desert-ant-labs/align) has the same per-condition figures and names the three weakest languages.
+The clean, noisy, and per-language figures come from the training-time reference, not from an on-device runtime.
+
+### All nine languages
+
+| Condition | Raw error | Align error | Reduction |
+|---|---:|---:|---:|
+| Clean | 124.2ms | 43.9ms | 65% |
+| Noisy | 88.3ms | 33.4ms | 62% |
+
+Raw is the error of the input timestamps before refinement, macro-averaged over the nine languages, so a language with more test data cannot carry the figure on its own.
+
+### Against hand-corrected boundaries
+
+258 word boundaries across 10 recordings, corrected by hand against the waveform rather than by
+another aligner. The only figure here not measured against machine references.
+
+| System | Error | Within 50ms |
+|---|---:|---|
+| Raw Whisper | 100.8ms | 43% |
+| WhisperX | 53.5ms | 67% |
+| Align | 45.0ms | 76% |
 
 ## Languages
 
@@ -157,12 +173,33 @@ English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chi
 
 - The averaged figures compare against a forced aligner, not against boundaries marked by hand. The figures show that Align cuts the timing error of the input timestamps. They don't show how close Align gets to the true boundary.
 - Align doesn't improve every boundary. The structural fallback keeps the original timestamp when a correction looks unsafe. The fallback can't catch every plausible-looking error.
-- Japanese, Korean, and Chinese were the weakest languages before v1.0.0. Align now improves their input timestamps by 33%, 55%, and 51%.
-- Numbers are the weakest remaining case. On a small sample, refinement moved digit boundaries further from the reference than leaving them alone. Treat spoken numbers as unimproved until a larger sample settles the question.
+- Japanese, Korean, and Chinese are the weakest languages. Align improves their input timestamps by 33%, 55%, and 51%.
+- Numbers are the weakest case. On a small sample, refinement moved digit boundaries further from the reference than leaving them alone. Treat spoken numbers as unimproved until a larger sample settles the question.
 - The Core ML and LiteRT runtimes can disagree by 10ms on the same audio. We test both runtimes against Core ML's recorded output on synthetic audio. Core ML on the CPU matches that output (0.0ms, against a 25ms tolerance). LiteRT drifts 10.4ms (linux-arm64, 2026-09-17). Don't expect the two runtimes to agree to below a millisecond.
 - Align has no browser build. Align runs two models in sequence, and our WebAssembly build loads only one model.
 - Align has no Android SDK.
 
+<!-- model-footer:start -->
 ## License
 
-Align is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Align for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/align/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{align_2026,
+  title  = {Align: Word-timestamp refinement for any transcript, on device},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/align},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

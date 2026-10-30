@@ -99,6 +99,12 @@ than in a function. Two layers cover it:
   of both entries. It reproduces consumer build failures exactly; see
   [js/test/bundle/README.md](test/bundle/README.md).
 
+<!-- license:start -->
 ## License
 
-[Desert Ant Labs Source-Available License](https://license.desertant.com/1.0).
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

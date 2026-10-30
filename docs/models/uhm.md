@@ -9,19 +9,27 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
 | **Languages** | 5 |
-| **Weights** | [v1.2.0](https://huggingface.co/desert-ant-labs/uhm) |
+| **Weights** | [v1.2.0](https://huggingface.co/desert-ant-labs/uhm/tree/v1.2.0) |
 | **Demo** | https://desertant.com/models/uhm/ |
+<!-- model:end -->
 
+Find every "uh", "um" and "hmm" in an audio file, down to 20ms. Uhm runs on device, doesn't need a transcript, and is trained on English with acoustic transfer to Spanish, French, German, and Dutch.
+
+## Try it
+
+- **Browser demo:** [`huggingface.co/spaces/desert-ant-labs/uhm-demo`](https://huggingface.co/spaces/desert-ant-labs/uhm-demo). Drop in any audio or video file and get a click-to-seek filler timeline.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Uhm` product to your target.
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -72,6 +80,8 @@ The SDK downloads the weights from Hugging Face on first use and caches them. Se
 | File | Format | Size | Use |
 |---|---|---:|---|
 | `uhm.mlmodelc/` | Core ML fp16 (compiled) | 45MB | iOS and macOS, on device |
+| `uhm.aimodel/` | Core AI | 45MB | iOS 27 and macOS 27, where the Swift SDK prefers it over Core ML |
+| `uhm.tflite` | LiteRT (int8 weight-only) | 24MB | Android, Linux, Windows and the browser. Matches `uhm.onnx` at 99.7-100% per-frame argmax. |
 | `uhm-web-fp16.onnx` | ONNX fp16 | 51MB | Browser, server, Python (`onnxruntime`) |
 | `uhm.onnx` | ONNX fp32 | 98MB | Unquantized reference |
 
@@ -99,7 +109,7 @@ The realtime factor is the audio duration divided by the time `analyze` takes.
 
 We measured the table on the previous export. The current export runs every operation on the Neural Engine. On an M1, the current export runs 1.6x faster, at 188x end to end against 115x. We haven't measured the current export on the devices in the table yet.
 
-## Limits
+## Limitations
 
 - Uhm is trained on English. Uhm detects fillers in other languages by acoustic transfer, and we haven't measured that against per-language ground truth.
 - Uhm works best on podcast, meeting, and talking-head audio. Heavy background music, laughter, and overlapping speakers lower the detection quality.
@@ -111,6 +121,27 @@ We measured the table on the previous export. The current export runs every oper
 - Public fine-tuning audio: [AMI Meeting Corpus](https://huggingface.co/datasets/edinburghcstr/ami) (`edinburghcstr/ami`, IHM split). CC BY 4.0, Edinburgh CSTR.
 - Internal video content created by the Desert Ant Labs team.
 
+<!-- model-footer:start -->
 ## License
 
-Uhm is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Uhm for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/uhm/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{uhm_2026,
+  title  = {Uhm: On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/uhm},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

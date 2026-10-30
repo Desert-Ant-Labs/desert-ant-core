@@ -129,6 +129,14 @@ The model repo and revision are pinned to this SDK version, so an install is
 reproducible. Weights live on [Hugging
 Face](https://huggingface.co/desert-ant-labs/clear).
 
+<!-- license:start -->
 ## License
 
-See [LICENSE.md](./LICENSE.md).
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/clear/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

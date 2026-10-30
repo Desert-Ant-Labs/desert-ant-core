@@ -1,0 +1,73 @@
+model-index:
+- name: ear
+  results:
+  - task:
+      type: audio-classification
+      name: Spoken language identification
+    dataset:
+      name: Common Voice, 15 languages, 7,500 clips of 5 to 30 seconds
+      type: mozilla-foundation/common_voice
+      split: test
+    metrics:
+    - name: language identification accuracy
+      type: accuracy
+      value: 0.980
+    - name: recognizer routing accuracy
+      type: accuracy
+      value: 0.990
+  - task:
+      type: audio-classification
+      name: Spoken language identification
+    dataset:
+      name: VoxPopuli, 16 languages, 3,221 clips of 5 to 30 seconds
+      type: facebook/voxpopuli
+      split: test
+    metrics:
+    - name: language identification accuracy
+      type: accuracy
+      value: 0.993
+    - name: recognizer routing accuracy
+      type: accuracy
+      value: 0.998
+  - task:
+      type: audio-classification
+      name: Spoken language identification
+    dataset:
+      name: Multilingual LibriSpeech, 7 languages, 2,660 clips of 5 to 30 seconds
+      type: facebook/multilingual_librispeech
+      split: test
+    metrics:
+    - name: language identification accuracy
+      type: accuracy
+      value: 0.992
+    - name: recognizer routing accuracy
+      type: accuracy
+      value: 0.997
+  - task:
+      type: audio-classification
+      name: Spoken language identification
+    dataset:
+      name: NST, Norwegian and Swedish, 1,000 clips of 5 to 30 seconds
+      type: nst
+      split: test
+    metrics:
+    - name: language identification accuracy
+      type: accuracy
+      value: 0.996
+    - name: recognizer routing accuracy
+      type: accuracy
+      value: 1.000
+  - task:
+      type: audio-classification
+      name: Spoken language identification
+    dataset:
+      name: English in four conditions (LibriSpeech, AMI, CHiME-6, NOTSOFAR-1), 1,660 clips of 5 to 30 seconds
+      type: english-conditions
+      split: test
+    metrics:
+    - name: language identification accuracy
+      type: accuracy
+      value: 0.977
+    - name: recognizer routing accuracy
+      type: accuracy
+      value: 0.980

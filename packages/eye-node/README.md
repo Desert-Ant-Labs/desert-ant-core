@@ -37,3 +37,15 @@ const photo = await eye.analyze({ data, width: info.width, height: info.height }
 ```
 
 The full guide is in the [Eye docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/eye.md).
+
+<!-- license:start -->
+## License
+
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/eye/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

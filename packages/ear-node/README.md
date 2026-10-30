@@ -96,8 +96,14 @@ await ear.identify(samples, 16000, { windows: 5 });
 - Multilingual recordings are reported as whichever language the chosen windows
   contain, not as a mixture.
 
-## Licence
+<!-- license:start -->
+## License
 
-See LICENSE.md. The weights are published separately at
-[`desert-ant-labs/ear`](https://huggingface.co/desert-ant-labs/ear) and derive
-from `openai/whisper-tiny` (MIT), attributed there.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/ear/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

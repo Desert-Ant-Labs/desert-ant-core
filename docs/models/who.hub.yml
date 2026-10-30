@@ -1,0 +1,91 @@
+model-index:
+- name: who
+  results:
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: AMI meetings, headset mix, whole meetings, 16 samples
+      type: diarizers-community/ami
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.126
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: VoxConverse, whole recordings, up to 4 speakers, 86 samples
+      type: voxconverse
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.084
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: VoxConverse, whole recordings, 2-21 speakers, 232 samples
+      type: voxconverse
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.175
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: NOTSOFAR-1 meetings, far-field, whole meetings, up to 4 speakers, 65 samples
+      type: microsoft/NOTSOFAR
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.162
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: NOTSOFAR-1 meetings, far-field, whole meetings, 3-8 speakers, 129 samples
+      type: microsoft/NOTSOFAR
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.243
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: Earnings-21 calls, whole calls, 2-20 speakers, 44 samples
+      type: earnings21
+      split: all
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.277
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: DiPCo dinner parties, far-field, whole sessions, 10 samples
+      type: dipco
+      split: all
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.411
+  - task:
+      type: voice-activity-detection
+      name: Speaker diarization
+    dataset:
+      name: CHiME-6 dinner parties, far-field, whole sessions, 2 samples
+      type: chime6
+      split: test
+    metrics:
+    - name: Diarization error rate
+      type: der
+      value: 0.399
