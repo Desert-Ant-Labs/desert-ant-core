@@ -6,6 +6,11 @@
 // revision exactly as a consumer's first page load does. It diarizes the same
 // synthetic recording the Node suite does, as samples and as a WAV Blob, and
 // times each step. `check` runs in Node on what `run` returns.
+//
+// 30 seconds, not the Node suite's 100: the clip is diarized three times here
+// (baseline, determinism, WAV decode) and runtime scales with duration, while
+// the speakers already alternate every 5 seconds. Longer clips are the Node
+// suite's job.
 import { audio, wav } from "./synthetic.js";
 
 async function rejects(promise) {
@@ -23,8 +28,10 @@ async function timed(fn) {
   return { value, ms: Math.round(performance.now() - t) };
 }
 
+const SECONDS = 30;
+
 export async function run({ Who }, { litert, litertWasmDir }) {
-  const samples = audio(100);
+  const samples = audio(SECONDS);
   const load = await timed(() => Who.load({ litert, litertWasmDir }));
   const who = load.value;
   const out = { loadMs: load.ms, timings: {} };
@@ -53,16 +60,16 @@ export async function run({ Who }, { litert, litertWasmDir }) {
 export function check(r) {
   const fail = (m) => { throw new Error(m); };
   const { result, again, viaBlob } = r;
-  if (!(Math.abs(result.duration - 100) < 1e-6)) fail(`duration ${result.duration}`);
+  if (!(Math.abs(result.duration - SECONDS) < 1e-6)) fail(`duration ${result.duration}`);
   if (!(result.speakerCount >= 0 && result.speakerCount <= 64)) fail(`speakerCount ${result.speakerCount}`);
   for (const t of result.turns) {
-    if (!(t.end > t.start && t.start >= 0 && t.end <= 100.1)) fail(`turn ${t.start}-${t.end}`);
+    if (!(t.end > t.start && t.start >= 0 && t.end <= SECONDS + 0.1)) fail(`turn ${t.start}-${t.end}`);
   }
   const starts = result.turns.map((t) => t.start);
   if (starts.some((s, i) => i > 0 && s < starts[i - 1])) fail("turns are not sorted by start");
   if (new Set(result.turns.map((t) => t.speaker)).size !== result.speakerCount) fail("speaker numbering has gaps");
   if (JSON.stringify(again) !== JSON.stringify(result)) fail("the same audio diarized differently the second time");
-  if (!(Math.abs(viaBlob.duration - 100) < 1e-3)) fail(`WAV Blob duration ${viaBlob.duration}`);
+  if (!(Math.abs(viaBlob.duration - SECONDS) < 1e-3)) fail(`WAV Blob duration ${viaBlob.duration}`);
   if (viaBlob.speakerCount !== result.speakerCount) fail(`WAV Blob found ${viaBlob.speakerCount} speakers, samples ${result.speakerCount}`);
   for (const [name, got] of Object.entries(r.errors)) {
     if (got !== "TypeError") fail(`${name}: expected TypeError, got ${got}`);

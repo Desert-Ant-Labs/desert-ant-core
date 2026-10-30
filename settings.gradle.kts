@@ -22,6 +22,12 @@ pluginManagement {
     }
 }
 
+// Gradle downloads whatever JDK a module's toolchain spec asks for instead of
+// requiring every machine to carry one of each version.
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {

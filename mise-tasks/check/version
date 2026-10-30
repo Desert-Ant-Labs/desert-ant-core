@@ -21,7 +21,7 @@ for model in $(dal_models); do
         "Sources/$product/Catalog.swift"
 
     dir="packages/$model-node"
-    [ -d "$dir" ] || continue
+    dal_ships "$model" node || continue
     check "$(node -p "require('./$dir/package.json').version")" "$dir/package.json"
     pin=$(node -p "require('./$dir/package.json').dependencies?.['@desert-ant-labs/core'] ?? ''")
     [ -z "$pin" ] || check "${pin#^}" "$dir @desert-ant-labs/core dependency"

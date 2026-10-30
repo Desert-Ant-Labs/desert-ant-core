@@ -17,7 +17,14 @@
 //   4. asserts the case's own check() back in Node.
 //
 // Adding a model means adding its browser-case.js; nothing here changes. A
-// case that needs a runtime of its own says so by exporting `imports`, a list
+// case that exports `checksLicense` also runs twice more under a simulated
+// license outage, asserting the outage changes neither the output nor the
+// time. The license client is shared core plumbing, so one cheap case is
+// enough: redact carries it for the LiteRT.js path. Running the outage pair
+// for every model would triple the heavy cases (eye alone is ~4 minutes a run
+// on a CPU-only host) for no extra license coverage; voz's case says why it
+// opts out too.
+// A case that needs a runtime of its own says so by exporting `imports`, a list
 // of specifiers resolved from its own package and added to the page's import
 // map: Voz's runtime (onnxruntime-web) is the caller's to supply, so it cannot
 // be a fixed part of the page the way LiteRT.js is.
@@ -336,6 +343,7 @@ async function runPage(entry, context, outage) {
   }
 }
 
+let outageCasesRan = 0;
 for (const entry of cases) {
   const context = await browser.newContext();
   try {
@@ -344,20 +352,25 @@ for (const entry of cases) {
     entry.module.check(baseline.result);
     log(`ok   ${entry.model}  (${baseline.ms} ms in browser)  ${JSON.stringify(baseline.result).slice(0, 120)}`);
 
-    // A license server that answers 503 or never answers must change neither the output nor the time.
-    const runs = {};
-    for (const outage of Object.keys(outages)) {
-      const run = await runPage(entry, context, outage);
-      entry.module.check(run.result);
-      if (!run.licenseRequests) throw new Error(`license ${outage}: the page sent no license request`);
-      if (!sameText(run.result, baseline.result)) {
-        throw new Error(`license ${outage}: the output changed to ${JSON.stringify(run.result).slice(0, 200)}`);
+    // A license server that answers 503 or never answers must change neither
+    // the output nor the time. Only for the cases that opted in: see the top
+    // comment for why this is per runtime, not per model.
+    if (entry.module.checksLicense) {
+      outageCasesRan += 1;
+      const runs = {};
+      for (const outage of Object.keys(outages)) {
+        const run = await runPage(entry, context, outage);
+        entry.module.check(run.result);
+        if (!run.licenseRequests) throw new Error(`license ${outage}: the page sent no license request`);
+        if (!sameText(run.result, baseline.result)) {
+          throw new Error(`license ${outage}: the output changed to ${JSON.stringify(run.result).slice(0, 200)}`);
+        }
+        runs[outage] = run;
+        log(`ok   ${entry.model}  license ${outage}  (${run.ms} ms in browser)`);
       }
-      runs[outage] = run;
-      log(`ok   ${entry.model}  license ${outage}  (${run.ms} ms in browser)`);
-    }
-    if (runs.silent.ms - runs.unavailable.ms > 5000) {
-      throw new Error(`license silent: the page took ${runs.silent.ms} ms against ${runs.unavailable.ms} ms`);
+      if (runs.silent.ms - runs.unavailable.ms > 5000) {
+        throw new Error(`license silent: the page took ${runs.silent.ms} ms against ${runs.unavailable.ms} ms`);
+      }
     }
   } catch (error) {
     failures.push(`${entry.model}: ${error.message}`);
@@ -368,6 +381,12 @@ for (const entry of cases) {
 
 await browser.close();
 server.close();
+
+// --only narrows the run on purpose; a full run with no outage coverage means
+// every checksLicense flag went missing, which must fail rather than pass quietly.
+if (!only && cases.length && !outageCasesRan) {
+  failures.push("no case exports checksLicense, so the license outage path went untested");
+}
 
 if (failures.length) {
   console.error(`\n${failures.length} of ${cases.length} browser cases failed:`);

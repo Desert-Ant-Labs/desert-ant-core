@@ -15,6 +15,11 @@
  *  page still has to be able to resolve the bare specifier it asks for. */
 export const imports = ["onnxruntime-web/webgpu"];
 
+// No checksLicense here, a deliberate hole: voz is the one onnxruntime-web
+// case, but each outage run pays a full session compile (~20 s), and the
+// license client is core plumbing the redact case already proves. If a second
+// wasm-only model lands with a cheaper load, move the flag there.
+
 export async function run({ Voz }, { caseDir }) {
   const audio = await (await fetch(`${caseDir}/fixtures/speech.wav`)).arrayBuffer();
 

@@ -32,7 +32,7 @@ for model in $(dal_models); do
         "Sources/$product/Catalog.swift" && rm -f "Sources/$product/Catalog.swift.bak"
 
     dir="packages/$model-node"
-    [ -d "$dir" ] || continue
+    dal_ships "$model" node || continue
     ( cd "$dir" && npm version "$version" --no-git-tag-version --allow-same-version > /dev/null )
     # Caret, not an exact pin: two models installed from different releases then
     # still dedupe to one copy of core.

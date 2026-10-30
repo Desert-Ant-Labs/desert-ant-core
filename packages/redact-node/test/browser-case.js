@@ -6,6 +6,10 @@
 // structured-cloneable, since the harness reads it back out of the page. `check`
 // then runs in Node.
 
+/** Runs the license outage pair for the LiteRT.js runtime (see run.mjs's top
+ *  comment). Redact carries it because it is the fastest LiteRT-path case. */
+export const checksLicense = true;
+
 const LONG =
   "Hi team, quick update on the Henderson account. I spoke with Rachel Adams this morning " +
   "and she confirmed the renewal. Tom Becker from finance will send the invoice on Friday. " +

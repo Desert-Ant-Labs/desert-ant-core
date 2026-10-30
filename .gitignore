@@ -2,7 +2,11 @@ mise.local.toml
 
 # SwiftPM scratch directories, one per toolchain (see mise.toml): the Xcode,
 # swift.org, and Android snapshot toolchains produce incompatible artifacts.
-.build/
+# No trailing slash on .build: the wasm tasks turn it into a symlink to their
+# own scratch dir (dal_default_scratch), and `.build/` would not match a link.
+.build
+.build-wasm-pkg/
+.build-wasi/
 .build-host/
 .build-android/
 .build-androidtest/
@@ -63,3 +67,4 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 __pycache__/
+packages/*-kotlin/bin/

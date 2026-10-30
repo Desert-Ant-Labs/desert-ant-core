@@ -4,8 +4,13 @@
 // Swift -> WebAssembly core plus LiteRT.js on eye.tflite (one compile, every
 // function run as a named signature), downloaded from the Hub at the pinned
 // revision exactly as a consumer's first page load does. It analyzes the
-// reference photo as raw pixels and as an ImageBitmap and times each part.
+// reference photo as raw pixels and as an ImageBitmap.
 // `check` runs in Node on what `run` returns.
+//
+// Deliberately lean: on a CPU-only host one analyze is over a minute, so this
+// runs the full analysis once, plus one photo-only pass for the ImageBitmap
+// input path. It used to also time every part in its own analyze, which
+// doubled the case and asserted nothing.
 import { Analysis } from "../analysis.js";
 import { expectMatchesReference } from "./expect.js";
 
@@ -45,9 +50,6 @@ export async function run({ Eye }, { litert, litertWasmDir }) {
     const all = await timed(() => eye.analyze(pixels));
     out.analysis = { json: all.value.toJSON(), details: plain(all.value.details) };
     out.timings.all = all.ms;
-    for (const part of ["photo", "layout", "faces", "sharpness"]) {
-      out.timings[part] = (await timed(() => eye.analyze(pixels, { parts: [part] }))).ms;
-    }
     const imageData = new ImageData(width, height);
     for (let i = 0; i < width * height; i++) imageData.data.set([gray[i], gray[i], gray[i], 255], i * 4);
     out.viaBitmap = plain((await eye.analyze(await createImageBitmap(imageData), { parts: ["photo"] })).details);
