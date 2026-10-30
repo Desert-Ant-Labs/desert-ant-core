@@ -54,6 +54,22 @@ struct FrontendTests {
         #expect(quiet)
     }
 
+    @Test func sharedSpectrumMeansAreEachFrontendsOwnToTheBit() async throws {
+        let wide = try Self.make()
+        let narrow = try Frontend(geometry: Frontend.Geometry(sampleRate: 16000, frame: 400, shift: 160, nFFT: 512, mels: 23, preemphasis: 0.97,
+                                                              scale: 32768, logFloor: 1.1920929e-07),
+                                  banksTable: Self.table(mels: 23, bins: 257) { m, b in b >= m * 10 && b < m * 10 + 12 ? 0.5 : 0 })
+        #expect(wide.sharesSpectrum(with: narrow))
+        let samples = Signals.turns(seconds: 130)                                        // 12,998 frames: three chunks, the last short
+        let (both, frames) = await Frontend.means([wide, narrow], samples: samples)
+        #expect(frames == wide.frames(for: samples.count))
+        for (shared, frontend) in zip(both, [wide, narrow]) {
+            #expect(shared.map(\.bitPattern) == frontend.means(samples).means.map(\.bitPattern))
+        }
+        let serial = await Frontend.means([wide], samples: samples, workers: 1).means[0]
+        #expect(serial.map(\.bitPattern) == both[0].map(\.bitPattern))
+    }
+
     @Test func refusesABankTableOfTheWrongShape() {
         #expect(throws: WhoError.self) {
             try Frontend(geometry: Self.geometry, banksTable: Self.table(mels: 40, bins: 257))
