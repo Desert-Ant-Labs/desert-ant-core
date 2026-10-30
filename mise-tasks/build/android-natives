@@ -18,12 +18,12 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # swift-syntax macros build for the host and conflict with the -resource-dir that
 # static linking needs. The wasm/JS code is all `#if os(WASI)` anyway.
 
-# Windows hosts are out: the snapshot toolchain below is installed unattended
-# from a tarball (Linux) or through swiftly (macOS), and swift.org ships that
-# same snapshot for Windows only as an interactive ~1 GB installer. Cross-
+# Windows hosts are out: the toolchain below is installed unattended from a
+# tarball (Linux) or through swiftly (macOS), and swift.org ships it for
+# Windows only as an interactive ~1 GB installer. Cross-
 # compiling from a Windows host is otherwise untested; build the AARs in WSL.
 if [ "$(dal_host_os)" = windows ]; then
-    echo "skip: the ${DAL_SWIFT_ANDROID_SNAPSHOT:-Swift Android} snapshot has no unattended"
+    echo "skip: the ${DAL_SWIFT_ANDROID_SNAPSHOT:-Swift Android} toolchain has no unattended"
     echo "      Windows install; build the Android artifacts in WSL or on CI."
     exit 0
 fi
@@ -43,35 +43,41 @@ for abi in ${DAL_ANDROID_ABIS:-arm64-v8a x86_64}; do
     esac
 done
 
-# Build against the official Swift Android SDK. Stable releases floor at API 28
-# (Bionic gained posix_spawn there), but the 6.4.x snapshots support API 23+, so
-# this keeps minSdk 24 on first-party tooling. The host toolchain and the SDK
-# must be the same snapshot; a mismatch fails with "missing required module
-# 'SwiftAndroid'". Override the trio to move on.
-snapshot="${DAL_SWIFT_ANDROID_SNAPSHOT:-swift-6.4.x-DEVELOPMENT-SNAPSHOT-2026-07-17-a}"
-branch="${DAL_SWIFT_ANDROID_BRANCH:-swift-6.4.x-branch}"
-checksum="${DAL_SWIFT_ANDROID_SDK_CHECKSUM:-54a9c6b9491ea531cd3f5696f1071c2ca055cad89b89a2f408633b73f373c601}"
+# Build against the official Swift Android SDK. Earlier release SDKs floored at
+# API 28 (Bionic gained posix_spawn there), which is why this used a 6.4.x
+# snapshot; the 6.4.1 release SDK supports API 23+, so minSdk 24 now builds on
+# a released toolchain. The host toolchain and the SDK must be the same build; a
+# mismatch fails with "missing required module 'SwiftAndroid'". Override the
+# trio to move on (a snapshot name and its branch work the same way).
+snapshot="${DAL_SWIFT_ANDROID_SNAPSHOT:-swift-6.4.1-RELEASE}"
+branch="${DAL_SWIFT_ANDROID_BRANCH:-swift-6.4.1-release}"
+checksum="${DAL_SWIFT_ANDROID_SDK_CHECKSUM:-a356b79f8f1daa6ae3a66f4c556966ca20c0208b3659805cf30a83a0a31d6772}"
+# swiftly names a release by its version (6.4.1), a snapshot by its full name.
+case "$snapshot" in
+    swift-*-RELEASE) swiftly_name=${snapshot#swift-}; swiftly_name=${swiftly_name%-RELEASE} ;;
+    *) swiftly_name=$snapshot ;;
+esac
 sdk_url="https://download.swift.org/$branch/android-sdk/$snapshot/${snapshot}_android.artifactbundle.tar.gz"
 
 # On Linux, fetch the toolchain tarball into a cache dir (no swiftly: it has no
 # packages for every distro, and CI then needs no shell setup). On macOS the
-# snapshot ships as a .pkg, so use swiftly there.
+# toolchain ships as a .pkg, so use swiftly there.
 if [ "$(dal_host_os)" = darwin ]; then
     command -v swiftly > /dev/null 2>&1 \
         || { echo "error: swiftly is required on macOS to install the $snapshot toolchain" >&2; exit 1; }
-    swiftly list 2> /dev/null | grep -q "$snapshot" || {
+    swiftly list 2> /dev/null | grep -qF "$swiftly_name" || {
         echo "Installing $snapshot (one-time)..."
-        swiftly install "$snapshot"
+        swiftly install "$swiftly_name"
     }
-    swift_snapshot() { swiftly run "$@" +"$snapshot"; }
+    swift_snapshot() { swiftly run "$@" +"$swiftly_name"; }
 else
     # Match the tarball to the host's Ubuntu release. The 24.04 build links
     # GLIBC 2.38 and dies on 22.04 with "version `GLIBC_2.38' not found", so
     # hardcoding one release silently ties this task to one runner image.
     ubuntu=$(. /etc/os-release 2> /dev/null && echo "${VERSION_ID:-}")
     case "$ubuntu" in
-        22.04 | 24.04) ;;
-        *) ubuntu=24.04 ;; # unknown distro: the newest build is the best guess
+        22.04 | 24.04 | 26.04) ;;
+        *) ubuntu=26.04 ;; # unknown distro: the newest build is the best guess
     esac
     toolchain="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/$snapshot-ubuntu$ubuntu"
     if [ ! -x "$toolchain/usr/bin/swift" ]; then
@@ -85,10 +91,45 @@ else
     swift_snapshot() { "$toolchain/usr/bin/$@"; }
 fi
 
+# The NDK: SwiftPM takes its sysroot from ANDROID_NDK_HOME, and the C++ runtime
+# below comes from the same NDK. The 6.4.1 SDK's static runtime is built against
+# LLVM 21's libc++ and needs std::__hash_memory, which only NDK r30's libc++
+# defines (r27 to r29 fail the link). Use an installed r30+, else install the
+# pinned one next to the host toolchain, where CI's toolchain cache keeps it.
+ndk_min=30
+ndk_pin="${DAL_ANDROID_NDK_VERSION:-30.0.16248370}"
+ndk_cache="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/android-sdk"
+ndk_major() { sed -n 's/^Pkg.Revision = \([0-9]*\).*/\1/p' "$1/source.properties" 2> /dev/null; }
+ndk=""
+for candidate in "${ANDROID_NDK_HOME:-}" "$ndk_cache"/ndk/* "${ANDROID_HOME:-$HOME/Android/Sdk}"/ndk/* \
+    "$HOME"/Library/Android/sdk/ndk/*; do
+    [ -n "$candidate" ] && [ -d "$candidate" ] || continue
+    major=$(ndk_major "$candidate")
+    [ -n "$major" ] && [ "$major" -ge "$ndk_min" ] || continue
+    [ -z "$ndk" ] || [ "$major" -gt "$(ndk_major "$ndk")" ] && ndk=$candidate
+done
+if [ -z "$ndk" ]; then
+    sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+    sdkmanager=$(ls "$sdk_root"/cmdline-tools/*/bin/sdkmanager "$HOME"/Library/Android/sdk/cmdline-tools/*/bin/sdkmanager \
+        2> /dev/null | head -1 || true)
+    [ -n "$sdkmanager" ] || { echo "error: no Android NDK r$ndk_min+ and no sdkmanager to install $ndk_pin" >&2; exit 1; }
+    echo "Installing Android NDK $ndk_pin into $ndk_cache (one-time, ~1 GB)..."
+    mkdir -p "$ndk_cache"
+    yes | "$sdkmanager" --sdk_root="$ndk_cache" --licenses > /dev/null 2>&1 || true
+    "$sdkmanager" --sdk_root="$ndk_cache" "ndk;$ndk_pin" > /dev/null
+    ndk="$ndk_cache/ndk/$ndk_pin"
+fi
+export ANDROID_NDK_HOME="$ndk"
+echo "Android NDK: $ANDROID_NDK_HOME"
+
 find_bundle() {
     local dir bundle
     while IFS= read -r dir; do
-        bundle=$(ls -dt "$dir"/*"$snapshot"*.artifactbundle 2> /dev/null | head -1 || true)
+        # _android specifically: a persistent runner also holds the wasm bundle
+        # for the same Swift version, and a bare *$snapshot* glob picks whichever
+        # is newest (the wasm one has no Android sysroot, so libc++_static.a for
+        # an Android arch is then "not found").
+        bundle=$(ls -dt "$dir"/*"$snapshot"*_android.artifactbundle 2> /dev/null | head -1 || true)
         [ -n "$bundle" ] && { echo "$bundle"; return 0; }
     done < <(dal_swift_sdk_dirs)
     return 1
@@ -101,11 +142,27 @@ if [ -z "$bundle" ]; then
 fi
 [ -n "$bundle" ] || { echo "error: no Android SDK bundle for $snapshot after install" >&2; exit 1; }
 
+# SwiftPM 6.4 needs an NDK when targeting android triples; see dal_android_ndk.
+ANDROID_NDK_HOME=$(dal_android_ndk)
+export ANDROID_NDK_HOME ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+
+# SwiftPM matches an SDK by triple (or id) across every search path, and a host
+# that still has an older snapshot's bundle, or this bundle under a second SDK
+# directory, then matches several and either refuses to pick or picks an
+# unconfigured copy. Building against a directory holding only this bundle is
+# the only disambiguation that holds; same reasoning as mise-tasks/test/android.
+sdkroot=".build-android/swift-sdks"
+rm -rf "$sdkroot" && mkdir -p "$sdkroot"
+ln -sfn "$bundle" "$sdkroot/$(basename "$bundle")"
+
 # LiteRT android libs, used only while linking each ABI. ai.desertant:core owns
 # the copies that are actually packaged into an app.
-litert_version="${DAL_LITERT_VERSION:-2.2.0}"
+# Android is pinned on its own: Maven has releases PyPI (the desktop source) does
+# not. A stamp refetches the libs when the version changes.
+litert_version="${DAL_LITERT_ANDROID_VERSION:-2.3.2}"
 if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
-    || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ]; then
+    || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ] \
+    || [ "$(cat Vendor/litert/lib/android-version 2> /dev/null)" != "$litert_version" ]; then
     echo "Fetching the LiteRT $litert_version android libs (one-time)..."
     tmp=$(mktemp -d)
     curl -fSL -o "$tmp/litert.aar" \
@@ -115,6 +172,7 @@ if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
         mkdir -p "Vendor/litert/lib/android-${pair#*:}"
         cp "$tmp/jni/${pair%:*}/libLiteRt.so" "Vendor/litert/lib/android-${pair#*:}/libLiteRt.so"
     done
+    echo "$litert_version" > Vendor/litert/lib/android-version
     rm -rf "$tmp"
 fi
 
@@ -191,7 +249,8 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         # --no-undefined turns a missing runtime symbol into a link error here
         # instead of an UnsatisfiedLinkError on a user's phone.
         swift_snapshot swift build --scratch-path .build-android -c release \
-            --product "${product}Android" --swift-sdk "$arch-unknown-linux-android$api" \
+            --product "${product}Android" \
+            --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
             --static-swift-stdlib \
             -Xlinker "-LVendor/litert/lib/android-$arch" -Xlinker "-L$cxx_dir" \
             ${extra_libs[@]+"${extra_libs[@]}"} -Xlinker --no-undefined
