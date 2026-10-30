@@ -41,3 +41,15 @@ const result = await who.diarize(await fs.readFile("call.wav"));
 `JSON.stringify(result)` stores a diarization and `Diarization.fromJSON` restores it. Create one `Who` and reuse it; `dispose()` releases the model. The browser build runs the graphs on the CPU; pass `accelerator: "auto"` to `Who.load` to try WebGPU.
 
 The full guide is in the [Who docs](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/who.md).
+
+<!-- license:start -->
+## License
+
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/who/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

@@ -8,15 +8,21 @@ On-device speech enhancement: denoise, dereverb, and loudness-normalize.
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/clear) |
+| **Weights** | [v0.3.0](https://huggingface.co/desert-ant-labs/clear/tree/v0.3.0) |
 | **Demo** | https://desertant.com/models/clear/ |
+<!-- model:end -->
 
+Record in a coffee shop and get studio sound, for podcasters, video creators and voice apps.
+
+Clear reduces noise, removes room echo and normalizes volume on noisy speech, and outputs 48kHz audio. It works on meeting recorders, Bluetooth microphones, built-in phone mics, a laptop in a coffee shop. It runs entirely on the Apple Neural Engine through Core ML, and through LiteRT on Android, Linux, Windows and the browser.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Clear` product to your target.
@@ -24,7 +30,7 @@ Then add the `Clear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:clear:4.2.1")
+implementation("ai.desertant:clear:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -33,7 +39,7 @@ implementation("ai.desertant:clear:4.2.1")
 npm i @desert-ant-labs/clear @litertjs/core   # browser
 npm i @desert-ant-labs/clear                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -159,6 +165,10 @@ We timed `clear-studio` through the whole SDK pipeline on a 60s clip, on Apple d
 
 On iPhone 16 Pro, the first model load takes 3.4s while Core ML compiles the model for the Neural Engine. After that, a load takes 62ms. Warm the model in the background so your users don't wait on the first load. We have no timings for Android, Linux, Windows or the browser.
 
+### Core AI
+
+On iOS 27 and macOS 27, the Swift SDK loads `clear-studio.aimodel` and `clear-natural.aimodel`, Core AI builds with fp16 weights, and falls back to Core ML elsewhere. On an iPhone 17 Pro, the studio variant runs the whole SDK pipeline at 413x realtime, against 366x for the Core ML build on the same device and clip.
+
 ## Deployment target
 
 - **Core ML model**: iOS/iPadOS 16.0+ model format. Neural Engine placement depends on the hardware and the OS version.
@@ -174,6 +184,8 @@ On iPhone 16 Pro, the first model load takes 3.4s while Core ML compiles the mod
 - Laptop built-in microphones on MacBooks and PCs.
 - Untreated rooms: bedrooms, hotel rooms, kitchens, coffee shops.
 
+Whenever the pitch is *messy recording in, clean audio out*.
+
 ## What Clear doesn't do
 
 - Clear cleans up speech only. Clear treats music, sound effects, and other non-speech sound as noise and pulls it down.
@@ -184,6 +196,27 @@ On iPhone 16 Pro, the first model load takes 3.4s while Core ML compiles the mod
 
 speech enhancement · noise suppression · dereverberation · speech denoising · reduce noise · clean up audio · normalize volume · turn a recording into studio sound · messy recording in clean audio out · podcast audio · voice cleanup · meeting recorder cleanup · bluetooth microphone cleanup · mobile device audio · built-in microphone · on-device audio · edge ML · Core ML · ONNX · iOS speech enhancement · Android speech enhancement · real-time speech enhancement · studio sound · podcast sound · Apple Neural Engine · ANE
 
+<!-- model-footer:start -->
 ## License
 
-Clear is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Clear for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/clear/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{clear_2026,
+  title  = {Clear: On-device speech enhancement: denoise, dereverb, and loudness-normalize},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/clear},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

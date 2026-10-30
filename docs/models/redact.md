@@ -9,15 +9,26 @@ Multilingual on-device PII detection and redaction.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 27 |
-| **Weights** | [v0.4.0](https://huggingface.co/desert-ant-labs/redact) |
+| **Weights** | [v0.4.1](https://huggingface.co/desert-ant-labs/redact/tree/v0.4.1) |
 | **Demo** | https://desertant.com/models/redact/ |
+<!-- model:end -->
 
+Strip names, addresses, emails, phone numbers, cards, IBANs and national IDs out of text before it leaves the device, across 27 [languages](#languages). Redact replaces each one with a placeholder, so you can send the redacted text to an LLM and put the original values back in its reply. A token classifier finds names and addresses, and a pattern layer catches structured IDs. The model is 11.6MB as 4-bit Core ML on Apple platforms, or 24.5MB as int8 LiteRT on Android, Linux, Windows, Node and the web.
+
+> `"Call Anna Kovács at anna@example.hu, IBAN GB29NWBK60161331926819"` →
+> `"Call [GIVEN_NAME_1] [SURNAME_1] at [EMAIL_1], IBAN [BANK_ACCOUNT_1]"`
+
+## Try it
+
+- **Live demo:** [desert-ant-labs/redact-demo](https://huggingface.co/spaces/desert-ant-labs/redact-demo): paste text and watch PII get highlighted or masked, fully in your browser.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Redact` product to your target.
@@ -25,7 +36,7 @@ Then add the `Redact` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:redact:4.2.1")
+implementation("ai.desertant:redact:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -34,11 +45,9 @@ implementation("ai.desertant:redact:4.2.1")
 npm i @desert-ant-labs/redact @litertjs/core   # browser
 npm i @desert-ant-labs/redact                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
-
-Redact replaces personal data with placeholders like `[EMAIL_1]`. Send the redacted text to an LLM, then call `restore` on the reply to put the original values back, on the device.
 
 ### Swift
 
@@ -178,6 +187,27 @@ Redact supports 27 languages: every official EU language, plus 3 more. The 27 la
 
 Redact is most accurate on the largest EU languages. Maltese and Irish are the weakest of the 24. The per-language detection numbers are in the benchmark data.
 
+<!-- model-footer:start -->
 ## License
 
-Redact is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Redact for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/redact/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{redact_2026,
+  title  = {Redact: Multilingual on-device PII detection and redaction},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/redact},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

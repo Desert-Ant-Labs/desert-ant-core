@@ -8,22 +8,30 @@ Short clips and highlights from talking video and audio: podcasts, interviews, m
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows |
-| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/clips) |
+| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/clips/tree/v0.1.0) |
+<!-- model:end -->
 
+Pass Clips a transcript and get the moments worth cutting into short videos, ranked best first and never overlapping. Clips works on podcasts, interviews and meetings, and nothing is uploaded, so clipping a back catalog costs the same as clipping one video.
+
+The model is 284MB as a single int8 Core ML package on Apple platforms, or two 283MB LiteRT files on Linux and Windows.
+
+Clips carry no title. To write one for each clip, pair Clips with [Title](title.md).
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Clips` product to your target.
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
-Clips runs on Apple platforms. Pass a transcript as one sentence per element, in spoken order. Clips returns the best moments that don't overlap, ranked, so you can cut them into short videos.
+Pass a transcript as one sentence per element, in spoken order. Clips returns the best moments that don't overlap, ranked, so you can cut them into short videos.
 
 ### Swift
 
@@ -77,55 +85,81 @@ We measured on iPhone at batch 16, with Core ML pinned to `.cpuAndNeuralEngine`.
 
 ## Files
 
-| File | Format | Contents |
-|---|---|---|
-| `clips.mlmodelc/` | Compiled Core ML, int8 | Multifunction package. Function `select`: `ids`, `mask`, `disc` → `saliency`, `start_p`, `end_p`. Function `score`: `ids`, `mask` → `score` |
-| `clips-selector.tflite` | LiteRT, int8 weight-only | The selector, for Android, Linux and Windows. The SDK can't run this file yet. |
-| `clips-scorer.tflite` | LiteRT, int8 weight-only | The scorer, for Android, Linux and Windows. The SDK can't run this file yet. |
-| `clip_tokenizer.bin` | Unigram tokenizer | Tokenizer pieces and scores, in the compact binary the runtime reads |
-| `clips_meta.json` | JSON | Graph widths, input roles and feature order a runtime needs |
+| File | Format | Size | Contents |
+|---|---|---:|---|
+| `clips.mlmodelc/` | Compiled Core ML, int8 per-channel | 284MB | Multifunction package. Function `select`: `ids`, `mask`, `disc` to `saliency`, `start_p`, `end_p`. Function `score`: `ids`, `mask` to `score` |
+| `clips-selector.tflite` | LiteRT, int8 weight-only | 283MB | The selector, for Android, Linux and Windows |
+| `clips-scorer.tflite` | LiteRT, int8 weight-only | 283MB | The scorer, for Android, Linux and Windows |
+| `clip_tokenizer.bin` | Unigram tokenizer | 4MB | Tokenizer pieces and scores, in the compact binary the runtimes read |
+| `clips_meta.json` | JSON | tiny | Graph widths, input roles and feature order a runtime needs |
+
+On Apple platforms both graphs live in one Core ML package with the shared weights stored once.
+LiteRT has no equivalent packaging, so the other platforms ship two files.
+
+The selector graph is 128 tokens wide, the scorer 256, both at a fixed batch of 16 sentences. A
+sentence longer than 64 tokens is truncated before it reaches the selector.
 
 ### Reaching a function in the Core ML package
 
 On Apple platforms, a file path names the package, and the package holds both graphs. To load one graph, set `MLModelConfiguration.functionName` to `select` or `score`. Without the setting, Core ML loads the package's default function without an error, and both halves of the pipeline run the selector.
 
-### Graph widths
+### LiteRT inputs
 
-The selector runs at 128 tokens and the scorer at 256. Both run at a fixed batch of 16 sentences.
+The LiteRT graphs take int64 `ids` and `mask` and name their inputs positionally, `args_0` upward. `clips_meta.json` carries the mapping, and the SDK binds the names for you on Linux and Windows. If you drive LiteRT directly, feed `ids` and `mask` in the right order: swapped, the graph still returns finite, plausibly scaled numbers, and the pipeline quietly builds the wrong pool.
 
-The SDK truncates each sentence to 64 tokens before the selector. The 64-token cut is separate from the selector's 128-token graph width.
+## Thresholds
 
-## Status
+`Clip.score` runs 1 to 5 and is not calibrated between videos. Threshold on `percentile` instead.
+An absolute cut at 0.65 returns nothing on 21% of videos, and at 0.75 on half of them. Per-video
+95th percentiles range from 0.33 to 0.95.
 
-Clips is in internal testing. We haven't published quality figures for Clips yet.
+| percentile cut | clips per video | share of the video covered | use |
+|---|---:|---:|---|
+| 0.8 | 5.0 | 17% | highlights |
+| 0.3 | 32.1 | 74% | auto edit |
 
-> ### The `.tflite` files don't work with the Desert Ant SDK yet. Don't build on them.
->
-> The SDK's LiteRT backend can't drive the files:
->
-> - The graphs name their inputs `args_0`, `args_1`, `args_2` and their outputs `output_0` to `output_2`. The SDK asks for `ids`, `mask`, `disc` and `saliency`, `start_p`, `end_p`. The SDK has no mapping between the names, so the first call fails.
-> - The graphs take int64 ids and mask. The SDK builds int32.
-> - The scorer is 256 wide. The SDK's LiteRT backend can't report a width, so the SDK falls back to 128.
->
-> If you drive LiteRT directly, you can use the files: `clips_meta.json` has the shapes and output order. The SDK can't run Clips from the files on Android, Linux or Windows today.
->
-> The LiteRT export also uses too much memory for Android. We measured 2.1GB peak RSS against a 1.6GB Android budget.
+## Limitations
 
-We generated clips from the Core ML package and judged them. Nobody has read a clip from the LiteRT files, on any platform.
+- **Clip edges are the weak spot.** A clip can open on a pronoun whose referent was in the
+  sentence before it, fuse two topics into one, cut before the payoff lands, or swallow a sponsor
+  read.
+- **Short videos return few clips.** A two minute transcript comes back with fewer clips than a
+  server-side editor would cut, and a transcript under three sentences returns none.
+- **The clip limit is a cap, not a quota.** Asking for 10 doesn't mean receiving 10.
+- **Selection is sensitive to small score changes.** Candidate spans around one moment score very
+  close together, so a different runtime, compute unit or quantization returns a different but
+  comparable set.
+- **Non-Latin scripts are under-tested.** Our evaluation corpus is overwhelmingly Latin script.
+- **Duration is a soft prior.** A clip can come back shorter or longer than a typical Short.
+- **Android needs headroom.** The shipped int8 weight-only build peaks at 2136MB resident,
+  measured on 6,395 real candidate spans. That fits a high-end phone and not a mid-range one,
+  which is why there is no Android SDK yet rather than any limit in the artifact.
 
 ## Requirements
 
-The Core ML package is specification version 9, so the package requires iOS 18, macOS 15, tvOS 18, visionOS 2 or watchOS 11. Reaching either graph needs `MLModelConfiguration.functionName` set to `select` or `score`.
+On Apple platforms, the Core ML package is specification version 9, so it requires iOS 18, macOS 15, tvOS 18, visionOS 2 or watchOS 11. On Linux and Windows, the SDK runs the two LiteRT files. There is no Android SDK yet: see Limitations.
 
-## Limits
-
-- Clips returns markedly fewer clips than expected for a short transcript. If your product needs a set number of clips from a two-minute video, measure before relying on Clips.
-- Clips returns some weak clips, most often on podcast-length input. Clips has no confidence score to filter on yet. `Clip.score` ranks clips within one video and isn't calibrated across videos.
-- `limit` sets a maximum number of clips. Asking for 10 doesn't mean receiving 10.
-- Small score changes can change which clips Clips selects. Candidate spans around one moment score very close together. A different runtime, compute unit or quantization can return a different set of comparable clips. Don't treat exact span equality between two builds as a correctness check.
-- Clips is under-tested on non-Latin scripts. The evaluation corpus is overwhelmingly Latin-script.
-- Clips doesn't hold clips to a fixed duration. Duration is a soft prior, so clips may come back shorter or longer than a typical YouTube Short.
-
+<!-- model-footer:start -->
 ## License
 
-Clips is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Clips for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/clips/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{clips_2026,
+  title  = {Clips: Short clips and highlights from talking video and audio: podcasts, interviews, meetings. On-device},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/clips},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

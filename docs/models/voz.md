@@ -9,14 +9,18 @@ On-device speech recognition: transcripts with word-level timestamps, 25 languag
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 25 |
-| **Weights** | [v0.5.0](https://huggingface.co/desert-ant-labs/voz) |
+| **Weights** | [v0.5.0](https://huggingface.co/desert-ant-labs/voz/tree/v0.5.0) |
+<!-- model:end -->
 
+Voz transcribes speech on device, in 25 languages, with word-level timestamps. It runs on iPhone, iPad, Mac, Android, Linux, Windows, in the browser and in Node, so your audio never leaves the device. On Apple platforms it runs entirely on the Neural Engine and transcribes 10 minutes of audio in about a second.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Voz` product to your target.
@@ -24,7 +28,7 @@ Then add the `Voz` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:voz:4.2.1")
+implementation("ai.desertant:voz:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -32,7 +36,7 @@ implementation("ai.desertant:voz:4.2.1")
 ```bash
 npm i @desert-ant-labs/voz onnxruntime-web
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -135,6 +139,23 @@ In Node, install `onnxruntime-node` and pass it to `load({ ort })`. You get the 
 
 The SDK streams WAV directly and decodes other formats with WebCodecs. In Node without WebCodecs, convert the audio to WAV first. For load options, self-hosting and browser requirements, see the [JavaScript package docs](../../packages/voz-node/README.md).
 
+## Files
+
+| Files | Used on |
+|---|---|
+| `encoder.mlmodelc`, `mel.mlmodelc`, `decoder.mlmodelc`, `meta.json`, `vocab.json`, `embedding.f16` | Apple platforms, through Core ML |
+| `encoder.tflite`, `mel.tflite`, `decoder.tflite`, `meta.litert.json`, `vocab.json`, `embedding.f16` | Android and Linux, through LiteRT |
+| `onnx-fp16/` | Windows, through ONNX Runtime on DirectML, with its own sidecars |
+| `web/` | The browser and Node, through ONNX Runtime, with its own sidecars |
+
+We ship the Core ML models compiled. If you turn them back into an `.mlpackage`, Core ML recompiles them on every launch and a load takes 28s instead of 0.13s.
+
+## How it works
+
+Voz is NVIDIA's Parakeet TDT 0.6B v3, converted and compressed to run on phones, laptops and in the browser. Voz works through a recording window by window and joins the windows where neighbors agree on the words, so a five-hour file needs no more memory than a five-minute one. On Apple devices every step runs on the Neural Engine.
+
+You can pass audio at any sample rate, mono or stereo. The SDK handles the conversion.
+
 ## Performance
 
 We timed 10 minutes of audio on the Neural Engine and kept the fastest of three runs after the model loaded:
@@ -163,19 +184,47 @@ Voz scores better than Whisper large-v3-turbo at a fifth of the size. Voz scores
 
 Clean audiobook recordings score around 2%. Meetings, earnings calls and podcasts score 8-11%. Most real recordings sound more like those. On a podcast, plan to check one word in ten.
 
-The [model card](https://huggingface.co/desert-ant-labs/voz) has the accuracy for each language on long audio and the full leaderboard results.
+## Languages
 
-## Limits
+Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, and Ukrainian.
+
+## Limitations
 
 - On Android and Linux, Voz runs through LiteRT, not through the generic inference path our other models share. The decode loop needs preallocated buffers and lane batching, which that path can't express.
 - The speed figures above are from the Neural Engine. They don't transfer to LiteRT on a phone CPU. Measure on your target device before you promise real-time factors.
 - In the browser, Voz needs its own 409MB download, because a GPU needs the weights in a different layout than the Neural Engine. Voz uses 1.2GB of memory in the browser, mostly for ONNX Runtime's compiled session. We test on Chromium 135+ and Safari 26+.
 - In Node, Voz runs on the CPU. `onnxruntime-node` doesn't use the GPU by default, so a server transcribes slower than a browser on the same machine.
 - Voz doesn't detect the language. Audio in a language Voz doesn't support comes back as fluent text that's wrong. Voz doesn't raise an error. Use [Ear](ear.md) to check first.
-- Accuracy depends on the language. Italian scores 5.05% and Greek 36.60% on the FLEURS test set. Check the [model card](https://huggingface.co/desert-ant-labs/voz) before you promise a language to your users.
+- Accuracy depends on the language. Italian scores 5.05% and Greek 36.60% on the FLEURS test set. Test your languages before you promise them to your users.
 - Word ends are less precise than word starts. Voz marks where each word starts. The SDK estimates where each word ends from the audio. Timestamps land on 80ms frames, so no timestamp is more precise than 80ms.
 - The model is 337MB. Download the model during onboarding, not on first use.
 
+## Built on
+
+- [Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) by NVIDIA (CC BY 4.0). We converted and compressed Parakeet for Voz and left the weights otherwise unchanged.
+- [FLEURS](https://huggingface.co/datasets/google/fleurs) (CC BY 4.0), the audio behind the per-language figures. We don't redistribute FLEURS.
+
+<!-- model-footer:start -->
 ## License
 
-Voz is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Voz for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/voz/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{voz_2026,
+  title  = {Voz: On-device speech recognition: transcripts with word-level timestamps, 25 languages},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/voz},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

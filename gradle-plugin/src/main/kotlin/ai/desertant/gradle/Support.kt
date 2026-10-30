@@ -62,8 +62,8 @@ internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension
         pom.url.set(REPO_URL)
         pom.licenses { spec ->
             spec.license { license ->
-                license.name.set("Desert Ant Labs Source-Available License 1.0")
-                license.url.set("https://license.desertant.com/1.0")
+                license.name.set("Desert Ant Labs Source-Available License")
+                license.url.set("https://license.desertant.com/")
                 license.distribution.set("repo")
             }
         }

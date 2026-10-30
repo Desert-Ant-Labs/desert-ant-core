@@ -91,6 +91,14 @@ module.exports = { serverExternalPackages: ["@desert-ant-labs/align"] };
 
 The model page is the full usage guide for every SDK: [docs/models/align.md](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/align.md).
 
+<!-- license:start -->
 ## License
 
-See `LICENSE.md`. Free for most apps; a commercial license is required at scale: <https://license.desertant.com/1.0>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/align/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

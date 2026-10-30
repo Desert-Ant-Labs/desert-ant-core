@@ -20,6 +20,7 @@ on:
   push:
     branches: [main]
     paths:
+      - docs/models/**
       - manifest.json
       - Tools/manifest-docs.mjs
       - mise-tasks/hub/**

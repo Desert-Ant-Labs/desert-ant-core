@@ -9,15 +9,28 @@ Multilingual on-device content topic tagging across a 36-topic taxonomy.
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 101 |
-| **Weights** | [v2.2.0](https://huggingface.co/desert-ant-labs/gist) |
+| **Weights** | [v2.2.0](https://huggingface.co/desert-ant-labs/gist/tree/v2.2.0) |
 | **Demo** | https://desertant.com/models/gist/ |
+<!-- model:end -->
 
+Pass Gist a title, a post or a longer description and get its topics back, from a fixed list of **36**, across **101 languages**. A compact two-stream classifier (static embedding + hashed n-grams), with **no transformer at inference**. The deployable model is **74MB** (int8 vocab-pruned multilingual embedding + a small fp16 head) and runs fully on device with zero per-call cost. Multi-label by design: most items carry two or three topics, and per-item scores can be aggregated across a collection (for example into channel- or feed-level topics).
+
+> `"How to film a two-person podcast with two iPhones"` → **technology**, **creator-economy** ·
+> `"Cómo invertir en fondos indexados"` → **finance** ·
+> `"Tips for adopting a rescue dog"` → **pets-animals** ·
+> `"投资指数基金入门"` → **finance**
+
+## Try it
+
+- **Live demo:** [desert-ant-labs/gist-demo](https://huggingface.co/spaces/desert-ant-labs/gist-demo), paste a post in any language and see its topics.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Gist` product to your target.
@@ -25,7 +38,7 @@ Then add the `Gist` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:gist:4.2.1")
+implementation("ai.desertant:gist:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -34,7 +47,7 @@ implementation("ai.desertant:gist:4.2.1")
 npm i @desert-ant-labs/gist @litertjs/core   # browser
 npm i @desert-ant-labs/gist                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -157,6 +170,27 @@ We measured recall on a held-out set of 572 real posts, labeled by people across
 
 Gist scores 91% recall@3, one point behind the best small models at 92%. Gist is 74MB, against 110-130MB for those two models, and runs in one on-device pass. Gist beats every zero-shot classifier on recall@3 by 18 points or more. Those classifiers never learned the taxonomy or the distribution of posts. Qwen2.5-7B, a cloud LLM, is the only model with a clear lead on recall@1: 79% against 71%.
 
+<!-- model-footer:start -->
 ## License
 
-Gist is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Gist for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/gist/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{gist_2026,
+  title  = {Gist: Multilingual on-device content topic tagging across a 36-topic taxonomy},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/gist},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

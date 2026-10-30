@@ -33,11 +33,6 @@ export function docsURL(model, org) {
   return `${org.github}/desert-ant-core/blob/main/${docsPath(model)}`;
 }
 
-/// The model page on the website. Hub cards link here instead of to GitHub.
-export function siteDocsURL(model, org) {
-  return `${org.site}/docs/${model.id}/`;
-}
-
 export function docsPath(model) {
   return `docs/models/${model.id}.md`;
 }
@@ -79,104 +74,98 @@ export function renderTable(models, org) {
   ].join("\n");
 }
 
-/// The Hub card body: what the model is, and where the real docs are. A reader
-/// who lands here wants the SDK, so a shipping model links straight at its page
-/// of install lines and examples rather than at a repo root to go hunting in.
-export function renderCardBody(model, org) {
-  const links = ships(model)
-    ? [`- **SDKs, install and examples:** ${siteDocsURL(model, org)}`]
-    : [`- **GitHub:** ${model.home ? `${org.github}/${model.home}` : org.github}`];
-  if (model.demo?.page) links.push(`- **Website:** ${model.demo.page}`);
-  return [`# ${model.name}`, "", model.tagline, "", model.summary, "", ...links, ""].join("\n");
-}
+export const OWNED_FRONT_MATTER = ["license", "license_name", "license_link", "language", "tags", "pipeline_tag", "library_name"];
 
-/// Front matter is HF's search index, not prose, so it survives the rewrite,
-/// but every field in it is the manifest's, so a card cannot drift from the
-/// registry. Unknown keys still round-trip untouched.
-export function mergeFrontMatter(existing, model) {
+export function hubFrontMatter(model, license, sidecar = "") {
   const owned = { license: "other" };
   owned.license_name = model.weights.license;
-  owned.license_link = "https://license.desertant.com/1.0";
-  // `undefined` drops the key: a model the manifest says has no languages must
-  // not keep one from the card it is replacing (clear's claimed `en`, for a
-  // denoiser).
+  owned.license_link = license.url;
   const codes = model.languages?.codes;
   owned.language = codes ?? (model.languages ? ["multilingual"] : undefined);
   owned.tags = model.hub.tags;
   if (model.hub.pipelineTag) owned.pipeline_tag = model.hub.pipelineTag;
   if (model.hub.libraryName) owned.library_name = model.hub.libraryName;
 
-  const blocks = parseBlocks(existing);
-  const rendered = [];
-  const seen = new Set();
-  for (const [key, lines] of blocks) {
-    if (key in owned) {
-      if (owned[key] !== undefined) rendered.push(emit(key, owned[key]));
-      seen.add(key);
-    } else {
-      rendered.push(lines.join("\n"));
-    }
-  }
-  for (const [key, value] of Object.entries(owned)) {
-    if (!seen.has(key) && value !== undefined) rendered.push(emit(key, value));
-  }
-  return rendered.join("\n");
+  const lines = Object.entries(owned)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => emit(key, value));
+  const extra = sidecar.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n").trim();
+  return [...lines, ...(extra ? [extra] : [])].join("\n");
 }
 
-/// Front matter as [key, rawLines] pairs, so unknown keys round-trip untouched
-/// rather than being reserialized by a parser this repo does not have.
-function parseBlocks(text) {
-  const blocks = [];
-  for (const line of text.split("\n")) {
-    if (!line.trim()) continue;
-    if (/^[A-Za-z_][\w-]*:/.test(line)) blocks.push([line.slice(0, line.indexOf(":")), [line]]);
-    else if (blocks.length) blocks[blocks.length - 1][1].push(line);
-  }
-  return blocks;
+export function frontMatterKeys(text) {
+  return text
+    .split("\n")
+    .filter((line) => /^[A-Za-z_][\w-]*:/.test(line))
+    .map((line) => line.slice(0, line.indexOf(":")));
 }
 
 function emit(key, value) {
   return Array.isArray(value) ? [`${key}:`, ...value.map((v) => `- ${v}`)].join("\n") : `${key}: ${value}`;
 }
 
-/// A card's front matter and body, split on the `---` fences.
-export function splitCard(text) {
-  const match = text.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  return match ? { frontMatter: match[1], body: match[2] } : { frontMatter: "", body: text };
+export function sidecarPath(model) {
+  return `docs/models/${model.id}.hub.yml`;
 }
 
-/// The card is two halves and only the first is ours. Identity comes from the
-/// manifest so a card cannot drift from the registry; everything below the
-/// markers is the model's own documentation, written on the Hub by whoever has
-/// the numbers, and is carried across untouched.
-///
-/// An unmarked card is refused, not adopted. Guessing where the generated half
-/// ends means either duplicating the heading or deleting an intro that carries
-/// figures the manifest does not hold (redact's two deployable sizes live
-/// exactly there). A person adds the markers once; until then the card is left
-/// alone.
-export function renderCard(existing, model, org, version) {
-  const { frontMatter, body } = splitCard(existing);
-  if (!body.includes(CARD_MARKERS.start)) throw new UnmarkedCard(model.id);
-  const front = mergeFrontMatter(frontMatter, model);
-  let next = replaceMarked(body, renderCardBody(model, org), CARD_MARKERS);
-  if (next.includes(CARD_INSTALL_MARKERS.start)) {
-    next = replaceMarked(next, renderCardInstall(model, org, version), CARD_INSTALL_MARKERS);
-  }
-  if (next.includes(CARD_FOOTER_MARKERS.start)) {
-    next = replaceMarked(next, renderCardFooter(model, org), CARD_FOOTER_MARKERS);
-  }
-  return `---\n${front}\n---\n\n${next.trimStart()}`;
+export function renderHubCard(model, page, org, license, sidecar = "") {
+  const body = rewriteLinks(page.replace(/^<!-- model(-install|-footer)?:(start|end) -->\r?\n/gm, ""), org);
+  return [
+    "---",
+    hubFrontMatter(model, license, sidecar),
+    "---",
+    "",
+    `<!-- Generated from ${docsPath(model)} in ${org.github}/desert-ant-core. Edit that file: changes made here are overwritten. -->`,
+    "",
+    body.trimStart(),
+  ].join("\n");
 }
 
-/// Distinguishable from a network or token failure, because it is neither: the
-/// card is fine and the sync has no mandate over it yet.
-export class UnmarkedCard extends Error {
-  constructor(id) {
-    super(`${id}: no card-header block, so the sync cannot tell which half is generated`);
-    this.name = "UnmarkedCard";
-    this.id = id;
+function rewriteLinks(markdown, org) {
+  return markdown
+    .split(/(^```[\s\S]*?^```)/m)
+    .map((chunk, index) =>
+      index % 2
+        ? chunk
+        : chunk.replace(/(\]\()([^)\s]+)(\))/g, (full, open, url, close) => {
+            if (/^(https?:|mailto:|#)/.test(url)) return full;
+            const [path, anchor] = url.split("#");
+            const resolved = posixJoin("docs/models", path);
+            const sibling = resolved.match(/^docs\/models\/([a-z0-9-]+)\.md$/);
+            const target = sibling
+              ? `${org.site}/docs/${sibling[1]}/`
+              : `${org.github}/desert-ant-core/blob/main/${resolved}`;
+            return `${open}${target}${anchor ? `#${anchor}` : ""}${close}`;
+          })
+    )
+    .join("");
+}
+
+function posixJoin(dir, path) {
+  const parts = dir.split("/");
+  for (const part of path.split("/")) {
+    if (part === "..") parts.pop();
+    else if (part !== "." && part !== "") parts.push(part);
   }
+  return parts.join("/");
+}
+
+export function renderHubFiles(model, root = ".") {
+  if (!ships(model)) return {};
+  const { org, license } = manifest(root);
+  const sidecar = existsSync(`${root}/${sidecarPath(model)}`) ? readFileSync(`${root}/${sidecarPath(model)}`, "utf8") : "";
+  return { "README.md": renderHubCard(model, readFileSync(`${root}/${docsPath(model)}`, "utf8"), org, license, sidecar) };
+}
+
+export function brokenRelativeLinks(page, root = ".") {
+  const broken = [];
+  for (const chunk of page.split(/(^```[\s\S]*?^```)/m).filter((_, index) => index % 2 === 0)) {
+    for (const [, url] of chunk.matchAll(/\]\(([^)\s]+)\)/g)) {
+      if (/^(https?:|mailto:|#)/.test(url)) continue;
+      if (!existsSync(`${root}/${posixJoin("docs/models", url.split("#")[0])}`)) broken.push(url);
+    }
+  }
+  return broken;
 }
 
 /// Put markers around a table that predates them, so a hand-written page can be
@@ -199,25 +188,8 @@ export function replaceBlock(text, body) {
 
 export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
 
-/// The Hub's markers are not the model page's. A card is read and edited on a
-/// site where every block is about the model, so `model:start` names nothing and
-/// warns nobody. These name the block and say what to do instead, in the marker
-/// itself rather than in a comment above it that a careless edit would drop.
-export const CARD_MARKERS = {
-  start: "<!-- card-header:start (generated from manifest.json, edit below this block) -->",
-  end: "<!-- card-header:end -->",
-};
-
-/// Two more generated blocks, each independent of the others. A card opts into
-/// one by having its markers; a card without them keeps whatever it has.
-export const CARD_INSTALL_MARKERS = {
-  start: "<!-- card-install:start (generated from manifest.json, edit below this block) -->",
-  end: "<!-- card-install:end -->",
-};
-export const CARD_FOOTER_MARKERS = {
-  start: "<!-- card-footer:start (generated from manifest.json, edit above this block) -->",
-  end: "<!-- card-footer:end -->",
-};
+export const MODEL_INSTALL_MARKERS = { start: "<!-- model-install:start -->", end: "<!-- model-install:end -->" };
+export const MODEL_FOOTER_MARKERS = { start: "<!-- model-footer:start -->", end: "<!-- model-footer:end -->" };
 
 /// The page header has room to name the Apple OSes; a table cell does not.
 const PLATFORM_NAMES = {
@@ -315,19 +287,21 @@ function install(model, version) {
   return out;
 }
 
-/// The generated half of a model page: identity, facts, and install lines. The
-/// usage examples below it are hand-written, because an example is a judgement
-/// about what a reader needs first and no manifest field holds that.
-export function renderModelHeader(model, org, version) {
+function weightsTreeURL(model) {
+  return `${model.weights.url}/tree/${model.weights.revision}`;
+}
+
+export function renderModelHeader(model, org) {
   const facts = [["Platforms", platforms(model)]];
   if (model.languages?.count) facts.push(["Languages", String(model.languages.count)]);
   facts.push([
     "Weights",
     model.weights.source === "bundled"
-      ? `Bundled with the SDK ([${short(model.weights.revision)}](${model.weights.url}))`
-      : `[${short(model.weights.revision)}](${model.weights.url})`,
+      ? `Bundled with the SDK ([${short(model.weights.revision)}](${weightsTreeURL(model)}))`
+      : `[${short(model.weights.revision)}](${weightsTreeURL(model)})`,
   ]);
   if (model.demo?.page) facts.push(["Demo", model.demo.page]);
+  if (model.lifecycle === "beta") facts.push(["Status", "Beta"]);
 
   return [
     `# ${model.name}`,
@@ -339,52 +313,39 @@ export function renderModelHeader(model, org, version) {
     "| | |",
     "| --- | --- |",
     ...facts.map(([k, v]) => `| **${k}** | ${v} |`),
-    "",
-    "## Install",
-    "",
-    ...install(model, version),
-  ].join("\n").trimEnd();
+  ].join("\n");
 }
 
-/// The card's install half. Same source as the model page's, so a release bump
-/// rewrites both, but with absolute links: `install()` emits `../../README.md`,
-/// which resolves inside this repo and 404s on huggingface.co.
-export function renderCardInstall(model, org, version) {
-  const facts = [["Platforms", platforms(model)]];
-  if (model.languages?.count) facts.push(["Languages", String(model.languages.count)]);
-  facts.push(["Weights", `[${short(model.weights.revision)}](${model.weights.url})`]);
-  const lines = [
-    "| | |",
-    "| --- | --- |",
-    ...facts.map(([k, v]) => `| **${k}** | ${v} |`),
-    "",
-    "## Install",
-    "",
-    ...install(model, version),
-  ];
-  return lines
-    .join("\n")
-    .replaceAll("../../README.md", `${org.github}/desert-ant-core/blob/main/README.md`)
-    .trimEnd();
+export function renderModelInstall(model, version) {
+  return ["## Install", "", ...install(model, version)].join("\n").trimEnd();
 }
 
-/// The boilerplate every card ends with, generated so every card carries the
-/// same license, notices, citation and copyright lines.
-///
-/// `Built on` is not here: it is per-model.
-export function renderCardFooter(model, org) {
-  const summary = model.summary.replace(/\.$/, "");
+export const LICENSE_MARKERS = { start: "<!-- license:start -->", end: "<!-- license:end -->" };
+
+export function renderLicense(org, license, notices = []) {
   return [
     "## License",
     "",
-    `[${org.name} Source-Available License](https://license.desertant.com/1.0). Free for most`,
+    `[${org.name} Source-Available License](${license.url}). Free for most`,
     "apps, and a commercial license is required at scale. Full terms are at the link.",
     "Licensing: <licensing@desertant.com>.",
+    ...notices.flatMap((line) => ["", line]),
+  ].join("\n");
+}
+
+function weightsNotices(model) {
+  return `Third-party notices for the weights: [\`THIRD_PARTY_NOTICES.md\`](${model.weights.url}/blob/main/THIRD_PARTY_NOTICES.md).`;
+}
+
+function sdkNotices(org) {
+  return `Third-party notices for the SDK: [\`THIRD_PARTY_NOTICES.md\`](${org.github}/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).`;
+}
+
+export function renderModelFooter(model, org, license) {
+  const summary = model.summary.replace(/\.$/, "");
+  return [
+    renderLicense(org, license, [weightsNotices(model)]),
     "",
-    "See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).",
-    "",
-    // Every field here is already in the manifest, so the block is uniform and
-    // cannot go stale against the repo it points at.
     "## Citation",
     "",
     "```bibtex",
@@ -420,7 +381,7 @@ export function replaceMarked(text, body, markers = MARKERS) {
 /// check both go through this, so "what should be on disk" has one definition
 /// and the two can never disagree about it.
 export function renderAll(root = ".") {
-  const { models, org, sdkVersion } = manifest(root);
+  const { models, org, sdkVersion, license } = manifest(root);
   const out = {
     "README.md": replaceMarked(readFileSync(`${root}/README.md`, "utf8"), renderTable(models, org)),
   };
@@ -429,11 +390,19 @@ export function renderAll(root = ".") {
     if (!existsSync(`${root}/${path}`)) {
       throw new Error(`${model.id} ships an SDK but ${path} does not exist`);
     }
-    out[path] = replaceMarked(
-      readFileSync(`${root}/${path}`, "utf8"),
-      renderModelHeader(model, org, sdkVersion),
-      MODEL_MARKERS
-    );
+    let page = readFileSync(`${root}/${path}`, "utf8");
+    page = replaceMarked(page, renderModelHeader(model, org), MODEL_MARKERS);
+    page = replaceMarked(page, renderModelInstall(model, sdkVersion), MODEL_INSTALL_MARKERS);
+    out[path] = replaceMarked(page, renderModelFooter(model, org, license), MODEL_FOOTER_MARKERS);
+    const npm = `packages/${model.id}-node/README.md`;
+    if (existsSync(`${root}/${npm}`)) {
+      out[npm] = replaceMarked(
+        readFileSync(`${root}/${npm}`, "utf8"),
+        renderLicense(org, license, [sdkNotices(org), weightsNotices(model)]),
+        LICENSE_MARKERS
+      );
+    }
   }
+  out["js/README.md"] = replaceMarked(readFileSync(`${root}/js/README.md`, "utf8"), renderLicense(org, license, [sdkNotices(org)]), LICENSE_MARKERS);
   return out;
 }

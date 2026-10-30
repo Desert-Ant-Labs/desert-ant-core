@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-#MISE description="Publish the rendered cards and org card to the Hugging Face Hub"
+#MISE description="Publish the model pages as Hub cards, and the org card's model table"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 #USAGE flag "--dry-run" help="Print what would change and upload nothing"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# Renders against what the Hub serves right now. The Hub is where a card is
-# written, so a sync reads the live card, replaces the identity block inside its
-# markers, and leaves the documentation below it untouched.
-#
 # Needs HF_TOKEN with write scope on the org. A dry run needs no token: every
 # repo it reads is public.
 
 export DAL_DRY_RUN="${usage_dry_run:-false}"
 
 node --input-type=module <<'NODE'
-import { manifest, renderCard, renderTable, replaceBlock, MARKERS, CARD_MARKERS, UnmarkedCard } from "./Tools/manifest-docs.mjs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { manifest, ships, renderHubFiles, renderTable, replaceBlock, MARKERS } from "./Tools/manifest-docs.mjs";
 
 const dryRun = process.env.DAL_DRY_RUN === "true";
 const token = process.env.HF_TOKEN;
@@ -26,17 +23,55 @@ if (!dryRun && !token) {
 
 const API = "https://huggingface.co/api";
 const auth = token ? { Authorization: `Bearer ${token}` } : {};
+const SUMMARY = "Card from docs/models/";
+const fromThisRepo = (title) => title.toLowerCase().includes("card from docs/models/");
+
+const NOT_WEIGHTS = new Set(["README.md", "THIRD_PARTY_NOTICES.md", ".gitattributes", "LICENSE.md"]);
+
+async function weightsAt(repo, revision) {
+  const files = new Map();
+  let url = `${API}/models/${repo}/tree/${encodeURIComponent(revision)}?recursive=true`;
+  while (url) {
+    const res = await fetch(url, { headers: auth });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`GET ${repo} tree at ${revision}: ${res.status}`);
+    for (const entry of await res.json()) {
+      if (entry.type === "file" && !NOT_WEIGHTS.has(entry.path)) files.set(entry.path, entry.lfs?.oid ?? entry.oid);
+    }
+    url = res.headers.get("link")?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
+  }
+  return files;
+}
+
+async function mainHasPinnedWeights(repo, tag) {
+  const [pinned, main] = await Promise.all([weightsAt(repo, tag), weightsAt(repo, "main")]);
+  if (!pinned || !main) return false;
+  const shared = [...pinned.keys()].filter((path) => main.has(path));
+  return shared.length > 0 && shared.every((path) => pinned.get(path) === main.get(path));
+}
 
 async function readCard(kind, repo) {
   const prefix = kind === "space" ? "spaces/" : "";
   const res = await fetch(`https://huggingface.co/${prefix}${repo}/raw/main/README.md`, { headers: auth });
+  if (res.status === 404) return "";
   if (!res.ok) throw new Error(`GET ${repo}: ${res.status}`);
   return res.text();
 }
 
-async function writeCard(kind, repo, content, summary) {
+async function lastCardCommit(repo) {
+  const res = await fetch(`${API}/models/${repo}/paths-info/main`, {
+    method: "POST",
+    headers: { ...auth, "Content-Type": "application/x-www-form-urlencoded" },
+    body: "paths=README.md&expand=true",
+  });
+  if (!res.ok) return null;
+  const [file] = await res.json();
+  return file?.lastCommit ?? null;
+}
+
+async function writeCard(kind, repo, content, summary, description = "") {
   const body = [
-    JSON.stringify({ key: "header", value: { summary } }),
+    JSON.stringify({ key: "header", value: { summary, description } }),
     JSON.stringify({
       key: "file",
       value: { path: "README.md", content: Buffer.from(content).toString("base64"), encoding: "base64" },
@@ -77,48 +112,45 @@ if (!dryRun) {
   }
 }
 
-const { models, org, sdkVersion } = manifest();
-const summary = "Sync card from manifest.json";
+const { models, org } = manifest();
+const commit = process.env.GITHUB_SHA ? `${org.github}/desert-ant-core/commit/${process.env.GITHUB_SHA}` : "";
 const failures = [];
-const unmarked = [];
 let changed = 0;
 let skipped = 0;
-
-//: A sync writes the identity block and must never be the reason a card loses
-//: its documentation. `renderCard` refuses an unmarked card; this floor is the
-//: second lock.
-const SHRINK_FLOOR = 0.7;
+let waiting = 0;
+mkdirSync(".build/hub", { recursive: true });
 
 for (const model of models) {
   if (model.visibility === "internal") {
     console.log(`  ${model.id}: internal, left alone`);
     continue;
   }
-  const repo = model.weights.repo;
-  const current = await readCard("model", repo);
-  let next;
-  try {
-    next = renderCard(current, model, org, sdkVersion);
-  } catch (error) {
-    if (!(error instanceof UnmarkedCard)) throw error;
-    console.log(`  ${model.id}: no ${CARD_MARKERS.start.slice(0, 38)}... block, left alone`);
-    unmarked.push(model.id);
+  if (!ships(model)) {
+    console.log(`  ${model.id}: no SDK ships it, so it has no page and its card is left alone`);
     continue;
   }
+  const repo = model.weights.repo;
+  if (!(await mainHasPinnedWeights(repo, model.weights.revision))) {
+    console.log(`  ${model.id}: main doesn't hold the ${model.weights.revision} weights this page describes, so the card is left alone`);
+    waiting++;
+    continue;
+  }
+  const next = renderHubFiles(model)["README.md"];
+  const current = await readCard("model", repo);
+  writeFileSync(`.build/hub/${model.id}.md`, next);
+  writeFileSync(`.build/hub/${model.id}.live.md`, current);
   if (next === current) {
     skipped++;
     continue;
   }
-  if (next.length < current.length * SHRINK_FLOOR) {
-    console.error(`  ${model.id}: REFUSED, ${current.length} -> ${next.length} bytes`);
-    failures.push(model.id);
-    continue;
-  }
-  console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes`);
+
+  const last = await lastCardCommit(repo);
+  const note = last && !fromThisRepo(last.title) ? ` (replaces a card last changed by "${last.title}")` : "";
+  console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes${note}`);
   // One repo the token cannot reach must not strand the other thirteen. The
   // publish is idempotent, so a rerun picks up whatever failed here.
   try {
-    if (!dryRun) await writeCard("model", repo, next, summary);
+    if (!dryRun) await writeCard("model", repo, next, `${SUMMARY}${model.id}.md`, commit);
     changed++;
   } catch (error) {
     console.error(`    ${error.message}`);
@@ -137,7 +169,7 @@ const nextOrg = replaceBlock(marked, renderTable(models, org));
 if (nextOrg !== currentOrg) {
   console.log(`  org card: ${currentOrg.length} -> ${nextOrg.length} bytes`);
   try {
-    if (!dryRun) await writeCard("space", orgRepo, nextOrg, summary);
+    if (!dryRun) await writeCard("space", orgRepo, nextOrg, "Sync model table from manifest.json", commit);
     changed++;
   } catch (error) {
     console.error(`    ${error.message}`);
@@ -147,13 +179,7 @@ if (nextOrg !== currentOrg) {
   skipped++;
 }
 
-console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current`);
-if (unmarked.length) {
-  console.log(
-    `${unmarked.length} card(s) have no generated block and were not touched: ${unmarked.join(", ")}. ` +
-      `Add card-header markers on the Hub around the heading, tagline and summary to bring one under the sync.`
-  );
-}
+console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current, ${waiting} waiting for their weights. Rendered cards are in .build/hub/.`);
 if (failures.length) {
   console.error(`error: ${failures.length} failed: ${failures.join(", ")}`);
   process.exit(1);

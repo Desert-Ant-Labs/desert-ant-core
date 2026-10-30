@@ -8,19 +8,25 @@ On-device titles and descriptions: a short factual title and a one- to two-sente
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS |
-| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/title) |
+| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/title/tree/v0.1.0) |
+<!-- model:end -->
 
+Get a title and a one or two sentence description for any passage of text, on device.
+
+Title is fine-tuned on transcript clips, but it works on any prose. The register is deliberately plain, with no emoji, no hashtags and no clickbait, and a description identifies *this* passage rather than its topic.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2",
         traits: ["MLX"])
 ```
 
 Then add the `Title` product to your target. The `MLX` trait is required: without it the module compiles as a stub.
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -96,16 +102,37 @@ The model sometimes drifts off this format, so parse the reply tolerantly. When 
 
 MLX runs only on Apple silicon, so Title has no Android, Linux, Windows, browser or Node build. We also built Title for Core ML, to compare. The Neural Engine is limited by memory bandwidth when a model writes short text one token at a time. The Core ML build lost to MLX on time to first token, tokens per second, load time and memory use. We don't plan to ship the Core ML build.
 
-## Status
+## Limitations
 
-Title is in internal testing. We publish no quality figures for Title yet, because no independent review is complete. Title sometimes opens a description with a stock phrase that its instruction forbids. Read each card before it reaches a user.
+- Title sometimes opens a description with a stock phrase that its instruction forbids. Read each card before it reaches a user.
+- Title can get details wrong on general prose. It's most accurate on transcript clips, news paragraphs, product descriptions and emails.
+- On unusual input, Title can keep generating without end. `maxTokens` caps each run.
 
 ## Built on
 
 - [`ibm-granite/granite-4.0-350m`](https://huggingface.co/ibm-granite/granite-4.0-350m): the base model we fine-tuned Title from.
 
-See [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/title/blob/v0.1.0/THIRD_PARTY_NOTICES.md).
-
+<!-- model-footer:start -->
 ## License
 
-Title is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Title for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/title/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{title_2026,
+  title  = {Title: On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/title},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

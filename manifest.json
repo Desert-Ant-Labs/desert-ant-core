@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "4.2.1",
+  "sdkVersion": "4.2.2",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -10,8 +10,8 @@
     "mavenGroup": "ai.desertant"
   },
   "license": {
-    "id": "desert-ant-labs-source-available-1.0",
-    "url": "https://license.desertant.com/1.0"
+    "id": "desert-ant-labs-source-available",
+    "url": "https://license.desertant.com/"
   },
   "models": [
     {
@@ -33,7 +33,7 @@
         "repo": "desert-ant-labs/align",
         "url": "https://huggingface.co/desert-ant-labs/align",
         "revision": "v1.1.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -69,7 +69,7 @@
         "repo": "desert-ant-labs/clear",
         "url": "https://huggingface.co/desert-ant-labs/clear",
         "revision": "v0.3.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "coreai", "litert"],
       "variants": [
@@ -108,7 +108,7 @@
         "repo": "desert-ant-labs/clips",
         "url": "https://huggingface.co/desert-ant-labs/clips",
         "revision": "v0.1.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -144,7 +144,7 @@
         "repo": "desert-ant-labs/ear",
         "url": "https://huggingface.co/desert-ant-labs/ear",
         "revision": "v0.2.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -188,7 +188,7 @@
         "repo": "desert-ant-labs/emo",
         "url": "https://huggingface.co/desert-ant-labs/emo",
         "revision": "v0.7.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -228,7 +228,7 @@
         "repo": "desert-ant-labs/eye",
         "url": "https://huggingface.co/desert-ant-labs/eye",
         "revision": "v1.0.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -263,7 +263,7 @@
         "repo": "desert-ant-labs/face",
         "url": "https://huggingface.co/desert-ant-labs/face",
         "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml"],
       "variants": [],
@@ -298,7 +298,7 @@
         "repo": "desert-ant-labs/gist",
         "url": "https://huggingface.co/desert-ant-labs/gist",
         "revision": "v2.2.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [
@@ -341,7 +341,7 @@
         "repo": "desert-ant-labs/moderator",
         "url": "https://huggingface.co/desert-ant-labs/moderator",
         "revision": "v1.0.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -375,8 +375,8 @@
         "source": "hub",
         "repo": "desert-ant-labs/redact",
         "url": "https://huggingface.co/desert-ant-labs/redact",
-        "revision": "v0.4.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "revision": "v0.4.1",
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -416,7 +416,7 @@
         "repo": "desert-ant-labs/schemer",
         "url": "https://huggingface.co/desert-ant-labs/schemer",
         "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml"],
       "variants": [],
@@ -456,7 +456,7 @@
         "repo": "desert-ant-labs/shapes",
         "url": "https://huggingface.co/desert-ant-labs/shapes",
         "revision": "v1.0.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -491,7 +491,7 @@
         "repo": "desert-ant-labs/title",
         "url": "https://huggingface.co/desert-ant-labs/title",
         "revision": "v0.1.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["mlx"],
       "variants": [],
@@ -527,7 +527,7 @@
         "repo": "desert-ant-labs/tongue",
         "url": "https://huggingface.co/desert-ant-labs/tongue",
         "revision": "v1.0.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["pure"],
       "variants": [],
@@ -567,7 +567,7 @@
         "repo": "desert-ant-labs/toxic",
         "url": "https://huggingface.co/desert-ant-labs/toxic",
         "revision": "main",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [],
@@ -607,7 +607,7 @@
         "repo": "desert-ant-labs/uhm",
         "url": "https://huggingface.co/desert-ant-labs/uhm",
         "revision": "v1.2.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml"],
       "variants": [
@@ -670,7 +670,7 @@
         "repo": "desert-ant-labs/voz",
         "url": "https://huggingface.co/desert-ant-labs/voz",
         "revision": "v0.5.0",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": [
         "coreml",
@@ -746,7 +746,7 @@
         "repo": "desert-ant-labs/who",
         "url": "https://huggingface.co/desert-ant-labs/who",
         "revision": "v0.3.4",
-        "license": "desert-ant-labs-source-available-1.0"
+        "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
       "variants": [

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Verify the README table and the model pages match manifest.json"
+#MISE description="Verify the README table and the model pages: generated blocks current, links resolve, house rules kept"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
@@ -8,15 +8,74 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # PR rather than committing a fix silently.
 
 node --input-type=module <<'NODE'
-import { readFileSync } from "node:fs";
-import { renderAll } from "./Tools/manifest-docs.mjs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+  renderAll, manifest, ships, docsPath, sidecarPath, brokenRelativeLinks, frontMatterKeys,
+  MODEL_MARKERS, MODEL_INSTALL_MARKERS, MODEL_FOOTER_MARKERS, OWNED_FRONT_MATTER,
+} from "./Tools/manifest-docs.mjs";
 
-const stale = Object.entries(renderAll())
+const problems = [];
+const SITE_CODE = ["swift", "kotlin", "typescript", "ts", "javascript", "js", "bash", "sh", "shell", "json", "xml", "text"];
+let rendered;
+try {
+  rendered = renderAll();
+} catch (error) {
+  console.error(`error: ${error.message}`);
+  process.exit(1);
+}
+const stale = Object.entries(rendered)
   .filter(([path, text]) => readFileSync(path, "utf8") !== text)
   .map(([path]) => path);
+if (stale.length) problems.push(`stale generated blocks in ${stale.join(", ")}. Run \`mise run docs:render\`.`);
 
-if (stale.length) {
-  console.error(`error: stale generated blocks in ${stale.join(", ")}. Run \`mise run docs:render\`.`);
+function written(page) {
+  let out = page;
+  for (const markers of [MODEL_MARKERS, MODEL_INSTALL_MARKERS, MODEL_FOOTER_MARKERS]) {
+    const start = out.indexOf(markers.start);
+    const end = out.indexOf(markers.end);
+    if (start !== -1 && end !== -1) out = out.slice(0, start) + out.slice(end + markers.end.length);
+  }
+  return out;
+}
+
+const { models } = manifest();
+for (const model of models.filter(ships)) {
+  const path = docsPath(model);
+  const page = readFileSync(path, "utf8");
+  const prose = written(page);
+
+  for (const url of brokenRelativeLinks(page)) problems.push(`${path}: the relative link ${url} resolves to nothing`);
+
+  for (const [line] of prose.matchAll(/^.*\bbeta\b.*$/gim)) {
+    problems.push(`${path}: lifecycle in the prose ("${line.trim().slice(0, 80)}"). The manifest states it.`);
+  }
+  for (const [heading] of prose.matchAll(/^##+ (Changes in this release|What's new|Status)\s*$/gim)) {
+    problems.push(`${path}: "${heading.trim()}" belongs in the release notes, not on the page`);
+  }
+  for (const [, lang] of prose.matchAll(/^```([A-Za-z0-9+-]+)/gm)) {
+    if (!SITE_CODE.includes(lang.toLowerCase())) {
+      problems.push(`${path}: a \`\`\`${lang} block, which desertant.com can't highlight. Use one of: ${SITE_CODE.join(", ")}.`);
+    }
+  }
+  if (/^## (License|Citation)\s*$/m.test(prose)) {
+    problems.push(`${path}: a hand-written License or Citation section. The generated footer has both.`);
+  }
+
+  const sidecar = sidecarPath(model);
+  if (existsSync(sidecar)) {
+    const owned = frontMatterKeys(readFileSync(sidecar, "utf8")).filter((key) => OWNED_FRONT_MATTER.includes(key));
+    if (owned.length) problems.push(`${sidecar}: sets ${owned.join(", ")}, which come from manifest.json`);
+  }
+}
+
+const shipping = new Set(models.filter(ships).map((m) => m.id));
+for (const file of readdirSync("docs/models").filter((f) => f.endsWith(".hub.yml"))) {
+  if (!shipping.has(file.replace(/\.hub\.yml$/, ""))) problems.push(`docs/models/${file}: no model page to attach it to`);
+}
+
+if (problems.length) {
+  for (const problem of problems) console.error(`  ${problem}`);
+  console.error(`error: ${problems.length} problem(s) in the model pages`);
   process.exit(1);
 }
 console.log("README.md and the model pages are current");

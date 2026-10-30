@@ -123,8 +123,14 @@ use the default WebAssembly build, the Swift package, or a browser for those.
 The same model ships as a Swift package (iOS/macOS) and an Android AAR from the
 same repository: https://github.com/Desert-Ant-Labs/desert-ant-core
 
+<!-- license:start -->
 ## License
 
-[Desert Ant Labs Source-Available License 1.0](./LICENSE.md): free below
-100,000 monthly active devices per platform; above that a commercial license is
-required (licensing@desertant.com). Full terms: https://license.desertant.com/1.0
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the SDK: [`THIRD_PARTY_NOTICES.md`](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/THIRD_PARTY_NOTICES.md).
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/redact/blob/main/THIRD_PARTY_NOTICES.md).
+<!-- license:end -->

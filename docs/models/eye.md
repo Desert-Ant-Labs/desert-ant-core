@@ -8,15 +8,20 @@ On-device photo understanding: scenes, quality, faces, people, pets, crops and s
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/eye) |
+| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/eye/tree/v1.0.0) |
 | **Demo** | https://desertant.com/models/eye/ |
+| **Status** | Beta |
+<!-- model:end -->
 
+Eye tags photos on device so apps can find and filter them: what a photo is (screenshot, receipt, selfie), what is in it (558 scenes), how it came out (blurry, eyes closed), who is in it (group shot, portrait) and whether it is sensitive, each with a calibrated confidence where 0.5 is the recommended cutoff and 0.9 a strict one. It also scores photos, finds people, pets and faces, and picks crops.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Eye` product to your target.
@@ -24,7 +29,7 @@ Then add the `Eye` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:eye:4.2.1")
+implementation("ai.desertant:eye:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -33,7 +38,7 @@ implementation("ai.desertant:eye:4.2.1")
 npm i @desert-ant-labs/eye @litertjs/core   # browser
 npm i @desert-ant-labs/eye                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
 
@@ -154,8 +159,82 @@ The SDK downloads the weights from Hugging Face on first use and caches them. Se
 |---|---|---:|---|
 | `eye.mlmodelc` | Compiled Core ML, one function per part | 48MB | Ready to load on Apple platforms (used by the Swift SDK), every function on the Neural Engine |
 | `eye.tflite` | LiteRT / TFLite (int8 weights), one signature per function | 66MB | Runs on Android, Linux, Windows, Node, and the web (downloaded on demand by the Kotlin and JavaScript SDKs) |
-| `eye_meta.json` | JSON | 76KB | The output names and the constants the SDK decodes outputs with |
+| `eye_meta.json` | JSON | 281KB | Inputs, outputs, the constants the SDK decodes outputs with, and the tags' calibration curves and rules |
 
+## Functions
+
+Both files hold the same functions under the same names. Every input is RGB (or gray for sharpness) in `0...1`, shape `(1, C, H, W)`: float16 for Core ML, float32 for LiteRT. `eye_meta.json` has the exact preparation and how to decode each output.
+
+| Function | Input | Outputs |
+|---|---|---|
+| `photo` | 384x384 centre crop | embedding, type, reject reasons, sensitive content, scenes, rotation, aesthetic, keeper, cover, focus and bokeh, pet attributes |
+| `photo_peak` | as `photo` | `photo`'s outputs and the peak moment |
+| `spatial` | whole frame squashed to 384x384 | where people look, pet and person boxes, shot type, scores for 1,296 crop boxes |
+| `faces_detect` | 768x768, the photo letterboxed | face heatmap, size, offset, landmarks |
+| `faces_analyze` | 128x128 crop, 1.4x a face box | eyes open, blink, smile, gaze, expression, pose, quality and more |
+| `sharp_4x3`, `sharp_3x4`, `sharp_16x9`, `sharp_9x16` | gray, the shape closest to the photo's aspect | sharpness, blur map |
+
+## Tag accuracy
+
+Every tag has a confidence calibrated so 0.5 is the recommended cutoff and 0.9 a strict one. At 0.5: photo types 0.8 to 1.0 precise (screenshot 0.98, receipt 1.00), scenes 0.88 median, people 0.95, eyes closed 0.92. The keep-or-delete reasons (forgettable, bad framing, ...) are less reliable; use them for suggestions. For anything automatic, such as hiding sensitive photos, use the strict cutoff.
+
+## Accuracy
+
+On the same test sets, through the same scoring code:
+
+| Test set | Metric | `eye.mlmodelc` | `eye.tflite` (CPU) |
+|---|---|---:|---:|
+| KonIQ-10k | aesthetic SRCC | 0.6288 | 0.6291 |
+| COCO val2017 | person AP50 | 0.3814 | 0.3837 |
+| MIT1003 | where people look, CC | 0.7153 | 0.7195 |
+| CUHK cropping | crop IoU | 0.8244 | 0.8241 |
+| WIDER Face val | AP, hard | 0.6806 | 0.6812 |
+| CEW | eyes open AUC | 0.9943 | 0.9945 |
+
+## Speed
+
+One photo, `photo_peak`, on a Mac with an Apple M6:
+
+| Runtime | ms |
+|---|---:|
+| Core ML, Neural Engine | 5.5 |
+| LiteRT, GPU (Metal) | 30 |
+| LiteRT.js, WebGPU, in Chrome | 41 |
+| LiteRT, CPU, 4 threads | 49 |
+| LiteRT.js, wasm with threads, in Chrome | 176 |
+
+## Limitations
+
+- `eye.tflite` is not yet measured on Android devices.
+- Face analysis describes a face. It doesn't identify who someone is.
+- Eye is trained on photos. Scores for illustrations, screenshots and heavily edited images are less reliable.
+
+## Built on
+
+- Image encoder: [PE-Core S/16-384](https://huggingface.co/facebook/PE-Core-S16-384) by Meta, Apache 2.0, fine-tuned and with heads trained by Desert Ant Labs.
+- The face detector, face analyzer and sharpness model are Desert Ant Labs' own, trained from scratch.
+
+<!-- model-footer:start -->
 ## License
 
-Eye is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Eye for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/eye/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{eye_2026,
+  title  = {Eye: On-device photo understanding: scenes, quality, faces, people, pets, crops and sharpness},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/eye},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->

@@ -8,15 +8,27 @@ On-device single-stroke shape recognition.
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/shapes) |
+| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/shapes/tree/v1.0.0) |
 | **Demo** | https://desertant.com/models/shapes/ |
+<!-- model:end -->
 
+Shapes turns a hand-drawn stroke into a clean shape, connector, or arrow. Shapes recognizes 13 kinds: a straight or curved connector, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon, a hexagon, a star, a heart, a cloud, and a scribble, which your app can use as an erase gesture. For a stroke that isn't one of these, such as handwriting or an unfinished shape, Shapes returns `nil` (`null` in Kotlin and JavaScript), so you can keep that stroke as ink. The kinds and their field names are the same in Swift, Kotlin, and TypeScript.
+
+Built for PencilKit-style smart shapes: draw, pause, and the rough stroke becomes a crisp shape. The model is under 1MB and runs in a few milliseconds on device.
+
+> ✏️ ➜ ▭  ·  ✏️ ➜ △  ·  ✏️ ➜ ◯  ·  ✏️ ➜ ★
+
+## Try it
+
+- **Live demo:** [desert-ant-labs/shapes-demo](https://huggingface.co/spaces/desert-ant-labs/shapes-demo): draw one stroke, get a fitted shape, fully in your browser.
+
+<!-- model-install:start -->
 ## Install
 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.1")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
 ```
 
 Then add the `Shapes` product to your target.
@@ -24,7 +36,7 @@ Then add the `Shapes` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:shapes:4.2.1")
+implementation("ai.desertant:shapes:4.2.2")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -33,11 +45,9 @@ implementation("ai.desertant:shapes:4.2.1")
 npm i @desert-ant-labs/shapes @litertjs/core   # browser
 npm i @desert-ant-labs/shapes                  # Node, prebuilt native core
 ```
-<!-- model:end -->
+<!-- model-install:end -->
 
 ## Usage
-
-Shapes turns a hand-drawn stroke into a clean shape, connector, or arrow. Shapes recognizes 13 kinds: a straight or curved connector, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon, a hexagon, a star, a heart, a cloud, and a scribble, which your app can use as an erase gesture. For a stroke that isn't one of these, such as handwriting or an unfinished shape, Shapes returns `nil` (`null` in Kotlin and JavaScript), so you can keep that stroke as ink. The kinds and their field names are the same in Swift, Kotlin, and TypeScript.
 
 ### Swift
 
@@ -128,12 +138,33 @@ Shapes recognizes `line` and `curve` (connectors), `arrow`, `rectangle`, `ellips
 
 Unless `rotation` is `.free`, Shapes snaps a near-square rectangle to a square, a near-circular ellipse to a circle, and a near-regular polygon to a regular one.
 
-## Limits
+## Limitations
 
 - Shapes recognizes one stroke at a time. For an arrow drawn in two strokes, Shapes recognizes the shaft as a line.
 - Shapes sometimes recognizes a curly brace or a check mark drawn with sharp turns as a scribble.
 - Stars have 5 or 6 points.
 
+<!-- model-footer:start -->
 ## License
 
-Shapes is available under the [Desert Ant Labs Source-Available License](https://license.desertant.com/1.0). Most apps can use Shapes for free. At scale, you need a commercial license. The link has the full terms. For licensing, email <licensing@desertant.com>.
+[Desert Ant Labs Source-Available License](https://license.desertant.com/). Free for most
+apps, and a commercial license is required at scale. Full terms are at the link.
+Licensing: <licensing@desertant.com>.
+
+Third-party notices for the weights: [`THIRD_PARTY_NOTICES.md`](https://huggingface.co/desert-ant-labs/shapes/blob/main/THIRD_PARTY_NOTICES.md).
+
+## Citation
+
+```bibtex
+@software{shapes_2026,
+  title  = {Shapes: On-device single-stroke shape recognition},
+  author = {Desert Ant Labs},
+  year   = {2026},
+  url    = {https://huggingface.co/desert-ant-labs/shapes},
+}
+```
+
+---
+
+© 2026 Desert Ant Labs · <https://desertant.com>
+<!-- model-footer:end -->
