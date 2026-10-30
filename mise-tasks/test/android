@@ -17,8 +17,8 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 #
 # A pinned swift.org toolchain: the Android cross-compilation SDK only exists for
 # released Swift versions. Own scratch dir (.build-androidtest) so toolchains
-# never share one: build:android-natives owns .build-android with a 6.4.x
-# snapshot toolchain, and reusing its scratch state from this release toolchain
+# never share one: build:android-natives owns .build-android with the 6.4.1
+# toolchain, and reusing its scratch state from this release toolchain
 # breaks the C targets' header search (stdlib.h not found).
 api="${DAL_ANDROID_API:-31}"
 ndk_version=r27d
@@ -70,21 +70,15 @@ if [ -z "$bundle" ]; then
 fi
 [ -n "$bundle" ] || { echo "error: the Swift Android SDK was not found after install" >&2; exit 1; }
 
-# The SDK needs an Android NDK (r27d+); install it into the bundle once and run
-# its setup script. Marker: a populated ndk-sysroot whose symlinked headers and
-# libraries both resolve (a restored cache can leave dangling links behind).
-# Large one-time download.
+# The SDK needs an Android NDK (r27d+); configure the bundle once against the
+# shared NDK from dal_android_ndk (one copy on disk, see dal.sh). Marker: a
+# populated ndk-sysroot whose symlinked headers and libraries both resolve (a
+# restored cache can leave dangling links behind).
 if ! [ -e "$bundle/swift-android/ndk-sysroot/usr/include/stdlib.h" ] \
     || ! find -L "$bundle/swift-android/ndk-sysroot" -name libc++_shared.so 2> /dev/null | grep -q .; then
-    echo "Installing the Android NDK $ndk_version and configuring the SDK (one-time, large download)..."
-    (
-        cd "$bundle/swift-android"
-        curl -fSL -o ndk.zip \
-            "https://dl.google.com/android/repository/android-ndk-$ndk_version-$(uname -s | tr '[:upper:]' '[:lower:]').zip"
-        unzip -qo ndk.zip
-        rm -f ndk.zip
-        ANDROID_NDK_HOME="$PWD/android-ndk-$ndk_version" ./scripts/setup-android-sdk.sh
-    )
+    echo "Configuring the SDK against the Android NDK $ndk_version (one-time)..."
+    ndk=$(dal_android_ndk)
+    ( cd "$bundle/swift-android" && ANDROID_NDK_HOME="$ndk" ./scripts/setup-android-sdk.sh )
 fi
 
 # SwiftPM matches an SDK by triple across every search path, and the snapshot

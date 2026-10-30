@@ -35,6 +35,7 @@ env:
 jobs:
   checks:
     name: checks (versions, JS units)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -81,6 +82,7 @@ jobs:
 
   apple:
     name: Apple (macOS)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -152,6 +154,7 @@ jobs:
 
   apple-ios:
     name: Apple (iOS)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
@@ -216,7 +219,7 @@ jobs:
     #
     # Pushes to main only: it is the least likely job to break and a macOS
     # minute bills as ten. Dispatch the workflow to run it on a branch.
-    if: github.event_name != 'pull_request'
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 20
     steps:
@@ -236,6 +239,7 @@ jobs:
 
   linux:
     name: Linux (Swift)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }} # glibc 2.35; the *published* natives build on 2.26 in release.yml
     timeout-minutes: 20
     steps:
@@ -328,6 +332,7 @@ jobs:
   # test:bundles and test:browser.
   js-browser:
     name: JavaScript (wasm, browser/SSR bundles)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
     timeout-minutes: 30
     steps:
@@ -468,6 +473,7 @@ jobs:
   # actually execute under wasm, so this is the browser correctness check.
   js-wasi:
     name: JavaScript (Swift tests on wasm)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
@@ -492,6 +498,7 @@ jobs:
 
   js-node:
     name: JavaScript (Node native)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     # The natives build in the release's image, so the host only runs docker and the suites.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -597,7 +604,7 @@ jobs:
     name: Windows (Swift)
     # Pushes to main only, not PRs: ~16 min a run at the 2x Windows rate.
     # Dispatch the workflow to run it on a branch.
-    if: github.event_name != 'pull_request'
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: windows-latest
     timeout-minutes: 40
     # The one job that runs swift directly rather than through mise, so it does
@@ -758,6 +765,7 @@ jobs:
 
   android:
     name: Android (natives, AARs, on-device)
+    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
     # emulator has been flaky on 24.04. build:android-natives fetches the Swift
     # snapshot tarball built for this Ubuntu release, so the cross-compile and
@@ -845,7 +853,7 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.2.0
+          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
 
       # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
       - uses: gradle/actions/setup-gradle@v4
@@ -854,7 +862,7 @@ jobs:
       # static-stdlib release builds into incremental ones; the source hash
       # keys an exact hit, and restore-keys accept a stale cache that SwiftPM
       # then patches incrementally. Two dirs, one per toolchain: .build-android
-      # belongs to the 6.4.x snapshot (build:android-natives), .build-androidtest
+      # belongs to the 6.4.1 toolchain (build:android-natives), .build-androidtest
       # to the pinned release toolchain (test:android). Sharing one dir would
       # poison the restored state across toolchains (CHostBridge: stdlib.h not found).
       - name: Cache the Android Swift builds
@@ -865,8 +873,8 @@ jobs:
             .build-androidtest
           # Per-commit key like the other Swift build caches: an exact hit
           # never re-saves, freezing the snapshot while runs re-pay the drift.
-          key: android-swift-build-v2-${{ github.sha }}
-          restore-keys: android-swift-build-v2-
+          key: android-swift-build-v3-${{ github.sha }}
+          restore-keys: android-swift-build-v3-
 
       # Cross-compile and package first, outside the emulator's lifetime, so a
       # long native build does not eat the emulator boot timeout. The emulator
@@ -932,7 +940,7 @@ jobs:
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
-          key: swift-android-6.4.x-2026-07-17-a-ubuntu-22.04-api24-litert-2.2.0
+          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
 
       - name: Save the AVD snapshot
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.avd-cache.outputs.cache-hit != 'true'
@@ -950,4 +958,4 @@ jobs:
           path: |
             .build-android
             .build-androidtest
-          key: android-swift-build-v2-${{ github.sha }}
+          key: android-swift-build-v3-${{ github.sha }}
