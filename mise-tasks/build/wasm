@@ -33,6 +33,33 @@ fi
 
 sdk=$(dal_wasm_sdk)
 
+# Own scratch behind the default path: test:wasi shares .build otherwise and
+# the two invocations rebuild each other's graph (see dal_default_scratch).
+dal_default_scratch .build-wasm-pkg
+
+# One hash over everything a wasm core is built from. Even a fully warm, no-op
+# plugin invocation costs ~10 s (SwiftPM startup, plugin planning, BridgeJS
+# codegen), times every model, so a model whose stamp still matches is skipped
+# before swift runs at all. Deliberately one global hash, not a per-model
+# dependency graph: all of Sources/ feeds the shared modules, so any Swift
+# change rebuilds every model, and only a PR that touches none of the inputs
+# gets the fast path. Stamps live in the scratch dir, not in dist/ (npm pack
+# would ship them); a skipped model's dist is checked for a real core instead,
+# which also catches a deleted or restubbed dist (stubs carry an empty .wasm).
+# Rebuild everything regardless with DAL_FORCE_WASM=1.
+if command -v sha256sum > /dev/null; then hash_cmd=(sha256sum); else hash_cmd=(shasum -a 256); fi
+inputs_hash=$(
+    {
+        swift --version 2> /dev/null
+        echo "sdk=$sdk opt=${DAL_SKIP_WASM_OPT:-}"
+        if command -v wasm-opt > /dev/null; then wasm-opt --version; fi
+        find Sources Package.swift LICENSE.md -type f -print0 | sort -z | xargs -0 "${hash_cmd[@]}"
+        if [ -f Package.resolved ]; then "${hash_cmd[@]}" < Package.resolved; fi
+        "${hash_cmd[@]}" < "$0"
+        "${hash_cmd[@]}" < Tools/dal.sh
+    } | "${hash_cmd[@]}" | cut -c1-16
+)
+
 # Every model with a Web entry, not just the ones with an npm package: a *Web
 # product that stops compiling should fail here rather than the first time
 # someone packages it.
@@ -56,6 +83,15 @@ for model in $(dal_select "${usage_model:-all}"); do
     product=$(dal_product "$model")
     [ -d "Sources/$product/Web" ] || { echo "== $product has no wasm entry, skipping =="; continue; }
     out=.build/wasm-package/$product
+
+    # The stamp is written only after the model's full pipeline (build,
+    # wasm-opt, staging) finished, so a run that died halfway rebuilds.
+    dist=packages/$model-node/dist
+    if [ -z "${DAL_FORCE_WASM:-}" ] && [ "$(cat "$out/.build-stamp" 2> /dev/null)" = "$inputs_hash" ] \
+        && { ! dal_ships "$model" node || { [ -s "$dist/${product}Web.wasm" ] && [ -f "$dist/instantiate.js" ]; }; }; then
+        echo "== ${product}Web is current, skipping (DAL_FORCE_WASM=1 to rebuild) =="
+        continue
+    fi
     echo "== ${product}Web =="
 
     # The default scratch path on purpose: the js packaging plugin mislocates
@@ -96,9 +132,10 @@ for model in $built; do
     # Models without an npm package are a compile check only; there is nowhere
     # to stage the artifact.
     dist=packages/$model-node/dist
-    if [ ! -d "packages/$model-node" ]; then
+    if ! dal_ships "$model" node; then
         ls -la "$out/${product}Web.wasm"
         echo "($model ships no npm package yet: compiled, not staged)"
+        echo "$inputs_hash" > "$out/.build-stamp"
         continue
     fi
 
@@ -113,6 +150,7 @@ for model in $built; do
     cp -r "$out"/platforms "$dist/platforms"
     # The npm tarball must carry the license (package.json: SEE LICENSE IN ...).
     cp LICENSE.md "packages/$model-node/LICENSE.md"
+    echo "$inputs_hash" > "$out/.build-stamp"
 
     ls -la "$dist/${product}Web.wasm"
 done

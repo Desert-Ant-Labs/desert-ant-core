@@ -137,11 +137,12 @@ for (const id of built.filter((id) => here.has(id))) {
   eq(id, m.weights.repo, `desert-ant-labs/${id}`, "weights.repo");
   eq(id, m.sdks.swift.package, product, "sdks.swift.package");
 
-  for (const [sdk, dir, name] of [
-    ["js", `packages/${id}-node`, `@desert-ant-labs/${id}`],
-    ["kotlin", `packages/${id}-kotlin`, `ai.desertant:${id}`],
+  // The manifest file, not the directory, as in dal_ships (Tools/dal.sh).
+  for (const [sdk, dir, name, marker] of [
+    ["js", `packages/${id}-node`, `@desert-ant-labs/${id}`, "package.json"],
+    ["kotlin", `packages/${id}-kotlin`, `ai.desertant:${id}`, "build.gradle.kts"],
   ]) {
-    const ships = existsSync(dir);
+    const ships = existsSync(`${dir}/${marker}`);
     if (ships && m.sdks[sdk].status !== "live") fail(`${id}/${sdk}`, `${dir} exists but status is ${m.sdks[sdk].status}`);
     if (!ships && m.sdks[sdk].status === "live") fail(`${id}/${sdk}`, `status live but ${dir} does not exist`);
     if (ships) eq(`${id}/${sdk}`, m.sdks[sdk].package, name, "package");

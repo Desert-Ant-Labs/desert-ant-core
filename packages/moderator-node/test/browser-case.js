@@ -5,7 +5,9 @@
 // the Hub at the pinned revision exactly as a consumer's first page load does.
 // It feeds images in every form a page has them (raw pixels, ImageData, <img>,
 // <canvas>, ImageBitmap, Blob), exercises every option and error path, and times
-// each quality. The positive fixture is a public-domain painting fetched from
+// each quality. The runs that only prove two inputs or options score the same
+// use quality "fast": the equality holds per quality, and the golden runs
+// already cover the expensive ones. The positive fixture is a public-domain painting fetched from
 // Wikimedia, never committed. `check` runs in Node on what `run` returns.
 
 const RESOURCES = "/Tests/ModeratorTests/Resources/";
@@ -73,7 +75,8 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
       rgba.data.set([syn.data[i * 3], syn.data[i * 3 + 1], syn.data[i * 3 + 2], 255], i * 4);
     }
     out.rgbaMatchesRgb =
-      JSON.stringify(await moderator.analyze(rgba)) === JSON.stringify(await moderator.analyze(syn));
+      JSON.stringify(await moderator.analyze(rgba, { quality: "fast" })) ===
+      JSON.stringify(await moderator.analyze(syn, { quality: "fast" }));
 
     // The SFW fixture as every image type a page can hold.
     const sfwBlob = await (await fetch(RESOURCES + golden.sfw.file)).blob();
@@ -83,7 +86,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
     const imageData = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
     out.sfwInputs = {};
     for (const [name, input] of Object.entries({ blob: sfwBlob, img, canvas, bitmap, imageData })) {
-      out.sfwInputs[name] = await moderator.analyze(input);
+      out.sfwInputs[name] = await moderator.analyze(input, { quality: "fast" });
     }
     for (const q of QUALITIES) {
       const t = await timed(() => moderator.analyze(img, { quality: q }));
@@ -99,9 +102,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
     out.positiveImg = await moderator.analyze(posImg);
     out.golden.positive = golden.positive.accurate;
     out.positiveStrict = await moderator.analyze(posBlob, { threshold: 0.99 });
-    out.positiveTopless = await moderator.analyze(posBlob, { policy: "allowTopless" });
-    const t = await timed(() => moderator.analyze(posBlob));
-    out.timings[`positive_${posImg.naturalWidth}x${posImg.naturalHeight}_accurate`] = t.ms;
+    out.positiveTopless = await moderator.analyze(posBlob, { policy: "allowTopless", quality: "fast" });
 
     // Error paths.
     out.errors = {

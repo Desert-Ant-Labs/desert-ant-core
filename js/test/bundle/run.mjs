@@ -30,7 +30,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 // This file lives at <repo>/js/test/bundle/run.mjs.
@@ -246,8 +246,10 @@ export const exports = {
   fs.writeFileSync(path.join(dir, wasmFile), "");
 }
 
-/** Copy a package into the workspace, filling in a stub dist when the real wasm
- *  build has not run, then `npm pack` it. Returns the tarball path. */
+/** Copy a package into the workspace, filling in a stub dist when the real
+ *  wasm build has not run. Packing is separate (pack below) so the dozen
+ *  `npm pack` runs can go in parallel; serially they were over a minute of
+ *  the matrix, nearly all of it npm's own startup per package. */
 function stage(srcDir, work, stub) {
   const staged = path.join(work, "staged", path.basename(srcDir));
   fs.mkdirSync(path.dirname(staged), { recursive: true });
@@ -271,12 +273,28 @@ function stage(srcDir, work, stub) {
   const repoLicense = path.join(REPO, "LICENSE.md");
   if (!fs.existsSync(license) && fs.existsSync(repoLicense)) fs.copyFileSync(repoLicense, license);
 
+  return { staged, realDist: real };
+}
+
+/** `npm pack` a staged package, async so the packs can run concurrently.
+ *  Same spawn rules as run(); see the comment above SHIMMED. */
+function pack(staged, work) {
   const dest = path.join(work, "tarballs");
   fs.mkdirSync(dest, { recursive: true });
-  const res = run("npm", ["pack", "--silent", "--pack-destination", dest], { cwd: staged });
-  if (res.code !== 0) die(`npm pack failed for ${srcDir}:\n${res.out}`);
-  const tgz = res.out.trim().split("\n").pop().trim();
-  return { tarball: path.join(dest, path.basename(tgz)), realDist: real };
+  const shell = SHIMMED("npm");
+  return new Promise((resolve, reject) => {
+    const args = ["pack", "--silent", "--pack-destination", dest];
+    const child = spawn("npm", shell ? args.map(quote) : args, { cwd: staged, shell });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code !== 0) return reject(new Error(`npm pack failed for ${staged}:\n${out}`));
+      const tgz = out.trim().split("\n").pop().trim();
+      resolve(path.join(dest, path.basename(tgz)));
+    });
+  });
 }
 
 // ---------------------------------------------------------------- scenarios
@@ -538,7 +556,7 @@ ${config}};
 
 // ---------------------------------------------------------------- driver
 
-function main() {
+async function main() {
   // Writes a stub dist into each package that has no real one, in place. This
   // is what lets test:node run on a machine (or CI job) with no Swift wasm
   // toolchain: its SSR-import assertion needs dist/ to exist with the right
@@ -579,9 +597,13 @@ function main() {
   log(`workspace: ${work}`);
 
   // 1. Pack every model package and the shared core exactly as npm publishes
-  //    them, so a change to either half is tested against the other.
+  //    them, so a change to either half is tested against the other. The
+  //    copies are staged serially (cheap); the npm packs run in parallel.
   const core = stage(path.join(REPO, "js"), work, null);
   const pkgs = pkgDirs.map((p) => ({ ...p, ...stage(p.dir, work, p) }));
+  const tarballs = await Promise.all([core, ...pkgs].map((p) => pack(p.staged, work)));
+  core.tarball = tarballs[0];
+  pkgs.forEach((p, i) => (p.tarball = tarballs[i + 1]));
   for (const p of pkgs) {
     log(`packed ${p.name} (${p.realDist ? "real wasm dist" : "stub dist - run `mise run build:wasm` for the real one"})`);
   }
@@ -627,4 +649,4 @@ function main() {
   log(`\nall ${chosen.length} scenarios passed`);
 }
 
-main();
+main().catch((e) => die(e.message));

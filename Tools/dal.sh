@@ -60,11 +60,24 @@ dal_models() {
     done | sort
 }
 
+# Whether a model ships the given platform package: dal_ships <model> node|kotlin.
+# Tests the package's manifest, not the directory: CI runners keep their work
+# directory between jobs, so another branch's package can leave an untracked
+# directory (node_modules, build outputs) without one. settings.gradle.kts uses
+# the same rule.
+dal_ships() {
+    case "$2" in
+        node) [ -f "packages/$1-node/package.json" ] ;;
+        kotlin) [ -f "packages/$1-kotlin/build.gradle.kts" ] ;;
+        *) echo "error: unknown platform $2" >&2; return 2 ;;
+    esac
+}
+
 # Models that ship the given platform package: dal_models_with node|kotlin.
 dal_models_with() {
     local model
     for model in $(dal_models); do
-        [ -d "packages/$model-$1" ] && echo "$model"
+        if dal_ships "$model" "$1"; then echo "$model"; fi
     done
     return 0
 }
@@ -145,6 +158,32 @@ dal_swift_sdk_dirs() {
         "${LOCALAPPDATA:-$HOME/AppData/Local}/org.swift.swiftpm/swift-sdks"
 }
 
+# Echo an Android NDK path (r27d), fetching it into the toolchain cache if the
+# host has none. Swift 6.4's SwiftPM locates an NDK itself when targeting an
+# android triple, through ANDROID_NDK_HOME/ANDROID_NDK_ROOT or a few standard
+# install paths, and fails with "No Android NDK is installed" without one.
+# Callers export ANDROID_NDK_HOME from this. One shared copy on purpose: an
+# unpacked NDK is ~3 GB and more than one task needs it.
+dal_android_ndk() {
+    local version=r27d base candidate ndk_dir tmp
+    [ -n "${ANDROID_NDK_HOME:-}" ] && { echo "$ANDROID_NDK_HOME"; return 0; }
+    for base in "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
+        candidate=$(ls -d "$base"/* 2> /dev/null | sort -V | tail -1 || true)
+        [ -n "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+    ndk_dir="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/android-ndk-$version"
+    if [ ! -d "$ndk_dir" ]; then
+        echo "Installing the Android NDK $version (one-time, large download)..." >&2
+        tmp=$(mktemp -d)
+        curl -fSL -o "$tmp/ndk.zip" \
+            "https://dl.google.com/android/repository/android-ndk-$version-$(uname -s | tr '[:upper:]' '[:lower:]').zip"
+        mkdir -p "$(dirname "$ndk_dir")"
+        unzip -qo "$tmp/ndk.zip" -d "$(dirname "$ndk_dir")"
+        rm -rf "$tmp"
+    fi
+    echo "$ndk_dir"
+}
+
 dal_has_swift_sdk() {
     local dir
     while IFS= read -r dir; do
@@ -182,7 +221,7 @@ dal_wasm_sdk() {
 # Linux and Windows both take it from the ai-edge-litert PyPI wheel, which is
 # where Google ships the prebuilt runtime; only the file names differ.
 dal_vendor_litert() {
-    local version="${DAL_LITERT_VERSION:-2.2.0}" arch wheel lib gpu dest tmp
+    local version="${DAL_LITERT_VERSION:-2.3.0}" arch wheel lib gpu dest tmp
     case "$(dal_host_os)" in
         darwin) return 0 ;;
         windows)
@@ -200,8 +239,8 @@ dal_vendor_litert() {
     esac
     dest="Vendor/litert/lib/$arch"
     # Windows is vendored only once both halves are there: a DLL with no import
-    # library links nothing.
-    if [ -f "$dest/$lib" ]; then
+    # library links nothing. A version stamp refetches when the version changes.
+    if [ -f "$dest/$lib" ] && [ "$(cat "$dest/version" 2> /dev/null)" = "$version" ]; then
         [ "$arch" != windows-x64 ] && return 0
         [ -f "$dest/LiteRt.lib" ] && return 0
     fi
@@ -214,6 +253,7 @@ dal_vendor_litert() {
         --target "$tmp/site" --only-binary=:all: "ai-edge-litert==$version" >/dev/null
     [ -f "$tmp/site/ai_edge_litert/$lib" ] \
         || { echo "error: $lib is not in the ai-edge-litert wheel" >&2; return 1; }
+    rm -f "$dest/$gpu" "$dest/LiteRt.lib"   # no sibling or import library from another version
     cp "$tmp/site/ai_edge_litert/$lib" "$dest/"
     # GPU models also want the WebGPU accelerator sibling, which core's
     # LiteRTSession picks up automatically when it is next to the runtime.
@@ -222,6 +262,7 @@ dal_vendor_litert() {
     fi
     rm -rf "$tmp"
     [ "$arch" = windows-x64 ] && dal_windows_import_lib "$dest/$lib" "$dest/LiteRt.lib"
+    echo "$version" > "$dest/version"
     return 0
 }
 
@@ -405,6 +446,32 @@ dal_sweep_bundle_leaks() { # <scratch-path>
     done < <(find "$1" -type d -name '*.bundle' -exec find {} -maxdepth 1 -type f ';' 2> /dev/null)
     [ "$swept" -gt 0 ] && echo "swept $swept stray resource-bundle file(s) from the repo root" >&2
     return 0
+}
+
+# ---------------------------------------------------------------- scratch
+
+# Route SwiftPM's default .build to a per-task directory, via a symlink.
+#
+# The js plugin only works under the default scratch path (it mislocates its
+# products under --scratch-path), which forces build:wasm and test:wasi onto
+# the same .build. But SwiftPM keys its build database on the exact command
+# line, and the two tasks invoke the plugin differently, so each run replans
+# and rebuilds the other's whole graph: on a warm CI runner, build:wasm after
+# test:wasi was 10+ minutes instead of 3. With .build as a symlink each task
+# keeps its own real directory, and the plugin still sees the path it needs.
+#
+# A real .build from before this helper is adopted by the first caller rather
+# than deleted, so a warm local cache survives. Callers must not run
+# concurrently in one tree (they would race the symlink); build:wasm and
+# test:wasi already cannot, no mise umbrella runs both, and a CI runner
+# serializes its jobs. Both callers sit behind dal_can_symlink.
+dal_default_scratch() { # <dir>, e.g. dal_default_scratch .build-wasm-pkg
+    local real="$1"
+    if [ -e .build ] && [ ! -L .build ]; then
+        if [ -e "$real" ]; then rm -rf .build; else mv .build "$real"; fi
+    fi
+    mkdir -p "$real"
+    ln -sfn "$real" .build
 }
 
 # ---------------------------------------------------------------- misc

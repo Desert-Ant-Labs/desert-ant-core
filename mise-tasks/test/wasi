@@ -28,6 +28,10 @@ fi
 
 sdk=$(dal_wasm_sdk)
 
+# Own scratch behind the default path: build:wasm shares .build otherwise and
+# the two invocations rebuild each other's graph (see dal_default_scratch).
+dal_default_scratch .build-wasi
+
 # Native host binary; the wasm run's fetch reaches it over localhost.
 # Own port: the umbrella `test` runs this and test:swift in parallel, and both
 # start an echo server. The suites read DAL_ECHO_PORT (8199 when unset).
