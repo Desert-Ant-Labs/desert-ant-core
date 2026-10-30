@@ -21,6 +21,12 @@ final class LiteRTModel: @unchecked Sendable {
     /// The signature keys, in the model's order.
     let signatures: [String]
 
+    /// GPU compute precision (LiteRtDelegatePrecision): fp16 math with fp32
+    /// accumulation. LiteRT's default accumulates in fp16 too, which on Adreno
+    /// moved Eye's photo heads far off the CPU (issue #101); this brings them
+    /// back for about a quarter more GPU time there. CPU sessions ignore it.
+    static let gpuPrecision: Int32 = 3
+
     init(modelPath: String, modelBytes: [UInt8]? = nil,
          accelerator: LiteRTSession.Accelerator = .auto) throws {
         var errbuf = [CChar](repeating: 0, count: 256)
@@ -28,12 +34,12 @@ final class LiteRTModel: @unchecked Sendable {
             if let modelBytes {
                 return modelBytes.withUnsafeBytes { bytes in
                     dal_lrt_model_create(nil, bytes.baseAddress, bytes.count,
-                                         accelerator.rawValue, 0, 0,
+                                         accelerator.rawValue, 0, Self.gpuPrecision,
                                          err.baseAddress, Int32(err.count))
                 }
             } else {
                 return modelPath.withCString { path in
-                    dal_lrt_model_create(path, nil, 0, accelerator.rawValue, 0, 0,
+                    dal_lrt_model_create(path, nil, 0, accelerator.rawValue, 0, Self.gpuPrecision,
                                          err.baseAddress, Int32(err.count))
                 }
             }

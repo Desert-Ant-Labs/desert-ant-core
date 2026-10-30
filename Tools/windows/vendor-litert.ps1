@@ -12,10 +12,11 @@
 # job in .github/workflows/ci.yml onto mise and delete this file.
 $ErrorActionPreference = "Stop"
 
-$version = if ($env:DAL_LITERT_VERSION) { $env:DAL_LITERT_VERSION } else { "2.2.0" }
+$version = if ($env:DAL_LITERT_VERSION) { $env:DAL_LITERT_VERSION } else { "2.3.0" }
 $dest = "Vendor/litert/lib/windows-x64"
+$stamp = if (Test-Path "$dest/version") { (Get-Content "$dest/version" -Raw).Trim() } else { "" }
 
-if ((Test-Path "$dest/libLiteRt.dll") -and (Test-Path "$dest/LiteRt.lib")) {
+if ((Test-Path "$dest/libLiteRt.dll") -and (Test-Path "$dest/LiteRt.lib") -and ($stamp -eq $version)) {
     Write-Host "LiteRT $version already vendored at $dest"
     exit 0
 }
@@ -56,6 +57,7 @@ try {
     & lib "/def:$tmp/LiteRt.def" /machine:x64 "/out:$dest/LiteRt.lib" /nologo
     if ($LASTEXITCODE -ne 0) { throw "lib.exe failed" }
 
+    Set-Content "$dest/version" $version
     Write-Host "Vendored LiteRT $version -> $dest ($($names.Count) exports)"
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
