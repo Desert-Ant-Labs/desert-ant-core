@@ -6,8 +6,8 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # The tag is the SwiftPM release - consumers pin
 # `.package(url: ..., from: "X.Y.Z")` - so a Release object always belongs with
-# it. Every other artifact ships at the same version, so the notes are just the
-# coordinates plus GitHub's generated changelog.
+# it. Every other artifact ships at the same version, so the notes are the
+# coordinates plus the subject of each commit since the previous tag.
 version=$(dal_version)
 tag="v$version"
 repo="${GITHUB_REPOSITORY:-Desert-Ant-Labs/desert-ant-core}"
@@ -31,9 +31,15 @@ trap 'rm -f "$notes"' EXIT
         echo "- npm: \`@desert-ant-labs/$model@$version\`"
     done
     echo "- npm (shared runtime): \`@desert-ant-labs/core@$version\`"
+    if previous=$(git describe --tags --abbrev=0 --exclude='*-rc.*' "$tag^" 2> /dev/null); then
+        echo
+        echo "## Changes"
+        echo
+        git log --reverse --no-merges --format='- %s' "$previous..$tag"
+    fi
 } > "$notes"
 
 jq -n --arg tag "$tag" --arg name "desert-ant-core $version" --rawfile body "$notes" \
-    '{tag_name: $tag, name: $name, body: $body, generate_release_notes: true, prerelease: ($tag | contains("-"))}' \
+    '{tag_name: $tag, name: $name, body: $body, prerelease: ($tag | contains("-"))}' \
     | gh api "repos/$repo/releases" --input - > /dev/null
 echo "created release $tag"
