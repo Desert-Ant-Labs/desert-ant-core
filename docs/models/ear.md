@@ -22,7 +22,7 @@ Ear is a spoken language identification model for 102 languages. Ear gives each 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Ear` product to your target.
@@ -30,7 +30,7 @@ Then add the `Ear` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:ear:4.2.2")
+implementation("ai.desertant:ear:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

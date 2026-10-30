@@ -21,7 +21,7 @@ Eye tags photos on device so apps can find and filter them: what a photo is (scr
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Eye` product to your target.
@@ -29,7 +29,7 @@ Then add the `Eye` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:eye:4.2.2")
+implementation("ai.desertant:eye:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

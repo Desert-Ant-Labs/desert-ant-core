@@ -25,7 +25,7 @@ Find every "uh", "um" and "hmm" in an audio file, down to 20ms. Uhm runs on devi
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Uhm` product to your target.

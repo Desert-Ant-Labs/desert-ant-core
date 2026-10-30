@@ -23,7 +23,7 @@ Clips carry no title. To write one for each clip, pair Clips with [Title](title.
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Clips` product to your target.

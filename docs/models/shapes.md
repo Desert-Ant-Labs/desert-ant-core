@@ -28,7 +28,7 @@ Built for PencilKit-style smart shapes: draw, pause, and the rough stroke become
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Shapes` product to your target.
@@ -36,7 +36,7 @@ Then add the `Shapes` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:shapes:4.2.2")
+implementation("ai.desertant:shapes:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

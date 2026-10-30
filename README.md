@@ -68,7 +68,7 @@ On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, vis
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
@@ -88,10 +88,10 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:4.2.2")
-    implementation("ai.desertant:redact:4.2.2")
-    implementation("ai.desertant:clear:4.2.2")
-    implementation("ai.desertant:tongue:4.2.2")
+    implementation("ai.desertant:emo:4.2.3")
+    implementation("ai.desertant:redact:4.2.3")
+    implementation("ai.desertant:clear:4.2.3")
+    implementation("ai.desertant:tongue:4.2.3")
 }
 ```
 
@@ -152,7 +152,7 @@ The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-a
 Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3",
         traits: ["Xet"])
 ```
 

@@ -29,7 +29,7 @@ On genuinely ambiguous input, Tongue says so rather than guessing: `"la casa"` c
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.2")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
 ```
 
 Then add the `Tongue` product to your target.
@@ -37,7 +37,7 @@ Then add the `Tongue` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:tongue:4.2.2")
+implementation("ai.desertant:tongue:4.2.3")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
