@@ -1,4 +1,4 @@
-#if canImport(CoreAI)
+#if canImport(CoreAI) && arch(arm64)
 import Accelerate
 import CoreAI
 import Foundation

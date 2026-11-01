@@ -34,7 +34,7 @@ public enum ModelRuntime: String, Sendable, Hashable, CaseIterable {
 
     /// The runtime this device should run: Core AI where the OS ships it, else the platform default.
     public static var current: ModelRuntime {
-        #if canImport(CoreAI)
+        #if canImport(CoreAI) && arch(arm64)
         if #available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *) { return .coreAI }
         #endif
         return platformDefault
