@@ -34,19 +34,32 @@ extension Uhm {
         /// Core AI export (a directory on the Hub): iOS 27 and macOS 27.
         public var coreAI: String { "\(stem).aimodel" }
 
-        /// The runnable artifact for `platform`. Only Apple ships, so every
-        /// platform answers the Core ML name.
-        public func artifact(for platform: ModelPlatform) -> String { coreML }
+        /// LiteRT export: Android, Linux, Windows, and the browser.
+        public var liteRT: String { "\(stem).tflite" }
+
+        public func artifact(for platform: ModelPlatform) -> String {
+            platform == .apple ? coreML : liteRT
+        }
 
         /// The runnable artifact for `runtime`.
         public func artifact(for runtime: ModelRuntime) -> String {
-            runtime == .coreAI ? coreAI : coreML
+            switch runtime {
+            case .coreML: coreML
+            case .coreAI: coreAI
+            case .liteRT: liteRT
+            }
         }
 
-        /// Repo-relative entries each platform needs for this tier: the
-        /// detector plus the tier-independent type-labeler head.
+        /// Repo-relative entries each platform needs for this tier. The type
+        /// labeler is SoundAnalysis, so only Apple downloads it.
         public var files: [ModelPlatform: [String]] {
-            [.apple: [coreML + "/", UhmModel.labeler]]
+            [
+                .apple: [coreML + "/", UhmModel.labeler],
+                .android: [liteRT],
+                .linux: [liteRT],
+                .windows: [liteRT],
+                .web: [liteRT],
+            ]
         }
 
         /// Repo-relative entries for the Core AI runtime, preferred on iOS 27 and
