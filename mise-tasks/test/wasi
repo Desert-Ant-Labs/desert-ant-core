@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 #MISE description="Run the Swift test suite on wasm32-unknown-wasi under Node"
 #MISE dir="{{config_root}}"
-#MISE tools={swift="6.3.3", node="22"}
+#MISE tools={swift="{{ vars.swift }}", node="22"}
 # Not at the same time as test:swift: both build Tools/EchoServer.swift and bind
 # 127.0.0.1:8199 (HTTPClientTests connects to that exact port), so run in
 # parallel whichever started second dies with "bind() failed on port 8199".
 #MISE wait_for=["test:swift"]
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # This is the browser platform's correctness check: on wasm the JSON, Regex, and
 # TextNormalization backends call into the JS host (JSON.parse, RegExp,
@@ -31,6 +32,7 @@ sdk=$(dal_wasm_sdk)
 # Own scratch behind the default path: build:wasm shares .build otherwise and
 # the two invocations rebuild each other's graph (see dal_default_scratch).
 dal_default_scratch .build-wasi
+dal_drop_stale_archives .build-wasi
 
 # Native host binary; the wasm run's fetch reaches it over localhost.
 # Own port: the umbrella `test` runs this and test:swift in parallel, and both
@@ -44,5 +46,9 @@ dal_start_echo_server "$DAL_ECHO_PORT"
 #   --allow-writing-to-package-directory: the plugin writes under .build/.
 # Default scratch path on purpose: the js plugin mislocates products under a
 # custom --scratch-path. test:swift builds into .build-host for the same reason.
+#   -Xnode --stack-size: Swift on wasm has no tail calls yet, so every await
+#     in a loop nests the stack (swiftwasm/swift#5568). Voz's decode loop
+#     overflows Node's default ~1 MB with a dozen tests interleaving; 4 MB
+#     clears it and stays well inside the main thread's 8 MB.
 swift package --swift-sdk "$sdk" --disable-sandbox --allow-writing-to-package-directory \
-    js test --environment node
+    js test --environment node -Xnode --stack-size=4096

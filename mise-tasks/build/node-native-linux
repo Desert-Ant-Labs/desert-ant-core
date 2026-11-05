@@ -5,6 +5,8 @@
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # glibc 2.26 and GLIBCXX_3.4.24 keep the natives under the floor build:node-native checks; the image also supplies Swift.
+# Not vars.swift: Swift 6.4 ships no Amazon Linux 2 image, only 2023, whose
+# glibc 2.34 would raise the natives' floor past Ubuntu 20.04 (see the task).
 image=swift:6.3.3-amazonlinux2
 
 if [ "$(dal_host_os)" != linux ]; then
