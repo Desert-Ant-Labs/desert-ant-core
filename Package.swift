@@ -128,7 +128,7 @@ let jsTestSupport: [Target.Dependency] = noJavaScriptKit ? [] : [
 // version, so this has to become `from:` a tag before a release ships it.
 #if os(Windows)
 let onnxDependencies: [Package.Dependency] = [
-    .package(url: "https://github.com/Desert-Ant-Labs/COnnxRuntime.git", from: "1.0.0"),
+    .package(url: "https://github.com/Desert-Ant-Labs/COnnxRuntime.git", from: "1.1.0"),
 ]
 let onnxProducts: [Target.Dependency] = [
     .product(name: "COnnxRuntime", package: "COnnxRuntime", condition: .when(platforms: [.windows])),
@@ -236,6 +236,16 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/moderator_golden.json"),
             .copy("Resources/sfw_beach.png"),
+        ]
+    ),
+    // Text in, a byte-fallback BPE tokenizer in pure Swift, one graph per runtime under a folder per
+    // runtime on the Hub; nothing beyond the core.
+    .init(
+        name: "Toxic",
+        testResources: [
+            .copy("Resources/toxic_golden.json"),
+            .copy("Resources/toxic_tokenizer_oracle.json"),
+            .copy("Resources/toxic_table_oracle.json"),
         ]
     ),
     .init(
@@ -471,7 +481,9 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "CStrings",
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
-            ] + jsWasi + jsEventLoop
+            ] + jsWasi + jsEventLoop,
+            // Log's default sink on Android is logcat (liblog).
+            linkerSettings: [.linkedLibrary("log", .when(platforms: [.android]))]
         ),
         .target(
             name: "Usage",
@@ -555,14 +567,14 @@ let libraryTargets: [Target] = [
 ]
 
 let testTargets: [Target] = [
-        .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsWasi + jsTestSupport),
+        .testTarget(name: "HTTPTests", dependencies: ["PlatformSupport"] + jsWasi),
         .testTarget(
             name: "UsageTests",
-            dependencies: ["Usage"] + jsWasi + jsTestSupport,
+            dependencies: ["Usage"] + jsWasi,
             resources: [.copy("Resources/license_vectors.json")]
         ),
         .testTarget(name: "LicenseE2ETests", dependencies: ["Usage", "Emo"]),
-        .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"] + jsTestSupport),
+        .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"]),
         .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
         .testTarget(
             name: "BindingsTests",
@@ -659,6 +671,15 @@ let vozTargets: [Target] = [
 let coreTargets: [Target] =
     libraryTargets + testTargets + modelTargets + modelTestTargets
     + tongueTargets + vozTargets
+
+// On wasm every test target is its own runner (SwiftPM 6.4 builds one
+// `<Target>-test-runner.wasm` per test target), so each needs JavaScriptKit's
+// runtime and event loop itself: without them a runner that never links
+// JavaScriptKit fails the JS runtime's version check, and one that awaits
+// sleeps through WASI poll_oneoff, which the Node shim does not implement.
+for target in coreTargets where target.type == .test {
+    target.dependencies += jsTestSupport
+}
 
 let package = Package(
     name: "DesertAnt",

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #MISE description="Build each model's WebAssembly core into packages/<model>-node/dist"
 #MISE dir="{{config_root}}"
-#MISE tools={swift="6.3.3", "aqua:WebAssembly/binaryen"="130", node="22"}
+#MISE tools={swift="{{ vars.swift }}", "aqua:WebAssembly/binaryen"="130", node="22"}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # This is the browser artifact: the npm package's default entry loads it. The
 # Swift SDK for WebAssembly installs on demand; wasm-opt comes from mise.

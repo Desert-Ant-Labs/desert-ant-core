@@ -49,6 +49,77 @@ dal_can_symlink() {
     return $ok
 }
 
+# ---------------------------------------------------------------- host packages
+
+# On Linux the swift.org toolchain is a tarball: mise unpacks it, and nothing
+# installs the system libraries it loads, so a fresh host dies with
+# "swift-build: error while loading shared libraries: libxml2.so.2". This
+# installs the packages swift.org's Linux instructions list, with apt, when one
+# is missing: what the toolchain's binaries load (xml2, curl, edit, sqlite3,
+# ncurses, z3, python3), what linking needs (libc6-dev, the crt objects and
+# libstdc++ headers that come with g++, binutils), the dev names of what static
+# Foundation autolinks (-lcurl -lxml2 -lz), tzdata for Foundation's time zones,
+# and unzip for the NDK. g++ stands in for libgcc-N-dev and libstdc++-N-dev,
+# whose N differs per Ubuntu release, and is the cc build:node-native compiles
+# its shims with.
+#
+# The common path reads dpkg and never touches the network. Installing needs
+# root or passwordless sudo, which a CI runner has; otherwise this prints the
+# command and fails, which beats the loader's message twenty lines in. Hosts
+# without apt (Amazon Linux in build:node-native-linux's image, Fedora) are
+# left alone: their images ship the toolchain with its libraries.
+#
+# `sudo timeout`, not `timeout sudo`: apt can wedge on a bad mirror, and the
+# killer must run as root to signal the root apt-get it is stopping. -k
+# follows up with SIGKILL for an apt wedged past SIGTERM. Bounded attempts
+# with a retry, so a bad mirror costs seconds, not the run.
+dal_require_swift_packages() {
+    local pkgs missing="" gold="" p attempt as_root=()
+    [ "$(dal_host_os)" = linux ] || return 0
+    command -v dpkg > /dev/null 2>&1 && command -v apt-get > /dev/null 2>&1 || return 0
+    pkgs="binutils g++ libc6-dev libcurl4-openssl-dev libedit2 libncurses-dev libpython3-dev libsqlite3-0 libxml2-dev libz3-dev pkg-config tzdata unzip zip zlib1g-dev"
+    for p in $pkgs; do
+        dpkg-query -W -f='${Status}' "$p" 2> /dev/null | grep -q 'install ok installed' || missing="$missing $p"
+    done
+    # swiftc links with gold. Ubuntu 26.04 moved it out of binutils into
+    # binutils-gold, a package the older releases do not have, so ask for the
+    # linker here and for the package only once apt can say whether it exists.
+    command -v ld.gold > /dev/null 2>&1 || gold=binutils-gold
+    [ -n "$missing$gold" ] || return 0
+    if [ "$(id -u)" != 0 ]; then
+        if ! sudo -n apt-get --version > /dev/null 2>&1; then
+            echo "error: the Swift toolchain needs system packages this host does not have:$missing ${gold:+(and $gold if this release packages it)}" >&2
+            echo "       Install them once, as root:" >&2
+            echo "         apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends$missing $gold" >&2
+            echo "       With passwordless sudo, mise run does this itself." >&2
+            return 1
+        fi
+        as_root=(sudo)
+    fi
+    # tzdata asks for a time zone unless told not to; `env`, not a bare
+    # assignment, because sudo strips those unless configured to keep them.
+    for attempt in 1 2 3; do
+        if ${as_root[@]+"${as_root[@]}"} env DEBIAN_FRONTEND=noninteractive timeout -k 10 120 apt-get update -qq; then
+            # Not grep -q: it stops at the match, apt-cache dies of SIGPIPE on the
+            # version table that follows, and pipefail then reads that as "no candidate".
+            if [ -n "$gold" ] && apt-cache policy binutils-gold 2> /dev/null | grep 'Candidate: [0-9]' > /dev/null; then
+                missing="$missing binutils-gold"
+            fi
+            # Only gold was wanted and this release ships it in binutils, which is installed.
+            [ -n "$missing" ] || return 0
+            echo "Installing the Swift toolchain's system packages (one-time):$missing" >&2
+            # shellcheck disable=SC2086
+            if ${as_root[@]+"${as_root[@]}"} env DEBIAN_FRONTEND=noninteractive timeout -k 10 300 apt-get install -y -qq --no-install-recommends $missing; then
+                return 0
+            fi
+        fi
+        echo "apt attempt $attempt timed out or failed; retrying" >&2
+        sleep $((attempt * 10))
+    done
+    echo "error: apt failed after 3 attempts" >&2
+    return 1
+}
+
 # ---------------------------------------------------------------- models
 
 # Every model in the repo, lowercase, e.g. "clear emo redact".
@@ -158,30 +229,51 @@ dal_swift_sdk_dirs() {
         "${LOCALAPPDATA:-$HOME/AppData/Local}/org.swift.swiftpm/swift-sdks"
 }
 
-# Echo an Android NDK path (r27d), fetching it into the toolchain cache if the
-# host has none. Swift 6.4's SwiftPM locates an NDK itself when targeting an
-# android triple, through ANDROID_NDK_HOME/ANDROID_NDK_ROOT or a few standard
-# install paths, and fails with "No Android NDK is installed" without one.
-# Callers export ANDROID_NDK_HOME from this. One shared copy on purpose: an
-# unpacked NDK is ~3 GB and more than one task needs it.
-dal_android_ndk() {
-    local version=r27d base candidate ndk_dir tmp
-    [ -n "${ANDROID_NDK_HOME:-}" ] && { echo "$ANDROID_NDK_HOME"; return 0; }
-    for base in "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
-        candidate=$(ls -d "$base"/* 2> /dev/null | sort -V | tail -1 || true)
-        [ -n "$candidate" ] && { echo "$candidate"; return 0; }
+# The Android ABIs to cross-compile, space-separated. The default is arm64-v8a
+# alone because every machine, emulator and phone the team develops on is
+# arm64. `all` means both. CI sets x86_64 for its emulator, and publish:maven
+# pins both itself, since an AAR on Maven Central must carry both whatever the
+# caller's environment says.
+dal_android_abis() { # [override], e.g. a task's --abi flag
+    local abis="${1:-${DAL_ANDROID_ABIS:-arm64-v8a}}" abi
+    [ "$abis" = all ] && abis="arm64-v8a x86_64"
+    for abi in $abis; do
+        case "$abi" in
+            arm64-v8a | x86_64) ;;
+            *) echo "error: unknown Android ABI '$abi' (use arm64-v8a, x86_64, or all)" >&2; return 1 ;;
+        esac
     done
-    ndk_dir="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/android-ndk-$version"
-    if [ ! -d "$ndk_dir" ]; then
-        echo "Installing the Android NDK $version (one-time, large download)..." >&2
-        tmp=$(mktemp -d)
-        curl -fSL -o "$tmp/ndk.zip" \
-            "https://dl.google.com/android/repository/android-ndk-$version-$(uname -s | tr '[:upper:]' '[:lower:]').zip"
-        mkdir -p "$(dirname "$ndk_dir")"
-        unzip -qo "$tmp/ndk.zip" -d "$(dirname "$ndk_dir")"
-        rm -rf "$tmp"
+    echo "$abis"
+}
+
+# The one Android NDK this repo builds with, an sdkmanager version such as
+# 30.0.16248370. Every consumer reads ANDROID_NDK_VERSION: these tasks, the
+# Gradle builds (build.gradle.kts and androidtest/ set ndkVersion from it), and
+# the CI NDK caches, so moving NDKs is editing that one file.
+dal_android_ndk_version() {
+    local v
+    v=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
+    [ -n "$v" ] || { echo "error: ANDROID_NDK_VERSION is empty" >&2; return 1; }
+    echo "$v"
+}
+
+# Echo the pinned NDK's path: side by side in the Android SDK that the
+# android-sdk task provisions and writes to local.properties, which installs it
+# there. That is also where AGP looks for ndkVersion, so the scripts and Gradle
+# share one copy. ANDROID_NDK_HOME is deliberately not consulted: on a dev
+# machine it points at whatever NDK was installed last, which is how builds
+# drifted onto an unpinned one. Callers export ANDROID_NDK_HOME from this,
+# since Swift 6.4's SwiftPM finds its NDK there.
+dal_android_ndk() {
+    local version sdk ndk
+    version=$(dal_android_ndk_version)
+    sdk=$(sed -n 's/^sdk\.dir=//p' local.properties 2> /dev/null)
+    ndk="$sdk/ndk/$version"
+    if [ -z "$sdk" ] || [ "$(sed -n 's/^Pkg\.Revision *= *//p' "$ndk/source.properties" 2> /dev/null)" != "$version" ]; then
+        echo "error: the Android NDK $version is not installed in ${sdk:-the Android SDK}; run 'mise run android-sdk'" >&2
+        return 1
     fi
-    echo "$ndk_dir"
+    echo "$ndk"
 }
 
 dal_has_swift_sdk() {
@@ -472,6 +564,29 @@ dal_default_scratch() { # <dir>, e.g. dal_default_scratch .build-wasm-pkg
     fi
     mkdir -p "$real"
     ln -sfn "$real" .build
+}
+
+# Swift Build archives a static library with `ar rcs`, which adds and replaces
+# members but never removes one: an object from a file the tree no longer has
+# stays in the archive and fails the link, once another branch has built in the
+# same scratch dir (the self-hosted runners check out with clean: false). When
+# the set of source files differs from the last build here, drop the archives;
+# the build recreates them from the cached objects in about ten seconds.
+#
+# A test runner from a test target this tree does not have is stale the same
+# way: the js plugin runs every *-test-runner.wasm under out/Products, and one
+# built on another branch fails to instantiate against this tree's host bridge.
+# That check runs on every call, not behind the stamp: the failing run has
+# already stamped this tree, so a re-run of the same commit would keep it.
+dal_drop_stale_archives() { # <scratch>, e.g. dal_drop_stale_archives .build-wasi
+    local scratch="$1" stamp="$1/.sources-stamp" key runner
+    while IFS= read -r runner; do
+        [ -d "Tests/$(basename "$runner" -test-runner.wasm)" ] || rm -f "$runner"
+    done < <(find "$scratch/out/Products" -type f -name '*-test-runner.wasm' 2> /dev/null)
+    key=$({ git ls-files -co --exclude-standard -- Sources Tests; cat Package.swift Package.resolved; } 2> /dev/null | git hash-object --stdin)
+    [ "$(cat "$stamp" 2> /dev/null)" = "$key" ] && return 0
+    find "$scratch/out/Products" -name '*.a' -delete 2> /dev/null || true
+    mkdir -p "$scratch" && echo "$key" > "$stamp"
 }
 
 # ---------------------------------------------------------------- misc

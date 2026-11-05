@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 #MISE description="Build each model's native Node core into packages/<model>-node/native/<platform>-<arch>"
 #MISE dir="{{config_root}}"
+#MISE tools={swift={version="{{ vars.swift }}", os=["linux"]}}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # The npm package is isomorphic: browsers get the WebAssembly + LiteRT.js build
 # (build:wasm), Node gets this prebuilt native core - the <Product>Node product,
@@ -18,9 +20,10 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 #     manylinux_2_28 floor the vendored x86_64 LiteRT wheel already sets. Both
 #     are only forward-compatible, so the build host's versions become the
 #     package's floor. The release runs this inside a swift:*-amazonlinux2
-#     image (glibc 2.26, GLIBCXX_3.4.24, which also supplies the Swift
-#     toolchain - hence no mise swift pin above), so the x64 natives load on
-#     Ubuntu 20.04+, Debian 11+ and AWS Lambda's Amazon Linux 2023. rhel-ubi9
+#     image (glibc 2.26, GLIBCXX_3.4.24), so the x64 natives load on
+#     Ubuntu 20.04+, Debian 11+ and AWS Lambda's Amazon Linux 2023. The image
+#     supplies its own Swift and runs this script with bash, so the mise pin
+#     above serves a bare Linux host and never reaches it. rhel-ubi9
 #     (2.34) produces natives Ubuntu 20.04 cannot load. arm64 is held at 2.34 by its LiteRT wheel, not by this build.
 #     Guarded by the ceiling check below;
 #   * link `-z nodelete` so the process does not dlclose the static Swift

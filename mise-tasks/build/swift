@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #MISE description="Build each model's Swift target for this host (Core ML on Apple, LiteRT on Linux and Windows)"
 #MISE dir="{{config_root}}"
-#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#MISE tools={swift={version="{{ vars.swift }}", os=["linux"]}}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 dal_vendor_litert
 # Sets `litert_flags`: -L on Linux, /LIBPATH: on Windows, empty on Apple.
