@@ -19,6 +19,12 @@ if [ -n "${usage_local:-}" ]; then
     exit 0
 fi
 
+# Everything below publishes for real, so every model AAR gets both ABIs,
+# whatever the caller set. Local builds default to arm64-v8a alone (see
+# dal_android_abis), and Gradle's preBuild rebuilds the natives with whatever
+# is exported here. --local above keeps the caller's choice on purpose.
+export DAL_ANDROID_ABIS="arm64-v8a x86_64"
+
 if [ "${DAL_PUBLISH_TARGET:-}" = github ]; then
     tasks=(":core:publishAllPublicationsToGitHubPackagesRepository")
     for model in $(dal_models_with kotlin); do
