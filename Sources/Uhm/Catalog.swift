@@ -3,8 +3,8 @@ import DesertAnt
 /// The uhm model: on-device filler-word detection ("uh", "um", "hmm", ...)
 /// with one prediction every 20 ms. One published tier (``Uhm/Quality``; the
 /// HuBERT-base tier is disabled until republished): the small DistilHuBERT
-/// `uhm`, hosted on the Hub as an unzipped `.mlmodelc/`, with a Core AI
-/// `.aimodel/` beside it for iOS 27 and macOS 27.
+/// `uhm`, hosted on the Hub as an unzipped `.mlmodelc/` and a Core AI
+/// `.aimodel/` for Apple, and a `.tflite` for every other platform.
 public enum UhmModel: ModelDeclaration {
     public static let id = "uhm"
     public static let product = "Uhm"
@@ -16,10 +16,7 @@ public enum UhmModel: ModelDeclaration {
     // `v1.2.0` keeps the weights and rebuilds both Apple exports from one graph
     // that runs on the Neural Engine of current chips, and adds `uhm.aimodel`.
     public static let revision = "v1.2.0"
-    /// No published npm/Maven package, so nothing cross-checks this the way
-    /// ModelCatalogTests checks emo and redact; keep it in step with
-    /// packages/uhm-* if they land.
-    public static let sdkVersion = "4.2.3"
+    public static let sdkVersion = "4.3.0"
     public static let summary = "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans."
 
     /// The SDK default. A caller-selected tier (`Uhm(quality:)`) downloads
@@ -27,22 +24,19 @@ public enum UhmModel: ModelDeclaration {
     /// catalog entry to describe one default artifact.
     public static let quality = Uhm.Quality.default.resolved
 
-    /// Core ML export (a directory on the Hub). No LiteRT export is published,
-    /// so Apple is the only platform in `files`.
     public static let coreML = quality.coreML
+    public static let liteRT = quality.liteRT
 
     /// Core AI export: preferred on iOS 27 and macOS 27, with `files` as the fallback.
     public static let coreAI = quality.coreAI
     public static let runtimeFiles: [ModelRuntime: [String]] = quality.runtimeFiles
 
     /// The ~13 KB per-filler type-labeler head (SoundAnalysis, Apple-only),
-    /// downloaded alongside the detector. Tier-independent: both qualities'
-    /// file lists include it.
+    /// downloaded alongside the detector on Apple.
     public static let labeler = "UhmLabel.mlmodel"
 
     /// The detector's constants (window length, frame hop, thresholds) live in
-    /// `Detector.swift`, so there are no config sidecars: Apple ships the
-    /// detector plus the tiny type-labeler head.
+    /// `Detector.swift`, so there are no config sidecars.
     public static let files: [ModelPlatform: [String]] = quality.files
 
     public static func artifact(for platform: ModelPlatform) -> String {

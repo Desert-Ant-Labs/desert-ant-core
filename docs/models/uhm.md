@@ -7,7 +7,7 @@ On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
 | **Languages** | 5 |
 | **Weights** | [v1.2.0](https://huggingface.co/desert-ant-labs/uhm/tree/v1.2.0) |
 | **Demo** | https://desertant.com/models/uhm/ |
@@ -25,15 +25,28 @@ Find every "uh", "um" and "hmm" in an audio file, down to 20ms. Uhm runs on devi
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
 ```
 
 Then add the `Uhm` product to your target.
+
+**Kotlin** ([requirements](../../README.md#android))
+
+```kotlin
+implementation("ai.desertant:uhm:4.3.0")
+```
+
+**JavaScript** ([requirements](../../README.md#javascript-and-typescript))
+
+```bash
+npm i @desert-ant-labs/uhm @litertjs/core   # browser
+npm i @desert-ant-labs/uhm                  # Node, prebuilt native core
+```
 <!-- model-install:end -->
 
 ## Usage
 
-Uhm runs on Apple platforms only. Create one `Uhm` instance and reuse it. The SDK loads the model the first time you use it, or earlier if you call `download`.
+Create one `Uhm` instance and reuse it. The SDK loads the model the first time you use it, or earlier if you call `download`.
 
 ### Swift
 
@@ -50,7 +63,7 @@ result.audioDuration
 result.phaseTimings.inferenceSec                         // seconds spent running the model
 ```
 
-Uhm accepts any audio format AVFoundation can read. The SDK decodes the audio to 16kHz mono. Use `analyze(audioURL:)` for a file URL, `analyze(bytes:)` for audio in memory, and `analyze(samples:sampleRate:)` for raw PCM.
+On Apple platforms, Uhm accepts any audio format AVFoundation can read. The SDK decodes the audio to 16kHz mono. Use `analyze(audioURL:)` for a file URL, `analyze(bytes:)` for audio in memory, and `analyze(samples:sampleRate:)` for raw PCM.
 
 `Options` sets the balance between recall and precision. `Options` also sets the shortest span Uhm keeps, 0.12s by default. `bias` picks the confidence threshold. Use `.precision` (0.75) when you cut fillers automatically. `.balanced` (0.65) is the default. Use `.recall` (0.50) when you would rather review and confirm each filler than miss one.
 
@@ -70,6 +83,48 @@ let result = try await uhm.analyze(audioPath: path) { fraction in
     print("\(Int(fraction * 100))%")
 }
 ```
+
+### Kotlin
+
+```kotlin
+val uhm = Uhm(context)
+val result = uhm.detect(samples, 16_000.0, Options(bias = Bias.PRECISION))
+
+for (f in result.fillers) println("${f.start} ${f.end} ${f.confidence}")
+uhm.close()
+```
+
+### JavaScript
+
+The default import is the browser build, which runs on WebAssembly and LiteRT.js. For inference in Node, import the `/native` subpath, which runs a prebuilt native core.
+
+```js
+import { Uhm } from "@desert-ant-labs/uhm";           // browser
+// import { Uhm } from "@desert-ant-labs/uhm/native"; // server-side Node
+
+const uhm = await Uhm.load();
+const result = await uhm.detect(samples, 16000);
+
+for (const f of result.fillers) console.log(f.start, f.end, f.confidence);
+result.audioDuration
+uhm.dispose();
+```
+
+`samples` is mono `Float32Array` audio at any sample rate. `bias` takes the same presets as Swift: `"precision"`, `"balanced"` (the default), and `"recall"`. Outside Apple platforms, every filler has `type: null` in JavaScript and Kotlin, because the type labeler runs on Apple's SoundAnalysis framework.
+
+### Cutting fillers without clipping words
+
+To cut fillers out of a recording, pass your transcript's words with the audio. Uhm returns the words adjusted to the fillers. Uhm drops a word that the recognizer wrote for the filler itself, trims a word that runs into a filler, and splits a word that contains a filler. Cut at the returned word ranges, and every real word keeps its audio.
+
+```js
+const result = await uhm.detect(samples, 16000, {
+  bias: "precision",
+  words: transcript.words,                            // [{ start, end, text }]
+});
+result.words
+```
+
+In Kotlin, pass `words` to `detect`. In Swift, `Uhm.reconcileWords(_:fillers:)` applies the same rules.
 
 ### Downloading the model
 
@@ -93,7 +148,7 @@ The SDK downloads the weights from Hugging Face on first use and caches them. Se
 
 The Core ML input shape is `(30, 1, 1, 16080)` float16: the 30s window, pre-cut into 30 overlapping tiles. The Core ML output shape is `(1, 6, 1, 1499)` float16. The SDK builds the tiled layout for you. The Neural Engine caps every tensor axis at 16384, and the tiled layout lets the whole model run on the Neural Engine. The Core ML model requires iOS 17 or macOS 14 or newer.
 
-The ONNX files keep the plain shapes, `(1, 480000)` float32 input and `(1, 1499, 6)` output, because the tiled layout runs slower on a GPU.
+The LiteRT and ONNX files keep the plain shapes, `(1, 480000)` float32 input and `(1, 1499, 6)` output, because the tiled layout runs slower on a GPU.
 
 ## Performance
 
@@ -108,6 +163,19 @@ We measured warm runs of the published fp16 Core ML model on Apple devices, with
 The realtime factor is the audio duration divided by the time `analyze` takes.
 
 We measured the table on the previous export. The current export runs every operation on the Neural Engine. On an M1, the current export runs 1.6x faster, at 188x end to end against 115x. We haven't measured the current export on the devices in the table yet.
+
+In the browser, Uhm runs `uhm.tflite` through LiteRT.js on one thread. On an M4 Mac in Chromium, 5 minutes of audio take 81s, a realtime factor of 3.7x. Core ML on the same Mac runs at 272x.
+
+### LiteRT against Core ML
+
+On Android, Linux, Windows, and in the browser, Uhm runs `uhm.tflite` instead of the Core ML model. We ran both on three episodes from the [PodcastFillers](https://zenodo.org/records/7121457) test set, 2.1 hours of real podcast audio. The two models agree on 635 of 642 fillers. For those fillers, 95% of start and end times match to within 20ms, and 95% of confidences differ by less than 0.02. Both score the same against the human labels:
+
+| Runtime | Precision | Recall | F1 |
+|---|---:|---:|---:|
+| Core ML, macOS | 0.80 | 0.74 | 0.77 |
+| LiteRT, browser | 0.80 | 0.74 | 0.77 |
+
+A detected filler counts as correct when the filler starts within 0.2s of a labeled filler.
 
 ## Limitations
 
