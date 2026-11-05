@@ -1,0 +1,19 @@
+{
+  "enabledPlugins": {
+    "swift-lsp@claude-plugins-official": true
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.agents/hooks/no-dashes.mjs\" ] || exit 0; node \"$CLAUDE_PROJECT_DIR/.agents/hooks/no-dashes.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
