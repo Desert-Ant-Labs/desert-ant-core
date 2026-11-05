@@ -25,7 +25,7 @@ SDK coordinates against `packages/`, and `sdkVersion` against `VERSION`. Adding 
 | --- | --- | --- |
 | README model table (between `<!-- models:start -->` markers) | `mise run docs:render` | `mise run check:docs` |
 | Model page header, install lines and footer (between the `model`, `model-install` and `model-footer` markers) | `mise run docs:render` | `mise run check:docs` |
-| Hugging Face model cards (the whole file) | `mise run hub:publish`, and the weights scripts at a release | published with new weights, or on merge to the public `main` |
+| Hugging Face model cards and third-party notices (the whole files) | `mise run hub:publish`, and the weights scripts at a release | published with new weights, or on merge to the public `main` |
 | Hugging Face org card table | `mise run hub:publish` | published on merge to the public `main` |
 | GitHub org profile table | `mise run github:profile` | published on merge to the public `main` |
 
@@ -73,9 +73,35 @@ doesn't hold, such as `model-index`, go in `docs/models/<id>.hub.yml`, which the
 render merges in. Write nothing on the Hub: the next publish replaces it, and
 `private/check-release` names any card someone changed there.
 
-`THIRD_PARTY_NOTICES.md` is the one file beside a card that isn't generated. It
-describes the weights, so it travels with each weights tag and
-`private/publish-model` copies it. Every page links it.
+Every model's `THIRD_PARTY_NOTICES.md` is generated too, from its `notices` in
+`manifest.json`, and goes up in the same commit as its card. The same notices
+make up the model sections of this repo's `THIRD_PARTY_NOTICES.md`. Every page
+links it.
+
+The SDK's own libraries are the manifest's top-level `notices`, kind `library`:
+everything the packages link, bundle or depend on, such as LiteRT, ICU through
+Foundation, and the npm and Maven dependencies. Add an entry when you add a
+dependency or vendor a binary. This repo's `THIRD_PARTY_NOTICES.md` lists them
+first, and it ships in every npm package and in the `ai.desertant:core` AAR,
+because those redistribute LiteRT and statically link ICU.
+
+A model's `notices` list what its published files contain or derive from, and
+the training data whose license asks for attribution, as one entry each:
+
+- `kind`: `model` for a model the weights derive from, including one it was
+  distilled from; `data` for training data; `file` for third-party data inside
+  the published files, such as a taxonomy.
+- `name`, `by`, `license` (an SPDX id, or a list), `source`, and `copyright`
+  when the upstream states one. A `model` also needs a `note` saying how the
+  weights derive from it, which CC BY and Apache 2.0 require.
+
+Leave out evaluation and benchmark data, models that only labeled or generated
+training data, training tools, and anything about how we trained. CC0 and
+public-domain data need no entry. The full text of each license is added from
+`LICENSES/<id>.txt`; a new license needs its text there and a name in
+`LICENSE_NAMES`. A shipping model always has the list, empty when nothing needs
+attributing, and `check:manifest` fails a missing list, an unknown kind or a
+license without its text.
 
 A card always goes up beside the weights it describes, because a page and the
 weights pin in the same commit describe each other:
@@ -148,6 +174,25 @@ the Hub card is never touched. `face` is gated on the Hub.
 whose `@desert-ant-labs/core` is not yet published to npm: `npm version` then
 fails to resolve on the way back down and the tree needs hand-editing.
 
+**Android ABIs.** Local Android builds are arm64-v8a only on purpose: it is
+every Mac and device the team uses. `--abi all` or `DAL_ANDROID_ABIS` builds
+more, and CI sets `x86_64` for its emulator. Anything that publishes must pin
+both ABIs, as `publish:maven` and the release workflow do, because
+`build:android` only checks the ABIs it was asked for. Do not make both the
+default again.
+
+**Testing Android changes in an app.** `mise run publish:maven --local`
+publishes every `ai.desertant:*` artifact to `~/.m2` at `VERSION`, keeping the
+caller's ABIs. desert-ant-android-examples builds from there by default: it
+takes the highest `ai.desertant:core` version in `~/.m2` for every module.
+Keep `--local` publishing core and every model at one version.
+
+**Android NDK.** One pin, in `ANDROID_NDK_VERSION`. The mise tasks, every
+Gradle module's `ndkVersion` and the CI NDK caches all read it; `mise run
+android-sdk` installs it into the Android SDK. Do not write an NDK version
+anywhere else, and do not resolve one from `ANDROID_NDK_HOME`. The Swift
+natives need r30 or later (`build:android-natives` says why).
+
 **Weights revisions** are per model and live in both `Catalog.swift` and the
 manifest. They have nothing to do with `VERSION`.
 
@@ -155,8 +200,8 @@ manifest. They have nothing to do with `VERSION`.
 
 `.github/workflows/hub-sync.yml` publishes to Hugging Face and to the GitHub org
 profile (`Desert-Ant-Labs/.github`) on any merge to the public `main` touching
-`docs/models/`, `manifest.json`, `Tools/manifest-docs.mjs`, `mise-tasks/hub/**`,
-or the workflow itself. It needs the `HF_TOKEN` secret with write access to all repos under the
+`docs/models/`, `LICENSES/`, `manifest.json`, `Tools/manifest-docs.mjs`,
+`mise-tasks/hub/**`, or the workflow itself. It needs the `HF_TOKEN` secret with write access to all repos under the
 `desert-ant-labs` org, and `ORG_PROFILE_TOKEN` with contents:write on
 `Desert-Ant-Labs/.github`. Without either, that half of the run previews instead
 of failing.
@@ -166,10 +211,33 @@ A manual dispatch defaults to a dry run. Preview locally with
 card to `.build/hub/<id>.md` beside the live one, `.build/hub/<id>.live.md`, so
 the change reads as a diff.
 
+## Agent tooling
+
+Two optional tools help with the Swift code, and the repo offers both to anyone
+who opens it with an agent:
+
+| Tool | What it does | Claude Code | Codex |
+| --- | --- | --- | --- |
+| `xcode` MCP server (`xcrun mcpbridge`) | Builds, diagnostics and previews from the project open in Xcode | In `.mcp.json`. Approve it when Claude asks. | In `.codex/config.toml`. Loads once you trust the project. |
+| `swift-lsp` plugin | Go to definition, references and diagnostics through `sourcekit-lsp` | Enabled in `.claude/settings.json`. Loads by itself once you trust the folder. | No equivalent. |
+
+`xcode` only works on macOS, with Xcode 26.3 or later running and a project
+open. Turn it on in Xcode's settings under Intelligence (Model Context Protocol,
+Xcode Tools), and allow the agent when Xcode asks. On Linux and Windows, decline
+it in Claude. Codex will report that it failed to start and carry on.
+`swift-lsp` needs `sourcekit-lsp` on `PATH`. Xcode puts it there on macOS.
+Elsewhere it comes with a swift.org toolchain, which you have to put on `PATH`
+yourself: the mise tasks pin their own Swift but don't expose it.
+
+**Agents:** on macOS, if `xcode` isn't connected, or Claude Code has no Swift
+code intelligence, mention it once in your first reply and point here. Then get
+on with the task.
+
 ## House style
 
 - No em dashes or en dashes in anything you write: code comments, docs, commit
   messages, PR bodies. Use hyphens, commas, parentheses, or separate sentences.
+- Use straight quotes and apostrophes (`'` and `"`), not curly ones.
 - Comment what the code does not show: a constraint, a landmine, a why. Do not
   restate the mechanism.
 - Keep PR bodies short, and do not hard-wrap them. GitHub renders a single

@@ -1,3 +1,7 @@
+// Writes the files mise run hub:publish would put in each named model's Hugging
+// Face repo to <dir>/<model>/, rendered from this checkout. private/lib.sh runs it
+// at the ref whose weights it publishes, so the tag's commit carries that card.
+// Usage: node Tools/hub-files.mjs <dir> <model>...
 import { mkdirSync, writeFileSync } from "node:fs";
 import { manifest, renderHubFiles } from "./manifest-docs.mjs";
 
