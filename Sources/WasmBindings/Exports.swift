@@ -18,6 +18,7 @@
 // BridgeJS supports and what a JS caller expects). The rest cannot fail, so they
 // do not make every JS caller write a `catch` for a state that cannot happen.
 #if os(WASI)
+import DesertAnt
 import JavaScriptKit
 
 /// What this module's model is, for the JS SDK that wraps it.
@@ -108,5 +109,26 @@ import JavaScriptKit
 /// exit before they finish.
 @JS public func flushTelemetry() async -> Bool {
     await installedModelHost?.flushTelemetry() ?? false
+}
+
+/// How much the SDK says, from the most talkative to silent: the names
+/// `DesertAnt.logLevel` in @desert-ant-labs/core takes, crossing as those strings.
+@JS public enum LogLevel: String {
+    case debug = "debug"
+    case info = "info"
+    case warning = "warning"
+    case error = "error"
+    case off = "off"
+}
+
+/// The least severe level the SDK writes, at any time.
+@JS public func setLogLevel(level: LogLevel) {
+    switch level {
+    case .debug: Log.level = .debug
+    case .info: Log.level = .info
+    case .warning: Log.level = .warning
+    case .error: Log.level = .error
+    case .off: Log.level = .off
+    }
 }
 #endif

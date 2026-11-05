@@ -127,15 +127,9 @@ private func performHTTPRequest(
 
 #elseif os(WASI)
 
-// Opt-in verbose logging for the WASM HTTP client, enabled from JS by setting
-// `globalThis.__dalHttpDebug = true`. Logs go to `console.log`.
-private func httpDebugEnabled() -> Bool {
-    JSObject.global.__dalHttpDebug.boolean ?? false
-}
-
+// The request trace, at debug level (`__dalLogLevel = "debug"` on a JS host).
 private func httpDebugLog(_ message: @autoclosure () -> String) {
-    guard httpDebugEnabled() else { return }
-    _ = JSObject.global.console.object?.log?("[DAL HTTP] \(message())".jsValue)
+    Log.debug(message(), source: "http")
 }
 
 private func performHTTPRequest(

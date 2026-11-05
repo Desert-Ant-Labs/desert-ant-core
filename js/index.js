@@ -6,6 +6,7 @@
 // codecs. Optional audio support lives in the "./audio" subpath. Node-only code
 // lives in "./node".
 export { FfiReader, FfiWriter } from "./src/ffi.js";
+export { DesertAnt, LOG_LEVELS } from "./src/log.js";
 export { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./src/callgroup.js";
 export { createWasmSdk, LoadedModel, readyModel, wasmCore } from "./src/sdk.js";
 export {

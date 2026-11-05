@@ -15,6 +15,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { FfiReader } from "./ffi.js";
 import { makeCallGroups } from "./callgroup.js";
+import { LOG_LEVELS, hostLogLevel, hostLogHandler, registerLogInstaller } from "./log.js";
 
 const require = createRequire(import.meta.url);
 
@@ -107,6 +108,54 @@ export function installLicenseVerifier(core, koffi, platform = process.platform)
   });
 }
 
+// The log level and handler in `globalThis.__dalLogLevel` / `__dalLog` (see
+// log.js), applied to the core at load and again whenever DesertAnt.logLevel or .logger
+// change them. A core built before these symbols existed logs as it did. The
+// handler is a koffi callback from a core thread, so it needs the same koffi
+// as the license verifier, and the same drain at exit.
+export function installLogging(core, koffi, platform = process.platform) {
+  let setLevel, setLogger;
+  try {
+    setLevel = core.func("int dal_set_log_level(int)");
+  } catch {
+    return;
+  }
+  const proto = koffi.pointer(koffi.proto("void", ["int", "const char *", "const char *"]));
+  try {
+    setLogger = core.func("dal_set_logger", "int", [proto]);
+  } catch {
+    setLogger = null;
+  }
+  let registered = null;
+  const apply = () => {
+    const level = hostLogLevel();
+    if (level !== null) setLevel(LOG_LEVELS.indexOf(level));
+    if (!setLogger || !koffiCallbacksAreSafe(koffi.version)) return;
+    const handler = hostLogHandler();
+    if (!handler) {
+      if (registered && setLogger(null) === 0) {
+        koffi.unregister(registered);
+        registered = null;
+      }
+      return;
+    }
+    const next = koffi.register((level, source, message) => {
+      handler(LOG_LEVELS[level] ?? "error", source, message);
+    }, proto);
+    setLogger(next);
+    if (registered) koffi.unregister(registered);
+    registered = next;
+  };
+  apply();
+  registerLogInstaller(apply);
+  if (!setLogger) return;
+  // A core thread's call waits for this event loop, so the loop stays up until none is in flight.
+  process.on("beforeExit", () => {
+    if (registered && setLogger(null) > 0) setTimeout(() => {}, 10);
+  });
+  void platform;
+}
+
 /**
  * The C ABI every model-specific native library implements. Everything but the
  * constructor is generic, since options in and results out are FFI payloads
@@ -195,6 +244,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     const core = koffi.load(path.join(dir, CORE[process.platform] || CORE.linux));
     checkLibcurl(core, packageName);
     installLicenseVerifier(core, koffi);
+    installLogging(core, koffi);
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
     return lib;

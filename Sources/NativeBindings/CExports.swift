@@ -42,6 +42,20 @@ public func dal_buffer_free(_ pointer: UnsafeMutablePointer<CChar>?) {
     nativeBufferFree(pointer)
 }
 
+// The log level, as a LogLevel raw value (0 debug to 4 off). -1 for a value that is none of them.
+@_cdecl("dal_set_log_level")
+public func dal_set_log_level(_ level: Int32) -> Int32 {
+    nativeSetLogLevel(level)
+}
+
+// The host's logger, receiving every message (level, source, message); null removes it unless calls are in flight, whose count returns.
+@_cdecl("dal_set_logger")
+public func dal_set_logger(
+    _ log: (@convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void)?
+) -> Int32 {
+    nativeSetLogger(log)
+}
+
 // The host's ES256 check (1 verifies, 0 not) for Linux; null removes it unless calls are in flight, whose count returns.
 @_cdecl("dal_set_license_verifier")
 public func dal_set_license_verifier(

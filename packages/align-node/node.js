@@ -5,6 +5,7 @@ import { createNativeSdk } from "@desert-ant-labs/core/node";
 import { MODEL_ID, PACKAGE_NAME } from "./codec.js";
 import { makeAlign } from "./align.js";
 import pkg from "./package.json" with { type: "json" };
+export { DesertAnt } from "@desert-ant-labs/core/node";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

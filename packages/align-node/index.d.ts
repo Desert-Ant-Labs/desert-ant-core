@@ -1,6 +1,7 @@
 // The model-specific half of this package's types. How a model is loaded and its per-call options
 // come from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions } from "@desert-ant-labs/core";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 /** One word of a transcript. Any other keys you carry are returned untouched. */
 export interface Word { text: string; start: number; end: number; [key: string]: unknown; }

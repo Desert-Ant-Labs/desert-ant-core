@@ -39,6 +39,18 @@ extern "C" {
 typedef struct DalLrtModel DalLrtModel;
 typedef struct DalLrtSession DalLrtSession;
 
+// Where the runtime's own messages go. LiteRT and TFLite write their setup
+// lines (accelerator registry, delegate creation) straight to file descriptor
+// 2, and the vendored runtime exports no logger control, so with a logger
+// installed the shim captures descriptor 2 around environment creation and
+// model compilation and hands each line here instead. `severity` is LiteRT's:
+// -1 debug, 0 verbose, 1 info, 2 warning, 3 error. Lines that carry no LiteRT
+// severity prefix are not the runtime's and go back to standard error as they
+// were. Without a logger nothing is captured. Not on Android, where both
+// runtimes log to logcat and descriptor 2 carries nothing.
+typedef void (*DalLrtLogFn)(int severity, const char* message);
+void dal_lrt_set_logger(DalLrtLogFn fn);
+
 // Compile a model from a file or from in-memory model bytes (pass one; the other
 // NULL/0). On failure returns NULL and, if errbuf is non-NULL, writes a message.
 // `accelerator` is a LiteRtHwAccelerators bitset (1 = CPU, 2 = GPU, 4 = NPU).

@@ -10,6 +10,7 @@ import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME } from "./codec.js";
 import { makeWho } from "./who.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 // The wasm core instantiates at import time (top-level await); the model is only
 // wired in Who.load(). The CPU by default: the graphs are not measured on WebGPU
