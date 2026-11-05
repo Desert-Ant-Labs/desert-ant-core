@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/core",
-  "version": "4.2.3",
+  "version": "4.3.0",
   "description": "Shared JavaScript runtime for Desert Ant Labs on-device model SDKs: the LiteRT.js host session, the koffi native loader, and the FFI buffer reader that the per-model node packages build on.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -60,6 +60,7 @@
     "audio-node.d.ts",
     "src",
     "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md",
     "README.md"
   ],
   "scripts": {
