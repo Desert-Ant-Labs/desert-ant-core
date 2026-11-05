@@ -10,6 +10,7 @@ import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME } from "./codec.js";
 import { makeClear, LOUDNESS_PRESETS } from "./clear.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 export { LOUDNESS_PRESETS };
 

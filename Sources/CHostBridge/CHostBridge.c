@@ -85,3 +85,16 @@ int32_t host_license_verify(const uint8_t *signature, int32_t signature_len,
 }
 
 void host_free(char *ptr) { free(ptr); }
+
+static HostLogLevelFn g_log_level = 0;
+static HostLogFn g_log = 0;
+
+void host_set_log_level(HostLogLevelFn fn) { g_log_level = fn; }
+int32_t host_log_level(void) { return g_log_level ? g_log_level() : -1; }
+
+void host_set_log(HostLogFn fn) { g_log = fn; }
+int32_t host_log(int32_t level, const char *source, const char *message) {
+    if (!g_log) return 0;
+    g_log(level, source, message);
+    return 1;
+}

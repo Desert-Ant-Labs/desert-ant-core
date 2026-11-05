@@ -22,6 +22,7 @@ test("browser-safe entry exports the expected surface", async () => {
   ]) {
     assert.equal(typeof core[name], "function", `exports ${name}`);
   }
+  assert.equal(typeof core.DesertAnt, "object");
   assert.equal("installAudioHost" in core, false);
   assert.equal("decodeWav" in core, false);
 });
@@ -38,6 +39,7 @@ test("node entry exports the native loader, and only that", async () => {
   ]) {
     assert.equal(typeof node[name], "function", `exports ${name}`);
   }
+  assert.equal(typeof node.DesertAnt, "object");
   assert.equal("installAudioHost" in node, false);
   // The `#platform` seam lives in ./platform-node.js: re-exporting it here would
   // put koffi in every SSR bundle (see ssr-graph.test.mjs).

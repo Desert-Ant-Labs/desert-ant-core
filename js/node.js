@@ -11,3 +11,4 @@ export { createNativeSdk } from "./src/native-sdk.js";
 export { loadNative, dalSymbols } from "./src/native.js";
 export { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./src/callgroup.js";
 export { FfiReader, FfiWriter } from "./src/ffi.js";
+export { DesertAnt, LOG_LEVELS } from "./src/log.js";

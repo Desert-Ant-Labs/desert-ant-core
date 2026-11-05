@@ -10,6 +10,7 @@ import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME } from "./codec.js";
 import { makeEye } from "./eye.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 // The wasm core instantiates at import time (top-level await); the model is only
 // wired in Eye.load(). WebGPU by default: about 10x wasm for this model, and its

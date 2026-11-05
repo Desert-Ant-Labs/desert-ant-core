@@ -18,6 +18,7 @@ function fakeCore() {
     endCallGroup: () => {},
     destroy: () => {},
     flushTelemetry: async () => true,
+    setLogLevel: () => {},
   };
 }
 

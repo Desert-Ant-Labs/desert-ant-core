@@ -13,29 +13,151 @@
 #define NOMINMAX
 #define NOGDI
 #include <windows.h>
+#include <io.h>
 static SRWLOCK g_env_lock = SRWLOCK_INIT;
+static SRWLOCK g_capture_lock = SRWLOCK_INIT;
 #define ENV_LOCK() AcquireSRWLockExclusive(&g_env_lock)
 #define ENV_UNLOCK() ReleaseSRWLockExclusive(&g_env_lock)
+#define CAPTURE_LOCK() AcquireSRWLockExclusive(&g_capture_lock)
+#define CAPTURE_UNLOCK() ReleaseSRWLockExclusive(&g_capture_lock)
+#define dal_dup _dup
+#define dal_dup2 _dup2
+#define dal_close _close
+#define dal_fileno _fileno
 #else
 #include <pthread.h>
 #include <unistd.h>
 static pthread_mutex_t g_env_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_capture_lock = PTHREAD_MUTEX_INITIALIZER;
 #define ENV_LOCK() pthread_mutex_lock(&g_env_lock)
 #define ENV_UNLOCK() pthread_mutex_unlock(&g_env_lock)
+#define CAPTURE_LOCK() pthread_mutex_lock(&g_capture_lock)
+#define CAPTURE_UNLOCK() pthread_mutex_unlock(&g_capture_lock)
+#define dal_dup dup
+#define dal_dup2 dup2
+#define dal_close close
+#define dal_fileno fileno
+#endif
+
+// The runtime's messages, routed to the caller's logger (see CLiteRt.h).
+//
+// LiteRT's logger and TFLite's minimal logger both fprintf to stderr, and the
+// vendored runtime exports neither logger's controls, so the only handle on
+// their output is the descriptor they write to. With a logger installed, the
+// two calls that log (environment creation, model compilation) run with
+// descriptor 2 pointed at a temporary file; afterwards the file is read back
+// line by line and each line goes to the logger with the severity its prefix
+// names. A line without a prefix was written by something else in the process
+// during those milliseconds and is written back to standard error unchanged,
+// so no output is lost, only delayed. A temporary file rather than a pipe: a
+// pipe fills, and a writer blocked on it while this thread waits to read it
+// would never finish. One capture at a time, since the descriptor is shared.
+static DalLrtLogFn g_log = NULL;
+
+void dal_lrt_set_logger(DalLrtLogFn fn) { g_log = fn; }
+
+#if defined(__ANDROID__)
+typedef struct { int unused; } DalCapture;
+static void capture_begin(DalCapture* c) { (void)c; }
+static void capture_end(DalCapture* c) { (void)c; }
+#else
+typedef struct { FILE* file; int saved; } DalCapture;
+
+static FILE* capture_file(void) {
+#ifdef _WIN32
+  // tmpfile() wants the root directory, which an ordinary user cannot write.
+  char dir[MAX_PATH], path[MAX_PATH];
+  if (!GetTempPathA(MAX_PATH, dir) || !GetTempFileNameA(dir, "dal", 0, path)) return NULL;
+  return fopen(path, "w+TD");  // temporary, deleted on close
+#else
+  return tmpfile();
+#endif
+}
+
+static void capture_begin(DalCapture* c) {
+  c->file = NULL;
+  c->saved = -1;
+  if (!g_log) return;
+  CAPTURE_LOCK();
+  FILE* file = capture_file();
+  if (!file) { CAPTURE_UNLOCK(); return; }
+  fflush(stderr);
+  int saved = dal_dup(2);
+  if (saved < 0 || dal_dup2(dal_fileno(file), 2) < 0) {
+    if (saved >= 0) dal_close(saved);
+    fclose(file);
+    CAPTURE_UNLOCK();
+    return;
+  }
+  c->file = file;
+  c->saved = saved;
+}
+
+// The severity a LiteRT line's prefix names, and the text after it; 0 for a
+// line that is not the runtime's.
+static int split_severity(const char* line, int* severity, const char** text) {
+  static const struct { const char* prefix; int severity; } prefixes[] = {
+    { "DEBUG: ", -1 }, { "VERBOSE: ", 0 }, { "INFO: ", 1 },
+    { "WARNING: ", 2 }, { "ERROR: ", 3 },
+  };
+  for (size_t i = 0; i < sizeof prefixes / sizeof prefixes[0]; i++) {
+    size_t n = strlen(prefixes[i].prefix);
+    if (strncmp(line, prefixes[i].prefix, n) == 0) {
+      *severity = prefixes[i].severity;
+      *text = line + n;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static void capture_end(DalCapture* c) {
+  if (!c->file) return;
+  fflush(stderr);
+  dal_dup2(c->saved, 2);
+  dal_close(c->saved);
+  CAPTURE_UNLOCK();
+  // Delivered after the descriptor is back and the lock released: the logger
+  // may be slow (a host callback), and may itself write to standard error. A
+  // logger removed meanwhile (a host on its way out) leaves the lines where
+  // they were going.
+  DalLrtLogFn log = g_log;
+  rewind(c->file);
+  char line[1024];
+  while (fgets(line, sizeof line, c->file)) {
+    size_t n = strlen(line);
+    while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r')) line[--n] = 0;
+    if (n == 0) continue;
+    int severity;
+    const char* text;
+    if (log && split_severity(line, &severity, &text)) {
+      log(severity, text);
+    } else {
+      fputs(line, stderr);
+      fputc('\n', stderr);
+    }
+  }
+  fclose(c->file);
+}
 #endif
 
 // One LiteRT environment per process, created on first use and kept for the
 // life of the process. Creating one runs the accelerator registry, which tries
-// to load the GPU and NPU accelerator libraries and logs every step to stderr
-// at INFO and WARNING (eight lines on a machine without them). The vendored
-// runtime exports no logger control, so the only way to stop that repeating
-// for every session is to not repeat the environment. A failed creation is not
-// cached: the next session tries again.
+// to load the GPU and NPU accelerator libraries and logs every step at INFO
+// and WARNING (eight lines on a machine without them), so the environment is
+// not repeated per session. A failed creation is not cached: the next session
+// tries again.
 static LiteRtEnvironment g_env = NULL;
 
 static LiteRtEnvironment shared_environment(void) {
   ENV_LOCK();
-  if (!g_env && LiteRtCreateEnvironment(0, NULL, &g_env) != kLiteRtStatusOk) g_env = NULL;
+  if (!g_env) {
+    DalCapture capture;
+    capture_begin(&capture);
+    LiteRtStatus status = LiteRtCreateEnvironment(0, NULL, &g_env);
+    capture_end(&capture);
+    if (status != kLiteRtStatusOk) g_env = NULL;
+  }
   LiteRtEnvironment env = g_env;
   ENV_UNLOCK();
   return env;
@@ -382,8 +504,11 @@ static int model_compile(DalLrtModel* m, LiteRtHwAcceleratorSet accel,
   add_cpu_options(m->options, num_threads);
   if ((accel & kLiteRtHwAcceleratorGpu) && gpu_precision > 0)
     add_gpu_options(m->options, gpu_precision);
-  if (LiteRtCreateCompiledModel(m->env, m->model, m->options, &m->compiled)
-          != kLiteRtStatusOk) {
+  DalCapture capture;
+  capture_begin(&capture);
+  LiteRtStatus compiled = LiteRtCreateCompiledModel(m->env, m->model, m->options, &m->compiled);
+  capture_end(&capture);
+  if (compiled != kLiteRtStatusOk) {
     if (m->compiled) { LiteRtDestroyCompiledModel(m->compiled); m->compiled = NULL; }
     LiteRtDestroyOptions(m->options); m->options = NULL;
     set_err(errbuf, errbuf_len, "LiteRtCreateCompiledModel failed"); return 1;

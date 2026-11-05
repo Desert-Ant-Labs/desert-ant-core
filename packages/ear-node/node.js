@@ -6,6 +6,7 @@ import path from "node:path";
 import { createNativeSdk } from "@desert-ant-labs/core/node";
 import { MODEL_ID, PACKAGE_NAME, SAMPLE_RATE } from "./codec.js";
 import { makeEar } from "./ear.js";
+export { DesertAnt } from "@desert-ant-labs/core/node";
 
 export { SAMPLE_RATE };
 

@@ -3,6 +3,7 @@
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
 import type { TagId } from "./tags.js";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 export { Tag, TagId } from "./tags.js";
 

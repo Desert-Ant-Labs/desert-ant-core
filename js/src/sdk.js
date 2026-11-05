@@ -12,6 +12,7 @@
 // A model package is then: its payload codecs, its public class over
 // `LoadedModel`, and two lines of wiring per entry point.
 import { makeCallGroups } from "./callgroup.js";
+import { hostLogLevel, registerLogInstaller } from "./log.js";
 import { FfiReader } from "./ffi.js";
 import {
   assertBrowserRuntime,
@@ -123,6 +124,19 @@ export function wasmCore(exports) {
   };
 }
 
+// The level a host set (see log.js), applied to the core now and again whenever
+// DesertAnt.logLevel changes. A core built before the export existed reads the
+// global itself at its first message, and a later change does not reach it.
+function installLogLevel(exports) {
+  if (typeof exports.setLogLevel !== "function") return;
+  const apply = () => {
+    const level = hostLogLevel();
+    if (level !== null) exports.setLogLevel(level);
+  };
+  apply();
+  registerLogInstaller(apply);
+}
+
 /**
  * The browser/WebAssembly half of a model package: instantiate the core through
  * the package's `#platform` seam, then hand back an `open(options)` that
@@ -150,6 +164,7 @@ export async function createWasmSdk({ platform, packageName, defaultAccelerator 
   const { exports, installHost } = await platform.setupCore();
   const core = wasmCore(exports);
   const { artifact, sidecars } = exports.modelInfo();
+  installLogLevel(exports);
 
   // Debug-only hook for awaiting the license requests in flight. The core's
   // exports belong to this module instance rather than a global registry, so

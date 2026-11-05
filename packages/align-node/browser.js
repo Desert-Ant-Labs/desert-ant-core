@@ -1,6 +1,7 @@
 // The universal entry: import-safe for an SSR pass, and an honest refusal when a model is asked for.
 import { makeAlign } from "./align.js";
 import { PACKAGE_NAME } from "./codec.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 // No version argument: the number lives in package.json, which only the native entry may read.
 export const Align = makeAlign({

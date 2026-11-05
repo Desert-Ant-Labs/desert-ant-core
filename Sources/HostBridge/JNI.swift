@@ -36,6 +36,8 @@ private nonisolated(unsafe) var gAppId: jmethodID?
 private nonisolated(unsafe) var gApiKey: jmethodID?
 private nonisolated(unsafe) var gAudioDecode: jmethodID?
 private nonisolated(unsafe) var gLicenseVerify: jmethodID?
+private nonisolated(unsafe) var gLogLevel: jmethodID?
+private nonisolated(unsafe) var gLog: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -338,6 +340,51 @@ private func hostLicenseVerify(_ signature: UnsafePointer<UInt8>?, _ signatureLe
     return valid == JNI_TRUE ? 1 : 0
 }
 
+// The level the host app set (Kotlin's DesertAnt.logLevel), -1 for none.
+private func hostLogLevel() -> Int32 {
+    guard let vm = gVM else { return -1 }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+    let level = env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gLogLevel, nil)
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
+    return level
+}
+
+// A log message for the host's logger (Kotlin's DesertAnt.logger, or logcat
+// behind it). Dropped, not retried, when the host throws.
+private func hostLog(_ level: Int32, _ source: UnsafePointer<CChar>?, _ message: UnsafePointer<CChar>?) {
+    guard let vm = gVM else { return }
+    var raw: UnsafeMutableRawPointer?
+    let env: HostEnv
+    var attached = false
+    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
+        env = raw.assumingMemoryBound(to: JNIEnv?.self)
+    } else {
+        var e: HostEnv?
+        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return }
+        env = e; attached = true
+    }
+    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+
+    guard let s = hostMakeBytes(env, cStringBytes(source!)),
+          let m = hostMakeBytes(env, cStringBytes(message!)) else { return }
+    defer { env.pointee!.pointee.DeleteLocalRef(env, s); env.pointee!.pointee.DeleteLocalRef(env, m) }
+    let args = [jvalue(i: level), jvalue(l: s), jvalue(l: m)]
+    args.withUnsafeBufferPointer {
+        env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gLog, $0.baseAddress)
+    }
+    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+}
+
 // MARK: install
 
 /// Wire the CHostBridge regex/JSON/normalize callbacks to the host class's
@@ -386,6 +433,9 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gAudioDecode = optionalStaticMethod(env, cls, "audioDecode", "([B[BD)[B")
     // Optional: the license token's ES256 check (java.security).
     gLicenseVerify = optionalStaticMethod(env, cls, "verifyLicense", "([B[B[B)Z")
+    // Optional: the log level the host app set, and its logger.
+    gLogLevel = optionalStaticMethod(env, cls, "logLevel", "()I")
+    gLog = optionalStaticMethod(env, cls, "log", "(I[B[B)V")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
@@ -399,5 +449,7 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gApiKey != nil { host_set_api_key(hostApiKey) }
     if gAudioDecode != nil { host_set_audio_decode(hostAudioDecode) }
     if gLicenseVerify != nil { host_set_license_verify(hostLicenseVerify) }
+    if gLogLevel != nil { host_set_log_level(hostLogLevel) }
+    if gLog != nil { host_set_log(hostLog) }
 }
 #endif

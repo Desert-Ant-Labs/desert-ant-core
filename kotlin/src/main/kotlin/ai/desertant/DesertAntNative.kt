@@ -1,7 +1,9 @@
 package ai.desertant
 
+import android.util.Log
 import ai.desertant.core.DesertAnt
 import ai.desertant.core.HostBridge
+import ai.desertant.core.LogLevel
 
 /**
  * Host callbacks shared by every model-specific JNI library. Native model code
@@ -58,4 +60,30 @@ object DesertAntNative {
     @JvmStatic
     fun verifyLicense(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean =
         HostBridge.verifyLicense(signature, message, publicKey)
+
+    // The log level the host app set, as the core's LogLevel raw value.
+    @JvmStatic
+    fun logLevel(): Int = DesertAnt.logLevel.ordinal
+
+    // Every message the core writes: the app's logger when it set one, else logcat.
+    @JvmStatic
+    fun log(level: Int, sourceUtf8: ByteArray, messageUtf8: ByteArray) {
+        val logLevel = LogLevel.entries.getOrElse(level) { LogLevel.ERROR }
+        val source = sourceUtf8.toString(Charsets.UTF_8)
+        val message = messageUtf8.toString(Charsets.UTF_8)
+        val logger = DesertAnt.logger
+        if (logger != null) {
+            logger(logLevel, source, message)
+            return
+        }
+        val text = "$source: $message"
+        when (logLevel) {
+            LogLevel.DEBUG -> Log.d(TAG, text)
+            LogLevel.INFO -> Log.i(TAG, text)
+            LogLevel.WARNING -> Log.w(TAG, text)
+            LogLevel.ERROR, LogLevel.OFF -> Log.e(TAG, text)
+        }
+    }
+
+    private const val TAG = "DesertAnt"
 }

@@ -1,5 +1,6 @@
 #if canImport(COnnxRuntime) && !canImport(CoreML)
 import COnnxRuntime
+import DesertAnt
 import Foundation
 
 /// The ONNX Runtime engine: three graphs, driven with the same preallocated
@@ -55,6 +56,7 @@ final class OnnxEngine: Engine {
 
         init(path: String, accelerator: Int32) throws {
             name = (path as NSString).lastPathComponent
+            _ = onnxRuntimeLogsThroughLog
             var errbuf = [CChar](repeating: 0, count: 512)
             let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
                 path.withCString { p in

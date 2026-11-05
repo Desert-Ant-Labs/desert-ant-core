@@ -1,6 +1,7 @@
 #if canImport(CLiteRt)
 import CLiteRt
 import CStrings
+import PlatformSupport
 #if os(Android)
 import Android
 #elseif canImport(Glibc)
@@ -10,6 +11,31 @@ import Musl
 #elseif canImport(Darwin)
 import Darwin
 #endif
+
+// The runtime's own lines (see dal_lrt_set_logger) as `litert` messages, at
+// the level LiteRT gave them. Installed before the first environment exists,
+// which is what makes the accelerator registry's lines reach the log.
+let litertLogsThroughLog: Bool = {
+    installLiteRTLogger()
+    return true
+}()
+
+func installLiteRTLogger() {
+    dal_lrt_set_logger { severity, message in
+        guard let message else { return }
+        Log.log(litertLogLevel(severity), decodeCString(message), source: "litert")
+    }
+}
+
+/// LiteRT's severity (-1 debug, 0 verbose, 1 info, 2 warning, 3 error) as a log level.
+func litertLogLevel(_ severity: Int32) -> LogLevel {
+    switch severity {
+    case ...0: return .debug
+    case 1: return .info
+    case 2: return .warning
+    default: return .error
+    }
+}
 
 /// One compiled `.tflite`, shared by sessions over its signatures, so a model
 /// with several (one per task) loads and packs its weights once. LiteRT does not
@@ -29,6 +55,7 @@ final class LiteRTModel: @unchecked Sendable {
 
     init(modelPath: String, modelBytes: [UInt8]? = nil,
          accelerator: LiteRTSession.Accelerator = .auto) throws {
+        _ = litertLogsThroughLog
         var errbuf = [CChar](repeating: 0, count: 256)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
             if let modelBytes {

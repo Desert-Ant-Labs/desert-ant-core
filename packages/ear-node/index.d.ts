@@ -2,6 +2,7 @@
 // for every model, such as how a model is loaded and its per-call options,
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 /** The rate the model works at. Audio at any other rate is resampled. */
 export declare const SAMPLE_RATE: 16000;
