@@ -1,0 +1,9 @@
+# Project config for Codex, loaded once you trust this project. AGENTS.md
+# ("Agent tooling") says what each entry needs.
+
+# Xcode's MCP bridge: builds, diagnostics and previews from the open Xcode
+# project. macOS only, with Xcode running and its MCP setting on. Elsewhere it
+# fails to start, which Codex reports and moves on from.
+[mcp_servers.xcode]
+command = "xcrun"
+args = ["mcpbridge"]
