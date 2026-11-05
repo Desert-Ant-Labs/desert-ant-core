@@ -80,7 +80,17 @@ val prepareLiteRt by tasks.registering {
     }
 }
 
-tasks.named("preBuild").configure { dependsOn(prepareLiteRt) }
+// The AAR redistributes LiteRT, so it carries this repo's third-party notices
+// too: META-INF/ai.desertant.core/THIRD_PARTY_NOTICES.md in its classes jar, a
+// path no other library's META-INF can collide with when an app merges them.
+val noticesDir = layout.buildDirectory.dir("generated/notices")
+val prepareNotices by tasks.registering(Copy::class) {
+    from(rootProject.file("THIRD_PARTY_NOTICES.md"))
+    into(noticesDir.map { it.dir("META-INF/ai.desertant.core") })
+}
+android.sourceSets["main"].resources.srcDir(noticesDir)
+
+tasks.named("preBuild").configure { dependsOn(prepareLiteRt, prepareNotices) }
 
 dependencies {
     // HostBridge.kt parses the Hugging Face tree JSON and emits the binary value

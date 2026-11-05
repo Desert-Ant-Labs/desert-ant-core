@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Render manifest.json into the README table and the model pages"
+#MISE description="Render manifest.json into the README table, the model pages and THIRD_PARTY_NOTICES.md"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
@@ -10,5 +10,5 @@ import { renderAll } from "./Tools/manifest-docs.mjs";
 
 const files = renderAll();
 for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
-console.log(`rendered ${Object.keys(files).length} files: README.md, the model pages and the npm READMEs`);
+console.log(`rendered ${Object.keys(files).length} files: README.md, THIRD_PARTY_NOTICES.md, the model pages and the npm READMEs`);
 NODE

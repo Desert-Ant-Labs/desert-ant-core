@@ -74,12 +74,19 @@ export function renderTable(models, org) {
   ].join("\n");
 }
 
+/// The keys of a card's front matter that come from the manifest. A sidecar
+/// may not set them, so the Hub's search index cannot drift from the registry.
 export const OWNED_FRONT_MATTER = ["license", "license_name", "license_link", "language", "tags", "pipeline_tag", "library_name"];
 
+/// Front matter is the Hub's search index, not prose. Every owned key is the
+/// manifest's; the rest (model-index, base_model) comes from the model's
+/// sidecar, `docs/models/<id>.hub.yml`, verbatim.
 export function hubFrontMatter(model, license, sidecar = "") {
   const owned = { license: "other" };
   owned.license_name = model.weights.license;
   owned.license_link = license.url;
+  // A model with no languages gets no `language` key at all: a denoiser must
+  // not claim `en`.
   const codes = model.languages?.codes;
   owned.language = codes ?? (model.languages ? ["multilingual"] : undefined);
   owned.tags = model.hub.tags;
@@ -89,10 +96,13 @@ export function hubFrontMatter(model, license, sidecar = "") {
   const lines = Object.entries(owned)
     .filter(([, value]) => value !== undefined)
     .map(([key, value]) => emit(key, value));
+  // The sidecar's own comments explain the file to its editors, not to the Hub.
   const extra = sidecar.split("\n").filter((line) => !/^\s*#/.test(line)).join("\n").trim();
   return [...lines, ...(extra ? [extra] : [])].join("\n");
 }
 
+/// The top-level keys of a YAML block, without a YAML parser this repo does not
+/// have: a key starts a line in column zero.
 export function frontMatterKeys(text) {
   return text
     .split("\n")
@@ -108,6 +118,10 @@ export function sidecarPath(model) {
   return `docs/models/${model.id}.hub.yml`;
 }
 
+/// The Hub card is the model page. It gets the Hub's front matter, and its
+/// relative links are rewritten, because they resolve inside this repo and 404
+/// on huggingface.co: a sibling model page goes to its page on the website, any
+/// other path to GitHub.
 export function renderHubCard(model, page, org, license, sidecar = "") {
   const body = rewriteLinks(page.replace(/^<!-- model(-install|-footer)?:(start|end) -->\r?\n/gm, ""), org);
   return [
@@ -122,6 +136,7 @@ export function renderHubCard(model, page, org, license, sidecar = "") {
 }
 
 function rewriteLinks(markdown, org) {
+  // Code is left alone: a Swift subscript followed by a call reads like a link.
   return markdown
     .split(/(^```[\s\S]*?^```)/m)
     .map((chunk, index) =>
@@ -150,13 +165,23 @@ function posixJoin(dir, path) {
   return parts.join("/");
 }
 
+/// The files a model's Hugging Face repo gets from this repo, path -> contents:
+/// its card and its third-party notices. Shared by mise run hub:publish and the
+/// weights scripts, which put both in the same commit as the weights, so a tag
+/// holds its own card and notices.
 export function renderHubFiles(model, root = ".") {
   if (!ships(model)) return {};
   const { org, license } = manifest(root);
   const sidecar = existsSync(`${root}/${sidecarPath(model)}`) ? readFileSync(`${root}/${sidecarPath(model)}`, "utf8") : "";
-  return { "README.md": renderHubCard(model, readFileSync(`${root}/${docsPath(model)}`, "utf8"), org, license, sidecar) };
+  return {
+    "README.md": renderHubCard(model, readFileSync(`${root}/${docsPath(model)}`, "utf8"), org, license, sidecar),
+    "THIRD_PARTY_NOTICES.md": renderModelNotices(model, root),
+  };
 }
 
+/// Every relative link in a page that resolves to nothing in this repo. The
+/// page is published on GitHub, the website and the Hub, so a broken relative
+/// link is broken in three places.
 export function brokenRelativeLinks(page, root = ".") {
   const broken = [];
   for (const chunk of page.split(/(^```[\s\S]*?^```)/m).filter((_, index) => index % 2 === 0)) {
@@ -188,6 +213,8 @@ export function replaceBlock(text, body) {
 
 export const MODEL_MARKERS = { start: "<!-- model:start -->", end: "<!-- model:end -->" };
 
+/// The license and citation every page ends with. Generated so all of them say
+/// the same thing; the website drops both sections, since it has its own.
 export const MODEL_INSTALL_MARKERS = { start: "<!-- model-install:start -->", end: "<!-- model-install:end -->" };
 export const MODEL_FOOTER_MARKERS = { start: "<!-- model-footer:start -->", end: "<!-- model-footer:end -->" };
 
@@ -287,10 +314,13 @@ function install(model, version) {
   return out;
 }
 
+/// The weights at the revision the SDK pins: the exact files it downloads.
 function weightsTreeURL(model) {
   return `${model.weights.url}/tree/${model.weights.revision}`;
 }
 
+/// A model page's generated header: identity and facts. The opening that says
+/// what the model is for comes next, hand-written, then the install block.
 export function renderModelHeader(model, org) {
   const facts = [["Platforms", platforms(model)]];
   if (model.languages?.count) facts.push(["Languages", String(model.languages.count)]);
@@ -301,6 +331,8 @@ export function renderModelHeader(model, org) {
       : `[${short(model.weights.revision)}](${weightsTreeURL(model)})`,
   ]);
   if (model.demo?.page) facts.push(["Demo", model.demo.page]);
+  // The one place a page states its lifecycle, so no sentence can be left
+  // behind when the manifest moves on.
   if (model.lifecycle === "beta") facts.push(["Status", "Beta"]);
 
   return [
@@ -316,6 +348,8 @@ export function renderModelHeader(model, org) {
   ].join("\n");
 }
 
+/// The install lines for each live SDK, at `sdkVersion`, so a release bump
+/// rewrites every page.
 export function renderModelInstall(model, version) {
   return ["## Install", "", ...install(model, version)].join("\n").trimEnd();
 }
@@ -363,6 +397,117 @@ export function renderModelFooter(model, org, license) {
   ].join("\n");
 }
 
+/// The kinds of third-party work a model's notices list, in the order they
+/// render. Nothing else is attributed: evaluation data, models that only labeled
+/// or generated training data, and training tools are left out by design.
+export const NOTICE_KINDS = {
+  model: "Models",
+  data: "Training data",
+  file: "Data in the published files",
+};
+/// The SDK's own third-party libraries, from the manifest's top-level
+/// `notices`: what the packages link, bundle or depend on.
+export const SDK_NOTICE_KIND = "library";
+export const NOTICE_FIELDS = ["kind", "name", "by", "license", "source", "copyright", "note"];
+export const NOTICES_MARKERS = { start: "<!-- notices:start -->", end: "<!-- notices:end -->" };
+
+/// The licenses an entry names: one SPDX id, or several when parts of the work
+/// carry different ones. Each has its full text in LICENSES/<id>.txt.
+export function noticeLicenses(entry) {
+  return [entry.license].flat();
+}
+
+function licenseText(id, root) {
+  return readFileSync(`${root}/LICENSES/${id}.txt`, "utf8").trim();
+}
+
+/// How each license reads in a notice. A license text added to LICENSES/
+/// needs a name here too; check:manifest fails without one.
+export const LICENSE_NAMES = {
+  "Apache-2.0": "Apache License 2.0",
+  "CC-BY-2.0": "CC BY 2.0",
+  "CC-BY-2.0-FR": "CC BY 2.0 France",
+  "CC-BY-3.0": "CC BY 3.0",
+  "CC-BY-4.0": "CC BY 4.0",
+  "CC-BY-SA-4.0": "CC BY-SA 4.0",
+  MIT: "MIT License",
+  "ODC-By-1.0": "Open Data Commons Attribution License 1.0",
+  "Unicode-DFS-2016": "Unicode License Agreement for Data Files and Software (2016)",
+  "LicenseRef-hunspell-en": "English Hunspell dictionary license",
+  "LicenseRef-hunspell-fa": "Persian Hunspell dictionary license",
+  "LicenseRef-hunspell-lt": "Lithuanian Hunspell dictionary license",
+  "LicenseRef-hunspell-nl": "Dutch Hunspell dictionary license",
+  "LicenseRef-hunspell-ru": "Russian Hunspell dictionary license",
+  "LicenseRef-hunspell-tr": "Turkish Hunspell dictionary license",
+  "MPL-2.0": "Mozilla Public License 2.0",
+  "Unicode-3.0": "Unicode License v3",
+};
+
+function licenseName(id) {
+  const name = LICENSE_NAMES[id];
+  if (!name) throw new Error(`${id} has no entry in LICENSE_NAMES in Tools/manifest-docs.mjs`);
+  return name;
+}
+
+function renderNoticeEntry(entry, root) {
+  const licenses = noticeLicenses(entry).map(licenseName).join(", ");
+  const lines = [`- **${entry.name}**, ${entry.by}. ${licenses}.${entry.note ? ` ${entry.note}` : ""}`, `  ${entry.source}`];
+  if (entry.copyright) lines.push(`  ${entry.copyright}`);
+  return lines.join("\n");
+}
+
+/// One model's notices, grouped by kind: what its published files contain or
+/// derive from, and the training data whose license asks for attribution.
+function renderNoticeSections(model, root, level) {
+  const notices = model.notices ?? [];
+  const h = "#".repeat(level);
+  if (!notices.length) {
+    return [`${model.name}'s weights build on no third-party model, and none of its training data asks for attribution.`];
+  }
+  const out = [];
+  for (const [kind, title] of Object.entries(NOTICE_KINDS)) {
+    const entries = notices.filter((n) => n.kind === kind);
+    if (!entries.length) continue;
+    out.push(`${h} ${title}`, "", ...entries.map((n) => renderNoticeEntry(n, root)), "");
+  }
+  return out;
+}
+
+/// The full text of every license the given notices name, once each.
+function renderLicenseTexts(notices, root, level) {
+  const ids = [...new Set(notices.flatMap(noticeLicenses))].sort();
+  if (!ids.length) return [];
+  const h = "#".repeat(level);
+  const out = [`${h} License texts`, ""];
+  for (const id of ids) out.push(`${h}# ${licenseName(id)}`, "", "```text", licenseText(id, root), "```", "");
+  return out;
+}
+
+/// THIRD_PARTY_NOTICES.md for a model's Hugging Face repo. Generated from the
+/// model's `notices` in manifest.json, with the full text of each license.
+export function renderModelNotices(model, root = ".") {
+  return [
+    `# Third-party notices: ${model.name}`,
+    "",
+    `${model.name}'s weights build on the work below. Each license applies to its own work, and the`,
+    "Desert Ant Labs Source-Available License doesn't override it. Training data isn't redistributed here.",
+    "",
+    ...renderNoticeSections(model, root, 2),
+    ...renderLicenseTexts(model.notices ?? [], root, 2),
+  ].join("\n").trimEnd() + "\n";
+}
+
+/// The generated part of this repo's THIRD_PARTY_NOTICES.md: the SDK's
+/// libraries, every shipping model's notices, then each license's text once.
+export function renderRepoNotices(manifestData, root = ".") {
+  const sdk = manifestData.notices ?? [];
+  const shipping = manifestData.models.filter(ships);
+  const out = ["## SDK libraries", "", ...sdk.map((n) => renderNoticeEntry(n, root)), "", "## Model weights", ""];
+  for (const model of shipping) out.push(`### ${model.name}`, "", ...renderNoticeSections(model, root, 4));
+  out.push(...renderLicenseTexts([...sdk, ...shipping.flatMap((m) => m.notices ?? [])], root, 2));
+  return out.join("\n").trimEnd();
+}
+
 /// Replace a marked block whichever markers it uses.
 export function replaceMarked(text, body, markers = MARKERS) {
   const start = text.indexOf(markers.start);
@@ -381,9 +526,15 @@ export function replaceMarked(text, body, markers = MARKERS) {
 /// check both go through this, so "what should be on disk" has one definition
 /// and the two can never disagree about it.
 export function renderAll(root = ".") {
-  const { models, org, sdkVersion, license } = manifest(root);
+  const data = manifest(root);
+  const { models, org, sdkVersion, license } = data;
   const out = {
     "README.md": replaceMarked(readFileSync(`${root}/README.md`, "utf8"), renderTable(models, org)),
+    "THIRD_PARTY_NOTICES.md": replaceMarked(
+      readFileSync(`${root}/THIRD_PARTY_NOTICES.md`, "utf8"),
+      renderRepoNotices(data, root),
+      NOTICES_MARKERS
+    ),
   };
   for (const model of models.filter(ships)) {
     const path = docsPath(model);

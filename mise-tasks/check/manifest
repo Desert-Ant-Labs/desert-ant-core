@@ -13,7 +13,7 @@ export DAL_MODELS="$(dal_models | tr '\n' ' ')"
 
 node --input-type=module <<'NODE'
 import { readFileSync, existsSync } from "node:fs";
-import { ships, docsPath } from "./Tools/manifest-docs.mjs";
+import { ships, docsPath, noticeLicenses, NOTICE_KINDS, NOTICE_FIELDS, LICENSE_NAMES, SDK_NOTICE_KIND } from "./Tools/manifest-docs.mjs";
 
 const manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
 const version = readFileSync("VERSION", "utf8").trim();
@@ -39,6 +39,27 @@ const models = manifest.models;
 const ids = models.map((m) => m.id);
 if (new Set(ids).size !== ids.length) fail("manifest.json", "duplicate model ids");
 if (String(ids) !== String([...ids].sort())) fail("manifest.json", "models must be ordered by id, A-Z");
+
+/// One notices entry: known fields, the required ones, an https source, and a
+/// license with its full text and a name.
+function checkNotice(n, where) {
+  const extra = Object.keys(n).filter((k) => !NOTICE_FIELDS.includes(k));
+  if (extra.length) fail(where, `unknown fields ${extra}`);
+  for (const field of ["name", "by", "license", "source"]) if (!n[field]) fail(where, `${field} is required`);
+  if (n.source && !/^https:\/\//.test(n.source)) fail(where, "source must be an https URL");
+  for (const id of n.license ? noticeLicenses(n) : []) {
+    if (!existsSync(`LICENSES/${id}.txt`)) fail(where, `no LICENSES/${id}.txt with the full text of ${id}`);
+    if (!LICENSE_NAMES[id]) fail(where, `${id} has no name in LICENSE_NAMES (Tools/manifest-docs.mjs)`);
+  }
+}
+
+// The SDK's own libraries: what the packages link, bundle or depend on.
+const manifestData = JSON.parse(readFileSync("manifest.json", "utf8"));
+if (!Array.isArray(manifestData.notices)) fail("manifest", "needs a top-level notices list of the SDK's libraries");
+for (const [i, n] of (manifestData.notices ?? []).entries()) {
+  if (n.kind !== SDK_NOTICE_KIND) fail(`notices[${i}]`, `the SDK's notices are kind "${SDK_NOTICE_KIND}"`);
+  checkNotice(n, `notices[${i}]`);
+}
 
 for (const m of models) {
   const at = `${m.id}`;
@@ -92,6 +113,19 @@ for (const m of models) {
     if (bad.length) fail(at, `hub.tags must be lowercase kebab-case: ${bad}`);
     if (tags.includes("coreml")) fail(at, 'hub.tags: use "core-ml", not "coreml"');
   }
+
+  // Notices: what the published weights contain or derive from, and training
+  // data whose license asks for attribution. A shipping model always has the
+  // list, empty when nothing needs attributing. There is deliberately no kind
+  // for evaluation data or for models that only labeled training data.
+  if (ships(m) && !Array.isArray(m.notices)) fail(at, "ships an SDK, so it needs a notices list (empty when nothing needs attributing)");
+  for (const [i, n] of (m.notices ?? []).entries()) {
+    const where = `${at} notices[${i}]`;
+    if (!(n.kind in NOTICE_KINDS)) fail(where, `kind must be one of ${Object.keys(NOTICE_KINDS)}: evaluation data and labeling models are not attributed`);
+    if (n.kind === "model" && !n.note) fail(where, "a model needs a note saying how the weights derive from it");
+    checkNotice(n, where);
+  }
+
 
   const langs = m.languages;
   if (langs) {

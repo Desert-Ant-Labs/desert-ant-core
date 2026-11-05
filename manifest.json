@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "4.2.3",
+  "sdkVersion": "4.3.0",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -13,6 +13,23 @@
     "id": "desert-ant-labs-source-available",
     "url": "https://license.desertant.com/"
   },
+  "notices": [
+    { "kind": "library", "name": "LiteRT", "by": "Google", "license": "Apache-2.0", "source": "https://github.com/google-ai-edge/LiteRT", "copyright": "Copyright 2024 Google LLC", "note": "Runs the models off Apple platforms. Its C headers are in `Sources/CLiteRt`. `libLiteRt.so` ships in the Android library, with its GPU accelerator, and in the Linux Node packages." },
+    { "kind": "library", "name": "ICU", "by": "Unicode, Inc. and others", "license": "Unicode-3.0", "source": "https://github.com/unicode-org/icu", "copyright": "Copyright © 2016 and later Unicode, Inc. and others", "note": "Statically linked with Foundation, through swift-foundation-icu, into the Linux Node packages and the WebAssembly builds." },
+    { "kind": "library", "name": "swift-numerics", "by": "Apple", "license": "Apache-2.0", "source": "https://github.com/apple/swift-numerics", "note": "Math functions (`RealModule`), compiled into every build." },
+    { "kind": "library", "name": "JavaScriptKit", "by": "Yuta Saito and contributors", "license": "MIT", "source": "https://github.com/swiftwasm/JavaScriptKit", "copyright": "Copyright (c) 2020 Yuta Saito", "note": "Compiled into the WebAssembly builds." },
+    { "kind": "library", "name": "wasi-libc", "by": "WebAssembly contributors", "license": "MIT", "source": "https://github.com/WebAssembly/wasi-libc", "copyright": "Copyright © 2005-2020 Rich Felker, et al.", "note": "Statically linked into the WebAssembly builds. It includes musl." },
+    { "kind": "library", "name": "LiteRT.js", "by": "Google", "license": "Apache-2.0", "source": "https://www.npmjs.com/package/@litertjs/core", "note": "Runs the models in the browser. A peer dependency of the JavaScript packages." },
+    { "kind": "library", "name": "ONNX Runtime", "by": "Microsoft", "license": "MIT", "source": "https://github.com/microsoft/onnxruntime", "copyright": "Copyright (c) Microsoft Corporation", "note": "Runs Voz on Windows, through COnnxRuntime, and in the browser, as onnxruntime-web, a peer dependency." },
+    { "kind": "library", "name": "koffi", "by": "Niels Martignène", "license": "MIT", "source": "https://github.com/Koromix/koffi", "copyright": "Copyright 2023 Niels Martignène", "note": "Loads the native core in Node." },
+    { "kind": "library", "name": "browser_wasi_shim", "by": "bjorn3", "license": "Apache-2.0", "source": "https://github.com/bjorn3/browser_wasi_shim", "note": "Runs the WebAssembly builds in the browser." },
+    { "kind": "library", "name": "Mediabunny", "by": "Vanilagy", "license": "MPL-2.0", "source": "https://github.com/Vanilagy/mediabunny", "note": "Decodes audio and video for Voz in JavaScript." },
+    { "kind": "library", "name": "kotlinx.serialization", "by": "JetBrains", "license": "Apache-2.0", "source": "https://github.com/Kotlin/kotlinx.serialization", "note": "JSON in the Android library." },
+    { "kind": "library", "name": "kotlinx.coroutines", "by": "JetBrains", "license": "Apache-2.0", "source": "https://github.com/Kotlin/kotlinx.coroutines", "note": "Coroutines in the Android library." },
+    { "kind": "library", "name": "swift-xet", "by": "Hugging Face", "license": "Apache-2.0", "source": "https://github.com/huggingface/swift-xet", "note": "Optional, behind the `Xet` trait: Xet downloads on Apple platforms, with the SwiftNIO stack it pulls in." },
+    { "kind": "library", "name": "mlx-swift-lm", "by": "ml-explore", "license": "MIT", "source": "https://github.com/ml-explore/mlx-swift-lm", "copyright": "Copyright (c) 2024 ml-explore", "note": "Optional, behind the `MLX` trait: runs Title." },
+    { "kind": "library", "name": "swift-transformers", "by": "Hugging Face", "license": "Apache-2.0", "source": "https://github.com/huggingface/swift-transformers", "note": "Optional, behind the `MLX` trait: Title's tokenizer." }
+  ],
   "models": [
     {
       "id": "align",
@@ -48,6 +65,11 @@
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/align"
       },
+      "notices": [
+        { "kind": "data", "name": "LibriSpeech", "by": "Vassil Panayotov, Guoguo Chen, Daniel Povey and Sanjeev Khudanpur", "license": "CC-BY-4.0", "source": "https://www.openslr.org/12" },
+        { "kind": "data", "name": "AMI Meeting Corpus", "by": "University of Edinburgh CSTR and the AMI consortium", "license": "CC-BY-4.0", "source": "https://groups.inf.ed.ac.uk/ami/corpus/" },
+        { "kind": "data", "name": "FLEURS", "by": "Google", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/google/fleurs" }
+      ],
       "demo": null
     },
     {
@@ -83,6 +105,9 @@
         "libraryName": null
       },
       "languages": null,
+      "notices": [
+        { "kind": "model", "name": "DeepFilterNet 3", "by": "Hendrik Schröter", "license": "MIT", "source": "https://github.com/Rikorose/DeepFilterNet", "copyright": "Copyright (c) 2022 Hendrik Schröter", "note": "Both variants are fine-tuned from it." }
+      ],
       "demo": {
         "space": "desert-ant-labs/clear-demo",
         "embed": "https://desert-ant-labs-clear-demo.static.hf.space",
@@ -123,6 +148,9 @@
         "basis": "inherited",
         "source": "https://huggingface.co/desert-ant-labs/clips"
       },
+      "notices": [
+        { "kind": "model", "name": "XLM-RoBERTa base", "by": "Facebook AI", "license": "MIT", "source": "https://huggingface.co/FacebookAI/xlm-roberta-base", "copyright": "Copyright (c) Facebook, Inc. and its affiliates", "note": "Fine-tuned. Its tokenizer ships unchanged in `clip_tokenizer.bin`." }
+      ],
       "demo": null
     },
     {
@@ -167,6 +195,9 @@
         "basis": "declared",
         "source": null
       },
+      "notices": [
+        { "kind": "model", "name": "whisper-tiny", "by": "OpenAI", "license": "Apache-2.0", "source": "https://huggingface.co/openai/whisper-tiny", "note": "Ear's encoder is derived from its encoder and fine-tuned." }
+      ],
       "demo": null
     },
     {
@@ -203,6 +234,11 @@
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/emo"
       },
+      "notices": [
+        { "kind": "model", "name": "potion-multilingual-128M", "by": "MinishLab", "license": "MIT", "source": "https://huggingface.co/minishlab/potion-multilingual-128M", "note": "Emo's embedding and tokenizer derive from it, reduced and pruned." },
+        { "kind": "model", "name": "bge-m3", "by": "BAAI", "license": "MIT", "source": "https://huggingface.co/BAAI/bge-m3", "note": "potion-multilingual-128M was distilled from it." },
+        { "kind": "data", "name": "Unicode CLDR", "by": "Unicode, Inc.", "license": "Unicode-DFS-2016", "source": "https://cldr.unicode.org", "note": "Emoji annotations in many languages." }
+      ],
       "demo": {
         "space": "desert-ant-labs/emo-demo",
         "embed": null,
@@ -238,6 +274,9 @@
         "libraryName": null
       },
       "languages": null,
+      "notices": [
+        { "kind": "model", "name": "PE-Core S/16-384", "by": "Meta", "license": "Apache-2.0", "source": "https://huggingface.co/facebook/PE-Core-S16-384", "copyright": "Copyright (c) Meta Platforms, Inc. and affiliates", "note": "The image encoder, partly fine-tuned." }
+      ],
       "demo": {
         "space": null,
         "embed": null,
@@ -316,6 +355,11 @@
         "basis": "inherited",
         "source": "https://huggingface.co/minishlab/potion-multilingual-128M"
       },
+      "notices": [
+        { "kind": "model", "name": "potion-multilingual-128M", "by": "MinishLab", "license": "MIT", "source": "https://huggingface.co/minishlab/potion-multilingual-128M", "note": "Gist's embedding and tokenizer derive from it, pruned." },
+        { "kind": "model", "name": "bge-m3", "by": "BAAI", "license": "MIT", "source": "https://huggingface.co/BAAI/bge-m3", "note": "potion-multilingual-128M was distilled from it." },
+        { "kind": "file", "name": "IAB Content Taxonomy 2.2", "by": "IAB Tech Lab", "license": "CC-BY-3.0", "source": "https://github.com/InteractiveAdvertisingBureau/Taxonomies", "note": "`taxonomy.json` and `taxonomy_crosswalk.json` include its node IDs and names, adapted to Gist's topics." }
+      ],
       "demo": {
         "space": "desert-ant-labs/gist-demo",
         "embed": null,
@@ -351,6 +395,11 @@
         "libraryName": null
       },
       "languages": null,
+      "notices": [
+        { "kind": "model", "name": "MobileNetV4-Conv-Medium", "by": "Google, with weights by Ross Wightman", "license": "Apache-2.0", "source": "https://huggingface.co/timm/mobilenetv4_conv_medium.e250_r384_in12k_ft_in1k", "copyright": "Copyright 2019 Ross Wightman", "note": "Fine-tuned." },
+        { "kind": "data", "name": "Wikimedia Commons", "by": "Wikimedia Commons contributors", "license": ["CC-BY-4.0", "CC-BY-SA-4.0"], "source": "https://commons.wikimedia.org", "note": "Each image keeps the license on its Commons page." },
+        { "kind": "data", "name": "Open Images V7", "by": "Google", "license": "CC-BY-4.0", "source": "https://storage.googleapis.com/openimages/web/index.html" }
+      ],
       "demo": {
         "space": null,
         "embed": null,
@@ -391,6 +440,15 @@
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/redact"
       },
+      "notices": [
+        { "kind": "model", "name": "Multilingual-MiniLM-L12-H384", "by": "Microsoft", "license": "MIT", "source": "https://huggingface.co/microsoft/Multilingual-MiniLM-L12-H384", "copyright": "Copyright (c) Microsoft Corporation", "note": "Truncated, its vocabulary trimmed, and fine-tuned." },
+        { "kind": "data", "name": "gretel-pii-masking-en-v1", "by": "Gretel", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/gretelai/gretel-pii-masking-en-v1" },
+        { "kind": "data", "name": "synthetic_pii_finance_multilingual", "by": "Gretel", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/gretelai/synthetic_pii_finance_multilingual" },
+        { "kind": "data", "name": "pii-masking-openpii-1.5m", "by": "Ai4Privacy / Ai Suisse SA", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/ai4privacy/pii-masking-openpii-1.5m", "copyright": "Copyright © Ai Suisse SA" },
+        { "kind": "data", "name": "synthetic-multi-pii-ner-v1", "by": "E3-JSI", "license": "MIT", "source": "https://huggingface.co/datasets/E3-JSI/synthetic-multi-pii-ner-v1" },
+        { "kind": "data", "name": "C4", "by": "Allen Institute for AI", "license": "ODC-By-1.0", "source": "https://huggingface.co/datasets/allenai/c4" },
+        { "kind": "data", "name": "FineWeb-2", "by": "Hugging Face", "license": "ODC-By-1.0", "source": "https://huggingface.co/datasets/HuggingFaceFW/fineweb-2" }
+      ],
       "demo": {
         "space": "desert-ant-labs/redact-demo",
         "embed": "https://desert-ant-labs-redact-demo.static.hf.space",
@@ -466,6 +524,9 @@
         "libraryName": null
       },
       "languages": null,
+      "notices": [
+        { "kind": "data", "name": "Quick, Draw! dataset", "by": "Google", "license": "CC-BY-4.0", "source": "https://github.com/googlecreativelab/quickdraw-dataset" }
+      ],
       "demo": {
         "space": "desert-ant-labs/shapes-demo",
         "embed": "https://desert-ant-labs-shapes-demo.static.hf.space",
@@ -506,6 +567,9 @@
         "basis": "inherited",
         "source": "https://huggingface.co/desert-ant-labs/title"
       },
+      "notices": [
+        { "kind": "model", "name": "Granite 4.0 350M", "by": "IBM", "license": "Apache-2.0", "source": "https://huggingface.co/ibm-granite/granite-4.0-350m", "note": "Fine-tuned and quantized. Its tokenizer ships unchanged." }
+      ],
       "demo": null
     },
     {
@@ -542,6 +606,16 @@
         "basis": "derived",
         "source": "Sources/Tongue/Resources/tongue_meta.json"
       },
+      "notices": [
+        { "kind": "data", "name": "Tatoeba", "by": "Tatoeba contributors", "license": "CC-BY-2.0-FR", "source": "https://tatoeba.org", "copyright": "© Tatoeba contributors" },
+        { "kind": "data", "name": "Hunspell dictionary, English", "by": "wooorm/dictionaries contributors", "license": "LicenseRef-hunspell-en", "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/en" },
+        { "kind": "data", "name": "Hunspell dictionary, Dutch", "by": "wooorm/dictionaries contributors", "license": "LicenseRef-hunspell-nl", "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/nl" },
+        { "kind": "data", "name": "Hunspell dictionary, Lithuanian", "by": "wooorm/dictionaries contributors", "license": "LicenseRef-hunspell-lt", "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/lt" },
+        { "kind": "data", "name": "Hunspell dictionary, Russian", "by": "wooorm/dictionaries contributors", "license": "LicenseRef-hunspell-ru", "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/ru" },
+        { "kind": "data", "name": "Hunspell dictionary, Turkish", "by": "wooorm/dictionaries contributors", "license": "LicenseRef-hunspell-tr", "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/tr" },
+        { "kind": "data", "name": "Hunspell dictionary, Persian", "by": "wooorm/dictionaries contributors", "license": ["LicenseRef-hunspell-fa", "Apache-2.0"], "source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/fa" },
+        { "kind": "data", "name": "Universal Dependencies treebanks", "by": "the Universal Dependencies contributors", "license": "CC-BY-4.0", "source": "https://universaldependencies.org", "note": "UD_Spanish-AnCora, UD_Catalan-AnCora, UD_Finnish-FTB, UD_Italian-MarkIT and UD_Portuguese-Porttinari." }
+      ],
       "demo": {
         "space": "desert-ant-labs/tongue-demo",
         "embed": null,
@@ -554,19 +628,19 @@
       "tagline": "Catch hate speech before it posts.",
       "summary": "On-device hate-speech triage for European languages.",
       "category": "Hate speech triage",
-      "lifecycle": "closed-beta",
+      "lifecycle": "beta",
       "visibility": "public",
-      "home": null,
+      "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "none" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
+        "swift": { "status": "live", "package": "Toxic", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:toxic", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/toxic", "platforms": ["web", "node"] }
       },
       "weights": {
         "source": "hub",
         "repo": "desert-ant-labs/toxic",
         "url": "https://huggingface.co/desert-ant-labs/toxic",
-        "revision": "main",
+        "revision": "v0.2.2",
         "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
@@ -577,11 +651,49 @@
         "libraryName": null
       },
       "languages": {
-        "count": 23,
-        "codes": ["bg", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "ga", "hr", "hu", "it", "lt", "lv", "nl", "pl", "pt", "ro", "sk", "sl", "sv"],
+        "count": 35,
+        "codes": ["ar", "bg", "ca", "cs", "da", "de", "el", "en", "es", "et", "fi", "fr", "he", "hi", "hr", "hu", "id", "it", "ja", "ko", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "th", "tr", "uk", "vi", "zh"],
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/toxic"
       },
+      "notices": [
+        { "kind": "model", "name": "mmBERT-small", "by": "Johns Hopkins University, Center for Language and Speech Processing", "license": "MIT", "source": "https://huggingface.co/jhu-clsp/mmBERT-small", "note": "The encoder, fine-tuned. Its tokenizer files are redistributed unchanged." },
+        { "kind": "model", "name": "mmBERT-base", "by": "Johns Hopkins University, Center for Language and Speech Processing", "license": "MIT", "source": "https://huggingface.co/jhu-clsp/mmBERT-base", "note": "Distilled from: a classifier fine-tuned from it is part of the teacher whose scores the weights were trained on." },
+        { "kind": "model", "name": "multilingual-e5-large", "by": "Microsoft", "license": "MIT", "source": "https://huggingface.co/intfloat/multilingual-e5-large", "note": "Distilled from: a classifier fine-tuned from it is part of the teacher whose scores the weights were trained on." },
+        { "kind": "model", "name": "BGE-M3", "by": "Beijing Academy of Artificial Intelligence", "license": "MIT", "source": "https://huggingface.co/BAAI/bge-m3", "note": "Distilled from: a classifier fine-tuned from it is part of the teacher whose scores the weights were trained on." },
+        { "kind": "file", "name": "Gemma 2 tokenizer", "by": "Google", "license": "Apache-2.0", "source": "https://github.com/google/gemma_pytorch", "note": "The vocabulary in `tokenizer.json`, as mmBERT uses it." },
+        { "kind": "data", "name": "OffensEval 2020", "by": "Marcos Zampieri, Preslav Nakov, Sara Rosenthal, Pepa Atanasova, Georgi Karadzhov, Hamdy Mubarak, Leon Derczynski, Zeses Pitenis and Çağrı Çöltekin", "license": ["CC-BY-4.0", "CC-BY-2.0"], "source": "https://huggingface.co/datasets/strombergnlp/offenseval_2020", "note": "The Turkish part is CC BY 2.0." },
+        { "kind": "data", "name": "HateXplain", "by": "Binny Mathew, Punyajoy Saha, Seid Muhie Yimam, Chris Biemann, Pawan Goyal and Animesh Mukherjee", "license": "MIT", "source": "https://github.com/hate-alert/HateXplain" },
+        { "kind": "data", "name": "GermEval 2018", "by": "Michael Wiegand, Melanie Siegel and Josef Ruppenhofer", "license": "CC-BY-4.0", "source": "https://github.com/uds-lsv/GermEval-2018-Data" },
+        { "kind": "data", "name": "HOCON34k", "by": "Max-Emanuel Keller, Maximilian Auch, Alexander Döschl, Fabian Vlk, Julian Quernheim, Mike Hartmann, Peter Mandl, Alexander Kaul and Markus Franz", "license": "CC-BY-4.0", "source": "https://zenodo.org/records/12665948" },
+        { "kind": "data", "name": "Polish Cyberbullying Dataset", "by": "Michal Ptaszynski, Agata Pieciukiewicz, Pawel Dybala, Pawel Skrzek, Kamil Soliwoda, Marcin Fortuna, Gniewosz Leliwa and Michal Wroczynski", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/ptaszynski/PolishCyberbullyingDataset" },
+        { "kind": "data", "name": "MuTox", "by": "Meta", "license": "MIT", "source": "https://github.com/facebookresearch/seamless_communication/blob/main/src/seamless_communication/cli/toxicity/mutox/README.md" },
+        { "kind": "data", "name": "Measuring Hate Speech", "by": "Chris J. Kennedy, Geoff Bacon, Alexander Sahn and Claudia von Vacano, D-Lab, University of California, Berkeley", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/ucberkeley-dlab/measuring-hate-speech" },
+        { "kind": "data", "name": "Social Bias Frames", "by": "Maarten Sap, Saadia Gabriel, Lianhui Qin, Dan Jurafsky, Noah A. Smith and Yejin Choi", "license": "CC-BY-4.0", "source": "https://maartensap.com/social-bias-frames/" },
+        { "kind": "data", "name": "Dynamically Generated Hate Speech Dataset", "by": "Bertie Vidgen, Tristan Thrush, Zeerak Waseem and Douwe Kiela", "license": "CC-BY-4.0", "source": "https://github.com/bvidgen/Dynamically-Generated-Hate-Speech-Dataset" },
+        { "kind": "data", "name": "Gab Hate Corpus", "by": "Brendan Kennedy, Mohammad Atari, Aida Mostafazadeh Davani and others, University of Southern California", "license": "CC-BY-4.0", "source": "https://osf.io/edua3/" },
+        { "kind": "data", "name": "Contextual Abuse Dataset", "by": "Bertie Vidgen, Dong Nguyen, Helen Margetts, Patricia Rossini and Rebekah Tromble", "license": "CC-BY-4.0", "source": "https://zenodo.org/records/4881008" },
+        { "kind": "data", "name": "Implicit Hate Corpus", "by": "Mai ElSherief, Caleb Ziems, David Muchlinski, Vaishnavi Anupindi, Jordyn Seybolt, Munmun De Choudhury and Diyi Yang", "license": "CC-BY-4.0", "source": "https://github.com/SALT-NLP/implicit-hate" },
+        { "kind": "data", "name": "Detecting East Asian Prejudice on Social Media", "by": "Bertie Vidgen, Austin Botelho, David Broniatowski, Ella Guest, Matthew Hall, Helen Margetts, Rebekah Tromble, Zeerak Waseem and Scott Hale", "license": "CC-BY-4.0", "source": "https://zenodo.org/records/3816667" },
+        { "kind": "data", "name": "Hate Speech and Offensive Language", "by": "Thomas Davidson, Dana Warmsley, Michael Macy and Ingmar Weber", "license": "MIT", "source": "https://github.com/t-davidson/hate-speech-and-offensive-language" },
+        { "kind": "data", "name": "Slur Corpus", "by": "Jana Kurrek, Haji Mohammad Saleem and Derek Ruths", "license": "MIT", "source": "https://github.com/networkdynamics/slur-corpus" },
+        { "kind": "data", "name": "Counterspeech on YouTube", "by": "Binny Mathew, Punyajoy Saha, Hardik Tharad, Subham Rajgaria, Prajwal Singhania, Suman Kalyan Maity, Pawan Goyal and Animesh Mukherjee", "license": "MIT", "source": "https://github.com/hate-alert/Countering_Hate_Speech_ICWSM2019" },
+        { "kind": "data", "name": "Antisemitism on Twitter", "by": "Gunther Jikeli, Sameer Karali, Daniel Miehling and Katharina Soemer", "license": "CC-BY-4.0", "source": "https://zenodo.org/records/14448399" },
+        { "kind": "data", "name": "Online Misogyny", "by": "Ella Guest, Bertie Vidgen, Alexandros Mittos, Nishanth Sastry, Gareth Tyson and Helen Margetts", "license": "MIT", "source": "https://github.com/ellamguest/online-misogyny-eacl2021" },
+        { "kind": "data", "name": "HatemojiBuild", "by": "Hannah Rose Kirk, Bertie Vidgen, Paul Röttger, Tristan Thrush and Scott A. Hale", "license": "CC-BY-4.0", "source": "https://github.com/HannahKirk/Hatemoji" },
+        { "kind": "data", "name": "ConvAbuse", "by": "Amanda Cercas Curry, Gavin Abercrombie and Verena Rieser", "license": "CC-BY-4.0", "source": "https://github.com/amandacurry/convabuse" },
+        { "kind": "data", "name": "GAHD", "by": "Janis Goldzycher, Paul Röttger and Gerold Schneider", "license": "CC-BY-4.0", "source": "https://github.com/jagol/gahd" },
+        { "kind": "data", "name": "RO-Offense", "by": "the ReaderBench group, University Politehnica of Bucharest", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/readerbench/ro-offense" },
+        { "kind": "data", "name": "FB-RO-Offense", "by": "the ReaderBench group, University Politehnica of Bucharest", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/readerbench/ro-fb-offense" },
+        { "kind": "data", "name": "RO-Offense Sequences", "by": "the ReaderBench group, University Politehnica of Bucharest", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/readerbench/ro-offense-sequences" },
+        { "kind": "data", "name": "Salamandra Guard dataset", "by": "Language Technologies Lab, Barcelona Supercomputing Center", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/BSC-LT/salamandra-guard-dataset", "copyright": "Copyright (c) 2026 by Language Technologies Lab, Barcelona Supercomputing Center" },
+        { "kind": "data", "name": "Aegis AI Content Safety Dataset 1.0", "by": "NVIDIA", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-1.0" },
+        { "kind": "data", "name": "Aegis AI Content Safety Dataset 2.0", "by": "NVIDIA", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/nvidia/Aegis-AI-Content-Safety-Dataset-2.0" },
+        { "kind": "data", "name": "Nemotron Safety Guard Dataset v3", "by": "NVIDIA", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/nvidia/Nemotron-Safety-Guard-Dataset-v3" },
+        { "kind": "data", "name": "ToxiFrench", "by": "Axel Delaval, Shujian Yang, Haicheng Wang, Han Qiu and Jialiang Lu", "license": "MIT", "source": "https://huggingface.co/datasets/AxelDlv00/ToxiFrench" },
+        { "kind": "data", "name": "ALIA-es discriminative hate speech", "by": "SINAI research group, Universidad de Jaén", "license": "CC-BY-4.0", "source": "https://huggingface.co/datasets/SINAI/ALIA-es-discriminative-hate-speech" },
+        { "kind": "data", "name": "Portuguese toxicity annotations", "by": "Nicholas Kluge Corrêa, Aniket Sen, Shiza Fatimah, Sophia Falk, Lennard Landgraf, Julia Kastner and Lucie Flek", "license": "Apache-2.0", "source": "https://huggingface.co/datasets/Polygl0t/portuguese-toxicity-qwen-annotations", "note": "The labels; the texts keep their sources' licenses." }
+      ],
       "demo": {
         "space": "desert-ant-labs/toxic-demo",
         "embed": null,
@@ -598,9 +710,9 @@
       "visibility": "public",
       "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "live", "package": "Uhm", "platforms": ["apple"] },
-        "kotlin": { "status": "planned" },
-        "js": { "status": "planned" }
+        "swift": { "status": "live", "package": "Uhm", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:uhm", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/uhm", "platforms": ["web", "node"] }
       },
       "weights": {
         "source": "hub",
@@ -609,12 +721,12 @@
         "revision": "v1.2.0",
         "license": "desert-ant-labs-source-available"
       },
-      "runtime": ["coreml"],
+      "runtime": ["coreml", "coreai", "litert"],
       "variants": [
         { "id": "high", "default": true, "note": "DistilHuBERT. The base tier is unpublished." }
       ],
       "hub": {
-        "tags": ["audio", "speech", "filler-detection", "disfluency", "on-device", "core-ml", "onnx"],
+        "tags": ["audio", "speech", "filler-detection", "disfluency", "on-device", "core-ml", "litert", "onnx"],
         "pipelineTag": "audio-classification",
         "libraryName": null
       },
@@ -624,6 +736,11 @@
         "basis": "declared",
         "source": "https://huggingface.co/desert-ant-labs/uhm"
       },
+      "notices": [
+        { "kind": "model", "name": "DistilHuBERT", "by": "NTU Speech Processing and Machine Learning Lab", "license": "Apache-2.0", "source": "https://huggingface.co/ntu-spml/distilhubert", "note": "Fine-tuned." },
+        { "kind": "model", "name": "HuBERT base", "by": "Meta", "license": "Apache-2.0", "source": "https://huggingface.co/facebook/hubert-base-ls960", "note": "DistilHuBERT was distilled from it." },
+        { "kind": "data", "name": "AMI Meeting Corpus", "by": "University of Edinburgh CSTR and the AMI consortium", "license": "CC-BY-4.0", "source": "https://groups.inf.ed.ac.uk/ami/corpus/" }
+      ],
       "demo": {
         "space": "desert-ant-labs/uhm-demo",
         "embed": "https://desert-ant-labs-uhm-demo.static.hf.space",
@@ -725,6 +842,9 @@
         "basis": "declared",
         "source": null
       },
+      "notices": [
+        { "kind": "model", "name": "Parakeet TDT 0.6B v3", "by": "NVIDIA", "license": "CC-BY-4.0", "source": "https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3", "note": "Converted for Core ML, LiteRT and ONNX Runtime and compressed. The weight values are otherwise unchanged." }
+      ],
       "demo": null
     },
     {
@@ -759,6 +879,16 @@
         "libraryName": null
       },
       "languages": null,
+      "notices": [
+        { "kind": "model", "name": "speaker-diarization-community-1", "by": "pyannoteAI", "license": "CC-BY-4.0", "source": "https://huggingface.co/pyannote-community/speaker-diarization-community-1", "note": "Who's voice graph derives from it." },
+        { "kind": "data", "name": "LibriSpeech", "by": "Vassil Panayotov, Guoguo Chen, Daniel Povey and Sanjeev Khudanpur", "license": "CC-BY-4.0", "source": "https://www.openslr.org/12" },
+        { "kind": "data", "name": "MUSAN", "by": "David Snyder, Guoguo Chen and Daniel Povey", "license": "CC-BY-4.0", "source": "https://www.openslr.org/17" },
+        { "kind": "data", "name": "AMI Meeting Corpus", "by": "University of Edinburgh CSTR and the AMI consortium", "license": "CC-BY-4.0", "source": "https://groups.inf.ed.ac.uk/ami/corpus/" },
+        { "kind": "data", "name": "ICSI Meeting Corpus", "by": "International Computer Science Institute", "license": "CC-BY-4.0", "source": "https://groups.inf.ed.ac.uk/ami/icsi/" },
+        { "kind": "data", "name": "CHiME-6", "by": "the CHiME challenge organizers", "license": "CC-BY-SA-4.0", "source": "https://www.openslr.org/150/" },
+        { "kind": "data", "name": "AliMeeting", "by": "Alibaba DAMO Academy", "license": "CC-BY-SA-4.0", "source": "https://www.openslr.org/119/" },
+        { "kind": "data", "name": "AISHELL-4", "by": "Beijing Shell Shell Technology", "license": "CC-BY-SA-4.0", "source": "https://www.openslr.org/111/" }
+      ],
       "demo": {
         "space": null,
         "embed": null,
