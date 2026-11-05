@@ -1,4 +1,6 @@
 mise.local.toml
+# Personal agent settings, beside the shared .claude/settings.json.
+.claude/settings.local.json
 
 # SwiftPM scratch directories, one per toolchain (see mise.toml): the Xcode,
 # swift.org, and Android snapshot toolchains produce incompatible artifacts.
@@ -41,6 +43,7 @@ packages/*/dist/
 packages/*/native/
 packages/*/natives/
 packages/*/LICENSE.md
+packages/*/THIRD_PARTY_NOTICES.md
 packages/*/test/fixtures/
 # Voz's is the exception: six seconds of a public-domain LibriVox recording, and
 # the only audio checked in anywhere here. Its browser and Node suites assert a
@@ -59,6 +62,7 @@ packages/*/src/main/resources/
 kotlin/src/main/jniLibs/
 androidtest/src/main/jniLibs/
 js/LICENSE.md
+js/THIRD_PARTY_NOTICES.md
 *.wasm
 
 .DS_Store
@@ -66,5 +70,9 @@ js/LICENSE.md
 xcuserdata/
 *.xcuserstate
 DerivedData/
+# Android Studio and IntelliJ. Gradle sync regenerates all of it, and the rest is
+# per machine state, like the JDK name and the device list.
+.idea/
+*.iml
 __pycache__/
 packages/*-kotlin/bin/

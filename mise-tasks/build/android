@@ -4,6 +4,7 @@
 #MISE depends=["android-sdk"]
 #MISE tools={java="temurin-21"}
 #USAGE arg "<model>" help="Model AAR to build, 'core' for just the core AAR, or 'all'" default="all"
+#USAGE flag "--abi <abi>" help="ABIs to build: arm64-v8a (the default), x86_64, or all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # One Gradle build owns every publishable Android artifact (settings.gradle.kts),
@@ -20,6 +21,11 @@ if [ "$(dal_host_os)" = windows ]; then
 fi
 
 want="${usage_model:-all}"
+
+# Resolved once and exported: Gradle's preBuild runs build:android-natives,
+# which has to build the same ABIs this task checks for below.
+DAL_ANDROID_ABIS=$(dal_android_abis "${usage_abi:-}")
+export DAL_ANDROID_ABIS
 
 if [ "$want" = core ]; then
     ./gradlew :core:assembleRelease
@@ -81,8 +87,8 @@ for model in $models; do
         exit 1
     }
     # The core AAR always carries both LiteRT ABIs (prebuilt, cheap); only the
-    # Swift cross-compile honors DAL_ANDROID_ABIS, so check what was built.
-    for abi in ${DAL_ANDROID_ABIS:-arm64-v8a x86_64}; do
+    # Swift cross-compile honors the ABI choice, so check what was built.
+    for abi in $DAL_ANDROID_ABIS; do
         unzip -Z1 "$aar" | grep -qx "jni/$abi/lib${product}Android.so" \
             || { echo "error: the $model AAR is missing jni/$abi/lib${product}Android.so" >&2; exit 1; }
     done

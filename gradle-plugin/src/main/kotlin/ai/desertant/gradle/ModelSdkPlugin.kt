@@ -69,7 +69,15 @@ class ModelSdkPlugin : Plugin<Project> {
             task.workingDir = repoRoot
             task.commandLine("mise", "run", "build:android-natives", model)
             task.environment("MISE_TRUSTED_CONFIG_PATHS", repoRoot.absolutePath)
-            System.getenv("ANDROID_NDK_HOME")?.let { task.environment("ANDROID_NDK_HOME", it) }
+            // The NDK pin is an input: moving it relinks against another libc++.
+            task.inputs.file(repoRoot.resolve("ANDROID_NDK_VERSION"))
+            // The ABI choice is an input too, or switching it (--abi all after
+            // an arm64-only build) finds this task up to date and packages the
+            // old ABIs.
+            task.inputs.property(
+                "abis",
+                project.providers.environmentVariable("DAL_ANDROID_ABIS").orElse(""),
+            )
             task.inputs.dir(repoRoot.resolve("Sources"))
             task.inputs.dir(repoRoot.resolve("mise-tasks"))
             task.outputs.dir(project.projectDir.resolve("src/main/jniLibs"))

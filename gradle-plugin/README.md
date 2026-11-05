@@ -46,3 +46,7 @@ It is also published to Maven Central as
 mise run publish:maven               # ships it with everything else on a release
 mise run publish:maven --local       # to ~/.m2, keyless, for testing consumers
 ```
+
+`--local` builds only arm64-v8a by default, like every local Android build. Set
+`DAL_ANDROID_ABIS=all` for an x86_64 consumer. Publishing to Maven Central
+always builds both ABIs.
