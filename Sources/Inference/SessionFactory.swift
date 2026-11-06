@@ -16,7 +16,7 @@ public func inferenceSession(modelPath: String, computeUnits: ComputeUnits = .al
                              sdk: SDKInfo = SDKInfo()) throws -> any InferenceSession {
     #if canImport(CoreML)
     if modelPath.hasSuffix(".aimodel") {
-        #if canImport(CoreAI)
+        #if canImport(CoreAI) && arch(arm64)
         if #available(macOS 27.0, iOS 27.0, tvOS 27.0, visionOS 27.0, watchOS 27.0, *) {
             return licensed(try CoreAISession(modelPath: modelPath, computeUnits: computeUnits), sdk: sdk)
         }
