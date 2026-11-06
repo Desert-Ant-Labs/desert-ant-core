@@ -1,6 +1,34 @@
 #if canImport(COnnxRuntime)
 import COnnxRuntime
 import CStrings
+import PlatformSupport
+
+// The runtime's own lines (see dal_ort_set_logger) as `onnxruntime` messages,
+// at the level ONNX Runtime gave them. Installed before the first session
+// exists: the environment that session creates owns the logger, and every
+// later session shares it. Public because Voz's engine creates its sessions
+// through the shim directly.
+public let onnxRuntimeLogsThroughLog: Bool = {
+    installOnnxRuntimeLogger()
+    return true
+}()
+
+func installOnnxRuntimeLogger() {
+    dal_ort_set_logger { severity, message in
+        guard let message else { return }
+        Log.log(onnxRuntimeLogLevel(severity), decodeCString(message), source: "onnxruntime")
+    }
+}
+
+/// ONNX Runtime's severity (0 verbose, 1 info, 2 warning, 3 error, 4 fatal) as a log level.
+func onnxRuntimeLogLevel(_ severity: Int32) -> LogLevel {
+    switch severity {
+    case ...0: return .debug
+    case 1: return .info
+    case 2: return .warning
+    default: return .error
+    }
+}
 
 /// ONNX Runtime inference backend, behind the shared ``InferenceSession`` API.
 /// Windows uses it because that is where the NPU execution providers live; the
@@ -60,6 +88,7 @@ final class OnnxSession: InferenceSession, @unchecked Sendable {
     ///   falls back to the `DAL_ORT_NPU_EP` environment variable.
     init(modelPath: String, accelerator: Accelerator = .gpu,
          npuLibrary: String? = nil) throws {
+        _ = onnxRuntimeLogsThroughLog
         var errbuf = [CChar](repeating: 0, count: 512)
         let handle: OpaquePointer? = errbuf.withUnsafeMutableBufferPointer { err in
             modelPath.withCString { path in

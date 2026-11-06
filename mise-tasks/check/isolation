@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #MISE description="Prove each model's Swift graph carries no other model and no unused capability"
 #MISE dir="{{config_root}}"
-#MISE tools={node="22", swift={version="6.3.3", os=["linux"]}}
+#MISE tools={node="22", swift={version="{{ vars.swift }}", os=["linux"]}}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # An app that adds one SDK must pay for that SDK only. This reads the resolved
 # SwiftPM graph rather than grepping a build log, so it is exact, instant, and

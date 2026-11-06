@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #MISE description="Run the Swift test suite on this host (Core ML on macOS, LiteRT on Linux and Windows)"
 #MISE dir="{{config_root}}"
-#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#MISE tools={swift={version="{{ vars.swift }}", os=["linux"]}}
 #USAGE arg "<model>" help="Model whose suite to run, or 'all'" default="all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # The whole suite, every model, on the host toolchain. HTTPTests talks to a
 # local echo server (Tools/EchoServer.swift), which this starts and stops.
@@ -20,6 +21,7 @@ if [ "${usage_model:-all}" != all ]; then
 fi
 
 dal_vendor_litert
+dal_drop_stale_archives .build-host
 # Own port: the umbrella `test` runs this and test:wasi in parallel, and both
 # start an echo server. The suites read DAL_ECHO_PORT (8199 when unset).
 # DAL_SWIFT_ECHO_PORT moves it off a port something else on the host holds.

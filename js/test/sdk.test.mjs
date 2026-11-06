@@ -6,6 +6,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LoadedModel, readyModel, wasmCore, createWasmSdk } from "../src/sdk.js";
 import { FfiReader, FfiWriter } from "../src/ffi.js";
+import { DesertAnt } from "../src/log.js";
 
 /** A core in the normalized shape, recording what it was asked to do. */
 function fakeCore({ downloaded = false, failDownload = false } = {}) {
@@ -191,6 +192,23 @@ test("createWasmSdk downloads by default and adopts a directory when given one",
   assert.equal(typeof installed?.run, "function");
   const withDirectory = await sdk.open({ litert, litertWasmDir: "/wasm/", directory: "/models/y" });
   assert.ok(withDirectory instanceof LoadedModel);
+});
+
+test("createWasmSdk applies the host's log level to the core, now and on each change", async () => {
+  const levels = [];
+  const exports = { ...fakeExports(), setLogLevel: (level) => levels.push(level) };
+  try {
+    DesertAnt.logLevel = "debug";
+    await createWasmSdk({ platform: fakePlatform(exports), packageName: "@x/y" });
+    assert.deepEqual(levels, ["debug"]);
+    DesertAnt.logLevel = "off";
+    assert.deepEqual(levels, ["debug", "off"]);
+    // A core built before the export existed is left to read the global itself.
+    await createWasmSdk({ platform: fakePlatform(fakeExports()), packageName: "@x/y" });
+  } finally {
+    delete globalThis.__dalLogLevel;
+    delete globalThis[Symbol.for("desert-ant-labs.log-installers")];
+  }
 });
 
 test("createWasmSdk's modelBaseUrl path compiles the model and passes only sidecars", async () => {

@@ -5,6 +5,7 @@
 #if !os(WASI)
 import Dispatch
 #endif
+import PlatformSupport
 
 /// Process-wide Desert Ant configuration.
 ///
@@ -50,6 +51,26 @@ public enum DesertAnt {
     public static var fasterNeuralEngineCompile: Bool {
         get { withLock { storedFasterNeuralEngineCompile } }
         set { withLock { storedFasterNeuralEngineCompile = newValue } }
+    }
+
+    /// The least severe level the SDK writes: `.debug`, `.info`, `.warning`,
+    /// `.error` or `.off`. `.warning` unless `DAL_LOG_LEVEL` says otherwise.
+    /// Set it at any time.
+    public static var logLevel: LogLevel {
+        get { Log.level }
+        set { Log.level = newValue }
+    }
+
+    /// Where every message the SDK and its runtimes write goes, as
+    /// `(level, source, message)`, instead of the platform's log. `nil` (the
+    /// default) is the platform's log.
+    ///
+    /// ```swift
+    /// DesertAnt.logger = { level, source, message in myLogger.log("\(source): \(message)") }
+    /// ```
+    public static var logger: LogHandler? {
+        get { Log.handler }
+        set { Log.handler = newValue }
     }
 
     // Rare writes and per-call reads make contention irrelevant, but

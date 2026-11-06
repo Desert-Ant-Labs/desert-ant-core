@@ -1,10 +1,12 @@
 name: Sync from manifest
 
-# Pushes the model table and cards to every surface that publishes them:
-# Hugging Face model cards, the Hugging Face org card, and the GitHub org profile.
-# The only workflow in this repo that writes outside it, so it is deliberately
-# narrow: it runs on a manual dispatch, or on a push to main that actually
-# touched the registry or the renderer.
+# Pushes the model pages and the model table to every surface that publishes
+# them: each model's Hugging Face card (its page, docs/models/<id>.md), the
+# Hugging Face org card, and the GitHub org profile. The only workflow in this
+# repo that writes outside it, so it is deliberately narrow: it runs on a manual
+# dispatch, or on a push to main that touched a page, the registry or the
+# renderer. Public main only moves at a release or with a docs-only fix, so the
+# cards always describe what is released.
 #
 # Needs HF_TOKEN, a write token on the desert-ant-labs org, and
 # ORG_PROFILE_TOKEN, which needs contents:write on Desert-Ant-Labs/.github
@@ -21,6 +23,7 @@ on:
     branches: [main]
     paths:
       - docs/models/**
+      - LICENSES/**
       - manifest.json
       - Tools/manifest-docs.mjs
       - mise-tasks/hub/**

@@ -2,12 +2,14 @@
 #MISE description="Run the on-device Android tests on a connected emulator or device"
 #MISE dir="{{config_root}}"
 #MISE depends=["android-sdk"]
-#MISE tools={swift="6.3.3", java="temurin-21"}
+#MISE tools={swift="{{ vars.swift }}", java="temurin-21"}
 #USAGE arg "<model>" help="Also run this model AAR's instrumented tests, or 'all'" default="all"
 #USAGE flag "--core-only" help="Only run the core host-bridge harness, no model AARs"
 #USAGE flag "--stage-only" help="Only cross-compile and stage the JNI harness, no device needed"
 #USAGE flag "--no-stage" help="Skip staging; run against jniLibs a prior --stage-only produced"
+#USAGE flag "--abi <abi>" help="ABIs to stage and build: arm64-v8a (the default), x86_64, or all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # Android is the one platform `swift test` cannot cover: there the JSON, Regex,
 # and TextNormalization backends call the host through CHostBridge callbacks that
@@ -17,16 +19,17 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 #
 # A pinned swift.org toolchain: the Android cross-compilation SDK only exists for
 # released Swift versions. Own scratch dir (.build-androidtest) so toolchains
-# never share one: build:android-natives owns .build-android with the 6.4.1
-# toolchain, and reusing its scratch state from this release toolchain
-# breaks the C targets' header search (stdlib.h not found).
+# never share one: build:android-natives owns .build-android with its own
+# swift.org tarball of the same release, and reusing its scratch state from
+# mise's copy breaks the C targets' header search (stdlib.h not found).
 api="${DAL_ANDROID_API:-31}"
-ndk_version=r27d
 export SWIFT_ANDROID_STATIC_BUILD=1 # drops JavaScriptKit (host macros) from the graph
 
-# Which ABIs to stage. Devices are arm64, emulators x86_64; CI sets
-# DAL_ANDROID_ABIS=x86_64 to skip the cross-compile it will never run.
-abis="${DAL_ANDROID_ABIS:-arm64-v8a x86_64}"
+# Which ABIs to stage: --abi, else DAL_ANDROID_ABIS, else arm64-v8a (see
+# dal_android_abis). CI's emulator is x86_64, so CI sets that. Exported so the
+# model AARs Gradle builds below (preBuild -> build:android-natives) match.
+abis=$(dal_android_abis "${usage_abi:-}")
+export DAL_ANDROID_ABIS="$abis"
 
 if [ -z "${usage_stage_only:-}" ]; then
     adb="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/platform-tools/adb"
@@ -70,15 +73,23 @@ if [ -z "$bundle" ]; then
 fi
 [ -n "$bundle" ] || { echo "error: the Swift Android SDK was not found after install" >&2; exit 1; }
 
-# The SDK needs an Android NDK (r27d+); configure the bundle once against the
-# shared NDK from dal_android_ndk (one copy on disk, see dal.sh). Marker: a
-# populated ndk-sysroot whose symlinked headers and libraries both resolve (a
-# restored cache can leave dangling links behind).
-if ! [ -e "$bundle/swift-android/ndk-sysroot/usr/include/stdlib.h" ] \
-    || ! find -L "$bundle/swift-android/ndk-sysroot" -name libc++_shared.so 2> /dev/null | grep -q .; then
-    echo "Configuring the SDK against the Android NDK $ndk_version (one-time)..."
-    ndk=$(dal_android_ndk)
-    ( cd "$bundle/swift-android" && ANDROID_NDK_HOME="$ndk" ./scripts/setup-android-sdk.sh )
+# The NDK: SwiftPM 6.4 takes its sysroot from ANDROID_NDK_HOME, and the
+# libc++_shared.so staged below comes from the same NDK, the one
+# ANDROID_NDK_VERSION pins (one copy on disk, see dal_android_ndk). Configure the
+# bundle against it once: the marker is a ndk-sysroot whose symlinked headers
+# point into this NDK and resolve (a restored cache can leave dangling links, an
+# earlier pin an older NDK).
+ANDROID_NDK_HOME=$(dal_android_ndk)
+export ANDROID_NDK_HOME ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+echo "Android NDK: $ANDROID_NDK_HOME"
+sysroot="$bundle/swift-android/ndk-sysroot"
+case "$(readlink "$sysroot/usr/include" 2> /dev/null)" in
+    "$ANDROID_NDK_HOME"/*) [ -e "$sysroot/usr/include/stdlib.h" ] || sysroot="" ;;
+    *) sysroot="" ;;
+esac
+if [ -z "$sysroot" ]; then
+    echo "Configuring the SDK against the Android NDK $(dal_android_ndk_version) (one-time)..."
+    ( cd "$bundle/swift-android" && ./scripts/setup-android-sdk.sh )
 fi
 
 # SwiftPM matches an SDK by triple across every search path, and the snapshot
@@ -107,9 +118,15 @@ for abi in $abis; do
         --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
         -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
     mkdir -p "$jni/$abi"
-    cp ".build-androidtest/$arch-unknown-linux-android$api/release/libCoreAndroidTests.so" "$jni/$abi/"
-    cxx=$(find -L "$bundle/swift-android/ndk-sysroot/usr/lib" -path "*$arch*" -name libc++_shared.so 2> /dev/null | head -1)
-    [ -z "$cxx" ] || cp "$cxx" "$jni/$abi/"
+    # Locate the library rather than hardcoding a layout: Swift 6.4 emits
+    # .build/out/Products/Release-android-<arch>/, older SwiftPM used
+    # .build/<triple>/release/. Both spell the arch.
+    built=$(find .build-androidtest -type f -name libCoreAndroidTests.so -path "*$arch*" -not -path "*/checkouts/*" 2> /dev/null | head -1)
+    [ -n "$built" ] || { echo "error: libCoreAndroidTests.so for $arch not found under .build-androidtest" >&2; exit 1; }
+    cp "$built" "$jni/$abi/"
+    cxx=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*$arch-linux-android*" -name libc++_shared.so 2> /dev/null | head -1)
+    [ -n "$cxx" ] || { echo "error: libc++_shared.so for $arch not found in $ANDROID_NDK_HOME" >&2; exit 1; }
+    cp "$cxx" "$jni/$abi/"
 done
 fi # end of staging
 
@@ -134,7 +151,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         tasks+=(":$model:test")
     fi
 done
-for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N; do
+for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N UHM_BENCH UHM_BENCH_N; do
     if [ -n "${!name:-}" ]; then tasks+=("-Pandroid.testInstrumentationRunnerArguments.$name=${!name}"); fi
 done
 [ ${#tasks[@]} -eq 0 ] || ./gradlew --no-daemon "${tasks[@]}"

@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 #MISE description="Cross-compile a model's Android JNI libraries into packages/<model>-kotlin/src/main/jniLibs"
 #MISE dir="{{config_root}}"
-#MISE tools={swift={version="6.3.3", os=["linux"]}}
+#MISE depends=["android-sdk"]
+#MISE tools={swift={version="{{ vars.swift }}", os=["linux"]}}
 #USAGE arg "<model>" help="Model to cross-compile, or 'all'" default="all"
+#USAGE flag "--abi <abi>" help="ABIs to build: arm64-v8a (the default), x86_64, or all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # Invoked by the Gradle `preBuild` of each model module (see the
 # ai.desertant.model-sdk convention plugin), so `mise run build:android` is the
@@ -31,15 +34,15 @@ fi
 api="${DAL_ANDROID_API:-24}"
 export SWIFT_ANDROID_STATIC_BUILD=1
 
-# Which ABIs to build. Ships both by default; CI's emulator is x86_64 only, so
-# it sets DAL_ANDROID_ABIS=x86_64 to skip the arm64 half it would never run.
-# The release workflow leaves this unset and builds everything.
+# Which ABIs to build: --abi, else DAL_ANDROID_ABIS, else arm64-v8a (see
+# dal_android_abis). CI's emulator is x86_64, so CI sets that; publish:maven
+# and the release workflow pin both.
+abis=$(dal_android_abis "${usage_abi:-}")
 abi_pairs=""
-for abi in ${DAL_ANDROID_ABIS:-arm64-v8a x86_64}; do
+for abi in $abis; do
     case "$abi" in
         arm64-v8a) abi_pairs="$abi_pairs arm64-v8a:aarch64" ;;
         x86_64) abi_pairs="$abi_pairs x86_64:x86_64" ;;
-        *) echo "error: unknown ABI '$abi' in DAL_ANDROID_ABIS" >&2; exit 1 ;;
     esac
 done
 
@@ -92,34 +95,16 @@ else
 fi
 
 # The NDK: SwiftPM takes its sysroot from ANDROID_NDK_HOME, and the C++ runtime
-# below comes from the same NDK. The 6.4.1 SDK's static runtime is built against
-# LLVM 21's libc++ and needs std::__hash_memory, which only NDK r30's libc++
-# defines (r27 to r29 fail the link). Use an installed r30+, else install the
-# pinned one next to the host toolchain, where CI's toolchain cache keeps it.
-ndk_min=30
-ndk_pin="${DAL_ANDROID_NDK_VERSION:-30.0.16248370}"
-ndk_cache="${DAL_SWIFT_TOOLCHAIN_DIR:-$HOME/.cache/desert-ant/toolchains}/android-sdk"
-ndk_major() { sed -n 's/^Pkg.Revision = \([0-9]*\).*/\1/p' "$1/source.properties" 2> /dev/null; }
-ndk=""
-for candidate in "${ANDROID_NDK_HOME:-}" "$ndk_cache"/ndk/* "${ANDROID_HOME:-$HOME/Android/Sdk}"/ndk/* \
-    "$HOME"/Library/Android/sdk/ndk/*; do
-    [ -n "$candidate" ] && [ -d "$candidate" ] || continue
-    major=$(ndk_major "$candidate")
-    [ -n "$major" ] && [ "$major" -ge "$ndk_min" ] || continue
-    [ -z "$ndk" ] || [ "$major" -gt "$(ndk_major "$ndk")" ] && ndk=$candidate
-done
-if [ -z "$ndk" ]; then
-    sdk_root="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
-    sdkmanager=$(ls "$sdk_root"/cmdline-tools/*/bin/sdkmanager "$HOME"/Library/Android/sdk/cmdline-tools/*/bin/sdkmanager \
-        2> /dev/null | head -1 || true)
-    [ -n "$sdkmanager" ] || { echo "error: no Android NDK r$ndk_min+ and no sdkmanager to install $ndk_pin" >&2; exit 1; }
-    echo "Installing Android NDK $ndk_pin into $ndk_cache (one-time, ~1 GB)..."
-    mkdir -p "$ndk_cache"
-    yes | "$sdkmanager" --sdk_root="$ndk_cache" --licenses > /dev/null 2>&1 || true
-    "$sdkmanager" --sdk_root="$ndk_cache" "ndk;$ndk_pin" > /dev/null
-    ndk="$ndk_cache/ndk/$ndk_pin"
-fi
-export ANDROID_NDK_HOME="$ndk"
+# below comes from the same NDK, the one ANDROID_NDK_VERSION pins (the
+# android-sdk dependency installs it). r30 is a floor as well as the pin: the
+# 6.4.1 SDK's static runtime is built against LLVM 21's libc++ and needs
+# std::__hash_memory, which only NDK r30's libc++ defines (r27 to r29 fail the
+# link).
+ndk_version=$(dal_android_ndk_version)
+[ "${ndk_version%%.*}" -ge 30 ] \
+    || { echo "error: ANDROID_NDK_VERSION is $ndk_version; the 6.4.1 runtime needs NDK r30 or later" >&2; exit 1; }
+ANDROID_NDK_HOME=$(dal_android_ndk)
+export ANDROID_NDK_HOME ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 echo "Android NDK: $ANDROID_NDK_HOME"
 
 find_bundle() {
@@ -141,10 +126,6 @@ if [ -z "$bundle" ]; then
     bundle=$(find_bundle || true)
 fi
 [ -n "$bundle" ] || { echo "error: no Android SDK bundle for $snapshot after install" >&2; exit 1; }
-
-# SwiftPM 6.4 needs an NDK when targeting android triples; see dal_android_ndk.
-ANDROID_NDK_HOME=$(dal_android_ndk)
-export ANDROID_NDK_HOME ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
 
 # SwiftPM matches an SDK by triple (or id) across every search path, and a host
 # that still has an older snapshot's bundle, or this bundle under a second SDK
@@ -188,11 +169,8 @@ for candidate in llvm-strip "$swift_bin/llvm-strip" llvm-objcopy "$swift_bin/llv
     fi
 done
 if [ -z "$strip_bin" ]; then
-    for base in "$bundle" "$HOME"/.swiftpm/swift-sdks/* "${ANDROID_NDK_HOME:-/nonexistent}" \
-        "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" "$HOME/Library/Android/sdk/ndk"; do
-        candidate=$(find "$base" -name llvm-strip 2> /dev/null | head -1 || true)
-        [ -n "$candidate" ] && { strip_bin=$candidate; strip_mode=strip; break; }
-    done
+    candidate=$(find "$ANDROID_NDK_HOME/toolchains" -name llvm-strip 2> /dev/null | head -1 || true)
+    [ -n "$candidate" ] && { strip_bin=$candidate; strip_mode=strip; }
 fi
 
 for model in $(dal_select "${usage_model:-all}" kotlin); do
@@ -204,6 +182,9 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
     fi
     product=$(dal_product "$model")
     jni_libs="packages/$model-kotlin/src/main/jniLibs"
+    # Start empty, or a library left by an earlier build for another ABI would
+    # be packaged beside this one, built from older sources.
+    rm -rf "$jni_libs"
 
     for pair in $abi_pairs; do
         abi=${pair%:*} arch=${pair#*:}
@@ -217,15 +198,12 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         # Swift's static runtime response file asks for the C++ standard library
         # by driver alias, so the NDK archive goes under every alias a model AAR
         # could otherwise collide over.
-        cxx=$(find -L "$bundle" -path "*$arch-linux-android*" -name libc++_static.a 2> /dev/null | head -1 || true)
-        if [ -z "$cxx" ]; then
-            for base in "${ANDROID_NDK_HOME:-/nonexistent}" "${ANDROID_HOME:-$HOME/Android/Sdk}/ndk" \
-                "$HOME/Library/Android/sdk/ndk"; do
-                cxx=$(find -L "$base" -path "*$arch-linux-android*" -name libc++_static.a 2> /dev/null | head -1 || true)
-                [ -n "$cxx" ] && break
-            done
-        fi
-        [ -n "$cxx" ] || { echo "error: libc++_static.a for $arch not found" >&2; exit 1; }
+        #
+        # From the pinned NDK above, not the bundle: the bundle's ndk-sysroot is
+        # whatever NDK test:android last linked it to, and an older one there
+        # fails this link with an undefined std::__hash_memory.
+        cxx=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*$arch-linux-android*" -name libc++_static.a 2> /dev/null | head -1 || true)
+        [ -n "$cxx" ] || { echo "error: libc++_static.a for $arch not found in $ANDROID_NDK_HOME" >&2; exit 1; }
         cxx_dir=$(mktemp -d)
         for alias in libc++.a libc++_shared.a libstdc++.a libstdc++_shared.a; do
             ln -s "$cxx" "$cxx_dir/$alias"
@@ -257,7 +235,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         rm -rf "$cxx_dir"
 
         dest="$jni_libs/$abi"
-        rm -rf "$dest" && mkdir -p "$dest"
+        mkdir -p "$dest"
         # Locate the library rather than hardcoding a layout: Swift 6.4 emits
         # .build/out/Products/Release-android-<arch>/, older SwiftPM used
         # .build/<triple>/release/. Both spell the arch.

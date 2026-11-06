@@ -10,6 +10,7 @@ import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME, SAMPLE_RATE } from "./codec.js";
 import { makeEar } from "./ear.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 export { SAMPLE_RATE };
 

@@ -189,6 +189,26 @@ export function createWasmSdk(options: {
   defaultAccelerator?: "auto" | "wasm" | "webgpu";
 }): Promise<ModelSdk>;
 
+/** A log level name, from the most talkative to silent. */
+export type LogLevel = "debug" | "info" | "warning" | "error" | "off";
+export const LOG_LEVELS: readonly LogLevel[];
+
+/**
+ * The SDK's settings, for every Desert Ant model in the process, on either
+ * runtime. The same names as the Kotlin SDK's `DesertAnt`.
+ */
+export const DesertAnt: {
+  /** The least severe level the SDK writes. `"warning"` by default. Set it at any time. */
+  logLevel: LogLevel;
+  /**
+   * Receives every SDK message instead of the platform's log (the unified log
+   * on macOS, standard error on Linux and Windows, the console on wasm).
+   * `source` is what wrote it: `core`, `http`, `litert`, `onnxruntime`, or a
+   * model id. Null (the default) is the platform's log.
+   */
+  logger: ((level: LogLevel, source: string, message: string) => void) | null;
+};
+
 /** @deprecated Has no effect: `withCallGroup` runs the body with a group id that nothing reads. */
 export function makeCallGroups(endGroup?: (id: string) => void): {
   withCallGroup: <T>(body: (group: string) => Promise<T>) => Promise<T>;
@@ -220,6 +240,14 @@ export interface WasmCore {
   endCallGroup(id: string | null): void;
   destroy(handle: number): void;
   flushTelemetry(): Promise<boolean>;
+  setLogLevel(level: LogLevel): void;
+  LogLevel: {
+    readonly Debug: "debug";
+    readonly Info: "info";
+    readonly Warning: "warning";
+    readonly Error: "error";
+    readonly Off: "off";
+  };
 }
 
 /** An instantiated core: its exports, and the hook that installs the model host

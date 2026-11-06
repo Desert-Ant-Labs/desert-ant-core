@@ -10,6 +10,7 @@ import * as platform from "#platform";
 import { createWasmSdk } from "@desert-ant-labs/core";
 import { PACKAGE_NAME } from "./codec.js";
 import { makeRedact, DEFAULT_LABELS, ALL_LABELS } from "./redact.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 export { DEFAULT_LABELS, ALL_LABELS };
 

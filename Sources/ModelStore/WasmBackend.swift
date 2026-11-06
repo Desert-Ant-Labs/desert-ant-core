@@ -6,6 +6,7 @@
 #if os(WASI)
 import JSHost
 import JavaScriptKit
+import PlatformSupport
 import JavaScriptEventLoop
 
 /// Whether we are running under node (vs a browser).
@@ -105,15 +106,9 @@ public struct JSFileSystem: FileSystem {
     public func remove(_ path: String) { _ = try? call("unlinkSync", path) }
 }
 
-// Opt-in verbose logging for the WASM model-download transport, enabled from JS
-// by setting `globalThis.__dalHttpDebug = true`. Logs go to `console.log`.
-private func jsTransportDebugEnabled() -> Bool {
-    JSObject.global.__dalHttpDebug.boolean ?? false
-}
-
+// The download trace, at debug level (`__dalLogLevel = "debug"` on a JS host).
 private func jsTransportDebugLog(_ message: @autoclosure () -> String) {
-    guard jsTransportDebugEnabled() else { return }
-    _ = JSObject.global.console.object?.log?("[DAL HTTP] \(message())".jsValue)
+    Log.debug(message(), source: "http")
 }
 
 /// JS `fetch` transport. Writes downloaded bytes through the store's filesystem

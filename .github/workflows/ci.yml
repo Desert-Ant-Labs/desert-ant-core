@@ -36,7 +36,9 @@ jobs:
   checks:
     name: checks (versions, JS units)
     if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
-    runs-on: ubuntu-latest
+    # 24.04, not latest: ubuntu-latest is 26.04 since October 2026, where mise's
+    # Swift (the 24.04 build) cannot load libxml2.so.2 and check:swift-floor skips.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -364,7 +366,7 @@ jobs:
           path: |
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
-          key: swift-wasm-sdk-6.3.3
+          key: swift-wasm-sdk-6.4.1
 
       # The wasm builds this job runs from scratch otherwise: the wasm test
       # build (test:wasi) and the wasm release builds (build:wasm) share the
@@ -455,7 +457,7 @@ jobs:
           path: |
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
-          key: swift-wasm-sdk-6.3.3
+          key: swift-wasm-sdk-6.4.1
       - name: Save Playwright's Chromium
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
@@ -493,7 +495,7 @@ jobs:
           path: |
             ~/.swiftpm/swift-sdks
             ~/.config/swiftpm/swift-sdks
-          key: swift-wasm-sdk-6.3.3
+          key: swift-wasm-sdk-6.4.1
       - run: mise run test:wasi
 
   js-node:
@@ -843,8 +845,8 @@ jobs:
           key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
           restore-keys: mise-installs-${{ runner.os }}-
 
-      # The snapshot toolchain (~1.2 GB), the Android SDK bundles (~330 MB), and
-      # the NDK install on demand; cache them so only the first run pays.
+      # The snapshot toolchain (~1.2 GB) and the Android SDK bundles (~330 MB)
+      # install on demand; cache them so only the first run pays.
       - id: android-toolchains-cache
         uses: actions/cache/restore@v6
         with:
@@ -854,6 +856,21 @@ jobs:
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
           key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
+
+      # The pinned NDK, where the android-sdk task installs it on a miss (side
+      # by side in the runner's SDK, where AGP looks too). Path and key both
+      # come from ANDROID_NDK_VERSION, so moving the pin re-keys the cache.
+      - name: Locate the pinned Android NDK
+        id: ndk
+        run: |
+          version=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
+          echo "dir=$ANDROID_HOME/ndk/$version" >> "$GITHUB_OUTPUT"
+          echo "key=android-ndk-${{ runner.os }}-$version" >> "$GITHUB_OUTPUT"
+      - id: android-ndk-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ steps.ndk.outputs.dir }}
+          key: ${{ steps.ndk.outputs.key }}
 
       # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
       - uses: gradle/actions/setup-gradle@v4
@@ -878,8 +895,9 @@ jobs:
 
       # Cross-compile and package first, outside the emulator's lifetime, so a
       # long native build does not eat the emulator boot timeout. The emulator
-      # is x86_64, so skip the arm64 cross-compiles CI would never run - that
-      # is half of the Swift build work. The release workflow builds both.
+      # is x86_64, so build only that ABI (locally the default is arm64-v8a)
+      # and skip the arm64 cross-compiles CI would never run - that is half of
+      # the Swift build work. The release workflow sets both explicitly.
       - run: mise run build:android
         env:
           DAL_ANDROID_ABIS: x86_64
@@ -941,6 +959,13 @@ jobs:
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
           key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
+
+      - name: Save the Android NDK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.android-ndk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.ndk.outputs.dir }}
+          key: ${{ steps.ndk.outputs.key }}
 
       - name: Save the AVD snapshot
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.avd-cache.outputs.cache-hit != 'true'

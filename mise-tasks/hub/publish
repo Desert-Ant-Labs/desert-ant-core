@@ -5,6 +5,15 @@
 #USAGE flag "--dry-run" help="Print what would change and upload nothing"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
+# A model's Hub card is its page, docs/models/<id>.md, with the Hub's front
+# matter and absolute links: one page, published on GitHub, the website and the
+# Hub. Its THIRD_PARTY_NOTICES.md is rendered from the model's `notices` in
+# manifest.json. Both go up in one commit. The Hub is never where either is
+# written, so whatever is live is replaced.
+#
+# Every rendered file, and the live one it replaces, is written to .build/hub/
+# so a dry run can be read as a diff.
+#
 # Needs HF_TOKEN with write scope on the org. A dry run needs no token: every
 # repo it reads is public.
 
@@ -23,11 +32,16 @@ if (!dryRun && !token) {
 
 const API = "https://huggingface.co/api";
 const auth = token ? { Authorization: `Bearer ${token}` } : {};
+// Every card commit names its source: this task's start with it, and the weights
+// scripts' (which put the card in the weights commit) include it. That's how a
+// write from this repo is told apart from an edit made on the Hub.
 const SUMMARY = "Card from docs/models/";
 const fromThisRepo = (title) => title.toLowerCase().includes("card from docs/models/");
 
+// Files beside the weights that never decide whether main holds a tag's weights.
 const NOT_WEIGHTS = new Set(["README.md", "THIRD_PARTY_NOTICES.md", ".gitattributes", "LICENSE.md"]);
 
+/// The weights files at a revision, path -> content id, following the API's pages.
 async function weightsAt(repo, revision) {
   const files = new Map();
   let url = `${API}/models/${repo}/tree/${encodeURIComponent(revision)}?recursive=true`;
@@ -50,14 +64,22 @@ async function mainHasPinnedWeights(repo, tag) {
   return shared.length > 0 && shared.every((path) => pinned.get(path) === main.get(path));
 }
 
-async function readCard(kind, repo) {
+/// Whether main holds the weights of the tag this page pins. New weights keep
+/// the old file names, so weights published ahead of a release show up as a file
+/// both have with different contents. A file only one side has (an old export
+/// left on a tag, an extra build uploaded to main) doesn't change which weights
+/// main holds.
+
+async function readCard(kind, repo, path = "README.md") {
   const prefix = kind === "space" ? "spaces/" : "";
-  const res = await fetch(`https://huggingface.co/${prefix}${repo}/raw/main/README.md`, { headers: auth });
+  const res = await fetch(`https://huggingface.co/${prefix}${repo}/raw/main/${path}`, { headers: auth });
   if (res.status === 404) return "";
   if (!res.ok) throw new Error(`GET ${repo}: ${res.status}`);
   return res.text();
 }
 
+/// The card's own last commit, or null when the Hub does not say. Not the
+/// repo's: a weights publish lands on main after the card sync.
 async function lastCardCommit(repo) {
   const res = await fetch(`${API}/models/${repo}/paths-info/main`, {
     method: "POST",
@@ -69,13 +91,16 @@ async function lastCardCommit(repo) {
   return file?.lastCommit ?? null;
 }
 
-async function writeCard(kind, repo, content, summary, description = "") {
+/// One commit with every file in `files`, path -> contents.
+async function writeCard(kind, repo, files, summary, description = "") {
   const body = [
     JSON.stringify({ key: "header", value: { summary, description } }),
-    JSON.stringify({
-      key: "file",
-      value: { path: "README.md", content: Buffer.from(content).toString("base64"), encoding: "base64" },
-    }),
+    ...Object.entries(files).map(([path, content]) =>
+      JSON.stringify({
+        key: "file",
+        value: { path, content: Buffer.from(content).toString("base64"), encoding: "base64" },
+      })
+    ),
   ].join("\n");
   const res = await fetch(`${API}/${kind}s/${repo}/commit/main`, {
     method: "POST",
@@ -117,7 +142,6 @@ const commit = process.env.GITHUB_SHA ? `${org.github}/desert-ant-core/commit/${
 const failures = [];
 let changed = 0;
 let skipped = 0;
-let waiting = 0;
 mkdirSync(".build/hub", { recursive: true });
 
 for (const model of models) {
@@ -125,32 +149,44 @@ for (const model of models) {
     console.log(`  ${model.id}: internal, left alone`);
     continue;
   }
+  // A model with no SDK has no page. Its card stays as it is until it ships.
   if (!ships(model)) {
     console.log(`  ${model.id}: no SDK ships it, so it has no page and its card is left alone`);
     continue;
   }
   const repo = model.weights.repo;
+  // A card only goes up beside the weights it describes. When main holds other
+  // weights (published ahead of a release) or the pinned tag isn't public yet, the
+  // card waits: the weights scripts put the right one up in the weights commit.
   if (!(await mainHasPinnedWeights(repo, model.weights.revision))) {
     console.log(`  ${model.id}: main doesn't hold the ${model.weights.revision} weights this page describes, so the card is left alone`);
-    waiting++;
+    skipped++;
     continue;
   }
-  const next = renderHubFiles(model)["README.md"];
+  const rendered = renderHubFiles(model);
+  const next = rendered["README.md"];
+  const nextNotices = rendered["THIRD_PARTY_NOTICES.md"];
   const current = await readCard("model", repo);
+  const currentNotices = await readCard("model", repo, "THIRD_PARTY_NOTICES.md");
   writeFileSync(`.build/hub/${model.id}.md`, next);
   writeFileSync(`.build/hub/${model.id}.live.md`, current);
-  if (next === current) {
+  writeFileSync(`.build/hub/${model.id}.notices.md`, nextNotices);
+  writeFileSync(`.build/hub/${model.id}.notices.live.md`, currentNotices);
+  const files = {};
+  if (next !== current) files["README.md"] = next;
+  if (nextNotices !== currentNotices) files["THIRD_PARTY_NOTICES.md"] = nextNotices;
+  if (!Object.keys(files).length) {
     skipped++;
     continue;
   }
 
   const last = await lastCardCommit(repo);
   const note = last && !fromThisRepo(last.title) ? ` (replaces a card last changed by "${last.title}")` : "";
-  console.log(`  ${model.id}: ${current.length} -> ${next.length} bytes${note}`);
-  // One repo the token cannot reach must not strand the other thirteen. The
-  // publish is idempotent, so a rerun picks up whatever failed here.
+  console.log(`  ${model.id}: ${Object.keys(files).join(" and ")}${note}`);
+  // One repo the token cannot reach must not strand the others. The publish is
+  // idempotent, so a rerun picks up whatever failed here.
   try {
-    if (!dryRun) await writeCard("model", repo, next, `${SUMMARY}${model.id}.md`, commit);
+    if (!dryRun) await writeCard("model", repo, files, `${SUMMARY}${model.id}.md`, commit);
     changed++;
   } catch (error) {
     console.error(`    ${error.message}`);
@@ -169,7 +205,7 @@ const nextOrg = replaceBlock(marked, renderTable(models, org));
 if (nextOrg !== currentOrg) {
   console.log(`  org card: ${currentOrg.length} -> ${nextOrg.length} bytes`);
   try {
-    if (!dryRun) await writeCard("space", orgRepo, nextOrg, "Sync model table from manifest.json", commit);
+    if (!dryRun) await writeCard("space", orgRepo, { "README.md": nextOrg }, "Sync model table from manifest.json", commit);
     changed++;
   } catch (error) {
     console.error(`    ${error.message}`);
@@ -179,7 +215,7 @@ if (nextOrg !== currentOrg) {
   skipped++;
 }
 
-console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current, ${waiting} waiting for their weights. Rendered cards are in .build/hub/.`);
+console.log(`${changed} ${dryRun ? "would change" : "published"}, ${skipped} already current. Rendered cards are in .build/hub/.`);
 if (failures.length) {
   console.error(`error: ${failures.length} failed: ${failures.join(", ")}`);
   process.exit(1);

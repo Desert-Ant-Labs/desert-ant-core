@@ -6,6 +6,9 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # Generated blocks that nothing checks go stale between releases. This fails the
 # PR rather than committing a fix silently.
+#
+# A model page is also its Hub card and its page on the website, so the rules
+# below hold for all three at once.
 
 node --input-type=module <<'NODE'
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -15,6 +18,7 @@ import {
 } from "./Tools/manifest-docs.mjs";
 
 const problems = [];
+// The grammars desertant.com's build loads (website build/build.mjs), and their aliases.
 const SITE_CODE = ["swift", "kotlin", "typescript", "ts", "javascript", "js", "bash", "sh", "shell", "json", "xml", "text"];
 let rendered;
 try {
@@ -28,6 +32,7 @@ const stale = Object.entries(rendered)
   .map(([path]) => path);
 if (stale.length) problems.push(`stale generated blocks in ${stale.join(", ")}. Run \`mise run docs:render\`.`);
 
+/// The hand-written part of a page: what is outside its generated blocks.
 function written(page) {
   let out = page;
   for (const markers of [MODEL_MARKERS, MODEL_INSTALL_MARKERS, MODEL_FOOTER_MARKERS]) {
@@ -46,12 +51,17 @@ for (const model of models.filter(ships)) {
 
   for (const url of brokenRelativeLinks(page)) problems.push(`${path}: the relative link ${url} resolves to nothing`);
 
+  // Lifecycle is the manifest's, and the header states it. A sentence that says
+  // "beta" stays behind when the manifest moves on, and nothing catches it.
   for (const [line] of prose.matchAll(/^.*\bbeta\b.*$/gim)) {
     problems.push(`${path}: lifecycle in the prose ("${line.trim().slice(0, 80)}"). The manifest states it.`);
   }
+  // A page describes the current version. What changed goes in the release notes.
   for (const [heading] of prose.matchAll(/^##+ (Changes in this release|What's new|Status)\s*$/gim)) {
     problems.push(`${path}: "${heading.trim()}" belongs in the release notes, not on the page`);
   }
+  // desertant.com/docs highlights code with a fixed set of grammars and fails its
+  // build on any other. The footer's bibtex is fine: the site drops that section.
   for (const [, lang] of prose.matchAll(/^```([A-Za-z0-9+-]+)/gm)) {
     if (!SITE_CODE.includes(lang.toLowerCase())) {
       problems.push(`${path}: a \`\`\`${lang} block, which desertant.com can't highlight. Use one of: ${SITE_CODE.join(", ")}.`);
@@ -68,6 +78,7 @@ for (const model of models.filter(ships)) {
   }
 }
 
+// A sidecar without a page has nothing to attach to.
 const shipping = new Set(models.filter(ships).map((m) => m.id));
 for (const file of readdirSync("docs/models").filter((f) => f.endsWith(".hub.yml"))) {
   if (!shipping.has(file.replace(/\.hub\.yml$/, ""))) problems.push(`docs/models/${file}: no model page to attach it to`);

@@ -15,6 +15,9 @@ plugins {
 android {
     namespace = "ai.desertant.core.androidtest"
     compileSdk = 35
+    // The repo's one NDK pin; this is a separate build, so it reads the file
+    // the root build.gradle.kts reads.
+    ndkVersion = rootDir.resolve("../ANDROID_NDK_VERSION").readText().trim()
 
     defaultConfig {
         minSdk = 31

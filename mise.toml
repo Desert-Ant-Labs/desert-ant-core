@@ -21,7 +21,10 @@
 #   mise run build:node-native-linux  the Linux cores in the release's image (docker)
 #   mise run build:android       ai.desertant:core plus every model AAR
 #
-# Model arguments accept a model name or `all` (the default). The model list is
+# Model arguments accept a model name or `all` (the default). The Android tasks
+# build arm64-v8a only unless told otherwise, since that is every Mac and device
+# we develop on: pass `--abi x86_64` or `--abi all`, or set DAL_ANDROID_ABIS (CI
+# does). Publishing to Maven always builds both. The model list is
 # never written down: it is Sources/<Product>/Catalog.swift, and what a model
 # ships is whether packages/<model>-node and packages/<model>-kotlin exist.
 #
@@ -53,6 +56,9 @@
 # Each toolchain gets its own SwiftPM scratch directory (.build-host,
 # .build-android for the snapshot natives, .build-androidtest for the on-device
 # harness, .build for wasm) so their artifacts never collide.
+
+[vars]
+swift = "6.4.1"
 
 [env]
 # Non-empty also vendors the LiteRT GPU accelerator sibling on Linux.

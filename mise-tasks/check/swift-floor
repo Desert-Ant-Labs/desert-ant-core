@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #MISE description="Build the package with the oldest Swift the README promises"
 #MISE dir="{{config_root}}"
-#MISE tools={swift={version="6.2.1", os=["linux"]}}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+dal_require_swift_packages
 
 # The README promises a minimum Swift; this builds on exactly that toolchain,
 # because newer syntax in code every consumer parses (`nonisolated(unsafe)` is
@@ -14,11 +14,11 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # `#if canImport(CoreML)` and `#if os(Android)` branches, because Swift parses
 # inactive conditional blocks. What it does not cover: type-checking the Apple-only branches, which
 # needs a Mac; the `apple` job builds those, on a newer Xcode.
-floor=$(grep -oE 'version="[0-9.]+"' "$MISE_PROJECT_ROOT/mise-tasks/check/swift-floor" | head -1 | grep -oE '[0-9.]+')
+floor=6.2.1
 claimed=$(grep -oE 'Swift [0-9]+\.[0-9]+\+' "$MISE_PROJECT_ROOT/README.md" | head -1 | grep -oE '[0-9]+\.[0-9]+')
 
-# The task's pinned toolchain and the README have to agree, or this proves the
-# wrong thing quietly.
+# The floor here and the README have to agree, or this proves the wrong thing
+# quietly.
 case "$floor" in
     "$claimed"*) ;;
     *)
@@ -27,10 +27,10 @@ case "$floor" in
         ;;
 esac
 
-# The pin above is scoped os=["linux"], and mise ships no Swift for Windows at
-# all, so a Windows host would build this with whatever toolchain is on PATH and
-# report "ok: builds on its advertised minimum" about a compiler that is not the
-# minimum. Refusing to prove the wrong thing is the whole point of the check.
+# mise ships no Swift for Windows at all, so a Windows host would build this
+# with whatever toolchain is on PATH and report "ok: builds on its advertised
+# minimum" about a compiler that is not the minimum. Refusing to prove the
+# wrong thing is the whole point of the check.
 if [ "$(dal_host_os)" = windows ]; then
     echo "skip: mise cannot pin Swift $floor on Windows, and this check is only"
     echo "      meaningful on the toolchain it names. Run it on Linux or in CI."
@@ -42,6 +42,32 @@ fi
 dal_vendor_litert
 eval "$(dal_litert_link_flags)"
 
-echo "== building with Swift $(swift --version | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1), the floor README.md promises =="
-swift build --scratch-path .build-floor ${litert_flags[@]+"${litert_flags[@]}"}
+# macOS builds with the toolchain on PATH, as it always has; the pinned
+# toolchain is a Linux matter, and the Linux jobs are where this check counts.
+if [ "$(dal_host_os)" = darwin ]; then
+    echo "== building with Swift $(swift --version | head -1 | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1), the floor README.md promises =="
+    swift build --scratch-path .build-floor ${litert_flags[@]+"${litert_flags[@]}"}
+    echo "ok: the package builds on its advertised minimum Swift"
+    exit 0
+fi
+
+# swift.org built $floor for Ubuntu 20.04, 22.04 and 24.04, and never will for
+# a newer release. mise hands any other host the 24.04 build, which on 26.04
+# cannot even start: its swift-build loads libxml2.so.2, and 26.04 packages
+# only libxml2.so.16. So the pin is `mise x` here rather than a #MISE tools
+# header, which would download a toolchain the host cannot run, and a host
+# without a native build skips: the hosted ubuntu-22.04 job proves the floor.
+ubuntu=$(. /etc/os-release 2> /dev/null && [ "${ID:-}" = ubuntu ] && echo "${VERSION_ID:-}")
+case "$ubuntu" in
+    20.04 | 22.04 | 24.04) ;;
+    *)
+        echo "skip: swift.org has no Swift $floor build for this host (${ubuntu:-not Ubuntu}), and the"
+        echo "      24.04 build mise would fall back to cannot load here. The hosted ubuntu-22.04"
+        echo "      job in ci.yml proves the floor."
+        [ -z "${GITHUB_ACTIONS:-}" ] || echo "::warning::check:swift-floor skipped: no Swift $floor for ${ubuntu:-this host}; only ci.yml's ubuntu-22.04 job proves the floor"
+        exit 0
+        ;;
+esac
+echo "== building with Swift $floor, the floor README.md promises =="
+mise x "swift@$floor" -- swift build --scratch-path .build-floor ${litert_flags[@]+"${litert_flags[@]}"}
 echo "ok: the package builds on its advertised minimum Swift"

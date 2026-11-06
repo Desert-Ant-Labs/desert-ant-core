@@ -60,6 +60,16 @@ if [ ! -d "$sdk/platforms/android-35" ] || [ ! -d "$sdk/build-tools/35.0.0" ] \
     "$sdkmanager" --sdk_root="$sdk_native" "platforms;android-35" "build-tools;35.0.0" platform-tools > /dev/null
 fi
 
+# The pinned NDK, side by side in this SDK, where both dal_android_ndk and AGP
+# (ndkVersion) find it. Not on Windows: nothing there cross-compiles for Android
+# (see build:android-natives), and an unpacked NDK is ~2 GB.
+ndk_version=$(dal_android_ndk_version)
+if [ "$(dal_host_os)" != windows ] && [ ! -f "$sdk/ndk/$ndk_version/source.properties" ]; then
+    echo "Installing the Android NDK $ndk_version (one-time, ~1 GB download)..."
+    yes | "$sdkmanager" --sdk_root="$sdk_native" --licenses > /dev/null 2>&1 || true
+    "$sdkmanager" --sdk_root="$sdk_native" "ndk;$ndk_version" > /dev/null
+fi
+
 # Gradle reads this as a Java properties file, where a backslash escapes: a
 # Windows path has to be written with forward slashes (Gradle accepts them) or
 # every separator would be swallowed.

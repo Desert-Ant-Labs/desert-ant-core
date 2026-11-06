@@ -86,6 +86,11 @@ jobs:
     # picks the matching tarball, and the cache key below follows the runner).
     runs-on: ubuntu-22.04
     environment: maven-central
+    # Both ABIs, set for the whole job: the natives default to arm64-v8a alone
+    # (dal_android_abis), and build:android only checks the ABIs it was asked
+    # for, so its check before publishing has to be asked for both.
+    env:
+      DAL_ANDROID_ABIS: arm64-v8a x86_64
     steps:
       - uses: actions/checkout@v5
       - name: Free disk space
@@ -146,6 +151,17 @@ jobs:
             ~/.config/swiftpm/swift-sdks
             Vendor/litert
           key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
+      # The pinned NDK, keyed and located from ANDROID_NDK_VERSION as in ci.yml.
+      - name: Locate the pinned Android NDK
+        id: ndk
+        run: |
+          version=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
+          echo "dir=$ANDROID_HOME/ndk/$version" >> "$GITHUB_OUTPUT"
+          echo "key=android-ndk-${{ runner.os }}-$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v6
+        with:
+          path: ${{ steps.ndk.outputs.dir }}
+          key: ${{ steps.ndk.outputs.key }}
 
       # Its own step: Gradle's Exec task swallows the underlying mise stderr,
       # which makes a failure in the cross-compile undiagnosable.
@@ -215,7 +231,13 @@ jobs:
   npm:
     name: npm (core and every model package)
     needs: [gate, natives]
-    runs-on: ubuntu-latest
+    # The larger Linux runner where the repo names one (LINUX_RUNNER, as CI's
+    # wasm jobs read it): with Swift 6.4.1 the wasm build of every model wants
+    # more than the 4-core hosted runner has, and GitHub loses the runner after
+    # an hour. The fallback is 24.04, not latest: ubuntu-latest is 26.04 since
+    # October 2026, where mise's Swift (the 24.04 build) cannot load
+    # libxml2.so.2, so build:wasm fails.
+    runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-24.04' }}
     environment: npm
     permissions:
       contents: read
@@ -223,6 +245,13 @@ jobs:
       id-token: write # the OIDC token npm trusted publishing exchanges for publish rights
     steps:
       - uses: actions/checkout@v5
+      # As in the maven job: on the hosted runner the toolchain, the wasm SDK
+      # and every model's .build share its 14 GB with the image's own SDKs.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
+          sudo docker image prune --all --force || true
       - uses: jdx/mise-action@v4
         with:
           version: 2026.9.2

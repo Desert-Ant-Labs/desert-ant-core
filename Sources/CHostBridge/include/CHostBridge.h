@@ -114,6 +114,17 @@ int32_t host_license_verify(const uint8_t *signature, int32_t signature_len,
                             const uint8_t *message, int32_t message_len,
                             const uint8_t *public_key, int32_t public_key_len);
 
+// Logging (Android): the level the host set (a LogLevel raw value, -1 for
+// none) and the host's logger. host_log returns 1 when the host took the
+// message, 0 with no host, so the core can fall back to the platform's log.
+typedef int32_t (*HostLogLevelFn)(void);
+void host_set_log_level(HostLogLevelFn fn);
+int32_t host_log_level(void);
+
+typedef void (*HostLogFn)(int32_t level, const char *source, const char *message);
+void host_set_log(HostLogFn fn);
+int32_t host_log(int32_t level, const char *source, const char *message);
+
 void host_free(char *ptr);
 
 #ifdef __cplusplus

@@ -6,6 +6,7 @@ import path from "node:path";
 import { createNativeSdk } from "@desert-ant-labs/core/node";
 import { MODEL_ID, PACKAGE_NAME } from "./codec.js";
 import { makeEmo } from "./emo.js";
+export { DesertAnt } from "@desert-ant-labs/core/node";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 

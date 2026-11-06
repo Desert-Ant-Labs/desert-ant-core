@@ -1,6 +1,7 @@
 #if !os(WASI)
 import CStrings
 import DesertAnt
+import Dispatch
 
 private final class NativeHandle {
     let model: any BoundModel
@@ -74,6 +75,46 @@ public func nativeFlushTelemetry() {
 public func nativeDestroy(_ handle: UnsafeMutableRawPointer?) {
     guard let handle else { return }
     Unmanaged<NativeHandle>.fromOpaque(handle).release()
+}
+
+public typealias HostLog = @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Void
+
+private let hostLogLock = DispatchSemaphore(value: 1)
+private nonisolated(unsafe) var hostLogCalls: Int32 = 0
+
+public func nativeSetLogLevel(_ level: Int32) -> Int32 {
+    guard let level = LogLevel(rawValue: Int(level)) else { return -1 }
+    Log.level = level
+    return 0
+}
+
+// Removal is refused while a call is in flight and returns that count, so an
+// exiting host can drain them first (a koffi callback from a core thread waits
+// for the host's event loop).
+public func nativeSetLogger(_ log: HostLog?) -> Int32 {
+    hostLogLock.wait()
+    defer { hostLogLock.signal() }
+    if log == nil, hostLogCalls > 0 { return hostLogCalls }
+    guard let log else {
+        Log.handler = nil
+        return 0
+    }
+    Log.handler = { level, source, message in
+        hostLogLock.wait()
+        hostLogCalls += 1
+        hostLogLock.signal()
+        defer {
+            hostLogLock.wait()
+            hostLogCalls -= 1
+            hostLogLock.signal()
+        }
+        source.withCString { source in
+            message.withCString { message in
+                log(Int32(level.rawValue), source, message)
+            }
+        }
+    }
+    return 0
 }
 
 public func nativeBufferFree(_ pointer: UnsafeMutablePointer<CChar>?) {

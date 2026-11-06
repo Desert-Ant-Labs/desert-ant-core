@@ -5,7 +5,8 @@
 // Enable DAL HTTP request logging. Set before importing Emo: static imports
 // are hoisted, so we use a dynamic import below to guarantee ordering.
 globalThis.__dalHttpDebug = true;
-const { Emo } = await import("@desert-ant-labs/emo");
+const { Emo, DesertAnt } = await import("@desert-ant-labs/emo");
+DesertAnt.logLevel = "debug";
 
 // Emo downloads, verifies (SHA-256), and caches the model from Hugging Face. First
 // run fetches; later runs cache.

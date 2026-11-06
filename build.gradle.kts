@@ -14,3 +14,14 @@ allprojects {
     group = "ai.desertant"
     version = rootDir.resolve("VERSION").readText().trim()
 }
+
+// The NDK is single-sourced the same way, in ANDROID_NDK_VERSION, which the
+// mise tasks also build the Swift natives with (dal_android_ndk_version). AGP
+// compiles nothing native here, but it strips every packaged .so with this
+// NDK's llvm-strip; unset, it falls back to its own default NDK.
+val androidNdkVersion = rootDir.resolve("ANDROID_NDK_VERSION").readText().trim()
+subprojects {
+    plugins.withId("com.android.library") {
+        extensions.configure<com.android.build.api.dsl.LibraryExtension> { ndkVersion = androidNdkVersion }
+    }
+}

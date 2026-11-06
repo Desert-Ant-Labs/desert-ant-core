@@ -21,7 +21,7 @@ Title is fine-tuned on transcript clips, but it works on any prose. The register
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0",
         traits: ["MLX"])
 ```
 

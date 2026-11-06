@@ -10,6 +10,7 @@ import DesertAnt
 @testable import Clips
 @testable import Shapes
 @testable import Align
+@testable import Toxic
 
 /// Every model in the monorepo. The list lives here rather than beside the
 /// `ModelDeclaration` protocol because each model's module depends on the
@@ -25,6 +26,7 @@ let catalog: [any ModelDeclaration.Type] = [
     ClipModel.self,
     ShapesModel.self,
     AlignModel.self,
+    ToxicModel.self,
 ]
 
 /// Invariants every catalog entry must hold, so a malformed declaration fails
@@ -111,6 +113,17 @@ struct ModelCatalogTests {
                 !codec.contains("MODEL_FILES"),
                 "\(model.id): codec.js restates file names the core reports itself")
         }
+    }
+
+    @Test func uhmShipsLiteRTEverywhereButApple() {
+        #expect(UhmModel.revision == "v1.2.0")
+        #expect(UhmModel.artifact(for: .apple) == UhmModel.coreML)
+        for platform in [ModelPlatform.android, .linux, .windows, .web] {
+            #expect(UhmModel.artifact(for: platform) == UhmModel.liteRT, "\(platform.rawValue)")
+            #expect(UhmModel.files[platform] == [UhmModel.liteRT], "\(platform.rawValue)")
+        }
+        #expect(UhmModel.files[.apple] == [UhmModel.coreML + "/", UhmModel.labeler])
+        #expect(UhmModel.supports(.web))
     }
 
     @Test func distributionCarriesTheDeclaration() {

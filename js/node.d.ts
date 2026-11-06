@@ -21,6 +21,7 @@ export interface NativeCore {
 /** This model's C ABI, keyed by friendly name: generic `dal_*` calls plus the
  *  per-model `<modelId>_create` constructor. */
 export function dalSymbols(modelId: string): Record<string, string>;
+export { DesertAnt, LOG_LEVELS } from "./index.js";
 
 export function loadNative(options: {
   here: string;

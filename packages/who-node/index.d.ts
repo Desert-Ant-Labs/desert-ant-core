@@ -2,6 +2,7 @@
 // for every model - how a model is loaded, how a call is billed and attributed -
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 /** Decoded mono samples at a rate. */
 export interface Samples {

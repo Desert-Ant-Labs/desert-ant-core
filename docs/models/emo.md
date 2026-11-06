@@ -26,7 +26,7 @@ Type a word or a sentence and get the emoji that fits. Emo is tuned for to-dos, 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.2.3")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
 ```
 
 Then add the `Emo` product to your target.
@@ -34,7 +34,7 @@ Then add the `Emo` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:emo:4.2.3")
+implementation("ai.desertant:emo:4.3.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
