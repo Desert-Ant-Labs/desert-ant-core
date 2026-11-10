@@ -147,7 +147,7 @@ final class Model: @unchecked Sendable {
 
     /// One piece when the recording fits, else pieces end to end, their lanes joined by voice when the
     /// artifact ships a voice graph, each piece's lanes its own when it does not.
-    func diarize(samples: [Float], sampleRate: Double) async throws -> Diarization {
+    func diarize(samples: [Float], sampleRate: Double, options: Who.Options = Who.Options()) async throws -> Diarization {
         let audio = resampled(samples, from: sampleRate)
         let seconds = Double(audio.count) / Double(frontend.geometry.sampleRate)
         let melFrames = frontend.frames(for: audio.count)
@@ -164,13 +164,15 @@ final class Model: @unchecked Sendable {
 
         // The Neural Engine reads one piece while the CPU computes the next one's features and decides the one
         // before, so neither waits for the other. The lanes still come out in piece order.
+        let pieceMeans = options.piecewiseMeans ? await self.pieceMeans(audio, pieces: pieces) : nil
+        func meansOf(_ index: Int) -> [Float] { pieceMeans?[index] ?? means }
         var lanes: [Lane] = []
-        var next = input(audio, piece: pieces[0], means: means)
+        var next = input(audio, piece: pieces[0], means: meansOf(0))
         var read: (index: Int, presence: [Float], masks: [Float])?
         for (index, piece) in pieces.enumerated() {
             let current = next
             async let out = graphs(current, piece: piece)
-            next = index + 1 < pieces.count ? input(audio, piece: pieces[index + 1], means: means) : []
+            next = index + 1 < pieces.count ? input(audio, piece: pieces[index + 1], means: meansOf(index + 1)) : []
             if let read { lanes += self.lanes(of: read.index, piece: pieces[read.index], presence: read.presence, masks: read.masks) }
             let (presence, masks, _) = try await out
             read = (index, presence, masks)
@@ -181,12 +183,24 @@ final class Model: @unchecked Sendable {
             return Diarization(turns: lanes.flatMap(\.turns), duration: seconds)
         }
         let labels = try await joined(lanes, audio: audio, melFrames: melFrames, voiceFrontend: voiceFrontend, voiceMeans: voiceMeans,
-                                      embedding: embedding, voice: voice, join: join)
+                                      embedding: embedding, voice: voice, join: join, apart: options.keepPieceSpeakersApart)
         var turns: [LabelledTurn] = []
         for (lane, label) in zip(lanes, labels) {
             turns += lane.turns.map { LabelledTurn(start: $0.start, end: $0.end, label: label) }
         }
         return Diarization(turns: Linker.joined(turns), duration: seconds)
+    }
+
+    /// Each piece's own model filterbank means, over the samples its frames read.
+    private func pieceMeans(_ audio: [Float], pieces: [Piece]) async -> [[Float]] {
+        let geometry = frontend.geometry
+        var out: [[Float]] = []
+        for piece in pieces {
+            let low = piece.first * geometry.shift
+            let high = min(audio.count, (piece.end - 1) * geometry.shift + geometry.frame)
+            out.append(await Frontend.means([frontend], samples: Array(audio[low..<high])).means[0])
+        }
+        return out
     }
 
     /// The model filterbank's means and, for a recording the join will read, the voice filterbank's, from one
@@ -230,9 +244,10 @@ final class Model: @unchecked Sendable {
     }
 
     /// Every lane's voice, pooled over the columns where it speaks alone, clustered at the join's cut; a
-    /// lane with too little solo speech has no voice and a label of its own.
+    /// lane with too little solo speech has no voice and a label of its own. With `apart`, lanes of one
+    /// piece that each speak alone for that many seconds never share a cluster.
     private func joined(_ lanes: [Lane], audio: [Float], melFrames: Int, voiceFrontend: Frontend, voiceMeans: [Float], embedding: Embedding,
-                        voice: Meta.VoiceInfo, join: Meta.JoinInfo) async throws -> [Int] {
+                        voice: Meta.VoiceInfo, join: Meta.JoinInfo, apart: Double? = nil) async throws -> [Int] {
         let perColumn = voice.mel_frames_per_column
         let voiceFrames = voiceFrontend.frames(for: audio.count)
         let used = min(voiceFrames, melFrames) / perColumn * perColumn
@@ -289,7 +304,11 @@ final class Model: @unchecked Sendable {
             }
         }
         var labels = [Int](repeating: -1, count: lanes.count)
-        let clustered = AverageLinkage.cluster(voices, cosine: join.cosine)
+        let groups: [Int?]? = apart.map { seconds in
+            let frames = Float(seconds / meta.frames.step_s)
+            return voiced.map { lanes[$0].solo.reduce(0, +) >= frames ? lanes[$0].piece : nil }
+        }
+        let clustered = AverageLinkage.cluster(voices, cosine: join.cosine, apart: groups)
         for (g, label) in zip(voiced, clustered) { labels[g] = label }
         if join.voiceless == "fold", !voiced.isEmpty {
             for g in lanes.indices where labels[g] < 0 {

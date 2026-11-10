@@ -111,6 +111,14 @@ who.dispose();
 
 A recording of up to five minutes is read in one pass, because the part of the model that decides who the speakers are sees it whole. A longer recording is cut into five-minute pieces, each read in one pass, and the speakers are joined across the pieces by voice: a speaker-verification network gives each lane a voice from the moments it speaks alone, and the lanes of the whole recording are clustered at once, so the numbering holds from the first minute to the last. There is no length limit, and a recording that fits one pass is the model at its most accurate.
 
+### Call audio
+
+The far end of a call, recorded on its own (the system audio of a Teams, Meet or Zoom call), needs different settings. It is silent much of the time, which skews the levels Who reads across the whole recording, and the call's codec makes every voice sound alike to the speaker-verification network, so the default join puts everyone on the line together. On Swift, pass `options: .callAudio`: each five-minute piece is then read against its own levels, and two speakers that Who tells apart inside one piece stay apart if each speaks alone for at least three seconds. Use it only on call audio. On a close-miked recording of one person, it can split off a few short stretches as extra speakers.
+
+```swift
+let result = try await who.diarize(samples: farEnd, sampleRate: 16_000, options: .callAudio)
+```
+
 ### Linux and Windows
 
 The same package and the same calls. Add the package as on Apple platforms, add the `Who` product, and write the code above unchanged:
