@@ -52,6 +52,16 @@ struct VoicesTests {
         #expect(AverageLinkage.cluster([], cosine: 0.55) == [])
     }
 
+    @Test func speakersOfOnePieceStayApartHoweverAlikeTheySound() {
+        let a: [Float] = [1, 0, 0], nearA = Linker.unit([0.96, 0.28, 0]), b: [Float] = [0, 1, 0]
+        #expect(AverageLinkage.cluster([a, nearA, b], cosine: 0.55) == [0, 0, 1])
+        #expect(AverageLinkage.cluster([a, nearA, b], cosine: 0.55, apart: [0, 0, nil]) == [0, 1, 2])
+        // Each joins its nearest from another piece, and the two from one piece stay apart through it.
+        #expect(AverageLinkage.cluster([a, nearA, a, nearA], cosine: 0.55, apart: [0, 0, 1, 1]) == [0, 1, 0, 1])
+        // A vector in no group joins freely.
+        #expect(AverageLinkage.cluster([a, nearA, a], cosine: 0.55, apart: [0, 0, nil]) == [0, 1, 0])
+    }
+
     @Test func touchingTurnsOfOneSpeakerBecomeOne() {
         let turns = [LabelledTurn(start: 0, end: 1, label: 3), LabelledTurn(start: 1, end: 2.5, label: 3),
                      LabelledTurn(start: 4, end: 5, label: 3), LabelledTurn(start: 1, end: 2, label: 1)]

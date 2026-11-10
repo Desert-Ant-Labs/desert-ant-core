@@ -108,6 +108,27 @@ public enum WhoError: MessageError, Sendable {
 /// `directory` is where the model lives: used offline if it already holds the
 /// model, else downloaded into it. With no `directory` a managed cache is used.
 public final class Who: @unchecked Sendable {
+    /// How a recording longer than one piece is read. The defaults are the model's own pipeline.
+    ///
+    /// Call audio, the far end of a Teams, Meet or Zoom call, needs both: it is silent much of the time,
+    /// which skews means taken over the whole recording, and its codec makes every voice sound alike to
+    /// the voice embedding, so the join puts everyone on the line together.
+    public struct Options: Sendable, Equatable {
+        /// Each piece's log-mel is centred on that piece's own means, not the whole recording's.
+        public var piecewiseMeans: Bool
+        /// Speakers the model tells apart inside one piece are never joined into one, when each speaks
+        /// alone for at least this many seconds in it. `nil` lets the voices alone decide.
+        public var keepPieceSpeakersApart: Double?
+
+        public init(piecewiseMeans: Bool = false, keepPieceSpeakersApart: Double? = nil) {
+            self.piecewiseMeans = piecewiseMeans
+            self.keepPieceSpeakersApart = keepPieceSpeakersApart
+        }
+
+        /// For the far end of a call, recorded on its own.
+        public static let callAudio = Options(piecewiseMeans: true, keepPieceSpeakersApart: 3)
+    }
+
     private let model: LoadedModel<Model>
     /// Which published precision this instance runs.
     public let variant: ModelVariant
@@ -150,8 +171,14 @@ public final class Who: @unchecked Sendable {
 
     /// Who spoke when, from mono samples at `sampleRate`; audio at another rate is resampled.
     public func diarize(samples: [Float], sampleRate: Double) async throws -> Diarization {
+        try await diarize(samples: samples, sampleRate: sampleRate, options: Options())
+    }
+
+    /// Who spoke when, from mono samples at `sampleRate`, tuned by `options` for audio the defaults
+    /// don't suit, such as the far end of a call.
+    public func diarize(samples: [Float], sampleRate: Double, options: Options) async throws -> Diarization {
         guard !samples.isEmpty else { throw WhoError.invalidAudio("no samples") }
-        return try await model.value().diarize(samples: samples, sampleRate: sampleRate)
+        return try await model.value().diarize(samples: samples, sampleRate: sampleRate, options: options)
     }
 
     /// The rate the model expects, so a file can decode straight to it.

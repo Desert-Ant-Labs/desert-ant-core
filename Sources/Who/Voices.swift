@@ -95,8 +95,8 @@ enum AverageLinkage {
     /// Average-linkage clustering on cosine distance: the closest two clusters merge while their mean
     /// pairwise distance is under `1 - cosine`. The distances between clusters are kept and updated on each
     /// merge (Lance-Williams), so a few hundred lanes cost milliseconds. Labels are numbered in order of
-    /// first appearance.
-    static func cluster(_ unit: [[Float]], cosine: Float) -> [Int] {
+    /// first appearance. Vectors with the same `apart` group never end up in one cluster; `nil` is in none.
+    static func cluster(_ unit: [[Float]], cosine: Float, apart: [Int?]? = nil) -> [Int] {
         let n = unit.count
         guard n > 1 else { return [Int](repeating: 0, count: n) }
         let threshold = 1 - cosine
@@ -111,11 +111,12 @@ enum AverageLinkage {
         var size = [Int](repeating: 1, count: n)
         var alive = [Bool](repeating: true, count: n)
         var member = Array(0..<n)                                                            // each lane's current cluster
+        var groups: [Set<Int>] = (0..<n).map { i in apart?[i].map { [$0] } ?? [] }          // the apart groups each cluster holds
         while true {
             var best: Float = .infinity
             var pair = (-1, -1)
             for a in 0..<n where alive[a] {
-                for b in (a + 1)..<n where alive[b] && distance[a * n + b] < best {
+                for b in (a + 1)..<n where alive[b] && distance[a * n + b] < best && groups[a].isDisjoint(with: groups[b]) {
                     best = distance[a * n + b]
                     pair = (a, b)
                 }
@@ -128,6 +129,7 @@ enum AverageLinkage {
                 distance[c * n + a] = merged
             }
             size[a] += size[b]
+            groups[a].formUnion(groups[b])
             alive[b] = false
             for i in 0..<n where member[i] == b { member[i] = a }
         }
