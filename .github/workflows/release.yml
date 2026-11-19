@@ -10,7 +10,7 @@ name: Release
 # proves the checkout agrees, and the three publish jobs run.
 #
 #   GitHub Release  the tag is the SwiftPM release, so it always gets one
-#   Maven Central   ai.desertant:{model-sdk-gradle-plugin,core,<model>...}
+#   Maven Central   ai.desertant:{core,<model>...}
 #   npm             @desert-ant-labs/{core,<model>...}
 #
 # Every publish task is re-runnable: an artifact already live at this version is
@@ -38,6 +38,12 @@ permissions:
   packages: write # prereleases publish to GitHub Packages
 
 jobs:
+  android-unicode:
+    uses: ./.github/workflows/android-compatibility.yml
+    with:
+      full: true
+    secrets: inherit
+
   gate:
     name: does this tag match VERSION?
     runs-on: ubuntu-latest
@@ -45,8 +51,8 @@ jobs:
       publish: ${{ steps.gate.outputs.publish }}
       target: ${{ steps.gate.outputs.target }}
     steps:
-      - uses: actions/checkout@v5
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       - id: gate
@@ -78,8 +84,8 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
   maven:
-    name: Maven Central (plugin, core, every model AAR)
-    needs: gate
+    name: Maven Central (core, every model AAR)
+    needs: [gate, android-unicode]
     # Same runner as CI's android job, so the toolchain the release uses is the
     # one CI proves. The snapshot Swift toolchain is per Ubuntu release: the
     # 24.04 build links GLIBC 2.38 and will not run here (build:android-natives
@@ -92,7 +98,7 @@ jobs:
     env:
       DAL_ANDROID_ABIS: arm64-v8a x86_64
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
@@ -132,18 +138,18 @@ jobs:
           done
           echo "::error::apt failed after 3 attempts"
           exit 1
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # v7 is the newest floating major tag this action publishes (its later
       # releases ship no vN alias), and it already runs on node24.
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
           # requirements.txt to key a cache on, and asking for one warns
           # that it can never be invalidated.
           enable-cache: false
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/desert-ant/toolchains
@@ -158,7 +164,7 @@ jobs:
           version=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
           echo "dir=$ANDROID_HOME/ndk/$version" >> "$GITHUB_OUTPUT"
           echo "key=android-ndk-${{ runner.os }}-$version" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.ndk.outputs.dir }}
           key: ${{ steps.ndk.outputs.key }}
@@ -167,6 +173,10 @@ jobs:
       # which makes a failure in the cross-compile undiagnosable.
       - run: mise run build:android-natives
       - run: mise run build:android
+
+      # The release gate: an app built against these exact AARs, both ABIs, on
+      # the oldest and the newest Kotlin. A failure stops the release here.
+      - run: mise run check:android-consumer
 
       - name: Publish
         if: needs.gate.outputs.publish == 'true'
@@ -203,15 +213,15 @@ jobs:
           - { target: darwin-arm64, runner: macos-26 }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           # The Linux build mounts the checkout into a container; nothing there
           # should find a write token in .git/config.
           persist-credentials: false
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
           # requirements.txt to key a cache on, and asking for one warns
@@ -221,7 +231,7 @@ jobs:
         run: mise run build:node-native
       - if: startsWith(matrix.target, 'linux')
         run: mise run build:node-native-linux
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: natives-${{ matrix.target }}
           path: packages/*-node/native/${{ matrix.target }}/
@@ -244,7 +254,7 @@ jobs:
       packages: write # prereleases publish to GitHub Packages
       id-token: write # the OIDC token npm trusted publishing exchanges for publish rights
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       # As in the maven job: on the hosted runner the toolchain, the wasm SDK
       # and every model's .build share its 14 GB with the image's own SDKs.
       - name: Free disk space
@@ -252,10 +262,10 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
                       /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules || true
           sudo docker image prune --all --force || true
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
           # requirements.txt to key a cache on, and asking for one warns
@@ -264,7 +274,7 @@ jobs:
 
       # Gather every prebuilt native back into its package, so each tarball
       # carries all three server-side targets.
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: natives-*
           path: /tmp/natives
@@ -313,10 +323,10 @@ jobs:
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0 # the notes list the commits since the previous tag
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       - env:
