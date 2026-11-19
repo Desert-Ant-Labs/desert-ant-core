@@ -368,7 +368,8 @@ export function renderLicense(org, license, notices = []) {
 }
 
 function weightsNotices(model) {
-  return `Third-party notices for the weights: [\`THIRD_PARTY_NOTICES.md\`](${model.weights.url}/blob/main/THIRD_PARTY_NOTICES.md).`;
+  if (Array.isArray(model.notices) && model.notices.length === 0) return [];
+  return [`Third-party notices for the weights: [\`THIRD_PARTY_NOTICES.md\`](${model.weights.url}/blob/main/THIRD_PARTY_NOTICES.md).`];
 }
 
 function sdkNotices(org) {
@@ -378,7 +379,7 @@ function sdkNotices(org) {
 export function renderModelFooter(model, org, license) {
   const summary = model.summary.replace(/\.$/, "");
   return [
-    renderLicense(org, license, [weightsNotices(model)]),
+    renderLicense(org, license, weightsNotices(model)),
     "",
     "## Citation",
     "",
@@ -462,7 +463,7 @@ function renderNoticeSections(model, root, level) {
   const notices = model.notices ?? [];
   const h = "#".repeat(level);
   if (!notices.length) {
-    return [`${model.name}'s weights build on no third-party model, and none of its training data asks for attribution.`];
+    return [`${model.name}'s weights build on no third-party model, and none of its training data asks for attribution.`, ""];
   }
   const out = [];
   for (const [kind, title] of Object.entries(NOTICE_KINDS)) {
@@ -549,7 +550,7 @@ export function renderAll(root = ".") {
     if (existsSync(`${root}/${npm}`)) {
       out[npm] = replaceMarked(
         readFileSync(`${root}/${npm}`, "utf8"),
-        renderLicense(org, license, [sdkNotices(org), weightsNotices(model)]),
+        renderLicense(org, license, [sdkNotices(org), ...weightsNotices(model)]),
         LICENSE_MARKERS
       );
     }

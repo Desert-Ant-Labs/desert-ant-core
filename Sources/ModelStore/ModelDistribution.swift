@@ -194,6 +194,18 @@ public struct ModelDistribution: Sendable, Equatable {
             || (hasFallback && platformDefault.isAvailable(cacheDirectory: cacheDirectory, cacheRoot: cacheRoot))
     }
 
+    /// Whether `cacheDirectory` holds this platform's files as you placed them there (not downloaded by the store).
+    public func isUserPlaced(cacheDirectory: String) -> Bool {
+        userPlacedFiles(cacheDirectory) != nil
+    }
+
+    /// Records the files you placed in `cacheDirectory` in its manifest, so they stay usable offline after another
+    /// distribution downloads into the same folder (see ``ModelStore/record(_:)``).
+    public func record(cacheDirectory: String, cacheRoot: String? = nil) async throws {
+        let store = try ModelStore.platformDefault(cacheRoot: cacheRoot)
+        try await store.record(spec(cacheDirectory))
+    }
+
     /// Files present in `cacheDirectory` that you provided (no in-progress
     /// download bookkeeping), or `nil`. A `\(ModelStore.metadataDirectory)`
     /// marker means the location is download-managed, so its validity is gated

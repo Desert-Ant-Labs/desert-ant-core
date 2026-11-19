@@ -60,6 +60,17 @@ import JavaScriptKit
     installedModelHost?.create(cacheRoot: cacheRoot, directory: directory) ?? 0
 }
 
+/// Create one of the model's variants (Face's `detector`, Eye's `faceprints`),
+/// lazily like `create`. Returns 0 for a variant the model doesn't have.
+@JS public func createVariant(variant: String, cacheRoot: String?, directory: String?) -> Int {
+    installedModelHost?.create(variant: variant, cacheRoot: cacheRoot, directory: directory) ?? 0
+}
+
+/// `createSelfHosted` for one of the model's variants.
+@JS public func createSelfHostedVariant(variant: String, files: [String: JSUint8Array]) throws(JSException) -> Int {
+    try installedHost().createSelfHosted(files: files, variant: variant)
+}
+
 /// Create a model from files the host fetched and compiled itself (the
 /// `modelBaseUrl` path): only the sidecars cross into wasm, keyed by their
 /// catalog file names, so the multi-MB artifact never does.

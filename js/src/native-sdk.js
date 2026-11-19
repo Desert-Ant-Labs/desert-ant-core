@@ -84,7 +84,9 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     // Managed nested cache under ~/.cache by default (matching the browser
     // host); an explicit `directory` is adopted when it holds the files, else
     // downloaded into.
-    create: (cacheRoot, directory) => lib.create(modelId, cacheRoot, directory || null),
+    // A variant is asked for as `<id>/<variant>` (Face's "face/detector").
+    create: (cacheRoot, directory, variant) =>
+      lib.create(variant ? `${modelId}/${variant}` : modelId, cacheRoot, directory || null),
     isDownloaded,
     async download(handle, onProgress) {
       // The C ABI has no progress channel: report the endpoints so a caller's
@@ -130,13 +132,14 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
 
   return {
     core,
-    async open(options = {}) {
+    /** `variant` is another way to run the model, as in `createWasmSdk`. */
+    async open(options = {}, { variant } = {}) {
       bridgeHostIdentity();
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
       // Only an explicit cacheRoot goes down: Apple and Linux resolve their own
       // caches directory, and the core honours what it is given, so sending a
       // default would relocate every existing cache.
-      const handle = core.create(options.cacheRoot ?? null, options.directory ?? null);
+      const handle = core.create(options.cacheRoot ?? null, options.directory ?? null, variant);
       globalThis[NATIVE_STARTED] = true;
       return readyModel({ core, packageName, handle, onProgress });
     },

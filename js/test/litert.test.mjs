@@ -194,3 +194,76 @@ test("compileModel: auto takes WebGPU when there is an adapter, wasm otherwise o
     else delete globalThis.navigator;
   }
 });
+
+test("makeLiteRtHost keeps one compiled model per name", async () => {
+  const lrt = fakeLiteRt();
+  const { host, setModel } = makeLiteRtHost({
+    loadAndCompile: lrt.loadAndCompile,
+    Tensor: lrt.Tensor,
+    readModelSource: async (s) => s,
+  });
+  const x = (n) => ({ x: { data: new Uint8Array(new Float32Array(n).buffer), dims: [n], type: "float32" } });
+  const size = async (name) => {
+    const out = await host.run(x(1), name);
+    return new Float32Array(out.probs.data.buffer)[0];
+  };
+  await host.createSessionFromBytes(new Uint8Array([1]), "face_detect.tflite");
+  assert.equal(await size(), 1, "a core that names no model runs its only one");
+  await host.createSessionFromBytes(new Uint8Array([2]), "face.tflite");
+  assert.equal(await size("face.tflite"), 1);
+  await assert.rejects(() => host.run(x(1), "missing.tflite"), /no compiled model/);
+  setModel(await lrt.loadAndCompile(new Uint8Array([9])));
+  assert.ok((await host.run(x(1), "")).probs, "the page's own model is the unnamed one");
+});
+
+test("makeLiteRtHost compiles each instance's models for that instance's accelerator", async () => {
+  const lrt = fakeLiteRt();
+  const asked = [];
+  const { host, scope } = makeLiteRtHost({
+    accelerator: "wasm",
+    loadAndCompile: async (bytes, opts) => { asked.push(opts.accelerator); return lrt.loadAndCompile(bytes); },
+    Tensor: lrt.Tensor,
+    readModelSource: async (s) => s,
+  });
+  scope("h2/", "webgpu");
+  scope("h2/x", "wasm");
+  await host.createSessionFromBytes(new Uint8Array([1]), "h1/a.tflite");
+  await host.createSessionFromBytes(new Uint8Array([2]), "h2/b.tflite");
+  await host.createSessionFromBytes(new Uint8Array([3]), "h2/x/c.tflite");
+  await host.createSessionFromBytes(new Uint8Array([4]), "h20/d.tflite");
+  assert.deepEqual(asked, ["wasm", "webgpu", "wasm", "wasm"], "the longest prefix wins; h2/ is not h20/");
+});
+
+test("makeLiteRtHost frees an instance's models on release, never another's, and never mid-run", async () => {
+  const lrt = fakeLiteRt();
+  const freed = [];
+  let finish;
+  const { host, scope, release } = makeLiteRtHost({
+    loadAndCompile: async (bytes, o) => ({
+      bytes,
+      accelerator: o.accelerator,
+      run: async () => {
+        if (bytes[0] === 1) await new Promise((r) => { finish = r; });
+        return {};
+      },
+      delete() { freed.push(bytes[0]); },
+    }),
+    Tensor: lrt.Tensor,
+    readModelSource: async (s) => s,
+  });
+  scope("h1/", "webgpu");
+  scope("h2/", "wasm");
+  await host.createSessionFromBytes(new Uint8Array([1]), "h1/face_detect.tflite");
+  await host.createSessionFromBytes(new Uint8Array([2]), "h2/face_detect.tflite");
+  const running = host.run({}, "h1/face_detect.tflite");
+  await new Promise((r) => setTimeout(r, 0));
+  release("h1/");
+  assert.deepEqual(freed, [], "a model in use is freed only once its run ends");
+  await assert.rejects(() => host.run({}, "h1/face_detect.tflite"), /no compiled model/);
+  finish();
+  await running;
+  assert.deepEqual(freed, [1]);
+  await host.run({}, "h2/face_detect.tflite");
+  release("h2/");
+  assert.deepEqual(freed, [1, 2]);
+});

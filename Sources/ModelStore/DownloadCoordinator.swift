@@ -1,4 +1,4 @@
-// Coalesces concurrent downloads of the same model into one.
+// Runs the downloads (and manifest records) at one cache location one at a time.
 //
 // `ModelStore` is a value type, recreated per call, so it cannot itself hold
 // "a download is already running for this location". Two callers racing the
@@ -9,29 +9,37 @@
 // (Core ML then fails to open a half-written `weights/weight.bin`).
 //
 // This process-global actor keys an in-flight `Task` by cache location. The
-// first caller starts the download; everyone else on the same location awaits
-// the same task. Different locations still run in parallel, and once a download
-// finishes its entry is dropped so the next miss re-runs. It does not guard
+// first caller starts the download; everyone else on the same location waits
+// for it, then runs their own, which finds the files already there. Waiting
+// rather than sharing the result matters because specs that share a location
+// can ask for different files (Face's detector alone, or the detector and the
+// embedder). Different locations still run in parallel. It does not guard
 // against a *second process* racing the same cache dir; that needs a file lock,
 // and no pipeline here runs two processes against one cache.
 
 actor DownloadCoordinator {
     static let shared = DownloadCoordinator()
 
-    private var inFlight: [String: Task<StoredModel, Error>] = [:]
+    /// What runs at each location, settled once it ends, whichever way.
+    private var inFlight: [String: (id: Int, done: Task<Void, Never>)] = [:]
+    private var nextID = 0
 
-    func run(location: String, _ body: @Sendable @escaping () async throws -> StoredModel)
-        async throws -> StoredModel
-    {
-        // Join an existing download for this location rather than starting a
-        // second one. A failed task is not cached (the entry is cleared in the
-        // `defer` below), so a later caller retries cleanly.
-        if let existing = inFlight[location] {
-            return try await existing.value
+    /// Runs `body` alone at `location`: after whatever runs there now, before whatever asks next. Downloads and
+    /// manifest records both go through here, since both rewrite the location's manifest.
+    func run<T: Sendable>(location: String, _ body: @Sendable @escaping () async throws -> T) async throws -> T {
+        // Wait out the work in flight here. Its failure is its caller's;
+        // this caller then runs its own. A finished task's entry is dropped by
+        // whoever sees it first: awaiting a finished task need not suspend, so
+        // its own caller may not get back onto the actor before this loop runs again.
+        while let (id, done) = inFlight[location] {
+            await done.value
+            if inFlight[location]?.id == id { inFlight[location] = nil }
         }
+        nextID += 1
+        let id = nextID
         let task = Task { try await body() }
-        inFlight[location] = task
-        defer { inFlight[location] = nil }
+        inFlight[location] = (id, Task { _ = try? await task.value })
+        defer { if inFlight[location]?.id == id { inFlight[location] = nil } }
         return try await task.value
     }
 }
