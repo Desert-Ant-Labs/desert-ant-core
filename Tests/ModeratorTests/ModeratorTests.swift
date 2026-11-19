@@ -4,10 +4,10 @@ import DesertAnt
 import TestSupport
 @testable import Moderator
 
-/// Goldens come from moderator-training/models/sdk/make_sdk_goldens.py: Pillow
-/// crop hashes, and the reference model's regions for a synthetic image, the committed
-/// SFW fixture, and a public-domain nude painting downloaded at test time (never
-/// committed).
+/// Goldens come from ml-moderator's scripts/sdk_goldens.py: Pillow crop hashes, and the
+/// reference model's regions for a synthetic image, the committed SFW fixture, and a
+/// public-domain nude painting downloaded at test time (never committed). Where the SDK
+/// loads moderator.tflite, the `litert` block holds that file's own regions.
 struct ModeratorTests {
     // MARK: preprocessing, no model
 
@@ -68,7 +68,7 @@ struct ModeratorTests {
 #if !os(WASI)
     @Suite(.serialized, .modelBacked)
     struct ModelTests {
-        /// The shipped int8 Core ML / LiteRT files against the fp32 reference.
+        /// The shipped int8 Core ML file against the fp32 reference, or the LiteRT file against its own outputs.
         static let tolerance = 0.02
 
         @Test(arguments: Quality.allCases)
@@ -77,7 +77,7 @@ struct ModeratorTests {
             let image = ModeratorTests.synthetic(width: golden.synthetic.width, height: golden.synthetic.height)
             let moderator = try makeModerator()
             let result = try await moderator.analyze(image, options: .init(quality: quality))
-            try expectClose(result.regions, golden.synthetic.regions(quality))
+            try expectClose(result.regions, golden.expectedSynthetic(quality))
             #expect(moderator.isDownloaded())
         }
 
@@ -88,7 +88,7 @@ struct ModeratorTests {
             let golden = try Golden.load()
             let url = try #require(Bundle.module.url(forResource: "sfw_beach", withExtension: "png"))
             let result = try await makeModerator().analyze(contentsOf: url, options: .init(quality: quality))
-            try expectClose(result.regions, golden.sfw.regions(quality))
+            try expectClose(result.regions, golden.expectedSFW(quality))
             #expect(!result.isNSFW)
             #expect(result.score < 0.2)
         }
@@ -101,8 +101,8 @@ struct ModeratorTests {
             let moderator = try makeModerator()
             let result = try await moderator.analyze(data: data)
             #expect(result.isNSFW)
-            #expect(abs(result.score - golden.positive.accurate.max) < 0.05)
-            #expect(abs(result.regions.nude - golden.positive.accurate.nude) < 0.05)
+            #expect(abs(result.score - golden.expectedPositive.max) < 0.05)
+            #expect(abs(result.regions.nude - golden.expectedPositive.nude) < 0.05)
 
             // A threshold above the score, or a policy that drops its top head,
             // changes only the decision layered on the same regions.
@@ -214,10 +214,36 @@ struct Golden: Decodable {
         let accurate: Regions
     }
 
+    /// The LiteRT file's own regions, for the platforms that load moderator.tflite.
+    struct LiteRT: Decodable {
+        let synthetic, sfw, positive: Sample
+    }
+
     let preprocess: [Crops]
     let synthetic: Synthetic
     let sfw: Sample
     let positive: Positive
+    let litert: LiteRT?
+
+    /// Apple platforms load moderator.mlmodelc; the rest load moderator.tflite (ModelPlatform.current).
+#if os(WASI) || os(Android) || os(Linux) || os(Windows)
+    static let loadsLiteRT = true
+#else
+    static let loadsLiteRT = false
+#endif
+
+    /// The regions this platform's model file should give.
+    func expectedSynthetic(_ q: Quality) -> Regions {
+        Self.loadsLiteRT ? litert?.synthetic.regions(q) ?? synthetic.regions(q) : synthetic.regions(q)
+    }
+
+    func expectedSFW(_ q: Quality) -> Regions {
+        Self.loadsLiteRT ? litert?.sfw.regions(q) ?? sfw.regions(q) : sfw.regions(q)
+    }
+
+    var expectedPositive: Regions {
+        Self.loadsLiteRT ? litert?.positive.accurate ?? positive.accurate : positive.accurate
+    }
 
     static func load() throws -> Golden {
         let url = try #require(Bundle.module.url(forResource: "moderator_golden", withExtension: "json"))
