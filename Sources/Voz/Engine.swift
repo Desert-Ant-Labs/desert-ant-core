@@ -1,4 +1,10 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// How the three models get run, and the only thing that differs between a
 /// Neural Engine and a browser.

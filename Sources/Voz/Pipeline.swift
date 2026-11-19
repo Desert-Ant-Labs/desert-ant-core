@@ -1,4 +1,11 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import Android
+#else
 import Foundation
+#endif
 
 /// Hands finished windows from the encoding thread to the decoding one.
 ///
@@ -665,7 +672,7 @@ final class Pipeline: @unchecked Sendable {
         var available: Int { origin + buffer.count }
 
         /// Read until the buffer covers up to `absolute`, or the source ends.
-        func ensure(through absolute: Int) async throws {
+        nonisolated(nonsending) func ensure(through absolute: Int) async throws {
             while !exhausted && available < absolute {
                 let wanted = Swift.max(absolute - available, c.sampleRate * 4)
                 if try await stream.read(wanted, into: &buffer) == 0 { exhausted = true }
@@ -797,7 +804,7 @@ final class Pipeline: @unchecked Sendable {
                 }
                 // Only now do a batch's windows exist for a decode that is
                 // reading alongside this loop.
-                func announce(_ b: Int) async {
+                nonisolated(nonsending) func announce(_ b: Int) async {
                     for lane in 0..<lanes(of: b) {
                         await gate.produced()
                         progress(reported(starts[group.lowerBound + b * batch + lane]))
