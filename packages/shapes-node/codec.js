@@ -1,4 +1,4 @@
-// Shapes' FFI payload schemas: the stroke a run takes, the options beside it,
+// Shapes' FFI payload schemas: the drawing a run takes, the options beside it,
 // and the shape it returns.
 //
 // Both cores (the native `dal_run` and the WebAssembly `run`) speak the same
@@ -13,10 +13,11 @@ export const MODEL_ID = "shapes";
 export const PACKAGE_NAME = "@desert-ant-labs/shapes";
 
 /** Shape kinds by wire number, as Sources/Shapes/Binding.swift writes them
- *  (`wireKinds`). Index 0 is unused because 0 is the "no shape" flag. A number
- *  never changes meaning. */
+ *  (`wireKinds`). Index 0 is unused because 0 is the "no shape" flag, and 17
+ *  (the lasso) is unused. A number never changes meaning. */
 export const KINDS = [null, "line", "rectangle", "triangle", "ellipse", "star",
-  "curve", "arrow", "diamond", "pentagon", "hexagon", "heart", "cloud", "scribble"];
+  "curve", "arrow", "diamond", "pentagon", "hexagon", "heart", "cloud", "scribble",
+  "check", "cross", "bracket", null, "zigzag", "plus"];
 
 /** Rotation modes by wire number. */
 const ROTATIONS = ["snapped", "upright", "free"];
@@ -38,30 +39,60 @@ export function flattenPoints(points) {
   return flat;
 }
 
-/** Input payload: `u32 count`, then that many `f64 x`, `f64 y` pairs. Mirrors
- *  Shapes' `run(input:options:)` in Sources/Shapes/Binding.swift. */
-export function encodeInput(flat) {
-  const w = new FfiWriter().u32(Math.floor(flat.length / 2));
-  for (const value of flat) w.f64(value);
+/**
+ * Normalize what `recognize` accepts into strokes of flat points and optional
+ * times: one stroke as `[{x, y}, ...]` or `[x0, y0, ...]`, or a drawing as
+ * `[{points, times?}, ...]`, where `points` takes either spelling and `times`
+ * holds a time in milliseconds for each point.
+ */
+export function normalizeStrokes(input) {
+  const list = Array.from(input ?? []);
+  if (list.length === 0) return [];
+  const first = list[0];
+  if (first !== null && typeof first === "object" && "points" in first) {
+    return list.map((s) => ({
+      flat: flattenPoints(s?.points),
+      times: s?.times == null ? null : Array.from(s.times, Number),
+    }));
+  }
+  return [{ flat: flattenPoints(list), times: null }];
+}
+
+/** Input payload: `u32 strokes`, then for each stroke `u32 count`, `u32 timed`
+ *  (1 when every point has a time), and the points, each `f64 x`, `f64 y` and,
+ *  when timed, `f64 t`. Mirrors Shapes' `run(input:options:)` in
+ *  Sources/Shapes/Binding.swift. */
+export function encodeInput(strokes) {
+  const w = new FfiWriter().u32(strokes.length);
+  for (const { flat, times } of strokes) {
+    const count = Math.floor(flat.length / 2);
+    const timed = times != null && times.length === count;
+    w.u32(count).u32(timed ? 1 : 0);
+    for (let i = 0; i < count; i++) {
+      w.f64(flat[2 * i]).f64(flat[2 * i + 1]);
+      if (timed) w.f64(times[i]);
+    }
+  }
   return w.done();
 }
 
-/** Options payload: `f64 minimumConfidence`, `u32 rotation`, and `u32 kinds`,
- *  a bit mask with bit n for wire kind n (0 means every kind). */
-export function encodeOptions({ minimumConfidence = 0, rotation = "snapped", kinds } = {}) {
+/** Options payload: `f64 minimumConfidence`, `u32 rotation`, `u32 kinds`, a
+ *  bit mask with bit n for wire kind n (0 means every kind), and `u32 finished`
+ *  (1, the default, or 0 for a preview while the pen still moves). */
+export function encodeOptions({ minimumConfidence = 0, rotation = "snapped", kinds, isFinished = true } = {}) {
   const r = ROTATIONS.indexOf(rotation);
   if (r < 0) throw new TypeError(`rotation must be one of ${ROTATIONS.join(", ")}, got ${JSON.stringify(rotation)}`);
   let mask = 0;
   for (const kind of kinds ?? []) {
-    const n = KINDS.indexOf(kind);
+    const n = kind == null ? -1 : KINDS.indexOf(kind);
     if (n <= 0) throw new TypeError(`unknown shape kind ${JSON.stringify(kind)}`);
     mask |= 1 << n;
   }
-  return new FfiWriter().f64(Number(minimumConfidence)).u32(r).u32(mask >>> 0).done();
+  return new FfiWriter().f64(Number(minimumConfidence)).u32(r).u32(mask >>> 0).u32(isFinished ? 1 : 0).done();
 }
 
 /**
- * Result payload: `u32 present`, which is 0 for a stroke that isn't a shape,
+ * Result payload: `u32 present`, which is 0 for a drawing that isn't a shape,
  * with nothing after it. Otherwise `u32 kind` follows, then that kind's
  * fields, then the outline.
  * `r` is an FfiReader already positioned at the payload.
@@ -112,6 +143,19 @@ export function decodeShape(r) {
     case "scribble":
       shape = { kind, hull: points() };
       break;
+    case "check":
+      shape = { kind, start: point(), corner: point(), end: point() };
+      break;
+    case "cross":
+    case "plus":
+      shape = { kind, firstFrom: point(), firstTo: point(), secondFrom: point(), secondTo: point() };
+      break;
+    case "bracket":
+      shape = { kind, points: points() };
+      break;
+    case "zigzag":
+      shape = { kind, from: point(), to: point(), amplitude: r.f64(), teeth: r.f64() };
+      break;
     default:
       // A kind this SDK does not know is a core newer than the package. Report
       // it as "no shape" rather than half-decoding a payload we cannot read.
@@ -119,5 +163,9 @@ export function decodeShape(r) {
   }
   const outline = points();
   if (kind !== "cloud") shape.outline = outline;
+  // the polylines to draw: a plus's or a cross's two strokes, the outline for any other kind
+  shape.paths = kind === "cross" || kind === "plus"
+    ? [[shape.firstFrom, shape.firstTo], [shape.secondFrom, shape.secondTo]]
+    : [shape.outline];
   return shape;
 }

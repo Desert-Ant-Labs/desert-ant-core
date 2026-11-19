@@ -9,6 +9,10 @@ public struct ShapeSnappingConfiguration: Sendable {
     public var pauseDelay: TimeInterval = 0.3
     /// Opacity of the faded preview shown while the pen is still down.
     public var previewOpacity: Float = 0.5
+    /// How long after the pen lifts the next stroke still joins the same
+    /// drawing, in seconds, so a plus or a cross drawn in two strokes snaps as
+    /// one shape. `0` reads every stroke on its own.
+    public var strokeGap: TimeInterval = 1.0
     /// The kinds to recognize and how to snap rotation. A scribble erases the
     /// strokes inside its hull. To keep scribbles as ink, leave `.scribble` out
     /// of `options.kinds`.
@@ -23,7 +27,9 @@ public extension PKCanvasView {
     ///
     /// When the user pauses mid-stroke, the canvas shows a faded preview of the
     /// recognized shape. When the user lifts the pen, the clean shape replaces
-    /// the stroke, and a scribble erases the strokes inside its hull. The SDK
+    /// the stroke, and a scribble erases the strokes inside its hull. Strokes
+    /// drawn with no pause longer than `strokeGap` are read together, so a plus
+    /// drawn in two strokes snaps as a plus. The SDK
     /// registers each change with the canvas's undo manager, so undo and redo work.
     /// Call again to update the recognizer or configuration;
     /// ``disableShapeSnapping()`` to stop.
@@ -97,6 +103,13 @@ final class ShapeSnapper: NSObject {
     private var pendingSnap = false
     private var isProgrammatic = false
     private var pauseWork: DispatchWorkItem?
+    /// The strokes on the canvas that belong to the drawing being made.
+    private var group: StrokeGroup
+    /// How many of the canvas's strokes the current preview read with the stroke
+    /// being drawn (0: the stroke alone).
+    private var previewEarlier = 0
+    /// The canvas's stroke count as last seen, to tell a removal from a new stroke.
+    private var knownCount = 0
     /// Bumped on every pen-down / significant move so stale async recognition
     /// results are ignored.
     private var generation = 0
@@ -109,7 +122,9 @@ final class ShapeSnapper: NSObject {
     init(canvasView: PKCanvasView, shapes: Shapes, configuration: ShapeSnappingConfiguration) {
         self.shapes = shapes
         self.configuration = configuration
+        group = StrokeGroup(gap: configuration.strokeGap)
         canvas = canvasView
+        knownCount = canvasView.drawing.strokes.count
         super.init()
         // Warm the model so the first pause preview is instant.
         Task { try? await shapes.download() }
@@ -161,6 +176,8 @@ final class ShapeSnapper: NSObject {
         cancelPause()
         hidePreview()
         strokeCountAtStart = canvas.drawing.strokes.count
+        group.began(at: CACurrentMediaTime(), count: strokeCountAtStart)
+        previewEarlier = 0
         lastSignificant = touch.location(in: canvas)
     }
 
@@ -181,6 +198,7 @@ final class ShapeSnapper: NSObject {
 
     private func ended() {
         penDown = false
+        group.ended(at: CACurrentMediaTime())
         cancelPause()
         guard previewing, currentShape != nil else { return }
         pendingSnap = true
@@ -207,26 +225,42 @@ final class ShapeSnapper: NSObject {
     // MARK: Recognition + preview
 
     private func detectAndPreview() {
-        guard penDown, canvas?.tool is PKInkingTool,
+        guard penDown, canvas?.tool is PKInkingTool, let canvas,
               let stroke = inProgressStroke() else { return }
         // Recognize from the live PencilKit stroke itself: same coordinate space
         // as the ink, no separately accumulated points.
         let pts = strokePoints(stroke)
-        guard pts.count >= 8 else { return }
-        let xs = pts.map(\.x), ys = pts.map(\.y)
+        guard pts.count >= 2 else { return }
+        let earlier = group.earlier(count: canvas.drawing.strokes.count).map { canvas.drawing.strokes[$0] }
+        let all = pts + earlier.flatMap(strokePoints)
+        guard all.count >= 8 else { return }
+        let xs = all.map(\.x), ys = all.map(\.y)
         let extent = hypot(xs.max()! - xs.min()!, ys.max()! - ys.min()!)
         guard extent >= Self.minimumExtent else { return }
 
         let token = generation
         let options = configuration.options
         Task { [weak self, shapes] in
-            let shape = try? await shapes.recognize(points: pts, options: options)
-            await MainActor.run { self?.applyPreview(shape, token: token) }
+            let (shape, used) = await Self.read(stroke, after: earlier, with: shapes, options: options)
+            await MainActor.run { self?.applyPreview(shape, earlier: used, token: token) }
         }
     }
 
-    private func applyPreview(_ shape: Shape?, token: Int) {
+    /// The shape a stroke makes with the drawing's earlier strokes, or on its own
+    /// when together they are not a shape; and how many earlier strokes it took.
+    private nonisolated static func read(_ stroke: PKStroke, after earlier: [PKStroke], with shapes: Shapes,
+                                         options: Options) async -> (Shape?, Int) {
+        if !earlier.isEmpty,
+           let shape = try? await shapes.recognize(earlier + [stroke], options: options) {
+            return (shape, earlier.count)
+        }
+        let alone = try? await shapes.recognize(stroke, options: options)
+        return (alone ?? nil, 0)
+    }
+
+    private func applyPreview(_ shape: Shape?, earlier: Int, token: Int) {
         guard penDown, token == generation else { return }
+        previewEarlier = earlier
         guard let shape else {
             previewing = false
             currentShape = nil
@@ -274,18 +308,25 @@ final class ShapeSnapper: NSObject {
               let last = canvas.drawing.strokes.last else { return }
         pendingSnap = false
 
-        // Re-recognize from the committed stroke so the clean shape lands in the
-        // exact coordinate space of the ink it replaces.
-        let pts = strokePoints(last)
+        // Re-recognize from the committed strokes so the clean shape lands in the
+        // exact coordinate space of the ink it replaces: the earlier strokes the
+        // preview read, then the one just drawn.
+        let strokes = canvas.drawing.strokes
+        let earlierRange = max(0, strokes.count - 1 - previewEarlier)..<(strokes.count - 1)
+        let earlier = Array(strokes[earlierRange])
         let token = generation
         let options = configuration.options
         Task { [weak self, shapes] in
-            let shape = try? await shapes.recognize(points: pts, options: options)
-            await MainActor.run { self?.applySnap(shape, to: last, token: token) }
+            let (shape, used) = await Self.read(last, after: earlier, with: shapes, options: options)
+            let replaced = (earlierRange.upperBound - used)..<earlierRange.upperBound
+            await MainActor.run { self?.applySnap(shape, to: last, replacing: replaced, token: token) }
         }
     }
 
-    private func applySnap(_ shape: Shape?, to last: PKStroke, token: Int) {
+    /// - Parameter replaced: the earlier strokes the shape was read with, as
+    ///   indices into the canvas's strokes before the snap; the shape replaces
+    ///   them with `last`.
+    private func applySnap(_ shape: Shape?, to last: PKStroke, replacing replaced: Range<Int>, token: Int) {
         guard token == generation, let canvas else { return }
         guard let shape else {
             previewing = false
@@ -298,20 +339,27 @@ final class ShapeSnapper: NSObject {
         isProgrammatic = true
         canvas.undoManager?.undo()
         isProgrammatic = false
+        // The drawing's earlier strokes go with it, in the same undoable change
+        // (undoing the snap brings them back); the stroke just drawn was taken
+        // back above.
+        var base = canvas.drawing.strokes
+        if !replaced.isEmpty, replaced.upperBound <= base.count { base.removeSubrange(replaced) }
         if case let .scribble(hull) = shape {
             let region = hull.map(\.cgPoint)
-            let kept = canvas.drawing.strokes.filter { stroke in
+            let kept = base.filter { stroke in
                 !strokePoints(stroke).contains { Self.contains(region, $0) }
             }
             setDrawing(PKDrawing(strokes: kept), on: canvas)
         } else {
             let perfect = makeStrokes(shape, ink: last.ink, width: drawnWidth(of: last))
-            setDrawing(PKDrawing(strokes: canvas.drawing.strokes + perfect), on: canvas)
+            setDrawing(PKDrawing(strokes: base + perfect), on: canvas)
         }
 
         previewing = false
         currentShape = nil
         hidePreview()
+        group.reset(count: canvas.drawing.strokes.count)
+        knownCount = canvas.drawing.strokes.count
     }
 
     private func setDrawing(_ drawing: PKDrawing, on canvas: PKCanvasView) {
@@ -337,11 +385,13 @@ final class ShapeSnapper: NSObject {
             let heads = shape.arrowheads(length: headLength).map { $0.map(\.cgPoint) }
             return ([shaft] + heads).map { stroke($0, ink: ink, width: width) }
         default:
-            let outline = shape.cgOutline(samples: 96)
             // A closed shape's stroke starts and ends at the midpoint of the first
             // edge. A stroke that starts at a corner renders that corner sharp,
             // while PencilKit's spline rounds the other corners.
-            return [stroke(shape.isClosed ? Self.closedLoopFromMidEdge(outline) : outline, ink: ink, width: width)]
+            return shape.paths(samples: 96).map { path in
+                let outline = path.map(\.cgPoint)
+                return stroke(shape.isClosed ? Self.closedLoopFromMidEdge(outline) : outline, ink: ink, width: width)
+            }
         }
     }
 
@@ -451,6 +501,10 @@ final class ShapeSnapper: NSObject {
 
 extension ShapeSnapper: PKCanvasViewDelegate {
     func canvasViewDrawingDidChange(_ canvasView: PKCanvasView) {
+        let count = canvasView.drawing.strokes.count
+        // A stroke taken away (undo, the eraser) breaks the drawing being made.
+        if !isProgrammatic, count < knownCount { group.reset(count: count) }
+        if !isProgrammatic { knownCount = count }
         if !isProgrammatic, pendingSnap {
             Task { @MainActor [weak self] in self?.snapIfPending() }
         }

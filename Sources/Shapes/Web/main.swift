@@ -8,7 +8,7 @@ import WasmBindings
 // `modelBaseUrl` path is model-specific, because only Shapes knows its sidecar.
 installWasmModel(
     WasmModel(ShapesModel.self, binding: ShapesBinding.self) { sidecars, session in
-        guard let meta = sidecars[ShapesModel.meta] else {
+        guard let meta = sidecars[ShapesModel.meta(for: .web)] else {
             throw ShapesError.resourceMissing
         }
         return Shapes(assets: ModelAssets(

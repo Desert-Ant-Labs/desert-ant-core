@@ -6,8 +6,10 @@ public enum Rotation: Sendable, Equatable {
     /// edges within 5° of horizontal or vertical onto the axis.
     case snapped
     /// Shapes removes rotation. Rectangles and ellipses align with the axes,
-    /// each polygon has a horizontal edge or a vertex straight up, and each
-    /// star has a tip straight up.
+    /// each polygon has a horizontal edge or a vertex straight up, each star
+    /// has a tip straight up, a plus stands on the axes, a cross is turned to
+    /// 45°, a bracket's spine lies on an axis, and a check's long arm lies on a
+    /// diagonal.
     case upright
     /// Shapes keeps the fitted shape as drawn, and skips the snapping to
     /// circles, squares, and regular polygons.
@@ -31,6 +33,8 @@ enum Snapping {
     static let regularSpread = 0.15
     /// `(longer - shorter) / longer` for two legs at or below which a triangle becomes isosceles.
     static let isoscelesSpread = 0.1
+    /// `shorter / longer` for the two arms of a plus or a cross at or above which they become equal.
+    static let equalArmsRatio = 0.5
 
     static func apply(_ shape: Shape, rotation: Rotation) -> Shape {
         if rotation == .free { return shape }
@@ -57,7 +61,18 @@ enum Snapping {
             return .star(center: c, outerRadius: outer, innerRadius: inner,
                          rotation: (r.truncatingRemainder(dividingBy: period) + period).truncatingRemainder(dividingBy: period),
                          pointCount: count)
-        case .curve, .arrow, .heart, .cloud, .scribble:
+        case let .plus(a, b, c, e):
+            let q = crossing([v(a), v(b), v(c), v(e)], diagonal: false, upright: upright).map(pt)
+            return .plus(firstFrom: q[0], firstTo: q[1], secondFrom: q[2], secondTo: q[3])
+        case let .cross(a, b, c, e):
+            let q = crossing([v(a), v(b), v(c), v(e)], diagonal: true, upright: upright).map(pt)
+            return .cross(firstFrom: q[0], firstTo: q[1], secondFrom: q[2], secondTo: q[3])
+        case let .bracket(points):
+            return .bracket(points: bracket(points.map(v), upright: upright).map(pt))
+        case let .check(s, c, e):
+            let q = check([v(s), v(c), v(e)], upright: upright).map(pt)
+            return .check(start: q[0], corner: q[1], end: q[2])
+        case .curve, .arrow, .heart, .cloud, .scribble, .zigzag:
             return shape
         }
     }
@@ -208,6 +223,81 @@ enum Snapping {
             ? uprightPhase + nearest(ph - uprightPhase, period / 2)
             : step(ph)
         return rotate(out, by: target - ph, about: centroid(out))
+    }
+
+    /// A plus or a cross: two strokes square at their crossing, the arms made
+    /// equal when the shorter is at least `equalArmsRatio` of the longer. A plus
+    /// lies along its pair of axes, a cross across them: `.upright` stands a plus
+    /// on the axes and turns a cross to 45°, `.snapped` rounds the turn to a 15°
+    /// step. Each stroke keeps its direction.
+    private static func crossing(_ p: [V2], diagonal: Bool, upright: Bool) -> [V2] {
+        guard p.count == 4 else { return p }
+        let d1 = p[1] - p[0], d2 = p[3] - p[2]
+        guard d1.length > 0, d2.length > 0 else { return p }
+        // the crossing: where the two strokes' lines meet, or between their middles when they run nearly parallel
+        let den = crossZ(d1, d2)
+        var c = (p[0] + p[1] + p[2] + p[3]) / 4
+        if abs(den) > 1e-9 * d1.length * d2.length {
+            let s = crossZ(p[2] - p[0], d2) / den
+            let x = p[0] + d1 * s
+            let box = (p.map(\.x).min()!, p.map(\.x).max()!, p.map(\.y).min()!, p.map(\.y).max()!)
+            if x.x >= box.0 && x.x <= box.1 && x.y >= box.2 && x.y <= box.3 { c = x }
+        }
+        // the pair's orientation, square: angles taken modulo a quarter turn (a cross's shifted by an eighth)
+        let shift = diagonal ? Double.pi / 4 : 0
+        var sx = 0.0, sy = 0.0
+        for d in [d1, d2] { let a = 4 * (angle(d) - shift); sx += Double.cos(a); sy += Double.sin(a) }
+        let phi = Double.atan2(y: sy, x: sx) / 4
+        let target = (upright ? 0 : step(phi)) + shift
+        var h1 = d1.length / 2, h2 = d2.length / 2
+        if min(h1, h2) / max(h1, h2) >= equalArmsRatio { h1 = (h1 + h2) / 2; h2 = h1 }
+        // each stroke's new direction: the one of the four square directions nearest the way it was drawn
+        func nearestDirection(_ d: V2) -> V2 {
+            let a = target + nearest(angle(d) - target, Double.pi / 2)
+            return V2(Double.cos(a), Double.sin(a))
+        }
+        let u1 = nearestDirection(d1)
+        var u2 = nearestDirection(d2)
+        if abs(dot(u1, u2)) > 0.5 {
+            // both strokes ran nearest the same direction: the second turns square to the first, on its side
+            let n = V2(-u1.y, u1.x)
+            u2 = dot(d2, n) >= 0 ? n : n * -1
+        }
+        return [c - u1 * h1, c + u1 * h1, c - u2 * h2, c + u2 * h2]
+    }
+
+    /// A bracket: its spine straight between the two corners, turned as a
+    /// rectangle's side turns (`.upright` onto an axis, `.snapped` to a 15° step),
+    /// and its two ends square to the spine, as long as each other (their mean),
+    /// each on the side it was drawn.
+    private static func bracket(_ p: [V2], upright: Bool) -> [V2] {
+        guard p.count == 4 else { return p }
+        let spine = p[2] - p[1]
+        guard spine.length > 0 else { return p }
+        let mid = (p[1] + p[2]) / 2
+        let a = angle(spine)
+        let r = upright ? nearest(a, Double.pi / 2) : step(a)
+        let u = V2(Double.cos(r), Double.sin(r)), n = V2(-u.y, u.x)
+        let c1 = mid - u * (spine.length / 2), c2 = mid + u * (spine.length / 2)
+        let e1 = p[0] - p[1], e2 = p[3] - p[2]
+        let len = (e1.length + e2.length) / 2
+        let s1: Double = dot(e1, n) >= 0 ? 1 : -1, s2: Double = dot(e2, n) >= 0 ? 1 : -1
+        return [c1 + n * (s1 * len), c1, c2, c2 + n * (s2 * len)]
+    }
+
+    /// A check: its corner square, the long arm turned as a rectangle's side
+    /// turns (`.snapped` to a 15° step) or onto the nearest diagonal
+    /// (`.upright`), the short arm square to it on the side it was drawn; the
+    /// corner and both arms' lengths stay as drawn.
+    private static func check(_ p: [V2], upright: Bool) -> [V2] {
+        guard p.count == 3 else { return p }
+        let short = p[0] - p[1], long = p[2] - p[1]
+        guard short.length > 0, long.length > 0 else { return p }
+        let a = angle(long)
+        let r = upright ? Double.pi / 4 + nearest(a - Double.pi / 4, Double.pi / 2) : step(a)
+        let u = V2(Double.cos(r), Double.sin(r)), n = V2(-u.y, u.x)
+        let side: Double = dot(short, n) >= 0 ? 1 : -1
+        return [p[1] + n * (side * short.length), p[1], p[1] + u * long.length]
     }
 
     /// A rhombus with perpendicular diagonals. `.upright` turns the diagonals
