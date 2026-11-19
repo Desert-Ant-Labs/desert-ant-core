@@ -27,13 +27,15 @@ local.properties
 # mise-tasks/build/.
 .gradle/
 **/.gradle/
+**/.kotlin/
 /build/
 kotlin/build/
 gradle-plugin/build/
 gradle-plugin/bin/
 androidtest/build/
+androidconsumer/build/
+androidconsumer/*/build/
 packages/*/build/
-examples/**/build/
 
 # npm workspace
 node_modules/

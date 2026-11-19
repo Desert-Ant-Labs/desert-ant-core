@@ -1,38 +1,22 @@
 // Instrumented-test module that runs the Swift core's Android backends on a
-// device/emulator (Tier 2a). It reuses the shared HostBridge.kt (java.util.regex
-// + host JSON parser), loads the cross-compiled libCoreAndroidTests.so, and
-// asserts the JNI checks pass. `mise run test:android` builds the .so into
-// jniLibs and runs `connectedAndroidTest`.
-//
-// Plugin/dependency versions are a starting point: align them with the
-// consuming SDKs' Android toolchain as needed.
+// device/emulator (Tier 2a). It uses :core's HostBridge and DesertAntNative, the
+// host classes every SDK installs, loads the cross-compiled
+// libCoreAndroidTests.so, and asserts the JNI checks pass. `mise run
+// test:android` stages the .so into jniLibs and runs connectedAndroidTest.
 plugins {
-    id("com.android.library") version "8.6.0"      // compileSdk 35 needs AGP 8.6.0+ (Gradle 8.7+)
-    kotlin("android") version "1.9.24"
-    kotlin("plugin.serialization") version "1.9.24"
+    id("ai.desertant.android-library")
 }
+
+// Filter the test APK without changing which ABIs the SDK modules build.
+val compatibilityAbi = providers.gradleProperty("dalCompatibilityAbi").orNull
+require(compatibilityAbi == null || compatibilityAbi in listOf("arm64-v8a", "x86_64"))
 
 android {
     namespace = "ai.desertant.core.androidtest"
-    compileSdk = 35
-    // The repo's one NDK pin; this is a separate build, so it reads the file
-    // the root build.gradle.kts reads.
-    ndkVersion = rootDir.resolve("../ANDROID_NDK_VERSION").readText().trim()
 
     defaultConfig {
-        minSdk = 31
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
-    }
-
-    // Keep Java and Kotlin on the same JVM target (the JDK is 21; AGP defaults
-    // Java to 1.8, which mismatches Kotlin).
-    compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
-    }
-    kotlinOptions {
-        jvmTarget = "17"
+        testInstrumentationRunner = "ai.desertant.androidtest.HubTestRunner"
+        ndk { abiFilters += compatibilityAbi?.let { listOf(it) } ?: listOf("arm64-v8a", "x86_64") }
     }
 
     // libCoreAndroidTests.so + libc++_shared.so are staged here by the mise task.
@@ -41,19 +25,31 @@ android {
     sourceSets["androidTest"].assets.srcDir("../Tests/UsageTests/Resources")
 }
 
-// Reuse HostBridge, and DesertAntNative (the host class the SDKs install, which
-// has the device-context callbacks), without compiling unrelated core sources.
-kotlin.sourceSets.named("main") {
-    kotlin.srcDir("../kotlin/src/main/kotlin")
-    kotlin.include("ai/desertant/core/HostBridge.kt")
-    kotlin.include("ai/desertant/core/DesertAnt.kt")
-    kotlin.include("ai/desertant/DesertAntNative.kt")
-    kotlin.include("ai/desertant/core/androidtest/**")
-}
+// Discover the same native modules as the production build, including future models.
+val nativeModels = rootProject.file("packages").listFiles().orEmpty()
+    .filter { it.name.endsWith("-kotlin") && it.resolve("src/main/AndroidManifest.xml").isFile }
+    .map { it.name.removeSuffix("-kotlin") }
+
+android.sourceSets["androidTest"].kotlin.directories.add(rootProject.file("androidtest/runner").path)
+android.sourceSets["androidTest"].kotlin.directories.add(rootProject.file("Tools/android/tongue").path)
+android.sourceSets["androidTest"].assets.srcDir("../Tests/AndroidUnicodeFixtures")
+android.sourceSets["androidTest"].assets.srcDir("../Tests/GistTests/Resources")
+android.sourceSets["androidTest"].assets.srcDir("../Tests/ToxicTests/Resources")
+android.sourceSets["androidTest"].assets.srcDir("../Tests/RedactTests/Resources")
+android.sourceSets["androidTest"].assets.srcDir("../packages/tongue-kotlin/src/test/resources")
+android.sourceSets["androidTest"].assets.srcDir("../.build/android-unicode/metadata")
 
 dependencies {
-    // HostBridge.kt parses JSON with kotlinx.serialization.
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
+    nativeModels.forEach { implementation(project(":$it")) }
+
+    implementation(project(":core"))
+    // Exercise the shipping Kotlin APIs and native payload in the same test app.
+    implementation(project(":tongue"))
+
+    // CoreBridgeTest reads license_vectors.json. Core keeps the library as an
+    // implementation detail, so it is not on this module's classpath otherwise.
+    androidTestImplementation(libs.kotlinx.serialization.json)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.kotlinx.coroutines.test)
 }

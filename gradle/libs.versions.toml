@@ -1,0 +1,56 @@
+# The one place the Android builds in this repo take toolchain and library
+# versions from. The root build loads it as `libs` by convention; gradle-plugin/
+# and androidconsumer/ load this same file from their settings, so the plugin
+# versions the root applies, the convention plugins' own classpath and the
+# fixture's AGP cannot disagree. The convention plugins read the SDK levels and
+# the JVM target from here at apply time (gradle-plugin's AndroidDefaults.kt).
+#
+# Kotlin is two versions. `kotlin` is the compiler the SDKs build with, the
+# newest stable. `kotlinFloor` is the oldest Kotlin an app can use them from:
+# the conventions build every SDK module at its language and API version and
+# put its kotlin-stdlib in the POMs. check:android-consumer proves both, and the
+# README states the floor. Raise the floor on purpose, never as a side effect.
+#
+# kotlinx-coroutines and kotlinx-serialization end up in the published POMs, so
+# raising them raises what an app needs. Move them deliberately.
+#
+# Not here: the foojay resolver (a settings plugin, resolved before any catalog
+# exists), the NDK (ANDROID_NDK_VERSION), the JDK (gradle-daemon-jvm.properties
+# and vars.java in mise.toml), and LiteRT (a download in kotlin/build.gradle.kts).
+
+[versions]
+agp = "9.5.1"
+kotlin = "2.4.21"
+kotlinFloor = "2.3.0"
+maven-publish = "0.37.0"
+dokka = "2.3.0"
+kotlinx-coroutines = "1.9.0"
+kotlinx-serialization = "1.7.3"
+junit = "4.13.2"
+robolectric = "4.18"
+androidx-test-ext-junit = "1.2.1"
+androidx-test-runner = "1.6.2"
+# Android and JVM levels for every SDK module. minSdk 24 needs no platform
+# libicu: NFKC runs through the host's java.text.Normalizer (API 1+).
+compileSdk = "37"
+minSdk = "24"
+jvmTarget = "17"
+
+[libraries]
+android-gradle-plugin = { module = "com.android.tools.build:gradle", version.ref = "agp" }
+kotlin-gradle-plugin = { module = "org.jetbrains.kotlin:kotlin-gradle-plugin", version.ref = "kotlin" }
+maven-publish-gradle-plugin = { module = "com.vanniktech:gradle-maven-publish-plugin", version.ref = "maven-publish" }
+dokka-gradle-plugin = { module = "org.jetbrains.dokka:dokka-gradle-plugin", version.ref = "dokka" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinx-coroutines" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization" }
+junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidx-test-ext-junit" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidx-test-runner" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "maven-publish" }

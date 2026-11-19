@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+#MISE description="Build an app against the published Android SDKs, on the oldest and newest Kotlin"
+#MISE dir="{{config_root}}"
+#MISE depends=["android-sdk"]
+#MISE tools={java="{{ vars.java }}"}
+#USAGE flag "--abi <abi>" help="ABIs to build: arm64-v8a (the default), x86_64, or all"
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Everything else Android here builds inside the root Gradle build, where the
+# models see :core as a project. A customer's app sees Maven coordinates, POMs
+# and Gradle module metadata instead, so this publishes the SDKs into a local
+# repo and builds androidconsumer/ against them: every SDK, called through its
+# public API from outside the build, packaged into a debug APK.
+#
+# Two compilers, both from the catalog. `floor` (kotlinFloor) is the oldest
+# Kotlin we commit to for apps using these SDKs, and the language, API and
+# stdlib version every SDK module is built against. Older ones may well work,
+# but nothing proves it, so we don't promise it. `latest` (kotlin) is the
+# compiler the SDKs themselves build with, the newest stable. Both must support
+# the AGP and Gradle the fixture builds with (kotlinlang.org lists the ranges
+# per release).
+catalog_version() {
+    sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml
+}
+floor=$(catalog_version kotlinFloor)
+latest=$(catalog_version kotlin)
+[ -n "$floor" ] && [ -n "$latest" ] \
+    || { echo "error: gradle/libs.versions.toml has no kotlinFloor or kotlin version" >&2; exit 1; }
+
+# The README's promise and the floor this proves have to agree, or the check
+# proves the wrong thing quietly (check:swift-floor does the same for Swift).
+# `|| true`: under pipefail a README with no such line would end the task here,
+# before the error below could say why.
+claimed=$(grep -oE 'Kotlin [0-9]+\.[0-9]+\+' README.md | head -1 | grep -oE '[0-9]+\.[0-9]+' || true)
+case "$floor" in
+    "$claimed" | "$claimed".*) ;;
+    *)
+        echo "error: the SDKs' Kotlin floor is $floor but README.md promises Kotlin ${claimed:-(nothing)}+" >&2
+        exit 1
+        ;;
+esac
+
+# No Windows host lane, for the reason build:android-natives gives: publishing
+# runs every model's preBuild, which is that cross-compile.
+if [ "$(dal_host_os)" = windows ]; then
+    echo "skip: no Windows host lane for the Android cross-compile (see build:android-natives)"
+    exit 0
+fi
+
+# Exported so the publish's preBuild reuses whatever build:android just built
+# instead of compiling another set of ABIs.
+DAL_ANDROID_ABIS=$(dal_android_abis "${usage_abi:-}")
+export DAL_ANDROID_ABIS
+
+# Every SDK needs a caller, or a new model would pass without being checked:
+# each one in the app, and the pure-Kotlin jars on the plain JVM as well. The
+# fixture takes its dependencies from these two lists rather than finding the
+# modules itself, so the rule for what counts as an SDK lives in one place.
+fixture=androidconsumer
+missing=0
+app_models=()
+jvm_models=()
+for model in $(dal_models_with kotlin); do
+    product=$(dal_product "$model")
+    app_models+=("$model")
+    sources=("$fixture/app/src/main/kotlin/ai/desertant/consumer/$product.kt")
+    if [ ! -f "packages/$model-kotlin/src/main/AndroidManifest.xml" ]; then
+        jvm_models+=("$model")
+        sources+=("$fixture/jvm/src/main/kotlin/ai/desertant/consumer/$product.kt")
+    fi
+    for source in "${sources[@]}"; do
+        [ -f "$source" ] || { echo "error: $model has no consumer source at $source" >&2; missing=1; }
+    done
+done
+[ "$missing" = 0 ] || exit 1
+
+# A repo of its own, emptied first, rather than ~/.m2: an artifact some earlier
+# publish left there at the same version must not stand in for this tree's.
+# Gradle reads maven.repo.local when it publishes and when it resolves.
+repo="$PWD/$fixture/build/m2"
+rm -rf "$repo"
+echo "== publishing ai.desertant:* $(dal_version) to $repo =="
+# Without the javadoc and sources jars (dalPublishDocs, Support.kt): the
+# fixture only compiles against the AARs and jars, and building the docs is
+# about half of what the publish costs from a clean tree. Unsigned too: an
+# empty signingInMemoryKey overrides one from the environment, so a key set for
+# releases is never read here and never reaches the configuration cache.
+./gradlew -Dmaven.repo.local="$repo" -PdalPublishDocs=false -PsigningInMemoryKey= publishToMavenLocal
+
+# --no-daemon: the fixture's Gradle needs 8 GB (androidconsumer/gradle.properties),
+# and a daemon would keep it after the check ends. On CI's self-hosted runner
+# that sat idle next to the emulator and the on-device run's own Gradle.
+for kotlin in "$floor" "$latest"; do
+    echo "== building $fixture with Kotlin $kotlin =="
+    ./gradlew -p "$fixture" --no-daemon -Dmaven.repo.local="$repo" -PdalConsumerKotlin="$kotlin" \
+        -PdalConsumerModels="$(IFS=,; echo "${app_models[*]}")" \
+        -PdalConsumerJvmModels="$(IFS=,; echo "${jvm_models[*]}")" \
+        :app:assembleDebug :jvm:compileKotlin :app:checkKotlinStdlib :jvm:checkKotlinStdlib
+done
+echo "ok: an app builds against the published SDKs on Kotlin $floor and $latest"
