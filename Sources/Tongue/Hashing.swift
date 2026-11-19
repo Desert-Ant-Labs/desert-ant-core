@@ -1,4 +1,10 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 // FNV-1a character n-gram featurizer, ported from src/tongue_training/hashing.py.
 //

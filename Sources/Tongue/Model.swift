@@ -1,4 +1,10 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 // No inference runtime: a detection is an int8 embedding gather, a sum over the
 // n-grams present, one small matmul and a masked softmax, a few thousand

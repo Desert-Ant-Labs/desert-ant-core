@@ -78,7 +78,8 @@ struct Tokenizer {
 
         var byteFallback = [Int32](repeating: -1, count: 256)
         for value in 0..<256 {
-            let name = Array(String(format: "<0x%02X>", value).utf8)
+            let hex = Array("0123456789ABCDEF".utf8)
+            let name: [UInt8] = [0x3C, 0x30, 0x78, hex[value >> 4], hex[value & 15], 0x3E]
             if let id = vocab[name] { byteFallback[value] = id }
         }
 

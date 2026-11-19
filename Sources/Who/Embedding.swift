@@ -1,4 +1,11 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import Android
+#else
 import Foundation
+#endif
 
 /// The trunk's embedding layer from the `who_embed.f16` sidecar, and the pooling that turns a
 /// stretch's trunk columns into a unit speaker embedding: mean and unbiased standard deviation

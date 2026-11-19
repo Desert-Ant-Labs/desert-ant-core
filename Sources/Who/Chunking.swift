@@ -1,6 +1,12 @@
 // Turns on the recording's clock, labelled, and the vector arithmetic the join shares.
 
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// A stretch of one label's speech on the recording's clock: a query within a piece, a speaker across them.
 struct LabelledTurn: Sendable, Equatable {

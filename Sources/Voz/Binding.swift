@@ -11,7 +11,13 @@
 
 #if !os(WASI) && (canImport(CoreML) || canImport(CLiteRt))
 import DesertAnt
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// One bound Voz instance: lazy resolve-and-load around the `Voz` actor.
 public final class VozBound: BoundModel, @unchecked Sendable {

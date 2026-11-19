@@ -27,6 +27,8 @@ private nonisolated(unsafe) var gHostClass: jclass?
 private nonisolated(unsafe) var gRegexMatches: jmethodID?
 private nonisolated(unsafe) var gJSONParse: jmethodID?
 private nonisolated(unsafe) var gNormalize: jmethodID?
+private nonisolated(unsafe) var gCaseFold: jmethodID?
+private nonisolated(unsafe) var gNormalizeNfc: jmethodID?
 private nonisolated(unsafe) var gHttpTree: jmethodID?
 private nonisolated(unsafe) var gHttpDownload: jmethodID?
 private nonisolated(unsafe) var gHttpRequest: jmethodID?
@@ -131,10 +133,10 @@ private func resultBytes(_ env: HostEnv, _ result: jbyteArray?) -> UnsafeMutable
 }
 
 private func hostRegexMatches(_ pattern: UnsafePointer<CChar>?, _ ci: Int32,
-                              _ text: UnsafePointer<CChar>?, _ firstOnly: Int32) -> UnsafeMutablePointer<CChar>? {
+                              _ text: UnsafePointer<CChar>?, _ textLength: Int32, _ firstOnly: Int32) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         guard let p = hostMakeBytes(env, cStringBytes(pattern!)),
-              let t = hostMakeBytes(env, cStringBytes(text!)) else { return nil }
+              let t = hostMakeBytes(env, text.map { Array(UnsafeRawBufferPointer(start: $0, count: Int(textLength))) } ?? []) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, p); env.pointee!.pointee.DeleteLocalRef(env, t) }
         let args = [jvalue(l: p), jvalue(z: jboolean(ci != 0 ? 1 : 0)),
                     jvalue(l: t), jvalue(z: jboolean(firstOnly != 0 ? 1 : 0))]
@@ -157,13 +159,28 @@ private func hostJSONParse(_ json: UnsafePointer<CChar>?) -> UnsafeMutablePointe
     }
 }
 
-private func hostNormalize(_ text: UnsafePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+private func hostNormalize(_ text: UnsafePointer<CChar>?, _ textLength: Int32, _ resultLength: UnsafeMutablePointer<Int32>?) -> UnsafeMutablePointer<CChar>? {
+    hostTransform(text, textLength, resultLength, method: gNormalize)
+}
+
+private func hostNormalizeNfc(_ text: UnsafePointer<CChar>?, _ textLength: Int32, _ resultLength: UnsafeMutablePointer<Int32>?) -> UnsafeMutablePointer<CChar>? {
+    hostTransform(text, textLength, resultLength, method: gNormalizeNfc)
+}
+
+private func hostCaseFold(_ text: UnsafePointer<CChar>?, _ textLength: Int32, _ resultLength: UnsafeMutablePointer<Int32>?) -> UnsafeMutablePointer<CChar>? {
+    hostTransform(text, textLength, resultLength, method: gCaseFold)
+}
+
+private func hostTransform(_ text: UnsafePointer<CChar>?, _ textLength: Int32, _ resultLength: UnsafeMutablePointer<Int32>?, method: jmethodID?) -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
-        guard let t = hostMakeBytes(env, cStringBytes(text!)) else { return nil }
+        guard let t = hostMakeBytes(env, text.map { Array(UnsafeRawBufferPointer(start: $0, count: Int(textLength))) } ?? []) else { return nil }
         defer { env.pointee!.pointee.DeleteLocalRef(env, t) }
         let args = [jvalue(l: t)]
         let result = args.withUnsafeBufferPointer {
-            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gNormalize, $0.baseAddress)
+            env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, method, $0.baseAddress)
+        }
+        if let result, env.pointee!.pointee.ExceptionCheck(env) != JNI_TRUE {
+            resultLength?.pointee = env.pointee!.pointee.GetArrayLength(env, result)
         }
         return resultBytes(env, result)
     }
@@ -417,7 +434,10 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     gRegexMatches = env.pointee!.pointee.GetStaticMethodID(env, cls, "regexMatches", "([BZ[BZ)[B")
     gJSONParse = env.pointee!.pointee.GetStaticMethodID(env, cls, "jsonParseTree", "([B)[B")
     gNormalize = env.pointee!.pointee.GetStaticMethodID(env, cls, "normalizeNfkc", "([B)[B")
+    // Optional: NFC, beside the NFKC above.
+    gNormalizeNfc = optionalStaticMethod(env, cls, "normalizeNfc", "([B)[B")
     // Optional: only wired if the host class provides them (ModelStore download).
+    gCaseFold = optionalStaticMethod(env, cls, "caseFold", "([B)[B")
     gHttpTree = optionalStaticMethod(env, cls, "httpTree", "([B)[B")
     gHttpDownload = optionalStaticMethod(env, cls, "httpDownload", "([B[B)I")
     // Optional: generic requests (the license requests).
@@ -440,6 +460,8 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }
     if gNormalize != nil { host_set_normalize(hostNormalize) }
+    if gCaseFold != nil { host_set_case_fold(hostCaseFold) }
+    if gNormalizeNfc != nil { host_set_normalize_nfc(hostNormalizeNfc) }
     if gHttpTree != nil { host_set_http_tree(hostHttpTree) }
     if gHttpDownload != nil { host_set_http_download(hostHttpDownload) }
     if gHttpRequest != nil { host_set_http_request(hostHttpRequest) }

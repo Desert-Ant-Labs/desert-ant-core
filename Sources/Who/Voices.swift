@@ -1,7 +1,13 @@
 // A voice per lane: the released trunk's columns over the recording in windows, pooled over the
 // columns where that lane speaks alone, through the embedding sidecar; then the lanes clustered.
 
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// One window of the voice graph: where it reads from the recording, and which of its columns are kept.
 struct VoiceWindow: Equatable {

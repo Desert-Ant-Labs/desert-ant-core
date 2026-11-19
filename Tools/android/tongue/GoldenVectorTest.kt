@@ -10,6 +10,7 @@ package ai.desertant.tongue
 // transitive weight. `mise run test-kotlin` executes it.
 
 private var failures = 0
+private var resourceReader: ((String) -> String)? = null
 
 private fun check(condition: Boolean, message: () -> String) {
     if (!condition) { failures++; println("  FAIL ${message()}") }
@@ -18,7 +19,7 @@ private fun check(condition: Boolean, message: () -> String) {
 /** Minimal reader for the flat vector documents, matching Metadata.parse's approach. */
 private object Vectors {
     fun read(name: String): String =
-        Vectors::class.java.classLoader.getResourceAsStream(name)?.use {
+        resourceReader?.invoke(name) ?: Vectors::class.java.classLoader?.getResourceAsStream(name)?.use {
             it.readBytes().toString(Charsets.UTF_8)
         } ?: error("$name missing from test resources")
 
@@ -132,6 +133,7 @@ private fun testHasher() {
 }
 
 private fun testRouter() {
+    val tongue = Tongue.bundled(null)
     val cases = Vectors.objects(Vectors.read("script_vectors.json"), "cases")
     check(cases.isNotEmpty()) { "no router cases loaded" }
     for (case in cases) {
@@ -140,7 +142,7 @@ private fun testRouter() {
         Vectors.string(case, "normalized")?.let { expected ->
             check(normalized == expected) { "normalization before routing ${input.quoted()}" }
         }
-        val route = Router.route(normalized)
+        val route = tongue.detect(input).route
         check(route.verdict.name.lowercase() == Vectors.string(case, "verdict")) {
             "verdict for ${input.quoted()}: ${route.verdict.name.lowercase()} vs ${Vectors.string(case, "verdict")}"
         }
@@ -255,7 +257,9 @@ private fun testDetectionVectors(tongue: Tongue) {
 
 private fun String.quoted() = "\"" + replace("\n", "\\n") + "\""
 
-fun main() {
+fun runGoldenVectors(readResource: ((String) -> String)? = null) {
+    failures = 0
+    resourceReader = readResource
     println("tongue-kotlin golden vectors")
     testNormalizer()
     testHasher()
@@ -263,7 +267,9 @@ fun main() {
     testDetection()
     if (failures > 0) {
         println("\n$failures FAILURES")
-        kotlin.system.exitProcess(1)
+        error("$failures golden vector failures")
     }
     println("\nall checks passed")
 }
+
+fun main() = runGoldenVectors()
