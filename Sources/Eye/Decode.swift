@@ -2,8 +2,8 @@ import DesertAnt
 import RealModule
 
 /// Raw outputs to results, as ml-eye decodes them: the CenterNet box heads
-/// (`train_pet_det.decode`, `nms`), the face detector (`detector.decode`) and the
-/// analyzer's readout (`analyzer.readout`).
+/// (`train_pet_det.decode`, `nms`) and the analyzer's readout
+/// (`analyzer.readout`). Faces are found by Face's detector.
 enum Decode {
     static func sigmoid(_ x: Float) -> Double { 1 / (1 + Double.exp(-Double(x))) }
 
@@ -18,13 +18,11 @@ enum Decode {
         Dictionary(uniqueKeysWithValues: zip(names, values))
     }
 
-    /// A candidate box: label index, confidence, corners (any unit), and for faces
-    /// the 5 landmarks.
+    /// A candidate box: label index, confidence, corners (any unit).
     struct Candidate {
         var label: Int
         var confidence: Double
         var x0, y0, x1, y1: Double
-        var landmarks: [(Double, Double)] = []
 
         var area: Double { max(0, x1 - x0) * max(0, y1 - y0) }
     }
@@ -63,22 +61,6 @@ enum Decode {
             let cx = (Double(p.x) + Double(offset[i])) / Double(w), cy = (Double(p.y) + Double(offset[h * w + i])) / Double(h)
             let bw = Double.exp(Double(size[i])) / Double(w), bh = Double.exp(Double(size[h * w + i])) / Double(h)
             return Candidate(label: p.c, confidence: p.p, x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2)
-        }
-    }
-
-    /// `faces_detect` (stride 4 on the letterboxed frame): boxes and landmarks in
-    /// letterbox pixels.
-    static func faces(heatmap: [Float], size: [Float], offset: [Float], landmarks: [Float], h: Int, w: Int, stride: Double = 4) -> [Candidate] {
-        let n = h * w
-        return peaks(heatmap, classes: 1, h: h, w: w, k: 300, threshold: 0.05).map { p in
-            let i = p.y * w + p.x
-            let cx = (Double(p.x) + Double(offset[i])) * stride, cy = (Double(p.y) + Double(offset[n + i])) * stride
-            let bw = Double.exp(Double(size[i])) * stride, bh = Double.exp(Double(size[n + i])) * stride
-            let points = (0..<5).map { j in
-                (cx + Double(landmarks[(2 * j) * n + i]) * bw, cy + Double(landmarks[(2 * j + 1) * n + i]) * bh)
-            }
-            return Candidate(label: 0, confidence: p.p, x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2,
-                             landmarks: points)
         }
     }
 

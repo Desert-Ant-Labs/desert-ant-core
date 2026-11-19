@@ -30,16 +30,22 @@ class EyeTest {
     private val assets = InstrumentationRegistry.getInstrumentation().context.assets
     private val golden by lazy { JSONObject(assets.open("eye_golden.json").bufferedReader().readText()).getJSONObject("fixture") }
 
-    @Before fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val directory = if ("eye.tflite" in assets.list("").orEmpty()) {
+    private val context get() = ApplicationProvider.getApplicationContext<android.content.Context>()
+
+    /** A local export (EYE_MODEL_DIR, with Face's detector and embedder) when the assets hold one, else the cache. */
+    private val directory by lazy {
+        if ("eye.tflite" in assets.list("").orEmpty()) {
             File(context.cacheDir, "eye-local").apply {
                 mkdirs()
-                for (name in listOf("eye.tflite", "eye_meta.json")) {
+                for (name in listOf("eye.tflite", "eye_meta.json", "face_detect.tflite", "face.tflite")) {
+                    if (name !in assets.list("").orEmpty()) continue
                     assets.open(name).use { src -> File(this, name).outputStream().use { src.copyTo(it) } }
                 }
             }.path
         } else null
+    }
+
+    @Before fun setUp() {
         eye = Eye(context, directory)
         runBlocking { eye.download() }
     }
@@ -100,11 +106,27 @@ class EyeTest {
         assertEquals(want.getJSONObject("layout").getJSONArray("crops").length(), layout.crops.size)
 
         val faces = details.faces!!
-        assertEquals(want.getJSONArray("faces").length(), faces.size)
+        // A face the reference scores at the 0.25 cutoff can land either side of it on another runtime.
+        val extra = faces.size - want.getJSONArray("faces").length()
+        assertTrue("faces ${faces.size}", extra >= 0 && faces.sortedBy { it.confidence }.take(extra).all { abs(it.confidence - 0.25) < 0.01 })
         assertTrue(faces.all { it.landmarks.size == 5 && it.isFace >= 0.5 })
 
         val sharpness = details.sharpness!!
         assertTrue(abs(sharpness.score - want.getJSONObject("sharpness").getDouble("score")) < 0.05)
+    }
+
+    @Test fun faceprintsAreOptIn() = runTest {
+        val w = golden.getInt("width")
+        val h = golden.getInt("height")
+        val plain = eye.analyze(fixture(), w, h, Options(parts = setOf(Part.FACES))).faces!!
+        assertTrue(plain.isNotEmpty() && plain.all { it.faceprint == null })
+        // One eye at a time: two of them, one with the embedder too, are more than the emulator's memory holds.
+        eye.close()
+        Eye(context, directory, faceprints = true).use { withPrints ->
+            val faces = withPrints.analyze(fixture(), w, h, Options(parts = setOf(Part.FACES))).faces!!
+            assertEquals(plain.map { it.box }, faces.map { it.box })
+            assertTrue(faces.all { it.faceprint?.values?.size == 128 })
+        }
     }
 
     @Test fun partsLimitTheWork() = runTest {

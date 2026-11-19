@@ -2,6 +2,8 @@
 // pets, faces, crops, a rotation fix and an embedding. The JSON it is built from is the schema every SDK stores
 // (Sources/Eye/Analysis.swift), so `JSON.stringify(analysis)` and `Analysis.fromJSON` round-trip, across platforms.
 
+import { Faceprint } from "@desert-ant-labs/core";
+
 const LEVELS = { recommended: 0.5, strict: 0.9 };
 
 function cutoff(level) {
@@ -19,6 +21,7 @@ export class Face {
     this.pose = json.pose;
     this.quality = json.quality;
     this.confidences = json.tags;
+    this.faceprint = json.faceprint ? Faceprint.fromJSON(json.faceprint) : null;
   }
 
   confidence(tag) { return this.confidences[tag] ?? null; }
@@ -26,8 +29,9 @@ export class Face {
   has(tag, level = "recommended") { return (this.confidences[tag] ?? 0) >= cutoff(level); }
 
   toJSON() {
-    const { box, landmarks, pose, quality } = this;
-    return { box, detection_confidence: this.detectionConfidence, landmarks, pose, quality, tags: this.confidences };
+    const { box, landmarks, pose, quality, faceprint } = this;
+    return { box, detection_confidence: this.detectionConfidence, landmarks, pose, quality, tags: this.confidences,
+      ...(faceprint ? { faceprint: faceprint.toJSON() } : {}) };
   }
 }
 

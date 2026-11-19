@@ -23,3 +23,4 @@ export const Eye = makeEye(await createWasmSdk({
 
 export { Analysis, Face } from "./analysis.js";
 export { Tag } from "./tags.js";
+export { Faceprint } from "@desert-ant-labs/core";

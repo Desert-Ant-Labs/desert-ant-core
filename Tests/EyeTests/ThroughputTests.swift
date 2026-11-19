@@ -40,7 +40,7 @@ struct ThroughputTests {
         }
         let rgb = Preprocess.rgb(images[1].1)
         for (step, f) in [("rgb", { _ = Preprocess.rgb(images[1].1) }), ("centre", { _ = Preprocess.centreCrop(rgb) }),
-                          ("squash", { _ = Preprocess.squash(rgb) }), ("letterbox", { _ = Preprocess.letterbox(rgb) }),
+                          ("squash", { _ = Preprocess.squash(rgb) }),
                           ("sharp", { _ = Preprocess.sharp(rgb) })] as [(String, () -> Void)] {
             let start = Date()
             for _ in 0..<5 { f() }

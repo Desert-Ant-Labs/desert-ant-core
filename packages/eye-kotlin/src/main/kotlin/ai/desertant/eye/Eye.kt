@@ -162,14 +162,20 @@ class EyeException(message: String) : Exception(message)
  * }
  * ```
  *
+ * Faces are found with Face's detector, downloaded from Face's repo, so an app
+ * that also uses `ai.desertant:face` downloads it once.
+ *
  * @param directory the model's home. Files already there are adopted, otherwise
  *   the model is downloaded into it. Omit to use the app cache.
+ * @param faceprints give every face its [Faceprint][Face.faceprint], which downloads Face's embedder too.
  */
-class Eye(
+class Eye @JvmOverloads constructor(
     context: android.content.Context,
     directory: String? = null,
+    faceprints: Boolean = false,
 ) : AutoCloseable {
-    private val model = LoadedModel(MODEL_ID, MODEL_NAME, context, directory, ::EyeException, EyeNative)
+    private val model = LoadedModel(if (faceprints) "$MODEL_ID/faceprints" else MODEL_ID, MODEL_NAME, context, directory,
+        ::EyeException, EyeNative)
 
     /** Whether the model is available with no network. */
     fun isDownloaded(): Boolean = model.isDownloaded()

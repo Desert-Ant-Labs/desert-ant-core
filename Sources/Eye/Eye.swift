@@ -1,4 +1,9 @@
 import DesertAnt
+// Eye finds faces with Face's detector, from FaceCore, which also holds the
+// types Eye shares with Face (`ImagePixels`, `Box`, `Point`, `Faceprint`, ...),
+// so an app that uses both has one of each. FaceCore is not the Face SDK:
+// `FaceLibrary` and the rest stay in Face.
+@_exported import FaceCore
 
 /// On-device photo understanding: find and filter the photos you want.
 ///
@@ -23,16 +28,22 @@ public final class Eye: @unchecked Sendable {
     ///
     /// `directory` is where the model lives. If it already holds the model it is
     /// used offline; otherwise the model is downloaded into it. With no
-    /// `directory`, a managed cache location is used.
-    public convenience init(directory: String? = nil) {
-        self.init(directory: directory, cacheRoot: nil)
+    /// `directory`, a managed cache location is used. Eye finds faces with Face's
+    /// detector, which it downloads from Face's repo (into `directory` too, when
+    /// given), so an app that also uses Face downloads it once.
+    ///
+    /// With `faceprints`, every face in an analysis also gets its ``Faceprint``,
+    /// which downloads Face's embedder too.
+    public convenience init(directory: String? = nil, faceprints: Bool = false) {
+        self.init(directory: directory, cacheRoot: nil, faceprints: faceprints)
     }
 
     /// Binding entry point that also supplies the platform base cache root.
     @_spi(EyeBindings)
-    public init(directory: String?, cacheRoot: String?) {
-        model = LoadedModel(EyeModel.self, directory: directory, cacheRoot: cacheRoot) { files in
-            Model(assets: try await .eye(files: files))
+    public init(directory: String?, cacheRoot: String?, faceprints: Bool = false) {
+        let distributions = [EyeModel.distribution, FaceModel.detectorFiles] + (faceprints ? [FaceModel.embedderFiles] : [])
+        model = LoadedModel(distributions, directory: directory, cacheRoot: cacheRoot) { files in
+            Model(assets: try await .eye(files: files[0], faceDetector: files[1], faceEmbedder: files.count > 2 ? files[2] : nil))
         }
     }
 
@@ -64,9 +75,6 @@ public final class Eye: @unchecked Sendable {
         try Task.checkCancellation()
         let model = try await model.value()
         try Task.checkCancellation()
-        // One image is one billed call, however many functions and faces it runs.
-        return try await InferenceContext.withCallGroup {
-            try await model.analyze(image, options: options)
-        }
+        return try await model.analyze(image, options: options)
     }
 }

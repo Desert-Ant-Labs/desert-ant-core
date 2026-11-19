@@ -1,7 +1,9 @@
 // The model-specific half of this package's types. Everything that is the same
 // for every model - how a model is loaded, how a call is billed and attributed -
 // comes from @desert-ant-labs/core, so it is documented in one place.
-import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
+import type { CallOptions, Faceprint, ModelLoadOptions } from "@desert-ant-labs/core";
+
+export { Faceprint } from "@desert-ant-labs/core";
 import type { TagId } from "./tags.js";
 export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
@@ -200,6 +202,8 @@ export declare class Face {
   quality: number;
   /** Every face tag with its confidence. */
   confidences: Record<string, number>;
+  /** The face's identity, from an eye loaded with `faceprints: true`, else `null`: the same faceprint Face makes. */
+  faceprint: Faceprint | null;
   confidence(tag: TagName): number | null;
   has(tag: TagName, level?: Level): boolean;
 }
@@ -254,7 +258,10 @@ export declare class Analysis {
  * `modelBaseUrl` (browser) adopt self-hosted files, `onProgress` reports the
  * download, and the `litert*` / `accelerator` options tune the browser runtime.
  */
-export type LoadOptions = ModelLoadOptions;
+export interface LoadOptions extends ModelLoadOptions {
+  /** Give every face its `Faceprint` (Face's embedder, downloaded too). Default `false`. */
+  faceprints?: boolean;
+}
 
 /**
  * On-device photo understanding for JavaScript. The default

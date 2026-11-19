@@ -1,15 +1,15 @@
 import DesertAnt
 
-/// Runs eye's functions on one image and decodes their outputs.
+/// Runs eye's functions, and Face's detector, on one image and decodes their outputs.
 final class Model: Sendable {
     private let sessions: [String: any InferenceSession]
     private let meta: Meta
-    private let scene: [String: Int]
+    private let faceRuntime: FaceRuntime
 
     init(assets: ModelAssets) {
         sessions = assets.sessions
         meta = assets.meta
-        scene = Dictionary(uniqueKeysWithValues: assets.meta.labels.scenes.enumerated().map { ($1, $0) })
+        faceRuntime = assets.faces
     }
 
     func analyze(_ image: ImagePixels, options: Options) async throws -> Analysis {
@@ -18,15 +18,16 @@ final class Model: Sendable {
         let photo = parts.contains(.photo) || parts.contains(.layout) ? try await self.photo(rgb) : nil
         let layout = parts.contains(.layout) ? try await self.layout(rgb, scenes: photo!.photo.scenes) : nil
         let faces = parts.contains(.faces) ? try await self.faces(rgb, limit: options.maxFaces) : nil
+        let faceprints = faces?.map(\.faceprint)
         let sharpness = parts.contains(.sharpness) ? try await self.sharpness(rgb) : nil
         let keepPhoto = parts.contains(.photo)
-        return analysis(width: image.width, height: image.height, photo: keepPhoto ? photo : nil, layout: layout, faces: faces,
-                        sharpness: sharpness)
+        return analysis(width: image.width, height: image.height, photo: keepPhoto ? photo : nil, layout: layout,
+                        faces: faces?.map(\.details), faceprints: faceprints, sharpness: sharpness)
     }
 
     /// The tags, scores and answers over the raw outputs.
     private func analysis(width: Int, height: Int, photo: (photo: Photo, outputs: [String: [Float]])?, layout: Details.Layout?,
-                          faces: [FaceDetails]?, sharpness: Sharpness?) -> Analysis {
+                          faces: [FaceDetails]?, faceprints: [Faceprint?]?, sharpness: Sharpness?) -> Analysis {
         let spec = meta.tags
         let inputs = faces?.map { f in
             TagSpec.FaceInput(box: f.box, confidence: f.confidence, isReal: f.isReal, signals: [
@@ -50,8 +51,8 @@ final class Model: Sendable {
         }
         let faceList = faces.map { fs in
             fs.enumerated().map { n, f in
-                Face(box: f.box, detectionConfidence: f.confidence, landmarks: f.landmarks, pose: f.pose, quality: f.quality,
-                     confidences: tagged(faceTags?[n] ?? [:]))
+                AnalyzedFace(box: f.box, detectionConfidence: f.confidence, landmarks: f.landmarks, pose: f.pose,
+                             quality: f.quality, confidences: tagged(faceTags?[n] ?? [:]), faceprint: faceprints?[n] ?? nil)
             }
         }
         return Analysis(model: "\(EyeModel.id)@\(EyeModel.revision)", width: width, height: height, confidences: tagged(tags),
@@ -133,17 +134,16 @@ final class Model: Sendable {
             crops: zip(meta.cropCandidates, crops).map { Crop(box: $0, score: Double($1)) })
     }
 
-    private func faces(_ rgb: Preprocess.Plane, limit: Int) async throws -> [FaceDetails] {
+    /// Face's detector, then the analyzer on each face it keeps (and the embedder, with faceprints).
+    private func faces(_ rgb: Preprocess.Plane, limit: Int) async throws -> [(details: FaceDetails, faceprint: Faceprint?)] {
         let L = meta.labels
-        let (frame, scale) = Preprocess.letterbox(rgb)
-        let o = try await run("faces_detect", frame, outputs: ["heatmap", "size", "offset", "landmarks"])
-        guard let shape = o["heatmap"]?.shape, shape.count == 4 else { throw EyeError.predictionFailed }
-        let found = Decode.faces(heatmap: try floats(o["heatmap"]), size: try floats(o["size"]), offset: try floats(o["offset"]),
-                                 landmarks: try floats(o["landmarks"]), h: shape[2], w: shape[3])
-        let W = Double(rgb.width), H = Double(rgb.height)
-        var faces: [FaceDetails] = []
-        for d in Decode.nms(found, iou: 0.4).filter({ $0.confidence >= 0.3 }).prefix(limit) {
-            let box = (x0: d.x0 / scale, y0: d.y0 / scale, x1: d.x1 / scale, y1: d.y1 / scale)
+        let image = try ImagePixels(width: rgb.width, height: rgb.height, channels: 3, bytes: rgb.bytes)
+        // Lower than Face's default: the analyzer's `is_face` below drops what isn't a face.
+        let found = try await faceRuntime.detect(image, minimumConfidence: 0.25, minimumSize: 0, maxFaces: limit)
+        var faces: [(details: FaceDetails, faceprint: Faceprint?)] = []
+        for d in found {
+            let detection = d.detection(width: rgb.width, height: rgb.height)
+            let box = (x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1)
             let r = try await run("faces_analyze", Preprocess.faceCrop(rgb, box: box), outputs: [
                 "is_face", "is_real", "eyes_open", "blink", "smile", "mouth", "expression", "looking", "occlusion", "sharp",
                 "lighting", "keepsake", "pose", "quality",
@@ -152,10 +152,11 @@ final class Model: Sendable {
             let isFace = try s("is_face")
             guard isFace >= 0.5 else { continue }
             let pose = try floats(r["pose"], count: 3).map { Double($0) * 45 }
-            faces.append(FaceDetails(
-                box: Box(x0: box.x0 / W, y0: box.y0 / H, x1: box.x1 / W, y1: box.y1 / H),
+            let faceprint = faceRuntime.makesFaceprints ? try await faceRuntime.faceprint(d, in: image) : nil
+            faces.append((FaceDetails(
+                box: detection.box,
                 confidence: d.confidence,
-                landmarks: d.landmarks.map { Point(x: $0.0 / scale / W, y: $0.1 / scale / H) },
+                landmarks: detection.landmarks,
                 isFace: isFace,
                 isReal: try s("is_real"),
                 eyesOpen: try s("eyes_open"),
@@ -169,7 +170,7 @@ final class Model: Sendable {
                 lighting: Decode.named(L.faceLighting, Decode.softmax(try floats(r["lighting"]))),
                 keepsake: try s("keepsake"),
                 pose: Pose(yaw: pose[0], pitch: pose[1], roll: pose[2]),
-                quality: try s("quality")))
+                quality: try s("quality")), faceprint))
         }
         return faces
     }

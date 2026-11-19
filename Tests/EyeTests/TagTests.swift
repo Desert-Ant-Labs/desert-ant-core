@@ -81,7 +81,7 @@ struct TagTests {
 
     static func analysis(tags: [String: Double], embedding: [Float]? = nil, keeper: Double = 0.5, crops: [Crop]? = nil,
                          width: Int = 4032, height: Int = 3024) -> Analysis {
-        let face = Face(box: Box(x0: 0.4, y0: 0.3, x1: 0.5, y1: 0.45), detectionConfidence: 0.9, landmarks: [Point(x: 0.43, y: 0.35)],
+        let face = AnalyzedFace(box: Box(x0: 0.4, y0: 0.3, x1: 0.5, y1: 0.45), detectionConfidence: 0.9, landmarks: [Point(x: 0.43, y: 0.35)],
                         pose: Pose(yaw: 3, pitch: -2, roll: 1), quality: 0.7, confidences: [.smiling: 0.8])
         return Analysis(model: "eye@test", width: width, height: height, confidences: tagged(tags), kind: .photo,
                         scores: Scores(aesthetic: 0.6, keeper: keeper, cover: 0.4), rotation: nil, embedding: embedding,
