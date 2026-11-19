@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/tongue",
-  "version": "4.3.0",
+  "version": "5.0.0",
   "desertant": {
     "pure": true
   },
@@ -23,7 +23,8 @@
   "files": [
     "dist",
     "README.md",
-    "LICENSE.md"
+    "LICENSE.md",
+    "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
     "build": "tsc && cp src/tongue_int8.bin src/tongue_meta.json dist/",
