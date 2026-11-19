@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sdkVersion": "4.3.0",
+  "sdkVersion": "5.0.0",
   "org": {
     "name": "Desert Ant Labs",
     "site": "https://desertant.com",
@@ -42,7 +42,7 @@
       "home": "desert-ant-core",
       "sdks": {
         "swift": { "status": "live", "package": "Align", "platforms": ["apple", "linux", "windows"] },
-        "kotlin": { "status": "none" },
+        "kotlin": { "status": "live", "package": "ai.desertant:align", "platforms": ["android"] },
         "js": { "status": "live", "package": "@desert-ant-labs/align", "platforms": ["node"] }
       },
       "weights": {
@@ -263,7 +263,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/eye",
         "url": "https://huggingface.co/desert-ant-labs/eye",
-        "revision": "v1.0.0",
+        "revision": "v1.1.0",
         "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
@@ -286,25 +286,26 @@
     {
       "id": "face",
       "name": "Face",
-      "tagline": "Find people in photos, private on the device.",
+      "tagline": "Find people in photos, on device.",
       "summary": "On-device face matching across a photo library or through a video.",
       "category": "Face matching",
-      "lifecycle": "closed-beta",
-      "visibility": "internal",
-      "home": null,
+      "lifecycle": "stable",
+      "visibility": "public",
+      "home": "desert-ant-core",
       "sdks": {
-        "swift": { "status": "planned" },
-        "kotlin": { "status": "none" },
-        "js": { "status": "none" }
+        "swift": { "status": "live", "package": "Face", "platforms": ["apple", "linux", "windows"] },
+        "kotlin": { "status": "live", "package": "ai.desertant:face", "platforms": ["android"] },
+        "js": { "status": "live", "package": "@desert-ant-labs/face", "platforms": ["web", "node"] }
       },
       "weights": {
         "source": "hub",
         "repo": "desert-ant-labs/face",
         "url": "https://huggingface.co/desert-ant-labs/face",
-        "revision": "main",
+        "revision": "v1.0.0",
         "license": "desert-ant-labs-source-available"
       },
-      "runtime": ["coreml"],
+      "runtime": ["coreml", "litert"],
+      "notices": [],
       "variants": [],
       "hub": {
         "tags": ["image", "face-recognition", "face-matching", "embeddings", "on-device", "core-ml"],
@@ -384,7 +385,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/moderator",
         "url": "https://huggingface.co/desert-ant-labs/moderator",
-        "revision": "v1.0.0",
+        "revision": "v1.1.0",
         "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
@@ -498,8 +499,8 @@
     {
       "id": "shapes",
       "name": "Shapes",
-      "tagline": "Rough sketch. Perfect shape.",
-      "summary": "On-device single-stroke shape recognition.",
+      "tagline": "Snap hand-drawn shapes to clean ones.",
+      "summary": "On-device shape recognition for pen, touch and mouse input.",
       "category": "Shape recognition",
       "lifecycle": "stable",
       "visibility": "public",
@@ -513,7 +514,7 @@
         "source": "hub",
         "repo": "desert-ant-labs/shapes",
         "url": "https://huggingface.co/desert-ant-labs/shapes",
-        "revision": "v1.0.0",
+        "revision": "v2.2.0",
         "license": "desert-ant-labs-source-available"
       },
       "runtime": ["coreml", "litert"],
@@ -525,7 +526,8 @@
       },
       "languages": null,
       "notices": [
-        { "kind": "data", "name": "Quick, Draw! dataset", "by": "Google", "license": "CC-BY-4.0", "source": "https://github.com/googlecreativelab/quickdraw-dataset" }
+        { "kind": "data", "name": "Quick, Draw! dataset", "by": "Google", "license": "CC-BY-4.0", "source": "https://github.com/googlecreativelab/quickdraw-dataset" },
+        { "kind": "data", "name": "DIDI: Digital Ink Diagram data", "by": "Google", "license": "CC-BY-4.0", "source": "https://github.com/google-research/google-research/tree/master/didi_dataset" }
       ],
       "demo": {
         "space": "desert-ant-labs/shapes-demo",
@@ -625,8 +627,8 @@
     {
       "id": "toxic",
       "name": "Toxic",
-      "tagline": "Catch hate speech before it posts.",
-      "summary": "On-device hate-speech triage for European languages.",
+      "tagline": "Catch hate speech before it's posted.",
+      "summary": "On-device hate-speech triage in 35 languages.",
       "category": "Hate speech triage",
       "lifecycle": "beta",
       "visibility": "public",
