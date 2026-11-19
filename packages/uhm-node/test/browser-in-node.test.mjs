@@ -4,8 +4,7 @@
 // go through the native build. We import the default entry in a child Node
 // process (no DOM), call Uhm.load, and assert it rejects with guidance
 // pointing at `@desert-ant-labs/uhm/native`. This is the Node-observable
-// contract; the browser-only "install @litertjs/core" hint is covered by the
-// browser example.
+// contract.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

@@ -1,6 +1,6 @@
 // The gist-node test suite. Runs server-side in Node against the native core (the
 // `@desert-ant-labs/gist/native` entry, i.e. node.js). The default universal
-// WebAssembly + LiteRT.js entry is exercised by the headless-Chromium example.
+// WebAssembly + LiteRT.js entry is exercised by `mise run test:browser`.
 //
 // The npm package does not bundle the model: `Gist.load()` downloads it from the
 // Hugging Face Hub at the pinned revision and caches it. The channel roll-up is

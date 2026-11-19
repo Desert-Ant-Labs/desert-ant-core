@@ -1,9 +1,8 @@
 // swift-tools-version: 6.1
 import PackageDescription
 
-// A runnable command-line example, executable with `swift run` on any machine and
-// in CI, where TongueExample (the SwiftUI app) needs Xcode and a simulator. The
-// API calls are identical in a view.
+// A runnable command-line example, executable with `swift run` on any machine.
+// The API calls are identical in an app.
 //
 // The dependency is named explicitly rather than relying on the identity SwiftPM
 // derives from the checkout directory: that identity is the folder's basename, so
