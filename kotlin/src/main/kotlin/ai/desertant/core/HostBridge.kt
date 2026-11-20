@@ -2,6 +2,7 @@ package ai.desertant.core
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.icu.lang.UCharacter
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
@@ -28,6 +29,7 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.long
+import java.text.Normalizer
 
 /**
  * The Android host side of desert-ant-core's Swift JNI harness (the counterpart
@@ -49,8 +51,18 @@ object HostBridge {
      * SDK is not pinned to the API 31 platform libicu. Returns UTF-8 bytes.
      */
     @JvmStatic
+    fun caseFold(textUtf8: ByteArray): ByteArray =
+        UCharacter.foldCase(textUtf8.toString(Charsets.UTF_8), true).toByteArray(Charsets.UTF_8)
+
+    @JvmStatic
     fun normalizeNfkc(textUtf8: ByteArray): ByteArray =
-        java.text.Normalizer.normalize(textUtf8.toString(Charsets.UTF_8), java.text.Normalizer.Form.NFKC)
+        Normalizer.normalize(textUtf8.toString(Charsets.UTF_8), Normalizer.Form.NFKC)
+            .toByteArray(Charsets.UTF_8)
+
+    /** NFC-normalize [textUtf8], on the same terms as [normalizeNfkc]. */
+    @JvmStatic
+    fun normalizeNfc(textUtf8: ByteArray): ByteArray =
+        Normalizer.normalize(textUtf8.toString(Charsets.UTF_8), Normalizer.Form.NFC)
             .toByteArray(Charsets.UTF_8)
 
     /**

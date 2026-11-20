@@ -1,5 +1,11 @@
 import DesertAnt
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import Transcript
 
 // Everything MLX-backed is behind `#if MLX`, the compilation condition SwiftPM defines for the

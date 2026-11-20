@@ -5,7 +5,14 @@
 // everywhere else; `-D WHO_PORTABLE_DSP` picks the loops on a Mac, so their
 // parity with the goldens can be checked without a Linux box.
 
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import Android
+#else
 import Foundation
+#endif
 import RealModule
 
 #if canImport(Accelerate) && !WHO_PORTABLE_DSP

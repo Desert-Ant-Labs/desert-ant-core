@@ -5,7 +5,7 @@
 // result in Kotlin (see androidtest/).
 //
 // `runChecks` installs the bridge, exercises the host-backed paths (Regex, JSON
-// decode, NFKC), and returns a failure summary; an empty string means every
+// decode, NFKC, NFC), and returns a failure summary; an empty string means every
 // check passed. `post` sends one request through the real HTTP transport.
 // `verifyLicense` checks a license token through the host's java.security
 // verifier. Android-only; empty elsewhere.
@@ -49,8 +49,11 @@ public func coreBridgeRunChecks(_ env: HostEnv, _ clazz: jclass?, _ host: jclass
         failures.append("json threw: \(error)")
     }
 
-    // TextNormalization: NFKC via the host's java.text.Normalizer.
+    // TextNormalization: NFKC and NFC via the host's java.text.Normalizer.
     if "\u{FB01}".nfkc != "fi" { failures.append("nfkc did not fold the fi ligature") }
+    // By bytes: String equality is canonical equivalence, which an uncomposed result also satisfies.
+    if Array("e\u{301}".nfc.utf8) != Array("\u{E9}".utf8) { failures.append("nfc did not compose e and the acute accent") }
+    if Array("\u{FB01}".nfc.utf8) != Array("\u{FB01}".utf8) { failures.append("nfc folded the fi ligature") }
 
     let summary = failures.joined(separator: " | ")
     return summary.withCString { env.pointee!.pointee.NewStringUTF(env, $0) }
@@ -103,5 +106,30 @@ public func coreBridgeVerifyLicense(
     }
     done.wait()
     return jboolean(verdict.verified ? 1 : 0)
+}
+
+@_cdecl("Java_ai_desertant_core_androidtest_CoreBridge_unicode")
+public func coreUnicode(_ env: HostEnv, _ clazz: jclass?, _ host: jclass?, _ operation: jbyteArray?, _ input: jbyteArray?) -> jbyteArray? {
+    installHostBridge(env, host)
+    let op = String(decoding: hostCopyBytes(env, operation) ?? [], as: UTF8.self)
+    let text = String(decoding: hostCopyBytes(env, input) ?? [], as: UTF8.self)
+    let result: String
+    switch op {
+    case "nfkc": result = text.nfkc
+    case "lowercase": result = text.lowercased()
+    case "classes":
+        result = text.unicodeScalars.map { scalar in
+            switch scalar.properties.generalCategory {
+            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter: return "L"
+            case .nonspacingMark, .spacingMark, .enclosingMark: return "M"
+            case .decimalNumber, .letterNumber, .otherNumber: return "N"
+            default: return "X"
+            }
+        }.joined()
+    case "words": result = rx(#"[\p{L}\p{M}]+"#).matches(in: text).map { String($0.substring) }.joined(separator: "|")
+    case "spaces": result = text.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    default: result = "unsupported operation: " + op
+    }
+    return hostMakeBytes(env, Array(result.utf8))
 }
 #endif

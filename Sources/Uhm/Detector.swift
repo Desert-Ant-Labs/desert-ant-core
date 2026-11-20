@@ -20,7 +20,13 @@ private final class WindowLock {
     func unlock() {}
 }
 #else
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 private typealias WindowLock = NSLock
 #endif
 

@@ -23,3 +23,5 @@ tasks.register<JavaExec>("goldenVectors") {
     mainClass.set("ai.desertant.tongue.GoldenVectorTestKt")
 }
 tasks.named("check") { dependsOn("goldenVectors") }
+
+sourceSets.test { kotlin.srcDir(rootProject.file("Tools/android/tongue")) }

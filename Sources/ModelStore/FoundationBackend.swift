@@ -4,7 +4,13 @@
 // transport/filesystem instead. So `import Foundation` never reaches those
 // builds (no ICU on Android, no bloat on wasm).
 #if canImport(Foundation) && !os(Android) && !os(WASI)
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
