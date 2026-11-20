@@ -2,7 +2,8 @@ import Foundation
 import Testing
 import DesertAnt
 import TestSupport
-@testable import Eye
+@_spi(EyeBindings) @testable import Eye
+import FaceCore
 
 /// Goldens come from ml-eye's `scripts/sdk_goldens.py`: Pillow's model inputs for
 /// synthetic images as byte hashes, and the analysis of a public-domain photo (the
@@ -21,7 +22,6 @@ struct EyeTests {
             let label = "\(g.width)x\(g.height)"
             #expect(Self.fnv1a(Preprocess.centreCrop(image).bytes) == g.centre, "centre \(label)")
             #expect(Self.fnv1a(Preprocess.squash(image).bytes) == g.squash, "squash \(label)")
-            #expect(Self.fnv1a(Preprocess.letterbox(image).0.bytes) == g.letterbox, "letterbox \(label)")
             let b = g.faceBox
             #expect(Self.fnv1a(Preprocess.faceCrop(image, box: (b[0], b[1], b[2], b[3])).bytes) == g.face, "face \(label)")
             let (gray, function) = Preprocess.sharp(image)
@@ -41,7 +41,7 @@ struct EyeTests {
                 for filter in [Preprocess.Filter.bilinear, .bicubic, .lanczos] {
                     for (ow, oh) in [(384, 384), (675, 384), (w, 384), (384, h), (768, 576), (1999, 13)] {
                         let got = Preprocess.resize(image, width: ow, height: oh, filter: filter)
-                        let want = Preprocess.referenceResize(image, width: ow, height: oh, filter: filter)
+                        let want = Pillow.referenceResize(image, width: ow, height: oh, filter: filter)
                         #expect(got.bytes == want.bytes, "\(w)x\(h)x\(image.channels) -> \(ow)x\(oh) \(filter)")
                     }
                 }
@@ -50,8 +50,8 @@ struct EyeTests {
     }
 
     @Test func rejectsMismatchedPixelBuffers() {
-        #expect(throws: EyeError.self) { try ImagePixels(width: 2, height: 2, rgba: [0, 0, 0]) }
-        #expect(throws: EyeError.self) { try ImagePixels(width: 0, height: 2, rgb: []) }
+        #expect(throws: FaceError.self) { try ImagePixels(width: 2, height: 2, rgba: [0, 0, 0]) }
+        #expect(throws: FaceError.self) { try ImagePixels(width: 0, height: 2, rgb: []) }
         #expect((try? ImagePixels(width: 1, height: 1, rgb: [1, 2, 3])) != nil)
     }
 
@@ -127,7 +127,10 @@ struct EyeTests {
             expectSameDetections(layout.pets, want.layout.pets, threshold: 0.15, "pets")
 
             let faces = try #require(details.faces)
-            #expect(faces.count == want.faces.count, "faces \(faces.count) vs \(want.faces.count)")
+            // A face the reference scores at the 0.25 cutoff can land either side of it on another runtime.
+            let unmatched = faces.filter { f in !want.faces.contains { iou(f.box, $0.box) > 0.7 } }
+            #expect(faces.count >= want.faces.count && unmatched.allSatisfy { abs($0.confidence - 0.25) < 0.01 },
+                    "faces \(faces.count) vs \(want.faces.count): \(unmatched.map(\.confidence))")
             for ref in want.faces {
                 guard let got = faces.max(by: { iou($0.box, ref.box) < iou($1.box, ref.box) }), iou(got.box, ref.box) > 0.7 else {
                     Issue.record("no face matches \(ref.box)")
@@ -156,6 +159,48 @@ struct EyeTests {
             #expect(analysis.kind == nil && analysis.embedding == nil && analysis.faces == nil)
             #expect(analysis.confidence(.blurry) == nil, "blurry needs faces and the photo part too")
             #expect(analysis.confidence(.dog) == nil)
+        }
+
+        /// With `faceprints`, each face carries the faceprint Face's embedder makes from the same detection,
+        /// stored with the analysis and ready for a library; without, none.
+        @Test func faceprintsAreOptIn() async throws {
+            let image = try EyeTests.fixture(try Golden.load())
+            let plain = try await makeEye().analyze(image, options: .init(parts: .faces))
+            #expect(plain.faces?.isEmpty == false && plain.faces?.allSatisfy { $0.faceprint == nil && $0.detectedFace == nil } == true)
+            let dir = ProcessInfo.processInfo.environment["EYE_MODEL_DIR"]
+            let eye = dir.map { Eye(directory: $0, faceprints: true) } ?? Eye(faceprints: true)
+            let faces = try #require(try await eye.analyze(image, options: .init(parts: .faces)).faces)
+            #expect(faces.map(\.box) == plain.faces?.map(\.box))
+            for face in faces {
+                let faceprint = try #require(face.faceprint)
+                #expect(faceprint.model == FaceModel.faceprintModel && faceprint.values.count == 128)
+                #expect(face.detectedFace?.detection == face.detection)
+            }
+            let json = try Foundation.JSONEncoder().encode(try await eye.analyze(image, options: .init(parts: .faces)))
+            #expect(try Foundation.JSONDecoder().decode(Analysis.self, from: json).faces?.map(\.faceprint) == faces.map(\.faceprint))
+            #expect(EyeBinding.make(id: "eye/faceprints", cacheRoot: nil, directory: dir) != nil)
+        }
+
+        /// A folder you filled with Eye's files alone takes Face's detector beside them on first load, then loads
+        /// with no network: your files stay recorded as present.
+        @Test func aFolderWithEyesFilesStaysAvailableAfterTheDetectorDownloads() async throws {
+            let fm = FileManager.default
+            let root = NSTemporaryDirectory() + "dal-eye-folder-\(UUID().uuidString)"
+            defer { try? fm.removeItem(atPath: root) }
+            let eyeFiles = try #require(EyeModel.files[.current]).map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 }
+            var from = ProcessInfo.processInfo.environment["EYE_MODEL_DIR"] ?? ""
+            if from.isEmpty { from = try await EyeModel.distribution.resolve().rootPath }
+            let folder = root + "/mine"
+            try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+            for file in eyeFiles { try fm.copyItem(atPath: from + "/" + file, toPath: folder + "/" + file) }
+
+            let first = Eye(directory: folder, cacheRoot: root + "/unused")
+            #expect(!first.isDownloaded(), "Face's detector is not in the folder yet")
+            try await first.download()
+            let again = Eye(directory: folder, cacheRoot: root + "/unused")
+            #expect(again.isDownloaded(), "Eye's files and the detector are all present")
+            let faces = try await again.analyze(try EyeTests.fixture(try Golden.load()), options: .init(parts: .faces)).faces
+            #expect(faces?.isEmpty == false)
         }
 
         private func makeEye() -> Eye {
@@ -229,12 +274,12 @@ struct EyeTests {
 struct Golden: Decodable {
     struct Inputs: Decodable {
         let width, height: Int
-        let centre, squash, letterbox, face, sharp: UInt32
+        let centre, squash, face, sharp: UInt32
         let faceBox: [Double]
         let sharpFunction: String
 
         enum CodingKeys: String, CodingKey {
-            case width, height, centre, squash, letterbox, face, sharp
+            case width, height, centre, squash, face, sharp
             case faceBox = "face_box", sharpFunction = "sharp_function"
         }
     }

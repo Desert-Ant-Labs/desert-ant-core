@@ -59,8 +59,9 @@ public struct Scores: Sendable, Hashable, Codable {
     public let cover: Double
 }
 
-/// One face in the photo, with its tags.
-public struct Face: Sendable, Codable {
+/// One face in the photo, with its tags. Where it is comes from Face's
+/// detector, as Face's `FaceDetector` finds it.
+public struct AnalyzedFace: Sendable, Codable {
     public let box: Box
     /// How sure the detector is that this is a face, `0...1`.
     public let detectionConfidence: Double
@@ -72,6 +73,10 @@ public struct Face: Sendable, Codable {
     /// Every face tag with its confidence: `.eyesClosed`, `.smiling`,
     /// `.lookingAtCamera`, `.lookingAway`, `.happy`, `.surprised`.
     public let confidences: [Tag: Double]
+    /// The face's identity, from an eye created with `faceprints: true`, else
+    /// `nil`. The same faceprint Face makes, to compare, or to group in Face's
+    /// `FaceLibrary`.
+    public let faceprint: Faceprint?
 
     /// The face's confidence for `tag`, `nil` if Eye has no such face tag.
     public func confidence(_ tag: Tag) -> Double? { confidences[tag] }
@@ -79,17 +84,25 @@ public struct Face: Sendable, Codable {
     /// Whether `tag` reaches `level`.
     public func has(_ tag: Tag, _ level: Level = .recommended) -> Bool { (confidences[tag] ?? 0) >= level.cutoff }
 
+    /// Where the face is, as Face's `FaceDetector` reports it.
+    public var detection: FaceDetection { FaceDetection(box: box, landmarks: landmarks, confidence: detectionConfidence) }
+
+    /// The face as Face reports it, to add to Face's `FaceLibrary`: `nil` without a faceprint.
+    public var detectedFace: DetectedFace? { faceprint.map { DetectedFace(detection, faceprint: $0) } }
+
     enum CodingKeys: String, CodingKey {
-        case box, detectionConfidence = "detection_confidence", landmarks, pose, quality, confidences = "tags"
+        case box, detectionConfidence = "detection_confidence", landmarks, pose, quality, confidences = "tags", faceprint
     }
 
-    init(box: Box, detectionConfidence: Double, landmarks: [Point], pose: Pose, quality: Double, confidences: [Tag: Double]) {
+    init(box: Box, detectionConfidence: Double, landmarks: [Point], pose: Pose, quality: Double, confidences: [Tag: Double],
+         faceprint: Faceprint? = nil) {
         self.box = box
         self.detectionConfidence = detectionConfidence
         self.landmarks = landmarks
         self.pose = pose
         self.quality = quality
         self.confidences = confidences
+        self.faceprint = faceprint
     }
 
     public init(from decoder: any Decoder) throws {
@@ -100,6 +113,7 @@ public struct Face: Sendable, Codable {
         pose = try c.decode(Pose.self, forKey: .pose)
         quality = try c.decode(Double.self, forKey: .quality)
         confidences = tagged(try c.decode([String: Double].self, forKey: .confidences))
+        faceprint = try c.decodeIfPresent(Faceprint.self, forKey: .faceprint)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -110,6 +124,7 @@ public struct Face: Sendable, Codable {
         try c.encode(pose, forKey: .pose)
         try c.encode(quality, forKey: .quality)
         try c.encode(untagged(confidences), forKey: .confidences)
+        try c.encodeIfPresent(faceprint, forKey: .faceprint)
     }
 }
 
@@ -143,7 +158,7 @@ public struct Analysis: Sendable, Codable {
     public let people: [Detection]?
     public let pets: [Detection]?
     /// Faces, most confident first (needs ``Parts/faces``).
-    public let faces: [Face]?
+    public let faces: [AnalyzedFace]?
     /// The best crops, best first (needs ``Parts/layout``); see ``bestCrop(aspect:)``.
     public let crops: [Crop]?
     /// The model's raw outputs. `nil` for an analysis decoded from JSON.
@@ -192,7 +207,7 @@ public struct Analysis: Sendable, Codable {
     }
 
     init(model: String, width: Int, height: Int, confidences: [Tag: Double], kind: Tag?, scores: Scores?, rotation: Int?,
-         embedding: [Float]?, people: [Detection]?, pets: [Detection]?, faces: [Face]?, crops: [Crop]?, details: Details?,
+         embedding: [Float]?, people: [Detection]?, pets: [Detection]?, faces: [AnalyzedFace]?, crops: [Crop]?, details: Details?,
          duplicates: DuplicateRule?) {
         self.model = model
         self.width = width
@@ -222,7 +237,7 @@ public struct Analysis: Sendable, Codable {
         embedding = try c.decodeIfPresent([Float].self, forKey: .embedding)
         people = try c.decodeIfPresent([Detection].self, forKey: .people)
         pets = try c.decodeIfPresent([Detection].self, forKey: .pets)
-        faces = try c.decodeIfPresent([Face].self, forKey: .faces)
+        faces = try c.decodeIfPresent([AnalyzedFace].self, forKey: .faces)
         crops = try c.decodeIfPresent([Crop].self, forKey: .crops)
         duplicates = try c.decodeIfPresent(DuplicateRule.self, forKey: .duplicates)
         details = nil

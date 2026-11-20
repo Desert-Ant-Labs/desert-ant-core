@@ -1,36 +1,5 @@
 import DesertAnt
 
-/// Decoded RGB(A) pixels, row-major from the top-left, 8 bits per channel. The
-/// portable input every platform funnels into: Apple builds one from a
-/// `CGImage` or file, Android from a `Bitmap`, the web from `ImageData`.
-/// Alpha is ignored.
-public struct ImagePixels: Sendable {
-    public let width: Int
-    public let height: Int
-    /// Bytes per pixel: 4 for RGBA, 3 for RGB.
-    public let channels: Int
-    public let bytes: [UInt8]
-
-    /// Interleaved RGBA bytes, `width * height * 4` of them.
-    public init(width: Int, height: Int, rgba: [UInt8]) throws {
-        try self.init(width: width, height: height, channels: 4, bytes: rgba)
-    }
-
-    /// Interleaved RGB bytes, `width * height * 3` of them.
-    public init(width: Int, height: Int, rgb: [UInt8]) throws {
-        try self.init(width: width, height: height, channels: 3, bytes: rgb)
-    }
-
-    init(width: Int, height: Int, channels: Int, bytes: [UInt8]) throws {
-        guard width > 0, height > 0, channels == 3 || channels == 4,
-              bytes.count == width * height * channels else { throw EyeError.invalidImage }
-        self.width = width
-        self.height = height
-        self.channels = channels
-        self.bytes = bytes
-    }
-}
-
 /// Which parts of an ``Analysis`` to compute. Each is one or more model runs, so
 /// leave out what you do not read.
 public struct Parts: OptionSet, Sendable, Hashable {
@@ -43,7 +12,8 @@ public struct Parts: OptionSet, Sendable, Hashable {
     /// Where things are, from the whole frame: people and pet boxes, crops.
     /// Pet boxes are gated by the photo's scenes, so this runs the photo part too.
     public static let layout = Parts(rawValue: 2)
-    /// Faces: detection on the whole frame, then one run per face.
+    /// Faces: Face's detector on the whole frame, then one run per face (and its
+    /// faceprint, for an eye created with `faceprints`).
     public static let faces = Parts(rawValue: 4)
     /// Sharpness.
     public static let sharpness = Parts(rawValue: 8)
@@ -60,36 +30,6 @@ public struct Options: Sendable, Hashable {
     public init(parts: Parts = .all, maxFaces: Int = 20) {
         self.parts = parts
         self.maxFaces = max(0, maxFaces)
-    }
-}
-
-/// An axis-aligned rectangle in `0...1` of the image's width and height, origin
-/// at the top left.
-public struct Box: Sendable, Hashable, Codable {
-    public let x0: Double
-    public let y0: Double
-    public let x1: Double
-    public let y1: Double
-
-    public init(x0: Double, y0: Double, x1: Double, y1: Double) {
-        self.x0 = x0
-        self.y0 = y0
-        self.x1 = x1
-        self.y1 = y1
-    }
-
-    public var width: Double { x1 - x0 }
-    public var height: Double { y1 - y0 }
-}
-
-/// A point in `0...1` of the image's width and height, origin at the top left.
-public struct Point: Sendable, Hashable, Codable {
-    public let x: Double
-    public let y: Double
-
-    public init(x: Double, y: Double) {
-        self.x = x
-        self.y = y
     }
 }
 
@@ -156,7 +96,7 @@ public struct Pose: Sendable, Hashable, Codable {
     public let roll: Double
 }
 
-/// Everything the model read from one face: ``Face`` has its tags; this has
+/// Everything the model read from one face: ``AnalyzedFace`` has its tags; this has
 /// the raw outputs behind them.
 public struct FaceDetails: Sendable {
     public let box: Box

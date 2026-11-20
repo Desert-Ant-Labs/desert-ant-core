@@ -8,7 +8,7 @@ On-device photo understanding: scenes, quality, faces, people, pets, crops and s
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/eye/tree/v1.0.0) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/eye/tree/v1.1.0) |
 | **Demo** | https://desertant.com/models/eye/ |
 | **Status** | Beta |
 <!-- model:end -->
@@ -21,7 +21,7 @@ Eye tags photos on device so apps can find and filter them: what a photo is (scr
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
 ```
 
 Then add the `Eye` product to your target.
@@ -29,7 +29,7 @@ Then add the `Eye` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:eye:4.3.0")
+implementation("ai.desertant:eye:5.0.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -132,6 +132,21 @@ The constants (`Tag.dog`, `Tags.DOG` in Kotlin, `Tag.dog` in JavaScript) cover e
 | `parts` | all | What to compute: `photo` (types, scenes, keep or delete, sensitive, scores, embedding), `layout` (people and pet boxes, crops), `faces`, `sharpness`. Each part is one or more model runs, so leave out what you do not need. Tags that need a part you left out are absent, not false: `blurry` needs `photo`, `faces` and `sharpness`. |
 | `maxFaces` | `20` | The most faces analyzed per photo, most confident first. |
 
+### Faces and faceprints
+
+Eye finds faces with [Face](face.md)'s detector and downloads it from Face's repo, so an app that uses Eye and Face downloads it once. Each face's box, landmarks and detection confidence are the ones Face's `FaceDetector` reports, as `face.detection`.
+
+To also get each face's faceprint, create the eye with `faceprints`. Eye then also downloads Face's embedder (18 MB on Apple platforms, 37 MB elsewhere), and every face carries the same `Faceprint` Face makes:
+
+```swift
+let eye = Eye(faceprints: true)                  // Kotlin: Eye(context, faceprints = true); JS: Eye.load({ faceprints: true })
+let photo = try await eye.analyze(contentsOf: photoURL)
+photo.faces?.first?.faceprint                    // compare, or store with the analysis
+library.add(photo.faces?.compactMap(\.detectedFace) ?? [], photo: asset.id)   // a FaceLibrary, with `import Face`
+```
+
+In Swift, each face is an `AnalyzedFace`, and `ImagePixels`, `Box`, `Point` and `Faceprint` are the same types in Eye and Face.
+
 ### Storing results
 
 Everything except `details` serializes to the same JSON in every SDK (`Codable` in Swift, `toJson()` in Kotlin, `JSON.stringify` in JavaScript). Store analyses and filter or group them later without loading the model. `model` records which model version produced each one.
@@ -151,15 +166,17 @@ Everything except `details` serializes to the same JSON in every SDK (`Codable` 
 
 ### Loading the model
 
-The SDK downloads the weights from Hugging Face on first use and caches them. See [model downloads and caching](../../README.md#model-downloads-and-caching).
+The SDK downloads the weights from Hugging Face on first use and caches them, with Face's detector from Face's repo. In the browser, a `modelBaseUrl` serves `eye.tflite`, `eye_meta.json` and `face_detect.tflite`, and `face.tflite` for faceprints. See [model downloads and caching](../../README.md#model-downloads-and-caching).
 
 ## Files
 
 | File | Format | Size | Contents |
 |---|---|---:|---|
 | `eye.mlmodelc` | Compiled Core ML, one function per part | 48MB | Ready to load on Apple platforms (used by the Swift SDK), every function on the Neural Engine |
-| `eye.tflite` | LiteRT / TFLite (int8 weights), one signature per function | 66MB | Runs on Android, Linux, Windows, Node, and the web (downloaded on demand by the Kotlin and JavaScript SDKs) |
+| `eye.tflite` | LiteRT / TFLite (int8 weights), one signature per function | 64MB | Runs on Android, Linux, Windows, Node, and the web (downloaded on demand by the Kotlin and JavaScript SDKs) |
 | `eye_meta.json` | JSON | 281KB | Inputs, outputs, the constants the SDK decodes outputs with, and the tags' calibration curves and rules |
+
+Eye also downloads Face's detector, `face_detect.mlmodelc` (7.6 MB) or `face_detect.tflite` (15 MB), from [Face](face.md)'s repo.
 
 ## Functions
 
@@ -170,8 +187,7 @@ Both files hold the same functions under the same names. Every input is RGB (or 
 | `photo` | 384x384 centre crop | embedding, type, reject reasons, sensitive content, scenes, rotation, aesthetic, keeper, cover, focus and bokeh, pet attributes |
 | `photo_peak` | as `photo` | `photo`'s outputs and the peak moment |
 | `spatial` | whole frame squashed to 384x384 | where people look, pet and person boxes, shot type, scores for 1,296 crop boxes |
-| `faces_detect` | 768x768, the photo letterboxed | face heatmap, size, offset, landmarks |
-| `faces_analyze` | 128x128 crop, 1.4x a face box | eyes open, blink, smile, gaze, expression, pose, quality and more |
+| `faces_analyze` | 128x128 crop, 1.4x a face box from Face's detector | eyes open, blink, smile, gaze, expression, pose, quality and more |
 | `sharp_4x3`, `sharp_3x4`, `sharp_16x9`, `sharp_9x16` | gray, the shape closest to the photo's aspect | sharpness, blur map |
 
 ## Tag accuracy
@@ -188,8 +204,9 @@ On the same test sets, through the same scoring code:
 | COCO val2017 | person AP50 | 0.3814 | 0.3837 |
 | MIT1003 | where people look, CC | 0.7153 | 0.7195 |
 | CUHK cropping | crop IoU | 0.8244 | 0.8241 |
-| WIDER Face val | AP, hard | 0.6806 | 0.6812 |
-| CEW | eyes open AUC | 0.9943 | 0.9945 |
+| CEW | eyes open AUC | 0.9947 | 0.9949 |
+
+Eye finds faces with Face's detector, whose accuracy is on the [Face](face.md#detection-accuracy) page.
 
 ## Speed
 

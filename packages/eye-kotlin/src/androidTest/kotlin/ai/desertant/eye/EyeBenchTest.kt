@@ -64,7 +64,8 @@ class EyeBenchTest {
         } finally {
             eye.close()
         }
-        Log.i("EyeBench", "EYE_BENCH $out")
+        val tag = "EyeBench"
+        if (Log.isLoggable(tag, Log.INFO)) Log.i(tag, "EYE_BENCH $out")
         println("EYE_BENCH $out")
     }
 }
