@@ -10,9 +10,11 @@ object CoreBridge {
     /**
      * Installs the CHostBridge callbacks against [host] (pass
      * `DesertAntNative::class.java`) and runs the host-backed integration checks
-     * (Regex, JSON decode, NFKC). Returns "" when all pass, or a ` | `-separated
+     * (Regex, JSON decode, NFKC, NFC). Returns "" when all pass, or a ` | `-separated
      * summary of the failures.
      */
+    @JvmStatic external fun unicode(host: Class<*>, operation: ByteArray, input: ByteArray): ByteArray
+
     @JvmStatic external fun runChecks(host: Class<*>): String
 
     /**

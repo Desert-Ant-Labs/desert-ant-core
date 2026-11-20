@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "name": "canonical accent",
+      "operation": "nfkc",
+      "input": "cafe\u0301",
+      "expected": "caf\u00e9"
+    },
+    {
+      "name": "width and ligature",
+      "operation": "nfkc",
+      "input": "\uff21 \ufb01 \u2460",
+      "expected": "A fi 1"
+    },
+    {
+      "name": "Arabic and Indic",
+      "operation": "nfkc",
+      "input": "\u0645\u0631\u062d\u0628\u0627 \u0928\u092e\u0938\u094d\u0924\u0947",
+      "expected": "\u0645\u0631\u062d\u0628\u0627 \u0928\u092e\u0938\u094d\u0924\u0947"
+    },
+    {
+      "name": "CJK supplementary emoji",
+      "operation": "nfkc",
+      "input": "\u4f60\u597d \ud840\udc00 \ud83d\udc69\u200d\ud83d\udcbb",
+      "expected": "\u4f60\u597d \ud840\udc00 \ud83d\udc69\u200d\ud83d\udcbb"
+    },
+    {
+      "name": "NUL preserves suffix",
+      "operation": "nfkc",
+      "input": "\uff21\u0000\ufb01",
+      "expected": "A\u0000fi"
+    },
+    {
+      "name": "empty",
+      "operation": "nfkc",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "name": "Greek default Swift casing",
+      "operation": "lowercase",
+      "input": "\u039f\u03a3",
+      "expected": "\u03bf\u03c3"
+    },
+    {
+      "name": "locale independent casing",
+      "operation": "lowercase",
+      "input": "I \u0130 CAF\u00c9",
+      "expected": "i i\u0307 caf\u00e9"
+    },
+    {
+      "name": "marks and supplementary letters",
+      "operation": "classes",
+      "input": "A\u0301 \u0928\u092e\u0938\u094d\u0924\u0947 \ud840\udc00\ud83d\ude001",
+      "expected": "LMXLLLMLMXLXN"
+    },
+    {
+      "name": "regex preserves NUL suffix",
+      "operation": "words",
+      "input": "\u00e9\u0000\u4e16\u754c \u0928\u092e\u0938\u094d\u0924\u0947",
+      "expected": "\u00e9|\u4e16\u754c|\u0928\u092e\u0938\u094d\u0924\u0947"
+    },
+    {
+      "name": "whitespace",
+      "operation": "spaces",
+      "input": "\t caf\u00e9\u00a0\u4e16\u754c\u202f \u0928\u092e\u0938\u094d\u0924\u0947\n",
+      "expected": "caf\u00e9 \u4e16\u754c \u0928\u092e\u0938\u094d\u0924\u0947"
+    },
+    {
+      "name": "invisible preserved by NFKC",
+      "operation": "nfkc",
+      "input": "a\u200db\u200bc",
+      "expected": "a\u200db\u200bc"
+    }
+  ],
+  "exceptions": [
+    {
+      "name": "Unicode 15 Cyrillic modifier A",
+      "operation": "nfkc",
+      "input": "\ud838\udc30",
+      "unicodeMajorBefore": 15,
+      "before": "\ud838\udc30",
+      "after": "\u0430"
+    }
+  ]
+}

@@ -2,11 +2,13 @@
 #MISE description="Run the on-device Android tests on a connected emulator or device"
 #MISE dir="{{config_root}}"
 #MISE depends=["android-sdk"]
-#MISE tools={swift="{{ vars.swift }}", java="temurin-21"}
+#MISE tools={swift="{{ vars.swift }}", java="{{ vars.java }}"}
 #USAGE arg "<model>" help="Also run this model AAR's instrumented tests, or 'all'" default="all"
 #USAGE flag "--core-only" help="Only run the core host-bridge harness, no model AARs"
 #USAGE flag "--stage-only" help="Only cross-compile and stage the JNI harness, no device needed"
 #USAGE flag "--no-stage" help="Skip staging; run against jniLibs a prior --stage-only produced"
+#USAGE flag "--unicode" help="Run the focused Unicode and compatibility suite"
+#USAGE flag "--serial <serial>" help="ADB device serial (required when multiple devices are connected)"
 #USAGE flag "--abi <abi>" help="ABIs to stage and build: arm64-v8a (the default), x86_64, or all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 dal_require_swift_packages
@@ -22,7 +24,7 @@ dal_require_swift_packages
 # never share one: build:android-natives owns .build-android with its own
 # swift.org tarball of the same release, and reusing its scratch state from
 # mise's copy breaks the C targets' header search (stdlib.h not found).
-api="${DAL_ANDROID_API:-31}"
+api="${DAL_ANDROID_API:-24}"
 export SWIFT_ANDROID_STATIC_BUILD=1 # drops JavaScriptKit (host macros) from the graph
 
 # Which ABIs to stage: --abi, else DAL_ANDROID_ABIS, else arm64-v8a (see
@@ -34,6 +36,7 @@ export DAL_ANDROID_ABIS="$abis"
 if [ -z "${usage_stage_only:-}" ]; then
     adb="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}/platform-tools/adb"
     [ -x "$adb" ] || adb=adb
+    if [ -n "${usage_serial:-}" ]; then export ANDROID_SERIAL="$usage_serial"; fi
     "$adb" devices 2> /dev/null | sed 1d | grep -qw device || {
         echo "error: no Android device or emulator is connected." >&2
         echo "       Start one (Android Studio, or 'emulator -avd <name>'); CI uses" >&2
@@ -113,17 +116,36 @@ for abi in $abis; do
         x86_64) arch=x86_64 ;;
         *) echo "error: unknown ABI '$abi' in DAL_ANDROID_ABIS" >&2; exit 1 ;;
     esac
-    resources="$bundle/swift-android/swift-resources/usr/lib/swift_static-$arch"
-    swift build --scratch-path .build-androidtest -c release --product CoreAndroidTests \
-        --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
-        -Xswiftc -static-stdlib -Xswiftc -resource-dir -Xswiftc "$resources"
+    cxx=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*$arch-linux-android*" -name libc++_static.a | head -1)
+    [ -n "$cxx" ] || { echo "error: missing static C++ runtime" >&2; exit 1; }
+    aliases=$(mktemp -d)
+    for alias in libc++.a libc++_shared.a libstdc++.a libstdc++_shared.a; do ln -s "$cxx" "$aliases/$alias"; done
+    extra=()
+    for name in libc++abi.a libunwind.a; do
+        found="$(dirname "$cxx")/$name"
+        [ ! -f "$found" ] || extra+=(-Xlinker "$found")
+    done
+    for product in CoreAndroidTests UnicodeAndroidTests; do
+        swift build --scratch-path .build-androidtest -c release --product "$product" \
+            --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
+            --static-swift-stdlib -Xswiftc -D -Xswiftc DAL_ANDROID_UNICODE_TESTS \
+            -Xlinker "-L$aliases" -Xlinker "-LVendor/litert/lib/android-$arch" \
+            ${extra[@]+"${extra[@]}"} -Xlinker --no-undefined
+    done
+    rm -rf "$aliases"
     mkdir -p "$jni/$abi"
-    # Locate the library rather than hardcoding a layout: Swift 6.4 emits
-    # .build/out/Products/Release-android-<arch>/, older SwiftPM used
-    # .build/<triple>/release/. Both spell the arch.
-    built=$(find .build-androidtest -type f -name libCoreAndroidTests.so -path "*$arch*" -not -path "*/checkouts/*" 2> /dev/null | head -1)
-    [ -n "$built" ] || { echo "error: libCoreAndroidTests.so for $arch not found under .build-androidtest" >&2; exit 1; }
+    # Persistent runners retain older SwiftPM layouts. A recursive search can
+    # stage an old runtime even after the current product builds successfully.
+    bin_path=$(swift build --scratch-path .build-androidtest -c release \
+        --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
+        --static-swift-stdlib --show-bin-path)
+    built="$bin_path/libCoreAndroidTests.so"
+    [ -f "$built" ] || { echo "error: $built was not built" >&2; exit 1; }
+    echo "Staging Android test harness from $bin_path"
     cp "$built" "$jni/$abi/"
+    unicode="$bin_path/libUnicodeAndroidTests.so"
+    [ -f "$unicode" ] || { echo "error: $unicode was not built" >&2; exit 1; }
+    cp "$unicode" "$jni/$abi/"
     cxx=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path "*$arch-linux-android*" -name libc++_shared.so 2> /dev/null | head -1)
     [ -n "$cxx" ] || { echo "error: libc++_shared.so for $arch not found in $ANDROID_NDK_HOME" >&2; exit 1; }
     cp "$cxx" "$jni/$abi/"
@@ -132,7 +154,16 @@ fi # end of staging
 
 [ -n "${usage_stage_only:-}" ] && exit 0
 
-./gradlew --no-daemon -p androidtest connectedAndroidTest
+if [ -n "${usage_unicode:-}" ]; then
+    python3 Tools/android/compatibility.py prepare
+    python3 Tools/android/compatibility.py run ${ANDROID_SERIAL:+--serial "$ANDROID_SERIAL"}
+    exit 0
+fi
+
+# The compatibility runner supplies per-library arguments in isolated processes.
+# The regular suite runs the core harness here, then each model's suite below.
+./gradlew --no-daemon :androidtest:connectedAndroidTest \
+    -Pandroid.testInstrumentationRunnerArguments.class=ai.desertant.core.androidtest.CoreBridgeTest
 
 # Each model AAR's own instrumented suite, on the same booted device, in one
 # Gradle invocation so the JVM/configuration cost is paid once. Gradle builds
@@ -151,7 +182,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         tasks+=(":$model:test")
     fi
 done
-for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N UHM_BENCH UHM_BENCH_N; do
+for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N FACE_BENCH FACE_BENCH_N UHM_BENCH UHM_BENCH_N; do
     if [ -n "${!name:-}" ]; then tasks+=("-Pandroid.testInstrumentationRunnerArguments.$name=${!name}"); fi
 done
 [ ${#tasks[@]} -eq 0 ] || ./gradlew --no-daemon "${tasks[@]}"

@@ -24,7 +24,13 @@ object DesertAntNative {
     fun jsonParseTree(jsonUtf8: ByteArray): ByteArray = HostBridge.jsonParseTree(jsonUtf8)
 
     @JvmStatic
+    fun caseFold(textUtf8: ByteArray): ByteArray = HostBridge.caseFold(textUtf8)
+
+    @JvmStatic
     fun normalizeNfkc(textUtf8: ByteArray): ByteArray = HostBridge.normalizeNfkc(textUtf8)
+
+    @JvmStatic
+    fun normalizeNfc(textUtf8: ByteArray): ByteArray = HostBridge.normalizeNfc(textUtf8)
 
     // HTTP host callbacks the Swift ModelStore uses to download on demand.
     @JvmStatic

@@ -1,4 +1,11 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import CHostBridge
+#else
 import Foundation
+#endif
 
 /// A word and when it starts, in seconds from the beginning of the audio.
 public struct Word: Sendable, Equatable, Codable {
@@ -50,7 +57,7 @@ func timedWords(tokens: [Int], frames: [Int], ends: [Int], vocabulary: [String],
         if current.isEmpty { currentFrame = i < frames.count ? frames[i] : 0 }
         // The word ends where its last piece ends.
         if i < ends.count { currentEnd = Swift.max(currentEnd, ends[i]) }
-        current += piece.replacingOccurrences(of: "\u{2581}", with: "")
+        current += String(piece.unicodeScalars.filter { $0 != "\u{2581}" })
     }
     flush()
     return out
@@ -178,8 +185,25 @@ private func matches(_ a: Word, _ b: Word, _ tolerance: TimeInterval) -> Bool {
 /// dotless i and accented Greek capitals still fail to match, because both need
 /// a locale this code does not have.
 func fold(_ s: String) -> String {
-    String(s.folding(options: [.caseInsensitive], locale: nil).unicodeScalars.filter {
-        CharacterSet.alphanumerics.contains($0) || $0 == "'"
+#if os(Android)
+    let bytes = Array(s.utf8)
+    var length: Int32 = 0
+    guard bytes.count <= Int(Int32.max), let pointer = bytes.withUnsafeBytes({ raw in
+        host_case_fold(raw.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(bytes.count), &length)
+    }) else { return s }
+    defer { host_free(pointer) }
+    let folded = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(length)), as: UTF8.self)
+#else
+    let folded = s.folding(options: [.caseInsensitive], locale: nil)
+#endif
+    return String(folded.unicodeScalars.filter {
+        if $0 == "'" { return true }
+        switch $0.properties.generalCategory {
+        case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter, .modifierLetter, .otherLetter,
+             .nonspacingMark, .spacingMark, .enclosingMark,
+             .decimalNumber, .letterNumber, .otherNumber: return true
+        default: return false
+        }
     })
 }
 
@@ -271,7 +295,13 @@ func refineEnds(_ words: [Word], samples: ArraySlice<Float>, windowStart: TimeIn
 }
 
 func detokenize(_ pieces: [String]) -> String {
-    pieces.joined()
-        .replacingOccurrences(of: "\u{2581}", with: " ")
-        .trimmingCharacters(in: .whitespaces)
+    let scalars = pieces.joined().unicodeScalars.map { $0 == "\u{2581}" ? Unicode.Scalar(" ") : $0 }
+    var view = scalars[...]
+    // Foundation's whitespaces excludes newlines.
+    func isSpace(_ scalar: Unicode.Scalar) -> Bool {
+        scalar == "\t" || scalar.properties.generalCategory == .spaceSeparator
+    }
+    while let first = view.first, isSpace(first) { view.removeFirst() }
+    while let last = view.last, isSpace(last) { view.removeLast() }
+    return String(String.UnicodeScalarView(view))
 }

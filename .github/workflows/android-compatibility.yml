@@ -1,0 +1,409 @@
+name: Android verification
+
+on:
+  workflow_call:
+    inputs:
+      full:
+        type: boolean
+        default: false
+      private-runner:
+        type: boolean
+        default: false
+    secrets:
+      HF_READ_TOKEN:
+        required: false
+      GRADLE_ENCRYPTION_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      full:
+        description: Test every Android API from 24 through 37
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  HF_TOKEN: ${{ secrets.HF_READ_TOKEN }}
+  DAL_HF_REPO_SUFFIX: ${{ vars.DAL_HF_REPO_SUFFIX }}
+
+jobs:
+  prepare:
+    runs-on: ${{ inputs.private-runner && fromJSON('["self-hosted", "Linux"]') || 'ubuntu-22.04' }}
+    timeout-minutes: 60
+    outputs:
+      apis: ${{ steps.matrix.outputs.apis }}
+      prepared-xz: ${{ steps.pack.outputs.xz }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          clean: false
+      - name: Free disk space
+        if: ${{ !inputs.private-runner }}
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules \
+                      /opt/hostedtoolcache/go /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/Ruby \
+                      /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/boost \
+                      /opt/microsoft /opt/google /opt/az /usr/share/az_* /usr/local/julia* \
+                      /usr/share/swift /usr/share/miniconda /usr/local/share/vcpkg \
+                      /usr/lib/google-cloud-sdk /opt/pipx || true
+          sudo docker image prune --all --force || true
+          df -h /
+
+      - name: Swift toolchain system deps
+        if: ${{ !inputs.private-runner }}
+        run: |
+          # These three are already on the ubuntu-22.04 runner image, so the
+          # common path installs nothing and never touches the network. That
+          # matters: apt can wedge on a bad mirror, sitting on `update` until the
+          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
+          # seconds and a retry instead of the run. Retrying rather than just
+          # `timeout-minutes`: that would still lose the run to a manual re-run,
+          # which is the toil this is here to remove.
+          #
+          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
+          # runner user, which cannot signal the root apt-get it is trying to
+          # stop (EPERM), so the hang survives its own timeout. -k follows up
+          # with SIGKILL for an apt wedged past SIGTERM.
+          pkgs=(libcurl4-openssl-dev libxml2-dev zlib1g-dev)
+          missing=()
+          for p in "${pkgs[@]}"; do
+            dpkg -s "$p" > /dev/null 2>&1 || missing+=("$p")
+          done
+          if [ "${#missing[@]}" -eq 0 ]; then
+            echo "already on the runner image: ${pkgs[*]}"
+            exit 0
+          fi
+          echo "missing: ${missing[*]}"
+          for attempt in 1 2 3; do
+            if sudo timeout -k 10 120 apt-get update -qq \
+              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends "${missing[@]}"; then
+              exit 0
+            fi
+            echo "::warning::apt attempt $attempt timed out or failed; retrying"
+            sleep $((attempt * 10))
+          done
+          echo "::error::apt failed after 3 attempts"
+          exit 1
+
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+        with:
+          version: 2026.9.2
+          # Persistent runners already retain their tools; restoring the shared
+          # multi-gigabyte cache costs more time than the tests themselves.
+          cache: ${{ !inputs.private-runner }}
+      - name: Point at the persistent Android SDK
+        if: ${{ inputs.private-runner }}
+        run: |
+          mkdir -p "$HOME/Android/Sdk"
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          mise install -q java@temurin-21
+          java_home=$(mise where java@temurin-21)
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
+      - name: Cache mise tool installs
+        if: ${{ !inputs.private-runner }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/mise/installs
+          key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
+          restore-keys: mise-installs-${{ runner.os }}-
+
+      # The snapshot toolchain (~1.2 GB) and the Android SDK bundles (~330 MB)
+      # install on demand; cache them so only the first run pays.
+      - id: android-toolchains-cache
+        if: ${{ !inputs.private-runner }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            Vendor/litert
+          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
+
+      # The pinned NDK, where the android-sdk task installs it on a miss (side
+      # by side in the runner's SDK, where AGP looks too). Path and key both
+      # come from ANDROID_NDK_VERSION, so moving the pin re-keys the cache.
+      - name: Locate the pinned Android NDK
+        if: ${{ !inputs.private-runner }}
+        id: ndk
+        run: |
+          version=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
+          echo "dir=$ANDROID_HOME/ndk/$version" >> "$GITHUB_OUTPUT"
+          echo "key=android-ndk-${{ runner.os }}-$version" >> "$GITHUB_OUTPUT"
+      - id: android-ndk-cache
+        if: ${{ !inputs.private-runner }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ndk.outputs.dir }}
+          key: ${{ steps.ndk.outputs.key }}
+
+      # The wrapper, dependencies, the local build cache and the configuration
+      # cache survive runs, saved from main and restored everywhere. Since v6
+      # this caching is Gradle's proprietary gradle-actions-caching component,
+      # free for public repos. Persistent runners already retain these caches.
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        if: ${{ !inputs.private-runner }}
+        with:
+          # setup-gradle saves the configuration cache only encrypted, since an
+          # entry can hold secrets (test:android passes HF_TOKEN as a property).
+          cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+      # The Swift cross-compile scratch dirs. Restoring them turns the
+      # static-stdlib release builds into incremental ones; the source hash
+      # keys an exact hit, and restore-keys accept a stale cache that SwiftPM
+      # then patches incrementally. Two dirs, one per toolchain: .build-android
+      # belongs to the 6.4.1 toolchain (build:android-natives), .build-androidtest
+      # to the pinned release toolchain (test:android). Sharing one dir would
+      # poison the restored state across toolchains (CHostBridge: stdlib.h not found).
+      - name: Cache the Android Swift builds
+        if: ${{ !inputs.private-runner }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build-android
+            .build-androidtest
+          # Per-commit key like the other Swift build caches: an exact hit
+          # never re-saves, freezing the snapshot while runs re-pay the drift.
+          key: android-swift-build-v3-${{ github.sha }}
+          restore-keys: android-swift-build-v3-
+      - name: Build and prepare Android verification
+        run: mise run test:android-prepare
+      - name: Select runtime matrix
+        id: matrix
+        env:
+          FULL: ${{ inputs.full }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          print('apis=' + json.dumps(list(range(24, 38)) if os.environ['FULL'] == 'true' else [24, 37]))
+          PY
+      # The test APK is ~240 MB of near-identical model libraries; zip shrinks
+      # it to ~90 MB, xz with a 64 MiB dictionary to ~26 MB in a few seconds.
+      # Private runners move it over a slow link to every runtime leg, so they
+      # ship the xz form (xz ships with tar on Ubuntu, so every runner has it)
+      # and fall back to the plain zip upload if xz is missing here.
+      - name: Pack the prepared bundle
+        id: pack
+        if: ${{ inputs.private-runner }}
+        run: |
+          set -o pipefail
+          if command -v xz >/dev/null 2>&1; then
+            tar -C .build/android-unicode/prepared -cf - . \
+              | xz --lzma2=preset=1,dict=64MiB -T1 -c > .build/android-unicode/prepared.tar.xz
+            echo 'xz=true' >> "$GITHUB_OUTPUT"
+          else
+            echo '::warning::xz is not installed on this runner; uploading the bundle as a zip'
+            echo 'xz=false' >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.private-runner || steps.pack.outputs.xz != 'true' }}
+        with:
+          name: android-unicode-prepared
+          path: .build/android-unicode/prepared/
+          if-no-files-found: error
+          retention-days: 3
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.private-runner && steps.pack.outputs.xz == 'true' }}
+        with:
+          name: android-unicode-prepared-xz
+          path: .build/android-unicode/prepared.tar.xz
+          if-no-files-found: error
+          compression-level: 0 # already compressed
+          retention-days: 3
+
+      - name: Enable emulator acceleration
+        if: ${{ !inputs.private-runner }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: AVD cache
+        if: ${{ !inputs.private-runner }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-31-x86_64-default-4core
+
+      - name: Provision Android command-line tools
+        if: ${{ !inputs.private-runner }}
+        run: python3 Tools/android/environment.py provision --sdk "$ANDROID_HOME"
+      - name: Create AVD snapshot
+        if: ${{ !inputs.private-runner && (steps.avd-cache.outputs.cache-hit != 'true') }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 31
+          arch: x86_64
+          target: default # AOSP image: smaller and faster than google_apis, nothing here needs Play Services
+          force-avd-creation: false
+          disable-animations: false
+          emulator-boot-timeout: 900
+          cores: 4
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: echo "Generated AVD snapshot for caching"
+      - name: Regular API 31 tests
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 31
+          arch: x86_64
+          target: default
+          force-avd-creation: false
+          disable-animations: true
+          emulator-boot-timeout: 900
+          cores: 4
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
+          script: mise run test:android --no-stage --abi all
+      - name: Retain regular Android test failures
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-api-31-test-reports
+          path: |
+            **/build/outputs/androidTest-results/connected/**/*.xml
+            **/build/reports/androidTests/connected/**
+            **/build/test-results/testDebugUnitTest/*.xml
+            **/build/test-results/test/*.xml
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Save the Android toolchains
+        if: ${{ !inputs.private-runner && (github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.android-toolchains-cache.outputs.cache-hit != 'true') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/desert-ant/toolchains
+            ~/.swiftpm/swift-sdks
+            ~/.config/swiftpm/swift-sdks
+            Vendor/litert
+          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
+
+      - name: Save the Android NDK
+        if: ${{ !inputs.private-runner && (github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.android-ndk-cache.outputs.cache-hit != 'true') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.ndk.outputs.dir }}
+          key: ${{ steps.ndk.outputs.key }}
+
+      - name: Save the AVD snapshot
+        if: ${{ !inputs.private-runner && (github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.avd-cache.outputs.cache-hit != 'true') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb*
+          key: avd-31-x86_64-default-4core
+
+      - name: Save the Android Swift builds
+        if: ${{ !inputs.private-runner && (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .build-android
+            .build-androidtest
+          key: android-swift-build-v3-${{ github.sha }}
+
+  runtime:
+    needs: prepare
+    runs-on: ${{ inputs.private-runner && fromJSON('["self-hosted", "Linux"]') || 'ubuntu-22.04' }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api: ${{ fromJSON(needs.prepare.outputs.apis) }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          clean: false
+      - name: Clear previous runtime artifacts
+        run: rm -rf .build/android-unicode/prepared/ .build/android-unicode/prepared-xz/ .build/android-unicode/results/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ !inputs.private-runner || needs.prepare.outputs.prepared-xz != 'true' }}
+        with:
+          name: android-unicode-prepared
+          path: .build/android-unicode/prepared/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ inputs.private-runner && needs.prepare.outputs.prepared-xz == 'true' }}
+        with:
+          name: android-unicode-prepared-xz
+          path: .build/android-unicode/prepared-xz/
+      - name: Unpack the prepared bundle
+        if: ${{ inputs.private-runner && needs.prepare.outputs.prepared-xz == 'true' }}
+        run: |
+          set -o pipefail
+          mkdir -p .build/android-unicode/prepared
+          xz -d -c .build/android-unicode/prepared-xz/prepared.tar.xz \
+            | tar -C .build/android-unicode/prepared -xf -
+          rm -rf .build/android-unicode/prepared-xz/
+      - name: Point at the persistent Android SDK
+        if: ${{ inputs.private-runner }}
+        run: |
+          mkdir -p "$HOME/Android/Sdk"
+          echo "ANDROID_HOME=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          mise install -q java@temurin-21
+          java_home=$(mise where java@temurin-21)
+          echo "JAVA_HOME=$java_home" >> "$GITHUB_ENV"
+          echo "$java_home/bin" >> "$GITHUB_PATH"
+      - name: Provision Android command-line tools
+        run: python3 Tools/android/environment.py provision --sdk "$ANDROID_HOME"
+      - name: Enable emulator acceleration
+        if: ${{ !inputs.private-runner }}
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Execute the prepared SDK on Android
+        env:
+          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+          ANDROID_TEST_API: ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          # API 37's base SDK and system image packages include the minor version.
+          api-level: ${{ matrix.api == 37 && '37.0' || matrix.api }}
+          arch: x86_64
+          target: google_apis
+          avd-name: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+          force-avd-creation: true
+          disable-animations: true
+          emulator-boot-timeout: 900
+          cores: 4
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          pre-emulator-launch-script: python3 Tools/android/environment.py check-avd --name "$AVD_NAME" --api "$ANDROID_TEST_API"
+          script: python3 Tools/android/compatibility.py run --serial emulator-5554
+      - name: Capture failed runtime environment
+        if: failure()
+        env:
+          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+        run: python3 Tools/android/diagnostics.py --output .build/android-unicode/results/environment --avd "$AVD_NAME"
+      - name: Retain results and crash logs
+        if: ${{ always() && !inputs.private-runner }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-unicode-api-${{ matrix.api }}
+          path: .build/android-unicode/results/
+          if-no-files-found: error
+          retention-days: 14
+      # Private runners keep the results on disk, so only a failure needs the
+      # upload to be readable from the run page.
+      - name: Retain results and crash logs (private failure)
+        if: ${{ failure() && inputs.private-runner }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-unicode-api-${{ matrix.api }}
+          path: .build/android-unicode/results/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Remove this run's emulator
+        if: always()
+        env:
+          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+        run: |
+          if [ -d "$HOME/.android/avd/$AVD_NAME.avd" ]; then
+            "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" delete avd -n "$AVD_NAME"
+          fi

@@ -7,8 +7,8 @@ static HostJSONParseFn g_json_parse = 0;
 void host_set_regex_matches(HostRegexMatchesFn fn) { g_regex_matches = fn; }
 
 char *host_regex_matches(const char *pattern, int32_t case_insensitive,
-                         const char *text, int32_t first_only) {
-    return g_regex_matches ? g_regex_matches(pattern, case_insensitive, text, first_only) : 0;
+                         const char *text, int32_t text_length, int32_t first_only) {
+    return g_regex_matches ? g_regex_matches(pattern, case_insensitive, text, text_length, first_only) : 0;
 }
 
 void host_set_json_parse(HostJSONParseFn fn) { g_json_parse = fn; }
@@ -21,8 +21,16 @@ static HostNormalizeFn g_normalize = 0;
 
 void host_set_normalize(HostNormalizeFn fn) { g_normalize = fn; }
 
-char *host_normalize(const char *text) {
-    return g_normalize ? g_normalize(text) : 0;
+char *host_normalize(const char *text, int32_t text_length, int32_t *result_length) {
+    return g_normalize ? g_normalize(text, text_length, result_length) : 0;
+}
+
+static HostNormalizeFn g_normalize_nfc = 0;
+
+void host_set_normalize_nfc(HostNormalizeFn fn) { g_normalize_nfc = fn; }
+
+char *host_normalize_nfc(const char *text, int32_t text_length, int32_t *result_length) {
+    return g_normalize_nfc ? g_normalize_nfc(text, text_length, result_length) : 0;
 }
 
 static HostHttpTreeFn g_http_tree = 0;
@@ -97,4 +105,10 @@ int32_t host_log(int32_t level, const char *source, const char *message) {
     if (!g_log) return 0;
     g_log(level, source, message);
     return 1;
+}
+
+static HostNormalizeFn g_case_fold = 0;
+void host_set_case_fold(HostNormalizeFn fn) { g_case_fold = fn; }
+char *host_case_fold(const char *text, int32_t text_length, int32_t *result_length) {
+    return g_case_fold ? g_case_fold(text, text_length, result_length) : 0;
 }

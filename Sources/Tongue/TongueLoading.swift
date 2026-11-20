@@ -1,7 +1,13 @@
 // Everything that touches a file system lives here, so the rest of the pipeline
 // stays free of platform code and cross-compiles as pure Swift.
 #if canImport(Foundation)
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 public extension Tongue {
     /// Load the model bundled with this package. The weights are ~2 MB, small

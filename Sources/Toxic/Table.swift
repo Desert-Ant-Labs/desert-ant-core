@@ -1,4 +1,11 @@
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import Android
+#else
 import Foundation
+#endif
 
 /// The encoder's embedding table from `toxic_table.bin` (`TXTB` v1): every row palettized to 4-bit, sixteen rows
 /// sharing one palette of sixteen float16 values. The SDK looks the rows up itself and feeds the graph embeddings,

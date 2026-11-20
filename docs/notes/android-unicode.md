@@ -1,0 +1,66 @@
+# Android Unicode compatibility
+
+Android text preprocessing uses the device's normalization and regex implementations. Swift casing, scalar properties and feature extraction remain in Swift. The SDK supports API 24 and does not bundle Foundation's ICU data or depend on Android's private ICU libraries. Voz's word comparison uses Android's default Unicode case folding, which preserves distinctions between accented words while matching forms such as STRASSE and straße.
+
+## Run locally
+
+Build both shipping architectures and inspect the release AAR payload:
+
+```sh
+mise run build:android --abi all
+```
+
+The build writes `.build/android-unicode/artifacts.json`. It checks each requested ABI in every selected model's release AAR, including ICU data embedded in stripped binaries. A missing AAR or ABI fails. Every ELF LOAD segment must have at least 16 KB alignment and page-congruent file and virtual offsets. For a deliberately recorded pre-change baseline, run `python3 Tools/android/artifacts.py --baseline --output .build/android-unicode/baseline.json` after building the baseline source. Baseline mode records violations; it is never used as a CI acceptance gate.
+
+Stage the non-shipping harness for the connected device's ABI, then execute the focused suite:
+
+```sh
+mise run test:android --stage-only --abi arm64-v8a
+mise run test:android --unicode --no-stage --serial DEVICE_SERIAL
+```
+
+The first command targets API 24 regardless of the connected device's version. The second builds the test APK and selects exactly one device. It retains each library's isolated instrumentation result, model test results, runtime ICU/Unicode versions, pinned model revisions and logcat under `.build/android-unicode/results/`.
+
+To run the identical APK on another device without rebuilding:
+
+```sh
+python3 Tools/android/compatibility.py run --serial DEVICE_SERIAL
+```
+
+The compatibility APK explicitly targets API 37. Preparation reads its target from the built APK with aapt2 and fails if it differs. It also checks the packaged test harnesses' versioned Bionic imports against the pinned NDK's minimum-API stubs. An old harness requiring newer libc symbols fails before runtime testing. The prepared bundle contains the APK, its SHA-256, target SDK, harness checks, build metadata and the artifact-size report. CI prepares it once, then installs it unchanged across the runtime matrix. Set `HF_TOKEN`, `DAL_HF_REPO_SUFFIX` and `DAL_LICENSE_ENDPOINT` as required for the pinned weights and test environment. Missing downloads or credentials fail the run. No model-backed test is silently skipped.
+
+## Acceptance
+
+- Primitive fixtures check ordinary normalization, Swift casing/categories, regex, whitespace, supplementary characters, combining marks, invisible characters, emoji and locale independence. Worker-thread tests include long text, embedded NUL and malformed UTF-16 at the Kotlin boundary. NUL must not truncate input; malformed UTF-16 follows Kotlin's UTF-8 encoding repair consistently.
+- Tongue replays the same normalization, hashing, routing and detection vectors on the desktop JVM and on Android's runtime.
+- Gist and Toxic token IDs use the existing training-reference oracles. Gist's lexical features use its existing feature oracle. Emo's fixed feature snapshot captures the unchanged Swift reference with fixed hash parameters; it is a regression baseline, not a training-accuracy measurement. Explicit recapture is available through `Tools/android/capture_emo.py` and is never part of a test run.
+- Redact replays the full deterministic reference corpus with the same enabled recognizers as the Swift suite. Model-backed tests additionally require expected sensitive text, correct UTF-16 positions, no leakage of the checked email and exact restoration.
+- Public model tests require the established emoji/topic/toxicity expectations, finite bounded scores, empty-input behavior and consistent handling of repaired inputs. Floating-point inference outputs need not be bit-identical across Android versions.
+- New-character differences require a specific fixture naming the operation, input, Unicode-version boundary and exact outputs. The current exception is NFKC for U+1E030, assigned in Unicode 15. There is no blanket exception for non-ASCII text.
+
+## CI and limits
+
+The [Android testing guide](android-testing.md) explains the split between plain
+JVM, Robolectric and instrumented tests. Robolectric tests of framework
+boundaries complement this suite; they do not replace its Android runtime
+checks for Unicode behavior or shipping native libraries.
+
+`mise run test:android-prepare` builds both SDK ABIs, checks the published consumers, stages the x86_64 harness and prepares the compatibility APK. Use `--abi arm64-v8a` for a connected arm64 device. The test APK contains only the requested test ABI; the SDK artifacts still contain both. Preparation and the regular API 31 suite keep the same SDK ABI selection so Gradle reuses the native build. Public and private CI share this preparation job, and persistent runners do not restore the mise tool cache.
+
+SDK provisioning and runtime jobs require Command-line Tools 22.0 or newer. Installation uses a pinned, checksum-verified 22.0 archive and upgrades older copies in `cmdline-tools/latest`, the location the emulator action uses. Older tools can silently generate `target=android-0` for `android-37.0`, causing incorrect resource defaults and graphics initialization. The runtime jobs check the generated AVD target and image before launch, and capture tool versions, AVD metadata and a resource snapshot on failure. Regular API 31 failures retain their JUnit and HTML reports. Runtime jobs clear previous results before downloading the prepared APK, and harness staging uses SwiftPM's reported output directory rather than searching retained build caches.
+
+PRs run the focused suite on API 24 and 37, alongside the existing broader API 31 suite. Releases run every API from 24 through 37 and Maven publication waits for success. The reusable Android Unicode workflow also supports an on-demand full run. Each native library loads in its own instrumentation process; the model suite then exercises multiple models together. Zero tests, skipped tests, crashes and timeouts fail the gate.
+
+The automated runtime matrix uses x86_64. Release artifacts are inspected for both x86_64 and arm64-v8a; connected arm64 runs provide additional runtime coverage. Device results outside API 24-37 are supplemental. These tests establish compatibility and fixed-corpus behavior on the tested runtimes, not accuracy across arbitrary text or every manufacturer's device.
+
+## Local verification when raising the Android target
+
+Use the existing harness and sample app for migration checks; benchmarks and memory stress are local checks, not additional CI jobs. Run `mise run test`, `mise run build:android --abi all`, `mise run check:android-consumer --abi all`, and the regular `mise run test:android --serial DEVICE_SERIAL` suite as well as the focused suite above. Run the focused suite on API 37 and locally on APIs 24, 35 and 36. Verify an API 37 emulator image boots before moving the latest CI endpoint.
+
+On a physical API 37 device, compare otherwise identical release builds targeting 35 and 37, compiled against 37 with the same locally published SDKs, model revisions, compilation mode and baseline profiles. Keep temporary overrides and probes outside the shipping configuration. Record the device build, RAM, page size and actual accelerator. The sample currently excludes the GPU accelerator, so validate GPU initialization and inference separately through the SDK harness. Emulator timings do not establish physical-device performance.
+
+Measure cold native loading, cached model initialization, first inference, warm median/p95 latency, throughput and sustained inference. Reuse the Eye, Face and Uhm benchmarks, and measure text preprocessing and audio decoding separately. Record Java/native and peak memory, anonymous memory/swap, and retained memory across 20 create/run/close cycles. Include 12 MP images, long audio, concurrent callers and multiple loaded models. Alternate three baseline/upgraded batches with thermal recovery, and measure a five-minute sustained workload. Investigate reproducible regressions above 10%, unexpected accelerator fallback, retained growth or normal-workload memory-limit exits.
+
+Verify downloads and redirect destinations, development licensing and restart persistence, and cached/offline inference. Check LAN access with a disposable local harness under denied/granted permission; public model and license endpoints need no LAN permission. Test SDK file decoding separately from host recording/playback, background transitions and audio focus. Use the sample for back navigation, insets and model lifetime across recreation, and a large-screen emulator for resizing. Verify native loading and inference on a 16 KB configuration and inspect final APK ZIP alignment in addition to AAR ELF alignment.
+
+Exercise Android 17 memory-limiter controls only on a disposable harness and restore any manual settings afterward. Record when the device does not enable enforcement. Keep logs and results under `.build/`, redact credentials, and distinguish passed checks from unavailable or pending checks. Do not declare migration verification complete while required device checks or material regressions remain unresolved.

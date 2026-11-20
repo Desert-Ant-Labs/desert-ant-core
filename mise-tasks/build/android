@@ -2,7 +2,7 @@
 #MISE description="Assemble the release AARs: ai.desertant:core and every model"
 #MISE dir="{{config_root}}"
 #MISE depends=["android-sdk"]
-#MISE tools={java="temurin-21"}
+#MISE tools={java="{{ vars.java }}"}
 #USAGE arg "<model>" help="Model AAR to build, 'core' for just the core AAR, or 'all'" default="all"
 #USAGE flag "--abi <abi>" help="ABIs to build: arm64-v8a (the default), x86_64, or all"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
@@ -94,3 +94,6 @@ for model in $models; do
     done
     echo "ok: $aar"
 done
+
+# Inspect stripped payloads too: stripping removes the symbol table but leaves ICU data.
+python3 Tools/android/artifacts.py --model "$want" --abis $DAL_ANDROID_ABIS --output .build/android-unicode/artifacts.json

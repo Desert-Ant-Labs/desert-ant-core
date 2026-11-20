@@ -15,12 +15,12 @@ extern "C" {
 // This target is model-agnostic and reusable across projects.
 
 // Regex: newline-separated matches, each "g0s,g0e;g1s,g1e;..." of UTF-16 group
-// offsets ("-1,-1" for an unmatched group). NUL-terminated text.
+// offsets ("-1,-1" for an unmatched group). Text is length-delimited UTF-8.
 typedef char *(*HostRegexMatchesFn)(const char *pattern, int32_t case_insensitive,
-                                    const char *text, int32_t first_only);
+                                    const char *text, int32_t text_length, int32_t first_only);
 void host_set_regex_matches(HostRegexMatchesFn fn);
 char *host_regex_matches(const char *pattern, int32_t case_insensitive,
-                         const char *text, int32_t first_only);
+                         const char *text, int32_t text_length, int32_t first_only);
 
 // JSON: parse a JSON document into the length-prefixed binary value tree that
 // JSON decodes (big-endian uint32 payload length, then the tree).
@@ -31,11 +31,18 @@ char *host_json_parse(const char *json);
 // NFKC normalization (Android): the host normalizes text with its own
 // java.text.Normalizer, so the Swift core links no ICU (see TextNormalization's
 // AndroidNormalization.swift for why). Returns a malloc'd,
-// NUL-terminated UTF-8 string the caller frees with host_free; NULL means "not
+// UTF-8 buffer (result_length bytes) the caller frees with host_free; NULL means "not
 // installed / failed", which the caller treats as "leave the text unchanged".
-typedef char *(*HostNormalizeFn)(const char *text);
+typedef char *(*HostNormalizeFn)(const char *text, int32_t text_length, int32_t *result_length);
 void host_set_normalize(HostNormalizeFn fn);
-char *host_normalize(const char *text);
+// Unicode default case folding, with the same length-delimited buffer contract.
+void host_set_case_fold(HostNormalizeFn fn);
+char *host_case_fold(const char *text, int32_t text_length, int32_t *result_length);
+char *host_normalize(const char *text, int32_t text_length, int32_t *result_length);
+
+// NFC, on the same contract. A host that installs no NFC callback returns NULL.
+void host_set_normalize_nfc(HostNormalizeFn fn);
+char *host_normalize_nfc(const char *text, int32_t text_length, int32_t *result_length);
 
 // HTTP (Android): the host performs the request off the pure-Swift library.
 // tree GETs the Hub tree API and returns a malloc'd listing, one file per line

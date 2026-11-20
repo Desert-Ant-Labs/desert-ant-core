@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#MISE description="Build Android SDKs once for the regular and compatibility suites"
+#MISE dir="{{config_root}}"
+#MISE tools={java="{{ vars.java }}"}
+#USAGE flag "--abi <abi>" help="ABI for the test harness (SDK artifacts always include both)" default="x86_64"
+set -euo pipefail
+
+# Keep Gradle's native-build input stable throughout preparation. Selecting only
+# the emulator ABI after the release build would rebuild every model's natives.
+export DAL_ANDROID_ABIS="arm64-v8a x86_64"
+mise run build:android --abi all
+mise run check:android-consumer --abi all
+mise run test:android --stage-only --abi "${usage_abi:-x86_64}"
+python3 Tools/android/compatibility.py prepare --abi "${usage_abi:-x86_64}"

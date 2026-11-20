@@ -17,8 +17,12 @@ struct RegexEngine {
     }
 
     func matches(in text: String, firstOnly: Bool) -> [[(start: Int, end: Int)?]] {
+        let bytes = Array(text.utf8)
+        guard bytes.count <= Int(Int32.max) else { return [] }
         guard let ptr = pattern.withCString({ p in
-            text.withCString { t in host_regex_matches(p, caseInsensitive ? 1 : 0, t, firstOnly ? 1 : 0) }
+            bytes.withUnsafeBytes { raw in
+                host_regex_matches(p, caseInsensitive ? 1 : 0, raw.baseAddress?.assumingMemoryBound(to: CChar.self), Int32(bytes.count), firstOnly ? 1 : 0)
+            }
         }) else { return [] }
         defer { host_free(ptr) }
         let encoded = decodeCString(ptr)
