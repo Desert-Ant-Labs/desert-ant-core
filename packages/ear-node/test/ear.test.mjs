@@ -3,8 +3,7 @@
 // committed, so the suite downloads the pinned revision into a directory under
 // the package on the first run and reuses it offline afterward. The native core
 // picks each OS's runtime and artifact itself: Core ML (.mlmodelc) on macOS,
-// LiteRT (.tflite) on Linux. The default universal WebAssembly + LiteRT.js entry
-// is exercised by the headless-Chromium example.
+// LiteRT (.tflite) on Linux.
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import path from "node:path";
