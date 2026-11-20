@@ -7,7 +7,7 @@ Word-timestamp refinement for any transcript, on device.
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS, Linux, Windows, Node |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Node |
 | **Languages** | 9 |
 | **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/align/tree/v1.1.0) |
 <!-- model:end -->
@@ -24,10 +24,16 @@ The models are tiny, 560KB of compiled Core ML, and refine a typical result in a
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
 ```
 
 Then add the `Align` product to your target.
+
+**Kotlin** ([requirements](../../README.md#android))
+
+```kotlin
+implementation("ai.desertant:align:5.0.0")
+```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
 
@@ -79,6 +85,16 @@ If SpeechAnalyzer reads from a file, create the refiner with the same `AVAudioFi
 let refiner = try await StreamingRefiner(locale: locale, audioFile: file)
 ```
 
+### Kotlin
+
+```kotlin
+val align = Align(context)
+val fixed = align.refine(samples, 16_000.0, words, language = "en")
+
+for (w in fixed) println("${w.text} ${w.start} ${w.end} ${w.refined}")
+align.close()
+```
+
 ### JavaScript
 
 The `/native` subpath runs inference in plain Node. The subpath ships prebuilt for linux-x64, linux-arm64 and darwin-arm64.
@@ -99,11 +115,11 @@ Align supports the nine [languages](#languages) below. Check the language before
 guard try await align.isSupported(languageCode: "sv") else { /* use the original timestamps as-is */ }
 ```
 
-To check the language a `StreamingRefiner` was created with, call `try await refiner.isSupported()`. In JavaScript, `Align.isSupported(language)` is a synchronous check with the same meaning.
+To check the language a `StreamingRefiner` was created with, call `try await refiner.isSupported()`. In Kotlin and JavaScript, `Align.isSupported(language)` is a synchronous check with the same meaning.
 
 `refine` also keeps the original timestamp for a word whose correction lands at the edge of the window Align searches, or whose corrected range would end before it starts. When streaming, `refine` does the same for a word whose forward context isn't buffered yet. These fallbacks check structure and don't check accuracy. A correction that looks plausible but is wrong still lands. If a model fails to run, `refine` throws an error and doesn't fall back. See [Limitations](#limitations).
 
-Align checks the input before doing any work, whatever the language. Every `start` and `end` must be finite and from -1 to 10,000,000 seconds. The sample rate must be finite and positive. The audio must not be empty. Audio at a rate other than 16kHz must be shorter than 37 hours. Swift throws `AlignError.invalidInput`, naming the word. JavaScript rejects with a `RangeError`. A word more than 1.2s past the end of the audio has nothing to refine against, so the word keeps its input times with `refined` false.
+Align checks the input before doing any work, whatever the language. Every `start` and `end` must be finite and from -1 to 10,000,000 seconds. The sample rate must be finite and positive. The audio must not be empty. Audio at a rate other than 16kHz must be shorter than 37 hours. Swift throws `AlignError.invalidInput`, naming the word. Kotlin throws an `IllegalArgumentException`. JavaScript rejects with a `RangeError`. A word more than 1.2s past the end of the audio has nothing to refine against, so the word keeps its input times with `refined` false.
 
 ### Loading the model
 
@@ -130,7 +146,7 @@ let offline = Align(directory: myModelDirectory)   // uses the files as they are
 | `calibrator.bin` | Gradient-boosted trees | 70KB | Correction calibrator |
 | `refiner_config.json` | JSON | tiny | Runtime config |
 
-On Apple platforms, the Swift SDK downloads the compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin` and `refiner_config.json`. On Linux, Windows and Node, the `.tflite` pair replaces the two `.mlmodelc` directories.
+On Apple platforms, the Swift SDK downloads the compiled `.mlmodelc` stages, `mel_filters.bin`, `calibrator.bin` and `refiner_config.json`. On Android, Linux, Windows and Node, the `.tflite` pair replaces the two `.mlmodelc` directories.
 
 ## Inputs and outputs
 
@@ -177,7 +193,6 @@ English, Spanish, French, Italian, Portuguese, German, Japanese, Korean, and Chi
 - Numbers are the weakest case. On a small sample, refinement moved digit boundaries further from the reference than leaving them alone. Treat spoken numbers as unimproved until a larger sample settles the question.
 - The Core ML and LiteRT runtimes can disagree by 10ms on the same audio. We test both runtimes against Core ML's recorded output on synthetic audio. Core ML on the CPU matches that output (0.0ms, against a 25ms tolerance). LiteRT drifts 10.4ms (linux-arm64, 2026-09-17). Don't expect the two runtimes to agree to below a millisecond.
 - Align has no browser build. Align runs two models in sequence, and our WebAssembly build loads only one model.
-- Align has no Android SDK.
 
 <!-- model-footer:start -->
 ## License
