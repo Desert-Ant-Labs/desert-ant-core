@@ -1,6 +1,13 @@
 #if canImport(CLiteRt)
 import CLiteRt
+import CStrings
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// The LiteRT engine (Android/Linux): three `.tflite` graphs behind the
 /// `CLiteRt` shim, driven with the pipeline's preallocated buffers.
@@ -76,7 +83,7 @@ final class LiteRTEngine: Engine {
                 }
             }
             guard status == 0 else {
-                throw VozError.invalidModel("inference failed: \(String(cString: errbuf))")
+                throw VozError.invalidModel("inference failed: \(decodeCString(errbuf))")
             }
             for (index, buffer) in outputs {
                 let bytes = dal_lrt_output_byte_size(session, index)
@@ -112,7 +119,7 @@ final class LiteRTEngine: Engine {
                 }
             }
             guard let handle else {
-                throw VozError.invalidModel("\(name): \(String(cString: errbuf))")
+                throw VozError.invalidModel("\(name): \(decodeCString(errbuf))")
             }
             return handle
         }

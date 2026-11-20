@@ -1,5 +1,6 @@
 #if canImport(COnnxRuntime) && !canImport(CoreML)
 import COnnxRuntime
+import CStrings
 import DesertAnt
 import Foundation
 
@@ -66,7 +67,7 @@ final class OnnxEngine: Engine {
             guard let handle else {
                 throw VozError.invalidModel(
                     "could not load \((path as NSString).lastPathComponent): "
-                    + String(cString: errbuf))
+                    + decodeCString(errbuf))
             }
             session = handle
         }
@@ -78,12 +79,12 @@ final class OnnxEngine: Engine {
         /// through the output buffers' own pointers.
         func run(inputs: [Buffer], outputs: [Buffer]) throws {
             let rank = Int(DAL_ORT_MAX_RANK)
-            var inPtrs = inputs.map { UnsafeRawPointer($0.ptr) as UnsafeRawPointer? }
-            var inLens = inputs.map { $0.count * MemoryLayout<Element>.stride }
+            let inPtrs = inputs.map { UnsafeRawPointer($0.ptr) as UnsafeRawPointer? }
+            let inLens = inputs.map { $0.count * MemoryLayout<Element>.stride }
             var inDims = [Int64](repeating: 0, count: inputs.count * rank)
             var inRanks = [Int32]()
-            var outPtrs = outputs.map { UnsafeMutableRawPointer($0.ptr) as UnsafeMutableRawPointer? }
-            var outLens = outputs.map { $0.count * MemoryLayout<Element>.stride }
+            let outPtrs = outputs.map { UnsafeMutableRawPointer($0.ptr) as UnsafeMutableRawPointer? }
+            let outLens = outputs.map { $0.count * MemoryLayout<Element>.stride }
             var outDims = [Int64](repeating: 0, count: outputs.count * rank)
             var outRanks = [Int32]()
             for (i, b) in inputs.enumerated() {
@@ -131,7 +132,7 @@ final class OnnxEngine: Engine {
                 }
             }
             guard status == 0 else {
-                throw VozError.invalidModel("\(name) failed: " + String(cString: errbuf))
+                throw VozError.invalidModel("\(name) failed: " + decodeCString(errbuf))
             }
         }
     }
