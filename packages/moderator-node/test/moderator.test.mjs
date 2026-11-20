@@ -19,6 +19,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RESOURCES = path.resolve(HERE, "../../../Tests/ModeratorTests/Resources");
 const FIXTURE_DIR = path.join(HERE, "fixtures", "model");
 const golden = JSON.parse(fs.readFileSync(path.join(RESOURCES, "moderator_golden.json"), "utf8"));
+// Node loads moderator.tflite, so it compares against the LiteRT file's own outputs when the golden has them.
+const expected = golden.litert ?? golden;
 const TOLERANCE = 0.02;
 
 /** Deterministic RGB test pattern; same formula as the Swift suite and the golden script. */
@@ -87,12 +89,12 @@ for (const quality of ["fast", "balanced", "accurate"]) {
   test(`synthetic image matches the reference (${quality})`, modelOpts, async () => {
     const { width, height } = golden.synthetic;
     const result = await moderator.analyze(synthetic(width, height), { quality });
-    assertClose(result.regions, golden.synthetic[quality]);
+    assertClose(result.regions, expected.synthetic[quality]);
   });
 
   test(`swimwear fixture is safe (${quality})`, modelOpts, async () => {
     const result = await moderator.analyze(decodePng(path.join(RESOURCES, golden.sfw.file)), { quality });
-    assertClose(result.regions, golden.sfw[quality]);
+    assertClose(result.regions, expected.sfw[quality]);
     assert.equal(result.isNSFW, false);
     assert.ok(result.score < 0.2, `score ${result.score}`);
   });

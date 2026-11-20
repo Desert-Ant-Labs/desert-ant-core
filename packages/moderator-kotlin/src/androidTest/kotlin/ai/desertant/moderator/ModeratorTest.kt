@@ -31,6 +31,8 @@ class ModeratorTest {
     private lateinit var moderator: Moderator
     private val assets = InstrumentationRegistry.getInstrumentation().context.assets
     private val golden by lazy { JSONObject(assets.open("moderator_golden.json").bufferedReader().readText()) }
+    /** Android loads moderator.tflite, so it compares against the LiteRT file's own outputs when the golden has them. */
+    private val expected by lazy { golden.optJSONObject("litert") ?: golden }
 
     @Before fun setUp() {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()
@@ -70,7 +72,7 @@ class ModeratorTest {
         val (w, h) = s.getInt("width") to s.getInt("height")
         for (quality in Quality.entries) {
             val result = moderator.analyze(synthetic(w, h), w, h, Options(quality = quality))
-            assertClose(result.regions, s.getJSONObject(quality.name.lowercase()), 0.02)
+            assertClose(result.regions, expected.getJSONObject("synthetic").getJSONObject(quality.name.lowercase()), 0.02)
         }
     }
 
@@ -79,7 +81,7 @@ class ModeratorTest {
         val bitmap = assets.open(sfw.getString("file")).use { BitmapFactory.decodeStream(it) }
         for (quality in Quality.entries) {
             val result = moderator.analyze(bitmap, Options(quality = quality))
-            assertClose(result.regions, sfw.getJSONObject(quality.name.lowercase()), 0.02)
+            assertClose(result.regions, expected.getJSONObject("sfw").getJSONObject(quality.name.lowercase()), 0.02)
             assertFalse(result.isNSFW)
         }
     }
@@ -95,7 +97,7 @@ class ModeratorTest {
         val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         val result = moderator.analyze(bitmap)
         assertTrue("score ${result.score}", result.isNSFW)
-        assertClose(result.regions, positive.getJSONObject("accurate"), 0.05)
+        assertClose(result.regions, expected.getJSONObject("positive").getJSONObject("accurate"), 0.05)
         assertFalse(moderator.analyze(bitmap, Options(threshold = 0.99)).isNSFW)
     }
 
