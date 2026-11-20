@@ -2,39 +2,55 @@ import DesertAnt
 
 /// Wire numbers for ``Shape/Kind``, shared with `packages/shapes-node/codec.js`
 /// and `packages/shapes-kotlin`. A number never changes meaning, and a new kind
-/// gets the next free number.
+/// gets the next free number. 17 was the lasso, which no released model
+/// returns: it stays unused.
 let wireKinds: [Shape.Kind: Int] = [
     .line: 1, .rectangle: 2, .triangle: 3, .ellipse: 4, .star: 5,
     .curve: 6, .arrow: 7, .diamond: 8, .pentagon: 9, .hexagon: 10,
     .heart: 11, .cloud: 12, .scribble: 13,
+    .check: 14, .cross: 15, .bracket: 16, .zigzag: 18, .plus: 19,
 ]
 
 /// The number of points in the outline at the end of every payload.
 let wireOutlineSamples = 64
 
 extension Shapes: BoundModel {
-    /// Input payload: `u32 count`, then that many `f64 x`, `f64 y` pairs: one
-    /// stroke in canvas coordinates.
+    /// Input payload: one drawing in canvas coordinates. `u32 strokes`, then
+    /// for each stroke `u32 count`, `u32 timed` (1 when every point carries a
+    /// time), and `count` points, each `f64 x`, `f64 y` and, when timed, `f64 t`
+    /// in milliseconds (see ``Stroke/times``).
     ///
     /// Options payload: `f64 minimumConfidence`, `u32 rotation` (0 snapped,
-    /// 1 upright, 2 free), and `u32 kinds`, a bit mask with bit `n` for wire kind
-    /// `n` (0 means every kind). A host can leave out fields from the end, and
-    /// an empty payload means the SDK defaults.
+    /// 1 upright, 2 free), `u32 kinds`, a bit mask with bit `n` for wire kind
+    /// `n` (0 means every kind), and `u32 finished` (1, the default, or 0 for a
+    /// preview while the pen still moves; see ``Options/isFinished``). A host
+    /// can leave out fields from the end, and an empty payload means the SDK
+    /// defaults.
     ///
-    /// Result payload: `u32 present`, which is 0 for a stroke that isn't a shape,
-    /// with nothing after it. Otherwise `u32 kind` (`wireKinds`) follows, then
-    /// that kind's fields, then the outline (see ``Shape/outline(samples:)``).
+    /// Result payload: `u32 present`, which is 0 for a drawing that isn't a
+    /// shape, with nothing after it. Otherwise `u32 kind` (`wireKinds`) follows,
+    /// then that kind's fields, then the outline (see ``Shape/outline(samples:)``).
     /// A point is two `f64` values, a point list is a `u32` count and then the
     /// points, and a flag is a `u32` 0 or 1.
     public func run(input: FFIReader, options: FFIReader) async -> [UInt8]? {
         var input = input
         var options = options
-        let count = input.u32()
-        var points: [Point] = []
-        points.reserveCapacity(count)
-        for _ in 0..<count {
-            let x = input.f64()
-            points.append(Point(x: x, y: input.f64()))
+        var strokes: [Stroke] = []
+        // A count larger than the bytes behind it is untrusted input: read as
+        // many strokes and points as the payload holds, never past its end.
+        let strokeCount = min(input.u32(), input.remaining / 8)
+        for _ in 0..<strokeCount {
+            let claimed = input.u32()
+            let timed = input.u32() == 1
+            let count = min(claimed, input.remaining / (timed ? 24 : 16))
+            var stroke = Stroke(points: [])
+            stroke.points.reserveCapacity(count)
+            for _ in 0..<count {
+                let x = input.f64()
+                stroke.points.append(Point(x: x, y: input.f64()))
+                if timed { stroke.times.append(input.f64()) }
+            }
+            strokes.append(stroke)
         }
         // Defaults here must match what every SDK declares.
         var opts = Options()
@@ -44,10 +60,11 @@ extension Shapes: BoundModel {
             let mask = options.u32()
             if mask != 0 { opts.kinds = Set(wireKinds.filter { mask & (1 << $0.value) != 0 }.keys) }
         }
+        if options.remaining >= 4 { opts.isFinished = options.u32() != 0 }
         // `try?` alone would merge two different nils: a stroke that isn't a
         // shape (a result) and a failed load or run (a NULL buffer).
         let recognized: Shape?
-        do { recognized = try await recognize(points: points, options: opts) }
+        do { recognized = try await recognize(strokes: strokes, options: opts) }
         catch { return nil }
 
         var w = FFIWriter()
@@ -79,6 +96,14 @@ extension Shapes: BoundModel {
             w.points(outline)
         case let .scribble(hull):
             w.points(hull)
+        case let .check(start, corner, end):
+            w.point(start); w.point(corner); w.point(end)
+        case let .cross(firstFrom, firstTo, secondFrom, secondTo), let .plus(firstFrom, firstTo, secondFrom, secondTo):
+            w.point(firstFrom); w.point(firstTo); w.point(secondFrom); w.point(secondTo)
+        case let .bracket(points):
+            w.points(points)
+        case let .zigzag(from, to, amplitude, teeth):
+            w.point(from); w.point(to); w.f64(amplitude); w.f64(teeth)
         }
         w.points(shape.outline(samples: wireOutlineSamples))
         return w.bytes

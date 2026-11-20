@@ -81,16 +81,30 @@ class ShapesTest {
         assertEquals(a.to, heads[0][1])
     }
 
-    @Test fun zigzagIsAScribbleUnlessLeftOut() = runTest {
+    @Test fun zigzagIsAZigzagUnlessLeftOut() = runTest {
         val shape = shapes.recognize(zigzag())
-        assertTrue("expected scribble, got $shape", shape is Shape.Scribble)
-        assertTrue((shape as Shape.Scribble).hull.size >= 3)
-        assertNull(shapes.recognize(zigzag(), Options(kinds = Shape.Kind.entries.toSet() - Shape.Kind.SCRIBBLE)))
+        assertTrue("expected zigzag, got $shape", shape is Shape.Zigzag)
+        assertTrue((shape as Shape.Zigzag).teeth > 0)
+        assertNull(shapes.recognize(zigzag(), Options(kinds = Shape.Kind.entries.toSet() - Shape.Kind.ZIGZAG)))
+    }
+
+    @Test fun twoTimedStrokesMakeAPlus() = runTest {
+        val across = trace(Point(20.0, 100.0), Point(180.0, 100.0), per = 24)
+        val down = trace(Point(100.0, 20.0), Point(100.0, 180.0), per = 24)
+        val shape = shapes.recognize(listOf(
+            Stroke(across, across.indices.map { it * 16.0 }),
+            Stroke(down, down.indices.map { 600 + it * 16.0 }),
+        ))
+        assertTrue("expected plus, got $shape", shape is Shape.Plus)
+        val plus = shape as Shape.Plus
+        assertTrue("a plus draws as its two strokes", plus.paths == listOf(listOf(plus.firstFrom, plus.firstTo), listOf(plus.secondFrom, plus.secondTo)))
     }
 
     @Test fun uprightRemovesRotation() = runTest {
         val shape = shapes.recognize(box(22.0), Options(rotation = Rotation.UPRIGHT))
         assertTrue("expected rectangle, got $shape", shape is Shape.Rectangle)
+        val box = shape!!
+        assertTrue("a box draws as its outline", box.paths == listOf(box.outline))
         val c = (shape as Shape.Rectangle).corners
         val angle = Math.toDegrees(atan2(c[1].y - c[0].y, c[1].x - c[0].x))
         assertTrue("angle $angle", abs(angle % 90.0) < 1e-6)

@@ -29,21 +29,28 @@ data class Options(
      */
     val kinds: Set<Shape.Kind> = Shape.Kind.entries.toSet(),
     /**
-     * The lowest classifier confidence Shapes accepts, on top of each kind's calibrated threshold.
-     * `0.0` (the default) applies only the model's own gates.
+     * The lowest model confidence Shapes accepts, on top of its own checks.
+     * `0.0` (the default) applies only its own checks.
      */
     val minimumConfidence: Double = 0.0,
+    /**
+     * `true` (the default) for the moment the pen lifts: a finished outline
+     * snaps only once the whole outline is drawn, so a box missing a side
+     * comes back `null`. Pass `false` for a preview while the pen still moves.
+     */
+    val isFinished: Boolean = true,
 )
 
 /** Thrown when the model cannot be created, loaded, or run. */
 class ShapesException(message: String) : Exception(message)
 
 /**
- * Turns a hand-drawn stroke into a clean [Shape] on the device: a connector,
- * an arrow, a rectangle, an ellipse, a polygon, a star, a heart, a cloud, or a
- * scribble, which your app can use as an erase gesture. For any other stroke,
- * such as handwriting, [recognize] returns `null`, so you can keep that stroke
- * as ink.
+ * Turns a hand-drawn shape into a clean [Shape] on the device: a line or
+ * curve, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon,
+ * a hexagon, a star, a heart, a cloud, a scribble (your app can use it as an
+ * erase gesture), a check, a cross, a plus, a bracket, or a zigzag. The shape
+ * can take a few strokes, such as a cross or a box drawn side by side. For
+ * any other ink, [recognize] returns `null`, so you can keep it as ink.
  *
  * Create one `Shapes` and reuse it. The model loads on the first [recognize],
  * or ahead of time with [download].
@@ -53,7 +60,7 @@ class ShapesException(message: String) : Exception(message)
  * when (val shape = shapes.recognize(strokePoints, Options(rotation = Rotation.UPRIGHT))) {
  *     is Shape.Scribble -> eraseUnder(shape.hull)
  *     null -> keepInk()
- *     else -> draw(shape.outline)
+ *     else -> draw(shape.paths)
  * }
  * shapes.close()
  * ```
@@ -85,22 +92,42 @@ class Shapes(
      * Returns the clean [Shape], or `null` for a stroke that isn't a shape or
      * isn't one of [Options.kinds]. The first call loads the model.
      */
-    suspend fun recognize(points: List<Point>, options: Options = Options()): Shape? {
-        // Fewer than two points cannot be a stroke, so it is answered here rather
-        // than by waking the model.
-        if (points.size < 2) return null
-        // Input payload: an int point count, then an x and a y per point. Options
-        // payload: f64 minimum confidence, int rotation, int kinds mask. Result
-        // payload: a 0/1 present flag, the kind, its fields, then the outline.
-        // All three must match Sources/Shapes/Binding.swift.
-        val input = FfiWriter().int(points.size)
-        for (p in points) input.double(p.x).double(p.y)
+    suspend fun recognize(points: List<Point>, options: Options = Options()): Shape? =
+        recognize(listOf(Stroke(points)), options)
+
+    /**
+     * Recognizes a drawing of one or more [strokes] in drawing order, in canvas
+     * coordinates, such as a plus drawn in two strokes. Returns the clean
+     * [Shape], or `null` for ink that isn't a shape or isn't one of
+     * [Options.kinds]. The first call loads the model.
+     */
+    @JvmName("recognizeStrokes")
+    suspend fun recognize(strokes: List<Stroke>, options: Options = Options()): Shape? {
+        val drawn = strokes.filter { it.points.isNotEmpty() }
+        // Fewer than two points cannot be a drawing, so it is answered here
+        // rather than by waking the model.
+        if (drawn.sumOf { it.points.size } < 2) return null
+        // Input payload: the stroke count, then per stroke the point count, a
+        // 0/1 timed flag, and an x, a y and (when timed) a time per point.
+        // Options payload: f64 minimum confidence, int rotation, int kinds mask, int finished (0/1).
+        // Result payload: a 0/1 present flag, the kind, its fields, then the
+        // outline. All three must match Sources/Shapes/Binding.swift.
+        val input = FfiWriter().int(drawn.size)
+        for (s in drawn) {
+            val timed = s.times.size == s.points.size
+            input.int(s.points.size).int(if (timed) 1 else 0)
+            for ((i, p) in s.points.withIndex()) {
+                input.double(p.x).double(p.y)
+                if (timed) input.double(s.times[i])
+            }
+        }
         var mask = 0
         for (k in options.kinds) mask = mask or (1 shl WIRE_KINDS.indexOf(k))
         val opts = FfiWriter()
             .double(options.minimumConfidence)
             .int(options.rotation.ordinal)
             .int(mask)
+            .int(if (options.isFinished) 1 else 0)
             .done()
         return model.run(input.done(), opts, failureMessage = "recognition failed", decode = ::decodeShape)
     }
@@ -110,12 +137,13 @@ class Shapes(
     @Synchronized override fun close() = model.close()
 }
 
-/** Kinds by wire number (Sources/Shapes/Binding.swift `wireKinds`); 0 is "no shape". */
+/** Kinds by wire number (Sources/Shapes/Binding.swift `wireKinds`); 0 is "no shape" and 17 (the lasso) is unused. */
 private val WIRE_KINDS: List<Shape.Kind?> = listOf(
     null,
     Shape.Kind.LINE, Shape.Kind.RECTANGLE, Shape.Kind.TRIANGLE, Shape.Kind.ELLIPSE, Shape.Kind.STAR,
     Shape.Kind.CURVE, Shape.Kind.ARROW, Shape.Kind.DIAMOND, Shape.Kind.PENTAGON, Shape.Kind.HEXAGON,
     Shape.Kind.HEART, Shape.Kind.CLOUD, Shape.Kind.SCRIBBLE,
+    Shape.Kind.CHECK, Shape.Kind.CROSS, Shape.Kind.BRACKET, null, Shape.Kind.ZIGZAG, Shape.Kind.PLUS,
 )
 
 /** Decode the result payload Sources/Shapes/Binding.swift writes. */
@@ -151,6 +179,20 @@ private fun decodeShape(r: FfiReader): Shape? {
         Shape.Kind.HEART -> { val c = r.point(); val w = r.double(); val h = r.double(); Shape.Heart(c, w, h, r.points()) }
         Shape.Kind.CLOUD -> { r.points(); Shape.Cloud(r.points()) }
         Shape.Kind.SCRIBBLE -> { val h = r.points(); Shape.Scribble(h, r.points()) }
+        Shape.Kind.CHECK -> { val a = r.point(); val c = r.point(); val b = r.point(); Shape.Check(a, c, b, r.points()) }
+        Shape.Kind.CROSS -> {
+            val a = r.point(); val b = r.point(); val c = r.point(); val d = r.point()
+            Shape.Cross(a, b, c, d, r.points())
+        }
+        Shape.Kind.PLUS -> {
+            val a = r.point(); val b = r.point(); val c = r.point(); val d = r.point()
+            Shape.Plus(a, b, c, d, r.points())
+        }
+        Shape.Kind.BRACKET -> { val p = r.points(); Shape.Bracket(p, r.points()) }
+        Shape.Kind.ZIGZAG -> {
+            val a = r.point(); val b = r.point(); val amp = r.double(); val teeth = r.double()
+            Shape.Zigzag(a, b, amp, teeth, r.points())
+        }
     }
 }
 

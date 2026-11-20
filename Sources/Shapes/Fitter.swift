@@ -36,8 +36,16 @@ enum Fitter {
         case .heart: return heart(p)
         case .cloud: return cloud(p)
         case .scribble: return scribble(p)
+        case .check, .cross, .plus, .bracket, .zigzag:
+            preconditionFailure("no geometric fitter for \(kind): the template fit covers it")
         }
     }
+
+    /// The kinds these fitters cover.
+    static let covers: Set<Shape.Kind> = [
+        .line, .curve, .arrow, .rectangle, .ellipse, .triangle, .diamond, .pentagon, .hexagon,
+        .star, .heart, .cloud, .scribble,
+    ]
 
     // MARK: - Helpers
 

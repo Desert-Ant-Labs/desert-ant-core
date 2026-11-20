@@ -28,11 +28,12 @@ public extension Shape {
                 path.addLines(between: head.map(\.cgPoint))
             }
         default:
-            let pts = cgOutline()
-            guard let first = pts.first else { return path }
-            path.move(to: first)
-            for p in pts.dropFirst() { path.addLine(to: p) }
-            if isClosed { path.closeSubpath() }
+            for pts in paths().map({ $0.map(\.cgPoint) }) {
+                guard let first = pts.first else { continue }
+                path.move(to: first)
+                for p in pts.dropFirst() { path.addLine(to: p) }
+                if isClosed { path.closeSubpath() }
+            }
         }
         return path
     }

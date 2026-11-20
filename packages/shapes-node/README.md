@@ -1,8 +1,8 @@
 # @desert-ant-labs/shapes
 
-Shapes turns a hand-drawn stroke into a clean shape, connector, or arrow, in the browser and in Node. Shapes recognizes 13 kinds: a straight or curved connector, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon, a hexagon, a star, a heart, a cloud, and a scribble, which your app can use as an erase gesture. For any other stroke, such as handwriting, `recognize` returns `null`, so you can keep that stroke as ink. The stroke never leaves the device.
+Draw a rough circle and Shapes snaps it to a clean one, in the browser and in Node. The same goes for boxes, diamonds, stars, hearts, clouds, arrows and connectors, drawn in one stroke or several, and for the marks people make on a page: a check, a cross, a plus, a bracket, a zigzag and a scribble. For a drawing that isn't one of these kinds, `recognize` returns `null`, so you can keep that ink. The ink never leaves the device.
 
-A small model scores each kind and marks the points that belong to an arrowhead. A geometric fitter then computes the clean shape. Shapes accepts a stroke only if the model's confidence and the fit both clear that kind's calibrated thresholds. By default, Shapes snaps lines and edges to the axes, near-circles to circles, near-squares to squares, near-regular polygons to regular ones, and rotations to 15° steps.
+A small model reads the drawing and gives the most likely kind with the numbers of its template. The SDK fits the template to the ink, checks that the fit lies on the ink and that a closed outline is drawn, and snaps the shape: lines and edges to the axes, near-circles to circles, near-squares to squares, near-regular polygons to regular ones, and rotations to 15° steps.
 
 Two entries share one `Shapes` API:
 
@@ -23,7 +23,8 @@ The model is downloaded from Hugging Face on first use at the SDK's pinned tag, 
 import { Shapes } from "@desert-ant-labs/shapes";
 
 const shapes = await Shapes.load();
-const shape = await shapes.recognize(points);   // [{x, y}, ...] or [x0, y0, ...]
+const shape = await shapes.recognize(points);   // one stroke: [{x, y}, ...] or [x0, y0, ...]
+// several strokes, in drawing order: await shapes.recognize([{ points: across }, { points: down }])
 // { kind: "ellipse", center: {x, y}, semiMajor, semiMinor, rotation, outline: [...] }
 
 shapes.dispose(); // release the model (both builds)
@@ -38,7 +39,7 @@ import { Shapes } from "@desert-ant-labs/shapes/native"; // server only
 
 ## Shapes
 
-`recognize` returns `null` when the stroke isn't a shape. Otherwise `recognize` returns one of these objects, discriminated by `kind`. Every shape also has `outline`, a polyline you can draw. A closed shape's outline doesn't repeat its first point, and an arrow's outline is its shaft.
+`recognize` returns `null` when the drawing isn't a shape. Otherwise `recognize` returns one of these objects, discriminated by `kind`. Every shape also has `outline`, a polyline you can draw. A closed shape's outline doesn't repeat its first point, and an arrow's outline is its shaft.
 
 - `line` - `from`, `to`
 - `curve` - `from`, `control1`, `control2`, `to` (a cubic Bezier)
@@ -49,15 +50,19 @@ import { Shapes } from "@desert-ant-labs/shapes/native"; // server only
 - `star` - `center`, `outerRadius`, `innerRadius`, `rotation` (radians, 0 puts a tip straight up), `pointCount`
 - `heart` - `center`, `width`, `height`
 - `cloud` - `outline` only
+- `check` - `start`, `corner`, `end`: the short arm's end, the corner, the long arm's end
+- `cross`, `plus` - `firstFrom`, `firstTo`, `secondFrom`, `secondTo`: its two strokes. The outline is the first stroke, then the second; `paths` gives the two strokes apart.
+- `bracket` - `points`, from its top end, through its two corners, to its other end
+- `zigzag` - `from`, `to`, `amplitude`, `teeth` (`2 * teeth` straight runs)
 - `scribble` - `hull`, the convex hull of the scribble. Delete the content inside the hull.
 
-The kinds and field names are identical in Swift and Kotlin, so a stroke recognized on one platform describes itself the same way on every other.
+The kinds and field names are identical in Swift and Kotlin, so a drawing recognized on one platform describes itself the same way on every other.
 
-`recognize(points, options)` takes three options:
+`recognize(input, options)` takes one stroke, or several strokes as `[{points, times?}, ...]` in drawing order, where `times` holds a time in milliseconds for each point (give times for every stroke or for none). It takes three options:
 
 - `rotation`: `"snapped"` is the default. It rounds a shape's rotation to 15° steps and snaps lines and edges within 5° of horizontal or vertical onto the axis. `"upright"` removes rotation. `"free"` keeps the shape as drawn and skips the snapping to circles, squares, and regular polygons.
-- `kinds`: the kinds Shapes recognizes, all 13 by default. Leave out `"scribble"` if your app has no erase gesture.
-- `minimumConfidence`: the lowest classifier confidence Shapes accepts, on top of each kind's calibrated threshold. The default `0` applies only the calibrated thresholds.
+- `kinds`: the kinds Shapes recognizes, all of them by default. Leave out `"scribble"` if your app has no erase gesture.
+- `minimumConfidence`: the lowest model confidence Shapes accepts, on top of its own checks. The default `0` applies only the checks.
 
 ## Loading the model
 
