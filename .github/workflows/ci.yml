@@ -33,18 +33,21 @@ env:
   DAL_HF_REPO_SUFFIX: ${{ vars.DAL_HF_REPO_SUFFIX }}
 
 jobs:
+  android-unicode:
+    uses: ./.github/workflows/android-compatibility.yml
+    secrets: inherit
+
   checks:
     name: checks (versions, JS units)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     # 24.04, not latest: ubuntu-latest is 26.04 since October 2026, where mise's
     # Swift (the 24.04 build) cannot load libxml2.so.2 and check:swift-floor skips.
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       - name: Check commit attribution
@@ -60,6 +63,9 @@ jobs:
       # One version across the repo is only a property if something checks it
       # before release day.
       - run: mise run check:version
+      # Android Studio, ./gradlew, CI and the mise tasks all run Gradle on the
+      # JDK the daemon criteria and vars.java pin; this keeps the copies together.
+      - run: mise run check:java
       # npm rejects a trusted publish whose repository.url names another repo.
       - run: mise run check:npm-repo
       - run: mise run check:manifest
@@ -75,7 +81,7 @@ jobs:
       - run: mise run check:types
       # check:swift-floor links the dynamic products, so it vendors LiteRT, which
       # is fetched with uv exactly as the linux and js jobs do.
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: false
       # The README promises a minimum Swift; this builds on exactly that.
@@ -84,15 +90,14 @@ jobs:
 
   apple:
     name: Apple (macOS)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: 26.6
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
 
@@ -107,7 +112,7 @@ jobs:
       # evicted main's build snapshots, so most runs started cold.
       - name: Cache downloaded models
         id: models-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/desert-ant-models
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
@@ -124,7 +129,7 @@ jobs:
       # snapshots filled the 10 GB repo cache limit and evicted main's, which
       # is the one snapshot every PR can restore, so most runs started cold.
       - name: Cache Swift scratch paths
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .build-host
@@ -139,7 +144,7 @@ jobs:
 
       - name: Save Swift scratch paths
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             .build-host
@@ -149,22 +154,21 @@ jobs:
 
       - name: Save downloaded models
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.models-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/Library/Caches/desert-ant-models
           key: ${{ steps.models-cache.outputs.cache-primary-key }}
 
   apple-ios:
     name: Apple (iOS)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
           xcode-version: 26.6
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
 
@@ -173,7 +177,7 @@ jobs:
       # Package.resolved keys the dependency graph; restore-keys accept a stale
       # DerivedData, which xcodebuild then patches incrementally.
       - name: Cache iOS DerivedData
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ios-deriveddata
           # Per-commit keyed, same reason as the apple job's scratch cache: an
@@ -187,7 +191,7 @@ jobs:
       # patched to the current graph rather than trusted whole; restore-keys
       # hand over the previous clone and xcodebuild fetches whatever drifted.
       - name: Cache iOS SPM clones
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ios-packages
           key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
@@ -197,14 +201,14 @@ jobs:
 
       - name: Save iOS DerivedData
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ios-deriveddata
           key: ios-deriveddata-v2-${{ runner.os }}-${{ github.sha }}
 
       - name: Save iOS SPM clones
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build/ios-packages
           key: ios-packages-v3-${{ runner.os }}-${{ github.sha }}
@@ -218,20 +222,16 @@ jobs:
     # promise" is check:swift-floor's job. macOS ships bash 3.2, so this is also
     # the task set's only cover for the empty-array expansion the Linux jobs
     # accept.
-    #
-    # Pushes to main only: it is the least likely job to break and a macOS
-    # minute bills as ten. Dispatch the workflow to run it on a branch.
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: macos-26
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # v7 is the newest floating major tag this action publishes (its later
       # releases ship no vN alias), and it already runs on node24.
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
           # requirements.txt to key a cache on, and asking for one warns
@@ -241,11 +241,10 @@ jobs:
 
   linux:
     name: Linux (Swift)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }} # glibc 2.35; the *published* natives build on 2.26 in release.yml
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - name: Build deps (static Foundation autolinks these)
         run: |
           # These three are already on the ubuntu-22.04 runner image, so the
@@ -280,18 +279,18 @@ jobs:
           done
           echo "::error::apt failed after 3 attempts"
           exit 1
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # One shared set (~1.3 GB, mostly the Swift toolchain), saved by js-browser.
       - name: Cache mise tool installs
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/mise/installs
           key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
           restore-keys: mise-installs-${{ runner.os }}-
       # `mise run` vendors libLiteRt.so out of the ai-edge-litert wheel with uv.
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           # uv only unpacks a wheel here; there is no uv.lock or
           # requirements.txt to key a cache on, and asking for one warns
@@ -306,7 +305,7 @@ jobs:
       # managed store lives under XDG's ~/.cache.
       - name: Cache downloaded models
         id: models-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/desert-ant-models
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
@@ -320,7 +319,7 @@ jobs:
 
       - name: Save downloaded models
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.models-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/desert-ant-models
           key: ${{ steps.models-cache.outputs.cache-primary-key }}
@@ -334,12 +333,11 @@ jobs:
   # test:bundles and test:browser.
   js-browser:
     name: JavaScript (wasm, browser/SSR bundles)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # The Swift toolchain, node and binaryen are pinned in the task headers,
@@ -355,13 +353,13 @@ jobs:
       # toolchain. mise fetches whatever a job's pins still miss.
       - name: Cache mise tool installs
         id: mise-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/mise/installs
           key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
           restore-keys: mise-installs-${{ runner.os }}-
       - id: wasm-sdk-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.swiftpm/swift-sdks
@@ -375,7 +373,7 @@ jobs:
       # hash keys an exact hit; restore-keys accept a stale cache SwiftPM then
       # patches incrementally.
       - name: Cache the Swift wasm build
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           # Per-commit key, same reasoning as the Apple scratch cache: file
@@ -388,7 +386,7 @@ jobs:
       # browser build it wants.
       - name: Cache Playwright's Chromium
         id: playwright-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -398,7 +396,7 @@ jobs:
       # installs); a warm ~/.npm turns those into cache reads.
       - name: Cache the npm store
         id: npm-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -412,7 +410,7 @@ jobs:
       # Saved before the tests so the cache holds this build's configuration.
       - name: Save the Swift wasm build
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: js-wasm-build-${{ runner.os }}-${{ github.sha }}
@@ -446,13 +444,13 @@ jobs:
 
       - name: Save mise tool installs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.mise-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/mise/installs
           key: ${{ steps.mise-cache.outputs.cache-primary-key }}
       - name: Save the Swift wasm SDK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.wasm-sdk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.swiftpm/swift-sdks
@@ -460,13 +458,13 @@ jobs:
           key: swift-wasm-sdk-6.4.1
       - name: Save Playwright's Chromium
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.playwright-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - name: Save the npm store
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.npm-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: ${{ steps.npm-cache.outputs.cache-primary-key }}
@@ -475,22 +473,21 @@ jobs:
   # actually execute under wasm, so this is the browser correctness check.
   js-wasi:
     name: JavaScript (Swift tests on wasm)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # Restore only: js-browser saves both of these.
       - name: Cache mise tool installs
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/mise/installs
           key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
           restore-keys: mise-installs-${{ runner.os }}-
-      - uses: actions/cache/restore@v6
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.swiftpm/swift-sdks
@@ -500,12 +497,11 @@ jobs:
 
   js-node:
     name: JavaScript (Node native)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     # The natives build in the release's image, so the host only runs docker and the suites.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           persist-credentials: false
       # The Amazon Linux 2 Swift image and its build fill most of the runner's disk.
@@ -514,14 +510,14 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL \
                       /usr/local/lib/android /usr/share/swift || true
           df -h /
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
       # Same reasoning as js-browser's mise install cache: keep the pinned
       # toolchains' mtimes stable so SwiftPM's fingerprints survive across runs.
       # Restore only: js-browser saves the shared set.
       - name: Cache mise tool installs
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/mise/installs
           key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
@@ -529,14 +525,14 @@ jobs:
       # uv unpacks the LiteRT wheel build:node-native links against. No cache:
       # there is no uv.lock or requirements.txt to key one on, and asking for
       # one warns that it can never be invalidated.
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           enable-cache: false
 
       # The node package suites run npm ci; a warm ~/.npm turns those into
       # cache reads. Restore only: js-browser saves this key.
       - name: Cache the npm store
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.npm
           key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -549,7 +545,7 @@ jobs:
       # by a file cache.
       - name: Cache downloaded models
         id: models-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/desert-ant-models
@@ -591,7 +587,7 @@ jobs:
 
       - name: Save downloaded models
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.models-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/desert-ant-models
@@ -604,9 +600,6 @@ jobs:
     # declares a `windows` Swift platform builds and tests here; Apple-only
     # models (Core ML or MLX runtimes) never enter this job.
     name: Windows (Swift)
-    # Pushes to main only, not PRs: ~16 min a run at the 2x Windows rate.
-    # Dispatch the workflow to run it on a branch.
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
     runs-on: windows-latest
     timeout-minutes: 40
     # The one job that runs swift directly rather than through mise, so it does
@@ -615,13 +608,13 @@ jobs:
     env:
       DAL_LICENSE_ENDPOINT: "http://127.0.0.1:9/api/v1"
     steps:
-      - uses: actions/checkout@v5
-      - uses: compnerd/gha-setup-swift@v0.4.0
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: compnerd/gha-setup-swift@eeda069c5bc95ac8a9ac5cea7d4f588ae5420ca5 # v0.4.0
         with:
-          branch: swift-6.2.1-release
-          tag: 6.2.1-RELEASE
+          swift-version: swift-6.2.1-release
+          swift-build: 6.2.1-RELEASE
       # dumpbin/lib for the import-library step in vendor-litert.ps1.
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       - name: Vendor LiteRT (win_amd64 wheel)
         shell: pwsh
         run: Tools/windows/vendor-litert.ps1
@@ -678,7 +671,7 @@ jobs:
 
       - name: Cache downloaded models
         id: models-cache
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.modelcache.outputs.path }}
           key: models-${{ runner.os }}-${{ hashFiles('Sources/*/Catalog.swift') }}
@@ -760,227 +753,19 @@ jobs:
 
       - name: Save downloaded models
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.models-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.modelcache.outputs.path }}
           key: ${{ steps.models-cache.outputs.cache-primary-key }}
 
+  # Preserve the existing required check while all builds live in the shared workflow.
   android:
     name: Android (natives, AARs, on-device)
-    if: github.repository == 'Desert-Ant-Labs/desert-ant-core'
-    # ubuntu-22.04 is the proven-stable runner for android-emulator-runner; the
-    # emulator has been flaky on 24.04. build:android-natives fetches the Swift
-    # snapshot tarball built for this Ubuntu release, so the cross-compile and
-    # the emulator can share one job.
+    needs: android-unicode
+    if: always()
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
-    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
-
-      # The emulator needs ~7.4 GB for userdata, and the Swift Android SDK, NDK,
-      # and snapshot toolchain land on top of that. Drop toolchains we never use
-      # (keep the Android SDK).
-      - name: Free disk space
-        run: |
-          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
-                      /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules \
-                      /opt/hostedtoolcache/go /opt/hostedtoolcache/PyPy /opt/hostedtoolcache/Ruby \
-                      /usr/local/share/powershell /usr/local/share/chromium /usr/local/share/boost \
-                      /opt/microsoft /opt/google /opt/az /usr/share/az_* /usr/local/julia* \
-                      /usr/share/swift /usr/share/miniconda /usr/local/share/vcpkg \
-                      /usr/lib/google-cloud-sdk /opt/pipx || true
-          sudo docker image prune --all --force || true
-          df -h /
-
-      - name: Swift toolchain system deps
-        run: |
-          # These three are already on the ubuntu-22.04 runner image, so the
-          # common path installs nothing and never touches the network. That
-          # matters: apt can wedge on a bad mirror, sitting on `update` until the
-          # job's 6 h timeout rather than failing. Bound each attempt and retry, so a bad mirror costs
-          # seconds and a retry instead of the run. Retrying rather than just
-          # `timeout-minutes`: that would still lose the run to a manual re-run,
-          # which is the toil this is here to remove.
-          #
-          # `sudo timeout`, not `timeout sudo`: the latter runs the killer as the
-          # runner user, which cannot signal the root apt-get it is trying to
-          # stop (EPERM), so the hang survives its own timeout. -k follows up
-          # with SIGKILL for an apt wedged past SIGTERM.
-          pkgs="libcurl4-openssl-dev libxml2-dev zlib1g-dev"
-          missing=""
-          for p in $pkgs; do
-            dpkg -s "$p" > /dev/null 2>&1 || missing="$missing $p"
-          done
-          if [ -z "$missing" ]; then
-            echo "already on the runner image: $pkgs"
-            exit 0
-          fi
-          echo "missing:$missing"
-          for attempt in 1 2 3; do
-            if sudo timeout -k 10 120 apt-get update -qq \
-              && sudo timeout -k 10 180 apt-get install -y -qq --no-install-recommends $missing; then
-              exit 0
-            fi
-            echo "::warning::apt attempt $attempt timed out or failed; retrying"
-            sleep $((attempt * 10))
-          done
-          echo "::error::apt failed after 3 attempts"
-          exit 1
-
-      - name: Enable KVM (hardware acceleration for the emulator)
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-
-      - uses: jdx/mise-action@v4
-        with:
-          version: 2026.9.2
-      # Restore only: js-browser saves the shared set.
-      - name: Cache mise tool installs
-        uses: actions/cache/restore@v6
-        with:
-          path: ~/.local/share/mise/installs
-          key: mise-installs-${{ runner.os }}-${{ hashFiles('mise-tasks/**', 'mise.toml') }}
-          restore-keys: mise-installs-${{ runner.os }}-
-
-      # The snapshot toolchain (~1.2 GB) and the Android SDK bundles (~330 MB)
-      # install on demand; cache them so only the first run pays.
-      - id: android-toolchains-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.cache/desert-ant/toolchains
-            ~/.swiftpm/swift-sdks
-            ~/.config/swiftpm/swift-sdks
-            Vendor/litert
-          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
-
-      # The pinned NDK, where the android-sdk task installs it on a miss (side
-      # by side in the runner's SDK, where AGP looks too). Path and key both
-      # come from ANDROID_NDK_VERSION, so moving the pin re-keys the cache.
-      - name: Locate the pinned Android NDK
-        id: ndk
-        run: |
-          version=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
-          echo "dir=$ANDROID_HOME/ndk/$version" >> "$GITHUB_OUTPUT"
-          echo "key=android-ndk-${{ runner.os }}-$version" >> "$GITHUB_OUTPUT"
-      - id: android-ndk-cache
-        uses: actions/cache/restore@v6
-        with:
-          path: ${{ steps.ndk.outputs.dir }}
-          key: ${{ steps.ndk.outputs.key }}
-
-      # Gradle caches (wrapper, dependencies, configuration cache) survive runs.
-      - uses: gradle/actions/setup-gradle@v4
-
-      # The Swift cross-compile scratch dirs. Restoring them turns the
-      # static-stdlib release builds into incremental ones; the source hash
-      # keys an exact hit, and restore-keys accept a stale cache that SwiftPM
-      # then patches incrementally. Two dirs, one per toolchain: .build-android
-      # belongs to the 6.4.1 toolchain (build:android-natives), .build-androidtest
-      # to the pinned release toolchain (test:android). Sharing one dir would
-      # poison the restored state across toolchains (CHostBridge: stdlib.h not found).
-      - name: Cache the Android Swift builds
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            .build-android
-            .build-androidtest
-          # Per-commit key like the other Swift build caches: an exact hit
-          # never re-saves, freezing the snapshot while runs re-pay the drift.
-          key: android-swift-build-v3-${{ github.sha }}
-          restore-keys: android-swift-build-v3-
-
-      # Cross-compile and package first, outside the emulator's lifetime, so a
-      # long native build does not eat the emulator boot timeout. The emulator
-      # is x86_64, so build only that ABI (locally the default is arm64-v8a)
-      # and skip the arm64 cross-compiles CI would never run - that is half of
-      # the Swift build work. The release workflow sets both explicitly.
-      - run: mise run build:android
+      - name: Require all Android checks
         env:
-          DAL_ANDROID_ABIS: x86_64
-
-      # Stage the JNI test harness now too, for the same reason.
-      - run: mise run test:android --stage-only
-        env:
-          DAL_ANDROID_ABIS: x86_64
-
-      # A cold boot costs minutes; cache a booted-once AVD snapshot and resume
-      # from it on every later run.
-      - name: AVD cache
-        uses: actions/cache/restore@v6
-        id: avd-cache
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-31-x86_64-default-4core
-
-      - name: Create AVD snapshot
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 31 # androidtest minSdk
-          arch: x86_64
-          target: default # AOSP image: smaller and faster than google_apis, nothing here needs Play Services
-          force-avd-creation: false
-          disable-animations: false
-          emulator-boot-timeout: 900
-          cores: 4
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
-          script: echo "Generated AVD snapshot for caching"
-
-      - name: On-device tests
-        uses: reactivecircus/android-emulator-runner@v2
-        env:
-          # If Gradle's preBuild re-runs build:android-natives, keep it on the
-          # one ABI this emulator can execute.
-          DAL_ANDROID_ABIS: x86_64
-        with:
-          api-level: 31 # androidtest minSdk
-          arch: x86_64
-          target: default
-          force-avd-creation: false
-          disable-animations: true
-          emulator-boot-timeout: 900
-          cores: 4
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
-          script: mise run test:android --no-stage
-
-      - name: Save the Android toolchains
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.android-toolchains-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/.cache/desert-ant/toolchains
-            ~/.swiftpm/swift-sdks
-            ~/.config/swiftpm/swift-sdks
-            Vendor/litert
-          key: swift-android-6.4.1-ubuntu-22.04-api24-litert-2.3.2
-
-      - name: Save the Android NDK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.android-ndk-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: ${{ steps.ndk.outputs.dir }}
-          key: ${{ steps.ndk.outputs.key }}
-
-      - name: Save the AVD snapshot
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.avd-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/.android/avd/*
-            ~/.android/adb*
-          key: avd-31-x86_64-default-4core
-
-      - name: Save the Android Swift builds
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            .build-android
-            .build-androidtest
-          key: android-swift-build-v3-${{ github.sha }}
+          ANDROID_RESULT: ${{ needs.android-unicode.result }}
+        run: test "$ANDROID_RESULT" = success
