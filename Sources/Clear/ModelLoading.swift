@@ -41,7 +41,8 @@ public struct ModelAssets: Sendable {
          computeUnits: ComputeUnits = .all, concurrency: Int = 1) throws {
         self.init(
             sessions: try (0..<max(1, concurrency)).map { _ in
-                try inferenceSession(modelPath: modelPath, computeUnits: computeUnits, sdk: ClearModel.sdkInfo)
+                try inferenceSession(modelPath: modelPath, computeUnits: Self.units(computeUnits),
+                                     sdk: ClearModel.sdkInfo)
             },
             variant: ModelVariant.inferred(fromPath: modelPath),
             revision: revision,
@@ -57,9 +58,22 @@ public struct ModelAssets: Sendable {
         for _ in 0..<max(1, concurrency) {
             sessions.append(try await files.inferenceSession(
                 model: variant.artifact(for: runtime),
-                computeUnits: computeUnits, sdk: ClearModel.sdkInfo))
+                computeUnits: Self.units(computeUnits), sdk: ClearModel.sdkInfo))
         }
         return ModelAssets(sessions: sessions, variant: variant, revision: revision, runtime: runtime)
+    }
+
+    /// Android runs the model on CPU whatever was asked. LiteRT's OpenCL GPU
+    /// accelerator segfaults while compiling this graph, on some loads and not
+    /// others, so the shim never gets the error status its CPU fallback needs.
+    /// Seen on a Nothing Phone 3 (Adreno, Android 16) with LiteRT 2.3.2, both at
+    /// fp16 with fp32 accumulation and at LiteRT's default precision.
+    private static func units(_ requested: ComputeUnits) -> ComputeUnits {
+        #if os(Android)
+        return .cpuOnly
+        #else
+        return requested
+        #endif
     }
 }
 

@@ -1,3 +1,8 @@
+// fopen and getenv are used safely here. The MSVC runtime deprecates both by name.
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#endif
+
 #include "CLiteRt.h"
 #include "litert/c/litert_opaque_options.h"
 
@@ -418,8 +423,9 @@ static void add_cpu_options(LiteRtOptions options, int num_threads) {
 
 // GPU compute precision, as a LiteRtDelegatePrecision. The interesting values
 // are 2 (fp32) and 3 (fp16 storage and math, fp32 accumulation): plain fp16
-// loses the long dot products a transformer encoder is made of, and fp32
-// accumulation gives the accuracy back.
+// loses the long dot products a transformer encoder is made of. fp32
+// accumulation gives most of the accuracy back, and fp32 is for a graph where
+// it doesn't.
 static void add_gpu_options(LiteRtOptions options, int gpu_precision) {
   char* toml = (char*)malloc(32);
   if (!toml) return;

@@ -138,11 +138,20 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
                 prediction = retried
             }
         }
-        return try outputs.map { name in
-            guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
-                throw InferenceError.runFailed("the model returned no '\(name)'")
+        // Read inside a pool. The outputs are IOSurface-backed MLMultiArrays
+        // handed back autoreleased, and a caller looping over many runs can
+        // otherwise keep them alive until the Neural Engine runtime cannot get
+        // another surface: "Failed to allocate E5 buffer object", an uncaught
+        // NSException, after about 500 runs. IOSurface memory is not in
+        // phys_footprint, so the process looked flat while it leaked. The
+        // Tensors returned here are copies, so nothing escapes the pool.
+        return try autoreleasepool {
+            try outputs.map { name in
+                guard let array = prediction.featureValue(for: name)?.multiArrayValue else {
+                    throw InferenceError.runFailed("the model returned no '\(name)'")
+                }
+                return readTensor(array)
             }
-            return readTensor(array)
         }
     }
 
@@ -193,7 +202,7 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
     /// It lives in a synchronous function because inside an `async` one the
     /// compiler picks Core ML's `async` overload of the same name.
     private func predictSynchronously(_ provider: MLFeatureProvider) throws -> MLFeatureProvider {
-        try model.prediction(from: provider)
+        try autoreleasepool { try model.prediction(from: provider) }
     }
 
     /// A set of input arrays this run owns until it is done with them.
@@ -240,7 +249,9 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
         case .int64:
             throw InferenceError.invalidTensor("Core ML takes int32, not int64; export the model accordingly")
         case .int32:
-            return .int32
+            // An fp16 input of whole numbers (indices the graph reads as numbers, so no
+            // cast from int32 opens it on the CPU) takes them converted.
+            return declared == .float16 ? .float16 : .int32
         case .float32:
             // Match the model's declared precision so an fp16 graph gets fp16.
             return declared == .float16 ? .float16 : .float32
@@ -251,12 +262,18 @@ final class CoreMLSession: InferenceSession, @unchecked Sendable {
         let count = tensor.count
         tensor.bytes.withUnsafeBytes { raw in
             if array.dataType == .float16 {
-                let src = raw.bindMemory(to: Float.self)
-                var s = vImage_Buffer(data: .init(mutating: src.baseAddress!), height: 1,
-                                      width: vImagePixelCount(count), rowBytes: count * 4)
-                var d = vImage_Buffer(data: array.dataPointer, height: 1,
-                                      width: vImagePixelCount(count), rowBytes: count * 2)
-                vImageConvert_PlanarFtoPlanar16F(&s, &d, 0)
+                // int32 elements go to fp16 through float32 (exact up to 2048).
+                var floats = tensor.element == .int32 ? raw.bindMemory(to: Int32.self).map(Float.init) : []
+                floats.withUnsafeMutableBufferPointer { converted in
+                    let src = tensor.element == .int32
+                        ? UnsafeMutableRawPointer(converted.baseAddress!)
+                        : UnsafeMutableRawPointer(mutating: raw.baseAddress!)
+                    var s = vImage_Buffer(data: src, height: 1,
+                                          width: vImagePixelCount(count), rowBytes: count * 4)
+                    var d = vImage_Buffer(data: array.dataPointer, height: 1,
+                                          width: vImagePixelCount(count), rowBytes: count * 2)
+                    vImageConvert_PlanarFtoPlanar16F(&s, &d, 0)
+                }
             } else {
                 // Copy exactly the source bytes. Only .int32 and .float32 reach
                 // here (see dataType(for:)) and both are 4 bytes per element, so
