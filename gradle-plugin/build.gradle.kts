@@ -1,33 +1,47 @@
-import com.vanniktech.maven.publish.GradlePlugin
-import com.vanniktech.maven.publish.JavadocJar
-
-// The Android convention plugins for this repo: `ai.desertant.model-sdk` for a
-// model's AAR module and `ai.desertant.publish` for ai.desertant:core. The root
-// build includes this one (settings.gradle.kts), so the modules here resolve it
-// from the checkout; it is also published to Maven Central for consumers outside
-// this repo.
+// The Android convention plugins for this repo: `ai.desertant.android-library`
+// for the defaults every AAR shares, `ai.desertant.model-sdk` for a model's AAR
+// module, `ai.desertant.jvm-model-sdk` for a pure-Kotlin model, and
+// `ai.desertant.publish` for ai.desertant:core. The root build includes this one
+// (settings.gradle.kts), so the modules here resolve it from the checkout. It is
+// not published: nothing outside this repo applies it.
 plugins {
-    kotlin("jvm") version "2.1.21"
+    alias(libs.plugins.kotlin.jvm)
     `java-gradle-plugin`
-    id("com.vanniktech.maven.publish") version "0.34.0"
 }
 
-// One version for the whole repo, single-sourced in VERSION at the repo root
-// (this is an included build, so rootDir is gradle-plugin/).
-group = "ai.desertant"
-version = rootDir.parentFile.resolve("VERSION").readText().trim()
+// Gradle loads these classes next to its own embedded Kotlin and stdlib, not
+// the catalog's compiler, which can move past the floor. Built at the SDKs'
+// floor they stay readable by, and within the stdlib of, the Gradle this repo
+// runs on, whatever `kotlin` becomes.
+kotlin {
+    val floor = org.jetbrains.kotlin.gradle.dsl.KotlinVersion.fromVersion(
+        libs.versions.kotlinFloor.get().split('.').take(2).joinToString("."),
+    )
+    compilerOptions {
+        languageVersion.set(floor)
+        apiVersion.set(floor)
+        freeCompilerArgs.add("-Xwarning-level=DEPRECATION:error")
+    }
+    coreLibrariesVersion = libs.versions.kotlinFloor.get()
+}
 
 dependencies {
-    implementation("com.android.tools.build:gradle:8.7.3")
-    implementation("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.21")
-    implementation("com.vanniktech:gradle-maven-publish-plugin:0.34.0")
+    implementation(libs.android.gradle.plugin)
+    implementation(libs.kotlin.gradle.plugin)
+    implementation(libs.maven.publish.gradle.plugin)
     // The jvm-model-sdk convention builds its javadoc jar with Dokka: a Kotlin
     // source set gives the Java javadoc tool nothing to document.
-    implementation("org.jetbrains.dokka:dokka-gradle-plugin:2.0.0")
+    implementation(libs.dokka.gradle.plugin)
 }
 
 gradlePlugin {
     plugins {
+        create("androidLibrary") {
+            id = "ai.desertant.android-library"
+            implementationClass = "ai.desertant.gradle.AndroidLibraryPlugin"
+            displayName = "Desert Ant Android library defaults"
+            description = "SDK levels and JVM target shared by every Desert Ant Labs AAR."
+        }
         create("modelSdk") {
             id = "ai.desertant.model-sdk"
             implementationClass = "ai.desertant.gradle.ModelSdkPlugin"
@@ -49,36 +63,3 @@ gradlePlugin {
     }
 }
 
-mavenPublishing {
-    publishToMavenCentral()
-    if (!providers.gradleProperty("signingInMemoryKey").orNull.isNullOrEmpty()) {
-        signAllPublications()
-    }
-    coordinates("ai.desertant", "model-sdk-gradle-plugin", version.toString())
-    configure(GradlePlugin(javadocJar = JavadocJar.Empty(), sourcesJar = true))
-    pom {
-        name.set("Desert Ant model SDK Gradle plugin")
-        description.set("Android library + publish conventions for Desert Ant Labs model SDKs.")
-        url.set("https://github.com/Desert-Ant-Labs/desert-ant-core")
-        licenses {
-            license {
-                name.set("Desert Ant Labs Source-Available License")
-                url.set("https://license.desertant.com/")
-                distribution.set("repo")
-            }
-        }
-        developers {
-            developer {
-                id.set("desert-ant-labs")
-                name.set("Desert Ant Labs")
-                email.set("contact@desertant.com")
-                url.set("https://desertant.com")
-            }
-        }
-        scm {
-            url.set("https://github.com/Desert-Ant-Labs/desert-ant-core")
-            connection.set("scm:git:git://github.com/Desert-Ant-Labs/desert-ant-core.git")
-            developerConnection.set("scm:git:ssh://git@github.com/Desert-Ant-Labs/desert-ant-core.git")
-        }
-    }
-}

@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+#MISE description="Verify every Gradle build and CI lane runs on the JDK in vars.java"
+#MISE dir="{{config_root}}"
+#MISE env={DAL_JAVA="{{ vars.java }}"}
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# Gradle's daemon JVM criteria pin the JDK for every entry point that does not
+# go through mise: Android Studio, a plain ./gradlew, CI. The mise tasks pin it
+# too, through vars.java. Each build that runs with -p reads its own copy of the
+# criteria, so the copies, vars.java and the workflows that install Java
+# directly all have to agree. The mise.toml header says how to move the pin.
+java=${DAL_JAVA:?vars.java is not set in mise.toml}
+case "$java" in
+    temurin-[0-9]*) version=${java#temurin-}; vendor=ADOPTIUM ;;
+    *) echo "error: vars.java is $java; check:java knows only temurin-NN (Adoptium)" >&2; exit 1 ;;
+esac
+
+bad=0
+criteria=gradle/gradle-daemon-jvm.properties
+[ -f "$criteria" ] || { echo "error: $criteria is missing" >&2; exit 1; }
+
+found=$(sed -n 's/^toolchainVersion=//p' "$criteria")
+[ "$found" = "$version" ] || { echo "  $criteria toolchainVersion: ${found:-<missing>} (expected $version)" >&2; bad=1; }
+found=$(sed -n 's/^toolchainVendor=//p' "$criteria")
+[ "$found" = "$vendor" ] || { echo "  $criteria toolchainVendor: ${found:-<missing>} (expected $vendor)" >&2; bad=1; }
+
+# The builds Gradle runs with -p. Gradle reads the criteria from the build it
+# is pointed at, not from the root.
+for build in androidconsumer gradle-plugin; do
+    copy="$build/$criteria"
+    cmp -s "$criteria" "$copy" || { echo "  $copy differs from $criteria" >&2; bad=1; }
+done
+
+# Workflows that install Java themselves rather than through a mise task, the
+# scripts that default JAVA_HOME to mise's install path, and any task header
+# that spells the JDK out instead of reading vars.java.
+while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    literal=${hit##*:}
+    [ "$literal" = "$java" ] || { echo "  ${hit%:*}: $literal (expected $java)" >&2; bad=1; }
+done < <(grep -rnoE 'temurin-[0-9]+' .github/workflows packages/*/run-firebase-test.sh mise-tasks 2> /dev/null)
+while IFS= read -r hit; do
+    echo "  ${hit%%:*}: $(echo "$hit" | grep -oE 'java="[^"]*"') (use java=\"{{ vars.java }}\")" >&2
+    bad=1
+done < <(grep -rnE '^#MISE tools=.*java="' mise-tasks | grep -v 'java="{{ vars.java }}"')
+
+[ "$bad" = 0 ] || { echo "error: the JDK pins disagree with vars.java ($java)" >&2; exit 1; }
+echo "$java"

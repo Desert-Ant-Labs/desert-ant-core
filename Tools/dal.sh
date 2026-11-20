@@ -248,8 +248,9 @@ dal_android_abis() { # [override], e.g. a task's --abi flag
 
 # The one Android NDK this repo builds with, an sdkmanager version such as
 # 30.0.16248370. Every consumer reads ANDROID_NDK_VERSION: these tasks, the
-# Gradle builds (build.gradle.kts and androidtest/ set ndkVersion from it), and
-# the CI NDK caches, so moving NDKs is editing that one file.
+# Gradle builds (the root build.gradle.kts sets every Android module's
+# ndkVersion from it), and the CI NDK caches, so moving NDKs is editing that
+# one file.
 dal_android_ndk_version() {
     local v
     v=$(tr -d '[:space:]' < ANDROID_NDK_VERSION)
@@ -583,7 +584,9 @@ dal_drop_stale_archives() { # <scratch>, e.g. dal_drop_stale_archives .build-was
     while IFS= read -r runner; do
         [ -d "Tests/$(basename "$runner" -test-runner.wasm)" ] || rm -f "$runner"
     done < <(find "$scratch/out/Products" -type f -name '*-test-runner.wasm' 2> /dev/null)
-    key=$({ git ls-files -co --exclude-standard -- Sources Tests; cat Package.swift Package.resolved; } 2> /dev/null | git hash-object --stdin)
+    # Package.resolved is written by the first build, so a fresh checkout has none; without
+    # the `|| true`, pipefail would end the task here, silently, before that build.
+    key=$({ git ls-files -co --exclude-standard -- Sources Tests; cat Package.swift; cat Package.resolved 2> /dev/null || true; } | git hash-object --stdin)
     [ "$(cat "$stamp" 2> /dev/null)" = "$key" ] && return 0
     find "$scratch/out/Products" -name '*.a' -delete 2> /dev/null || true
     mkdir -p "$scratch" && echo "$key" > "$stamp"

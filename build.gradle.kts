@@ -1,9 +1,16 @@
-// Plugin versions are declared once for the whole build; the subprojects and the
-// ai.desertant.model-sdk convention plugin apply them without a version.
+// Plugin versions come from gradle/libs.versions.toml, which gradle-plugin/ also
+// compiles against; the subprojects and the convention plugins apply them
+// without a version.
+//
+// The Kotlin plugin is here although only Tongue applies it: AGP 9 compiles
+// Kotlin itself, with whatever Kotlin Gradle plugin is on this classpath, and
+// on its own it brings an older one (2.2.10 for AGP 9.5). The subprojects
+// inherit this classpath, so without this line the model AARs would build on
+// AGP's compiler instead of the catalog's.
 plugins {
-    id("com.android.library") version "8.7.3" apply false
-    id("org.jetbrains.kotlin.android") version "2.1.21" apply false
-    id("com.vanniktech.maven.publish") version "0.34.0" apply false
+    alias(libs.plugins.android.library) apply false
+    alias(libs.plugins.kotlin.jvm) apply false
+    alias(libs.plugins.maven.publish) apply false
 }
 
 // Every artifact in this repo ships one version, single-sourced in VERSION, so

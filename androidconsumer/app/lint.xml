@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<lint>
+    <!-- The consumer fixture checks published SDKs and has no launcher activity. -->
+    <issue id="MissingApplicationIcon">
+        <ignore path="src/main/AndroidManifest.xml" />
+    </issue>
+</lint>

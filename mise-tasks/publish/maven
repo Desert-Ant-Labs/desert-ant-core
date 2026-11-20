@@ -2,19 +2,25 @@
 #MISE description="Publish every Maven artifact in this repo to Maven Central"
 #MISE dir="{{config_root}}"
 #MISE depends=["android-sdk", "check:version"]
-#MISE tools={java="temurin-21"}
+#MISE tools={java="{{ vars.java }}"}
 #USAGE flag "--local" help="Publish to ~/.m2 instead (keyless, for testing consumers)"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# The Maven side of a release: the Gradle convention plugin, ai.desertant:core,
-# and one AAR per model. The plugin is an included build and core is a project
-# dependency (settings.gradle.kts), so nothing here waits for anything to appear
-# on Central mid-release.
+# The Maven side of a release: ai.desertant:core and one artifact per model.
+# The convention plugins are an included build and core is a project dependency
+# (settings.gradle.kts), so nothing here waits for anything to appear on Central
+# mid-release. The plugins themselves are not published: nothing outside this
+# repo applies them. Versions up to 4.3.0 of
+# ai.desertant:model-sdk-gradle-plugin stay on Central.
 version=$(dal_version)
 
+# Every publish here skips the configuration cache, --local included (it signs
+# when a key is set): the signing key and the repository credentials arrive as
+# Gradle properties that the build reads while it is configured, and a cache
+# entry would keep them on disk. Encrypted, but these are the release keys, and
+# a publish runs too rarely to gain anything from the cache.
 if [ -n "${usage_local:-}" ]; then
-    ./gradlew -p gradle-plugin publishToMavenLocal
-    ./gradlew publishToMavenLocal
+    ./gradlew publishToMavenLocal --no-configuration-cache
     echo "published to ~/.m2: ai.desertant:* $version"
     exit 0
 fi
@@ -47,12 +53,6 @@ fi
 published() {
     curl -sfIL "https://repo1.maven.org/maven2/ai/desertant/$1/$version/$1-$version.pom" > /dev/null 2>&1
 }
-
-if published model-sdk-gradle-plugin; then
-    echo "ai.desertant:model-sdk-gradle-plugin:$version is already published"
-else
-    ./gradlew -p gradle-plugin publishAndReleaseToMavenCentral --no-configuration-cache
-fi
 
 # One deployment for the whole Android build, so core and the models land
 # together. Skip the artifacts already on Central; Central rejects a deployment
