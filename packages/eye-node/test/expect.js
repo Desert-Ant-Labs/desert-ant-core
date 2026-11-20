@@ -67,7 +67,11 @@ export function expectMatchesReference(analysis, want, tolerance = 0.08) {
     }
   }
 
-  if (got.faces.length !== want.faces.length) fail(`faces: ${got.faces.length} vs ${want.faces.length}`);
+  // A face the reference scores at the 0.25 cutoff can land either side of it on another runtime.
+  const extra = got.faces.filter((f) => !want.faces.some((ref) => iou(f.box, ref.box) > 0.7));
+  if (got.faces.length < want.faces.length || extra.some((f) => Math.abs(f.confidence - 0.25) >= 0.01)) {
+    fail(`faces: ${got.faces.length} vs ${want.faces.length}`);
+  }
   for (const ref of want.faces) {
     const f = got.faces.reduce((best, f) => (iou(f.box, ref.box) > iou(best.box, ref.box) ? f : best));
     if (!(iou(f.box, ref.box) > 0.7)) fail(`no face matches ${ref.box}`);

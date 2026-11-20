@@ -12,7 +12,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
-import { Analysis, Eye, Tag } from "../node.js";
+import { Analysis, Eye, Faceprint, Tag } from "../node.js";
 import { expectMatchesReference } from "./expect.js";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -91,3 +91,18 @@ test("rejects malformed input", modelOpts, async () => {
 });
 
 test.after(() => eye?.dispose());
+
+test("faceprints are opt-in, and stored with the analysis", modelOpts, async () => {
+  const plain = await eye.analyze(fixture(), { parts: ["faces"] });
+  assert.ok(plain.faces.length > 0 && plain.faces.every((f) => f.faceprint === null));
+  const withPrints = await Eye.load({ faceprints: true, ...(fs.existsSync(FIXTURE_DIR) ? { directory: FIXTURE_DIR } : {}) });
+  try {
+    const r = await withPrints.analyze(fixture(), { parts: ["faces"] });
+    assert.deepEqual(r.faces.map((f) => f.box), plain.faces.map((f) => f.box));
+    for (const f of r.faces) assert.ok(f.faceprint instanceof Faceprint && f.faceprint.values.length === 128);
+    const back = Analysis.fromJSON(JSON.parse(JSON.stringify(r)));
+    assert.deepEqual(back.faces.map((f) => Array.from(f.faceprint.values)), r.faces.map((f) => Array.from(f.faceprint.values)));
+  } finally {
+    withPrints.dispose();
+  }
+});

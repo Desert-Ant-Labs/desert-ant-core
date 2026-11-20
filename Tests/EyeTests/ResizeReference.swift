@@ -1,8 +1,9 @@
 @testable import Eye
+import FaceCore
 
 /// The plain port of Pillow's resampler the optimized one replaced: one thread,
 /// the loop order of libImaging/Resample.c. EyeTests holds the two to the byte.
-extension Preprocess {
+extension Pillow {
     /// `image` resized to `width` x `height`, as Pillow's `Image.resize`: a
     /// horizontal pass over only the rows the vertical pass reads, each pass
     /// skipped when its size is unchanged, rounding to 8 bits between them.

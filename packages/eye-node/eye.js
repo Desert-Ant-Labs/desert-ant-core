@@ -25,11 +25,16 @@ export function makeEye(sdk) {
     /**
      * Load the model and return a ready eye. By default the model is downloaded
      * from the Hugging Face Hub at the pinned revision, verified, and cached.
-     * Pass `directory` (Node) or `modelBaseUrl` (browser) to use files you host
-     * yourself.
+     * Faces are found with Face's detector, downloaded from Face's repo, so an
+     * app that also uses `@desert-ant-labs/face` downloads it once. With
+     * `faceprints: true`, every face also gets its `Faceprint`, which downloads
+     * Face's embedder too. Pass `directory` (Node) or `modelBaseUrl` (browser) to
+     * use files you host yourself: a `modelBaseUrl` serves `eye.tflite`,
+     * `eye_meta.json` and `face_detect.tflite`, and `face.tflite` for faceprints.
      */
-    static async load(options = {}) {
-      return new Eye(await sdk.open(options));
+    static async load({ faceprints = false, ...options } = {}) {
+      const files = { artifact: "eye.tflite", sidecars: ["eye_meta.json", "face_detect.tflite", "face.tflite"] };
+      return new Eye(await sdk.open(options, faceprints ? { variant: "faceprints", files } : {}));
     }
 
     /**
