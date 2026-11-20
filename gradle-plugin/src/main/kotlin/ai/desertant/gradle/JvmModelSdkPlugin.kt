@@ -1,5 +1,6 @@
 package ai.desertant.gradle
 
+import com.android.build.api.dsl.Lint
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
@@ -26,10 +27,14 @@ class JvmModelSdkPlugin : Plugin<Project> {
         project.pluginManager.apply("org.jetbrains.kotlin.jvm")
         project.pluginManager.apply("java-library")
         project.pluginManager.apply("org.jetbrains.dokka")
+        project.pluginManager.apply("com.android.lint")
+        project.configureDesertAntLint(project.extensions.getByType(Lint::class.java))
 
         project.extensions.configure(KotlinJvmProjectExtension::class.java) { kotlin ->
-            kotlin.jvmToolchain(17)
+            kotlin.jvmToolchain(project.libs.version("jvmTarget").toInt())
             kotlin.explicitApi()
+            kotlin.compilerOptions.configureSdkCompiler(project)
+            kotlin.coreLibrariesVersion = project.libs.version("kotlinFloor")
         }
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")

@@ -15,16 +15,17 @@ import java.math.BigInteger
 import java.security.KeyPairGenerator
 import java.security.Signature
 import java.security.spec.ECGenParameterSpec
-import java.util.Base64
+import kotlin.io.encoding.Base64
 
 class LicenseVerifyTest {
+    private val base64Url = Base64.UrlSafe.withPadding(Base64.PaddingOption.ABSENT)
     private val vectors: JsonObject = Json.parseToJsonElement(
         File("../Tests/UsageTests/Resources/license_vectors.json").readText(),
     ).jsonObject
 
     private val keys: Map<String, ByteArray> = vectors["keys"]!!.jsonArray.associate {
         val key = it.jsonObject
-        key["kid"]!!.jsonPrimitive.content to Base64.getDecoder().decode(key["publicKeyX963"]!!.jsonPrimitive.content)
+        key["kid"]!!.jsonPrimitive.content to Base64.decode(key["publicKeyX963"]!!.jsonPrimitive.content)
     }
 
     private class Token(val kid: String, val message: ByteArray, val signature: ByteArray)
@@ -33,11 +34,11 @@ class LicenseVerifyTest {
         val text = vectors["tokens"]!!.jsonArray.map { it.jsonObject }
             .first { it["name"]!!.jsonPrimitive.content == name }["token"]!!.jsonPrimitive.content
         val parts = text.split('.')
-        val header = Json.parseToJsonElement(Base64.getUrlDecoder().decode(parts[0]).decodeToString()).jsonObject
+        val header = Json.parseToJsonElement(base64Url.decode(parts[0]).decodeToString()).jsonObject
         return Token(
             header["kid"]!!.jsonPrimitive.content,
             "${parts[0]}.${parts[1]}".toByteArray(),
-            Base64.getUrlDecoder().decode(parts[2]),
+            base64Url.decode(parts[2]),
         )
     }
 
@@ -69,8 +70,8 @@ class LicenseVerifyTest {
 
     @Test fun theKeyBuiltFromTheX963PointIsTheVectorKey() {
         for (key in vectors["keys"]!!.jsonArray.map { it.jsonObject }) {
-            val x963 = Base64.getDecoder().decode(key["publicKeyX963"]!!.jsonPrimitive.content)
-            val spki = Base64.getDecoder().decode(key["publicKeySpki"]!!.jsonPrimitive.content)
+            val x963 = Base64.decode(key["publicKeyX963"]!!.jsonPrimitive.content)
+            val spki = Base64.decode(key["publicKeySpki"]!!.jsonPrimitive.content)
             assertArrayEquals(spki, HostBridge.p256PublicKey(x963).encoded)
         }
     }

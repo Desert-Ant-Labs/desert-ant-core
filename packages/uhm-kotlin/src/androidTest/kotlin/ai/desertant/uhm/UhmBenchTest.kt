@@ -47,7 +47,8 @@ class UhmBenchTest {
         } finally {
             uhm.close()
         }
-        Log.i("UhmBench", "UHM_BENCH $out")
+        val tag = "UhmBench"
+        if (Log.isLoggable(tag, Log.INFO)) Log.i(tag, "UHM_BENCH $out")
         println("UHM_BENCH $out")
     }
 }

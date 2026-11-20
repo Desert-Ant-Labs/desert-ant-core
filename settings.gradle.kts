@@ -41,6 +41,10 @@ rootProject.name = "desert-ant-core"
 include("core")
 project(":core").projectDir = file("kotlin")
 
+// The on-device harness for the Swift core's JNI host bridge. It runs through
+// `mise run test:android` and is not published.
+include("androidtest")
+
 // packages/<model>-kotlin becomes :<model>, published as ai.desertant:<model>.
 // Discovered, not listed: adding a model is adding the directory.
 file("packages").listFiles().orEmpty()

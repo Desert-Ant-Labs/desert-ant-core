@@ -2,6 +2,7 @@ package ai.desertant.core.androidtest
 
 import ai.desertant.DesertAntNative
 import ai.desertant.core.HostBridge
+import ai.desertant.core.HostBridgeTestHooks
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.serialization.json.Json
@@ -50,7 +51,7 @@ class CoreBridgeTest {
 
             // The same request the Swift side sends, from Kotlin directly.
             val (direct, directRequest) = serveOnce(server)
-            HostBridge.lastHttpRequestError = null
+            lastHttpRequestError = null
             val kotlinResult = HostBridge.httpRequest(
                 "POST".toByteArray(), url.toByteArray(), """{"events":[]}""".toByteArray(),
                 "application/json".toByteArray(), "Authorization: Bearer pk_test".toByteArray(),
@@ -58,12 +59,12 @@ class CoreBridgeTest {
             direct.join(10_000)
             assertNotNull(
                 "request seen: $directRequest | Kotlin error: " +
-                    HostBridge.lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
+                    lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
                 kotlinResult,
             )
 
             val (serving, request) = serveOnce(server)
-            HostBridge.lastHttpRequestError = null
+            lastHttpRequestError = null
             var result = "error: post did not return within 30 s"
             thread { result = CoreBridge.post(DesertAntNative::class.java, url.toByteArray()) }.join(30_000)
             serving.join(10_000)
@@ -71,7 +72,7 @@ class CoreBridgeTest {
             // One line: Gradle's console drops a failure message after its first lines.
             assertEquals(
                 "request seen: $request | Kotlin error: " +
-                    HostBridge.lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
+                    lastHttpRequestError?.stackTraceToString()?.lines()?.joinToString(" | ") { it.trim() },
                 "202 ok", result,
             )
             assertEquals("POST /ingest HTTP/1.1", request[1])  // after "accepted"
@@ -99,6 +100,17 @@ class CoreBridgeTest {
         }
         assertEquals(expected, verdicts)
     }
+
+    /**
+     * The exception behind the last failed HostBridge.httpRequest. It only
+     * feeds failure messages. Internal to :core, so it comes through core's
+     * debug-only HostBridgeTestHooks.
+     */
+    private var lastHttpRequestError: Throwable?
+        get() = HostBridgeTestHooks.lastHttpRequestError
+        set(value) {
+            HostBridgeTestHooks.lastHttpRequestError = value
+        }
 
     /**
      * Serve one request on [server], answering 202 "ok", and collect its request
