@@ -108,7 +108,7 @@ struct OnnxSessionTests {
     /// runs on machines that have none.
     @Test func gpuIsUsedWhenPresent() throws {
         let session = try OnnxSession(modelPath: try modelPath(), accelerator: .gpu)
-        try withKnownIssue("no DirectML GPU on this host", isIntermittent: true) {
+        withKnownIssue("no DirectML GPU on this host", isIntermittent: true) {
             #expect(session.accelerators.contains(.gpu))
         } when: {
             !session.accelerators.contains(.gpu)

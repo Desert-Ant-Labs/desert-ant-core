@@ -30,8 +30,12 @@ public struct ModelAssets: Sendable {
             metaJSON: try files.readString(ToxicModel.meta(for: .current)),
             tokenizer: try files.read(ToxicModel.tokenizer),
             table: try files.read(ToxicModel.table),
+            // fp32 on a GPU: at fp16, even with fp32 accumulation, an Adreno GPU
+            // (Nothing Phone 3, Android 16) scored a golden text's race head 0.54
+            // where the reference says 0.28.
             session: try await files.inferenceSession(
-                model: ToxicModel.artifact, computeUnits: computeUnits, sdk: ToxicModel.sdkInfo))
+                model: ToxicModel.artifact, computeUnits: computeUnits, gpuPrecision: .fp32,
+                sdk: ToxicModel.sdkInfo))
     }
 }
 
