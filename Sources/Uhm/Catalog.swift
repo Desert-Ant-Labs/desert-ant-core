@@ -16,7 +16,7 @@ public enum UhmModel: ModelDeclaration {
     // `v1.2.0` keeps the weights and rebuilds both Apple exports from one graph
     // that runs on the Neural Engine of current chips, and adds `uhm.aimodel`.
     public static let revision = "v1.2.0"
-    public static let sdkVersion = "4.3.0"
+    public static let sdkVersion = "5.0.0"
     public static let summary = "On-device filler-word detection: frame-precise \"uh\"/\"um\"/\"hmm\" spans."
 
     /// The SDK default. A caller-selected tier (`Uhm(quality:)`) downloads

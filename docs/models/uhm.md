@@ -25,7 +25,7 @@ Find every "uh", "um" and "hmm" in an audio file, down to 20ms. Uhm runs on devi
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
 ```
 
 Then add the `Uhm` product to your target.
@@ -33,7 +33,7 @@ Then add the `Uhm` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:uhm:4.3.0")
+implementation("ai.desertant:uhm:5.0.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
