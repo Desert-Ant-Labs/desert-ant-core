@@ -5,7 +5,7 @@ public enum AlignModel: ModelDeclaration {
     public static let id = "align"
     public static let product = "Align"
     public static let revision = "v1.1.0"
-    public static let sdkVersion = "4.3.0"
+    public static let sdkVersion = "5.0.0"
     public static let summary = "Word-timestamp refinement for any transcript, on device."
 
     /// Coarse cascade stage (Core ML, a directory on the Hub).
@@ -34,9 +34,9 @@ public enum AlignModel: ModelDeclaration {
         platform == .apple ? coreMLOutput : tfliteOutput
     }
 
-    // No `.android` entry: the host bridge has no NFC and the lexical bytes must match training.
     public static let files: [ModelPlatform: [String]] = [
         .apple: [coarse + "/", fine + "/"] + sidecars,
+        .android: [coarseTFLite, fineTFLite] + sidecars,
         .linux: [coarseTFLite, fineTFLite] + sidecars,
         .windows: [coarseTFLite, fineTFLite] + sidecars,
     ]
