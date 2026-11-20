@@ -3,8 +3,7 @@
 // can only initialize in a browser or Web Worker, so server-side inference must
 // go through the native build. We import the default entry in a child Node
 // process (no DOM), call Moderator.load, and assert it rejects with guidance pointing
-// at `@desert-ant-labs/moderator/native`. This is the Node-observable contract; the
-// browser-only "install @litertjs/core" hint is covered by the browser example.
+// at `@desert-ant-labs/moderator/native`. This is the Node-observable contract.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
