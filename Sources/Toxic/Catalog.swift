@@ -7,8 +7,8 @@ public enum ToxicModel: ModelDeclaration {
     public static let id = "toxic"
     public static let product = "Toxic"
     public static let revision = "v0.2.2"
-    public static let sdkVersion = "4.3.0"
-    public static let summary = "On-device hate-speech triage for European languages."
+    public static let sdkVersion = "5.0.0"
+    public static let summary = "On-device hate-speech triage in 35 languages."
 
     /// The tokenizer as the SDK reads it, shared by every runtime: the pieces, the merges and the added tokens.
     public static let tokenizer = "toxic_tokenizer.bin"
