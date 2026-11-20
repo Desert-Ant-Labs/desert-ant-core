@@ -18,7 +18,14 @@
 //         }
 //     }
 
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+import Synchronization
+#else
 import Foundation
+#endif
 import ModelStore
 import PlatformSupport
 
@@ -105,6 +112,42 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
                                 progress: progress, build: build)
         }
         availability = { distribution.isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot) }
+    }
+
+    /// Load from several distributions, resolved in order: a runtime that also
+    /// runs another model's files (Eye runs Face's detector), or one model's files
+    /// split so part of them downloads alone (Face's detector without its
+    /// embedder). Each keeps its own managed cache location, so two runtimes that
+    /// share a distribution share its download. An explicit `directory` holds
+    /// every distribution's files. `build` gets the files in the same order.
+    public init(
+        _ distributions: [ModelDistribution],
+        directory: String? = nil,
+        cacheRoot: String? = nil,
+        build: @escaping @Sendable ([StoredModel]) async throws -> Runtime
+    ) {
+        loader = LazyLoader { progress in
+            // Files you placed in `directory` beside ones a distribution downloads there: recorded first, because a
+            // download makes the folder download-managed, where only recorded files count as present.
+            if let directory {
+                let placed = distributions.filter { $0.isUserPlaced(cacheDirectory: directory) }
+                if !placed.isEmpty && placed.count < distributions.count {
+                    for distribution in placed { try await distribution.record(cacheDirectory: directory, cacheRoot: cacheRoot) }
+                }
+            }
+            var files: [StoredModel] = []
+            let share = 0.5 / Double(max(distributions.count, 1))
+            for (i, distribution) in distributions.enumerated() {
+                files.append(try await distribution.resolve(cacheDirectory: directory, cacheRoot: cacheRoot) {
+                    progress((Double(i) + $0.fraction) * share)
+                })
+            }
+            progress(0.5)
+            return try await build(files)
+        }
+        availability = {
+            distributions.allSatisfy { $0.isAvailable(cacheDirectory: directory, cacheRoot: cacheRoot) }
+        }
     }
 
     /// Load from a distribution that is itself resolved asynchronously (a
@@ -194,18 +237,30 @@ public final class LoadedModel<Runtime: Sendable>: @unchecked Sendable {
 /// Alternate-runtime loads that failed in this process, keyed by repo, revision, and directory.
 private final class RuntimeFallbacks: @unchecked Sendable {
     static let shared = RuntimeFallbacks()
+#if os(Android)
+    private let keys = Mutex<Set<String>>([])
+#else
     private let lock = NSLock()
     private var keys: Set<String> = []
+#endif
 
     private func key(_ distribution: ModelDistribution, directory: String?) -> String {
         "\(distribution.repo)@\(distribution.revision)@\(directory ?? "")"
     }
 
     func failed(_ distribution: ModelDistribution, directory: String?) -> Bool {
+#if os(Android)
+        keys.withLock { $0.contains(key(distribution, directory: directory)) }
+#else
         lock.withLock { keys.contains(key(distribution, directory: directory)) }
+#endif
     }
 
     func record(_ distribution: ModelDistribution, directory: String?) {
+#if os(Android)
+        keys.withLock { _ = $0.insert(key(distribution, directory: directory)) }
+#else
         lock.withLock { _ = keys.insert(key(distribution, directory: directory)) }
+#endif
     }
 }

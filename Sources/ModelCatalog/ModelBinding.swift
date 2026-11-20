@@ -29,8 +29,6 @@ public protocol BoundModel: AnyObject {
     func run(input: FFIReader, options: FFIReader) async -> [UInt8]?
 }
 
-public extension BoundModel {
-}
 
 /// A model's binding: how to construct it. The instance methods live on
 /// `BoundModel` so the generic ABI never names a concrete model type.
@@ -43,4 +41,22 @@ public protocol ModelBinding {
     /// managed layout under `cacheRoot`. No work happens until the first run.
     /// A host that bundles model files passes their folder as `directory`.
     static func make(cacheRoot: String?, directory: String?) -> any BoundModel
+
+    /// Another way to run the model, which the host asks for as `<id>/<variant>`:
+    /// Face's `detector` runs and downloads the detector alone, Eye's
+    /// `faceprints` adds a faceprint to every face. `nil` for a variant the
+    /// model doesn't have.
+    static func make(variant: String, cacheRoot: String?, directory: String?) -> (any BoundModel)?
+}
+
+public extension ModelBinding {
+    static func make(variant: String, cacheRoot: String?, directory: String?) -> (any BoundModel)? { nil }
+
+    /// The instance a host asks for by `id`: the model itself, or one of its variants.
+    static func make(id: String?, cacheRoot: String?, directory: String?) -> (any BoundModel)? {
+        guard let id else { return nil }
+        if id == Self.id { return make(cacheRoot: cacheRoot, directory: directory) }
+        guard id.hasPrefix(Self.id + "/") else { return nil }
+        return make(variant: String(id.dropFirst(Self.id.count + 1)), cacheRoot: cacheRoot, directory: directory)
+    }
 }

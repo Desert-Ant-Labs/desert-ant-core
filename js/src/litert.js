@@ -98,10 +98,10 @@ export function makeModelHostSeam() {
         // `async` on purpose: the Swift side declares these as `async throws`, so
         // "no host installed" has to arrive as a rejected promise rather than a
         // synchronous throw across the bridge.
-        createSessionFromPath: async (path) => live().createSessionFromPath(path),
-        createSessionFromBytes: async (bytes) => live().createSessionFromBytes(bytes),
-        run: async (inputs) => live().run(inputs),
-        runSignature: async (signature, inputs) => live().runSignature(signature, inputs),
+        createSessionFromPath: async (path, name) => live().createSessionFromPath(path, name),
+        createSessionFromBytes: async (bytes, name) => live().createSessionFromBytes(bytes, name),
+        run: async (inputs, name) => live().run(inputs, name),
+        runSignature: async (signature, inputs, name) => live().runSignature(signature, inputs, name),
       },
     },
     install: (implementation) => {
@@ -136,16 +136,47 @@ export async function compileModel(loadAndCompile, source, accelerator = "wasm")
   return { model: await loadAndCompile(source, { accelerator: "wasm" }), accelerator: "wasm" };
 }
 
+/** The prefix of the models the core instance behind `handle` compiles. Mirrors `ModelHost.namespace(_:)`. */
+export const handleNamespace = (handle) => `h${handle}/`;
+
 /**
- * The LiteRT.js implementation of that contract. `setModel` lets the
- * `modelBaseUrl` path hand over a model the page compiled itself, instead of one
- * of the `createSessionFrom*` calls.
+ * The LiteRT.js implementation of that contract. It holds one compiled model per
+ * `name` (the loaded instance's prefix, then the artifact's path or file name),
+ * so a core with more than one artifact (Face's detector and embedder) runs each.
+ * `setModel` lets the `modelBaseUrl` path hand over a model the page compiled
+ * itself, instead of one of the `createSessionFrom*` calls.
  */
 export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, readModelSource }) {
-  let model;
-  let active = accelerator === "auto" ? "wasm" : accelerator;
-  const compile = async (source) => {
-    ({ model, accelerator: active } = await compileModel(loadAndCompile, source, accelerator));
+  // Every model is named under the loaded instance it belongs to (`handleNamespace`, or the prefix a self-hosted
+  // load chose), so no instance runs, replaces or frees another's. Each prefix compiles for its own accelerator.
+  const models = new Map();
+  const accelerators = new Map();
+  const acceleratorFor = (name) => {
+    let best = "";
+    for (const prefix of accelerators.keys()) {
+      if (prefix.length > best.length && name.startsWith(prefix)) best = prefix;
+    }
+    return best ? accelerators.get(best) : accelerator;
+  };
+  // A model leaves the map when its instance goes, and is freed once the runs already using it finish.
+  const retire = (entry) => {
+    entry.retired = true;
+    if (entry.active === 0) entry.model?.delete?.();
+  };
+  const put = (name, model, compiledFor) => {
+    const old = models.get(name);
+    models.set(name, { model, accelerator: compiledFor, active: 0, retired: false });
+    if (old && old.model !== model) retire(old);
+  };
+  const compile = async (source, name = "") => {
+    const compiled = await compileModel(loadAndCompile, source, acceleratorFor(name));
+    put(name, compiled.model, compiled.accelerator);
+  };
+  // A core that names no model (built before names) has one.
+  const compiled = (name) => {
+    const found = models.get(name ?? "") ?? (!name && models.size === 1 ? models.values().next().value : undefined);
+    if (!found) throw new Error(`no compiled model "${name}"`);
+    return found;
   };
 
   const typedArray = (t) => {
@@ -164,21 +195,31 @@ export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, r
 
   // Tensors in, LiteRT.js run through `invoke`, plain bytes out; every tensor
   // made on the way is freed.
-  const runModel = async (inputs, invoke) => {
+  const runModel = async (inputs, name, invoke) => {
+    const entry = compiled(name);
+    entry.active += 1;
+    try {
+      return await runOn(entry, inputs, invoke);
+    } finally {
+      entry.active -= 1;
+      if (entry.retired && entry.active === 0) entry.model?.delete?.();
+    }
+  };
+  const runOn = async ({ model, accelerator: active }, inputs, invoke) => {
     const feeds = {};
     const made = [];
-    for (const [name, t] of Object.entries(inputs)) {
+    for (const [key, t] of Object.entries(inputs)) {
       const tensor = new Tensor(typedArray(t), Array.from(t.dims));
-      feeds[name] = tensor;
+      feeds[key] = tensor;
       made.push(tensor);
     }
-    const results = await invoke(feeds);
+    const results = await invoke(model, feeds);
     const outputs = {};
     const toDelete = [...made];
-    for (const [name, out] of Object.entries(results)) {
+    for (const [key, out] of Object.entries(results)) {
       const host = active === "wasm" ? out : await out.moveTo("wasm");
       const arr = host.toTypedArray();
-      outputs[name] = {
+      outputs[key] = {
         data: new Uint8Array(arr.buffer.slice(arr.byteOffset, arr.byteOffset + arr.byteLength)),
         dims: Array.from(host.type.layout.dimensions),
         type: host.type.dtype,
@@ -194,16 +235,28 @@ export function makeLiteRtHost({ accelerator = "wasm", loadAndCompile, Tensor, r
     host: {
       // node hands over the cached path, the browser the bytes it fetched: two
       // methods rather than one union, as the typed contract requires.
-      createSessionFromPath: async (path) => compile(await readModelSource(path)),
-      createSessionFromBytes: async (bytes) => compile(await readModelSource(bytes)),
-      run: async (inputs) => runModel(inputs, (feeds) => model.run(feeds)),
+      createSessionFromPath: async (path, name) => compile(await readModelSource(path), name),
+      createSessionFromBytes: async (bytes, name) => compile(await readModelSource(bytes), name),
+      run: async (inputs, name) => runModel(inputs, name, (model, feeds) => model.run(feeds)),
       // A model with one graph per task: each run names its signature.
-      runSignature: async (signature, inputs) =>
-        runModel(inputs, (feeds) => model.run(signature, feeds)),
+      runSignature: async (signature, inputs, name) =>
+        runModel(inputs, name, (model, feeds) => model.run(signature, feeds)),
     },
-    setModel: (m, compiledFor = active) => {
-      model = m;
-      active = compiledFor;
+    setModel: (model, compiledFor = accelerator === "auto" ? "wasm" : accelerator, name = "") => {
+      put(name, model, compiledFor);
+    },
+    /** The models named under `prefix` compile for `accelerator`. */
+    scope: (prefix, accelerator) => {
+      accelerators.set(prefix, accelerator);
+    },
+    /** The instance behind `prefix` is gone: free its models, each once the runs using it finish. */
+    release: (prefix) => {
+      accelerators.delete(prefix);
+      for (const [name, entry] of [...models]) {
+        if (!name.startsWith(prefix)) continue;
+        models.delete(name);
+        retire(entry);
+      }
     },
   };
 }

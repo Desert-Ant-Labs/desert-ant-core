@@ -20,6 +20,7 @@ import {
   compileModel,
   makeLiteRtHost,
   loadLiteRt,
+  handleNamespace,
 } from "./litert.js";
 
 /**
@@ -32,10 +33,17 @@ export class LoadedModel {
   #packageName;
   #handle;
 
-  constructor({ core, packageName, handle }) {
+  #onDispose;
+  // Calls started and not yet settled, and whether `dispose()` was called: the handle and its models outlive
+  // `dispose()` until the calls already in flight finish.
+  #pending = 0;
+  #disposed = false;
+
+  constructor({ core, packageName, handle, onDispose }) {
     this.#core = core;
     this.#packageName = packageName;
     this.#handle = handle;
+    this.#onDispose = onDispose;
   }
 
   /**
@@ -50,15 +58,21 @@ export class LoadedModel {
    * @param {{ group?: string, deviceId?: string | (() => string) }} [call] `group` has no effect
    */
   async run(input, options, call = {}) {
-    if (this.#handle == null) throw new Error(`${this.#packageName}: model disposed`);
+    if (this.#disposed || this.#handle == null) throw new Error(`${this.#packageName}: model disposed`);
     const deviceId = typeof call.deviceId === "function" ? call.deviceId() : call.deviceId;
-    return this.#core.run(
-      this.#handle, input, options, null, deviceId != null ? String(deviceId) : null);
+    this.#pending += 1;
+    try {
+      return await this.#core.run(
+        this.#handle, input, options, null, deviceId != null ? String(deviceId) : null);
+    } finally {
+      this.#pending -= 1;
+      if (this.#disposed && this.#pending === 0) this.#release();
+    }
   }
 
   /** Whether the model is usable with no network. */
   isDownloaded() {
-    return this.#handle != null && this.#core.isDownloaded(this.#handle);
+    return !this.#disposed && this.#handle != null && this.#core.isDownloaded(this.#handle);
   }
 
   /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
@@ -76,11 +90,18 @@ export class LoadedModel {
     return this.#core.flushTelemetry?.() ?? Promise.resolve(true);
   }
 
-  /** Release the model. Calls afterwards throw. */
+  /** Release the model. Calls afterwards throw; calls already started finish first. */
   dispose() {
+    if (this.#disposed) return;
+    this.#disposed = true;
+    if (this.#pending === 0) this.#release();
+  }
+
+  #release() {
     if (this.#handle == null) return;
     this.#core.destroy(this.#handle);
     this.#handle = null;
+    this.#onDispose?.();
   }
 }
 
@@ -89,9 +110,12 @@ export class LoadedModel {
  * now (a no-op when it is already available), so the first call is instant and
  * `load()` surfaces a download failure instead of the first inference doing so.
  */
-export async function readyModel({ core, packageName, handle, onProgress }) {
-  if (!handle) throw new Error(`${packageName}: failed to create the model`);
-  const model = new LoadedModel({ core, packageName, handle });
+export async function readyModel({ core, packageName, handle, onProgress, onDispose }) {
+  if (!handle) {
+    onDispose?.();
+    throw new Error(`${packageName}: failed to create the model`);
+  }
+  const model = new LoadedModel({ core, packageName, handle, onDispose });
   try {
     await core.download(handle, onProgress);
   } catch (cause) {
@@ -100,6 +124,16 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
   }
   onProgress?.(1);
   return model;
+}
+
+/** `modelBaseUrl` as an absolute URL ending in `/`: the namespace of the models a self-hosted load compiles. */
+function selfHostedNamespace(baseUrl) {
+  const base = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  try {
+    return new URL(base, globalThis.location?.href).href;
+  } catch {
+    return base;
+  }
 }
 
 /**
@@ -111,8 +145,12 @@ export async function readyModel({ core, packageName, handle, onProgress }) {
  */
 export function wasmCore(exports) {
   return {
-    create: (cacheRoot, directory) => exports.create(cacheRoot ?? null, directory ?? null),
-    createSelfHosted: (files) => exports.createSelfHosted(files),
+    create: (cacheRoot, directory, variant) => variant
+      ? exports.createVariant(variant, cacheRoot ?? null, directory ?? null)
+      : exports.create(cacheRoot ?? null, directory ?? null),
+    createSelfHosted: (files, variant) => variant
+      ? exports.createSelfHostedVariant(variant, files)
+      : exports.createSelfHosted(files),
     isDownloaded: (handle) => exports.isDownloaded(handle),
     download: (handle, onProgress) => exports.download(handle, onProgress ?? (() => {})),
     run: async (handle, input, options, group, deviceId) =>
@@ -164,6 +202,9 @@ export async function createWasmSdk({ platform, packageName, defaultAccelerator 
   const { exports, installHost } = await platform.setupCore();
   const core = wasmCore(exports);
   const { artifact, sidecars } = exports.modelInfo();
+  let liteRtHost;
+  // Numbers the self-hosted loads: each names its models apart from every other's.
+  let selfHostedLoads = 0;
   installLogLevel(exports);
 
   // Debug-only hook for awaiting the license requests in flight. The core's
@@ -175,41 +216,82 @@ export async function createWasmSdk({ platform, packageName, defaultAccelerator 
 
   return {
     core,
-    async open(options = {}) {
-      assertBrowserRuntime({ packageName, litert: options.litert });
-      const lrt = await loadLiteRt({
-        litert: options.litert,
-        wasmDir: options.litertWasmDir,
-        defaultWasmDir: platform.defaultWasmDir,
-        packageName,
-      });
-      const accelerator = options.accelerator ?? defaultAccelerator;
-      // Generic tensor I/O with the wasm core (JSInferenceSession): the host
-      // owns the LiteRT session and tensor memory, and `setModel` lets the
-      // modelBaseUrl branch feed the same run() implementation.
-      const { host, setModel } = makeLiteRtHost({
-        accelerator,
-        loadAndCompile: lrt.loadAndCompile,
-        Tensor: lrt.Tensor,
-        readModelSource: platform.readModelSource,
-      });
-      installHost(host);
+    /**
+     * `variant` is another way to run the model (Face's `"detector"`, Eye's
+     * `"faceprints"`); `files` is what that variant's `modelBaseUrl` serves, when
+     * it is not the model's own `{ artifact, sidecars }`.
+     */
+    open: (options = {}, how = {}) => openOne(options, how),
+  };
 
+  async function openOne(options, { variant, files }) {
+    assertBrowserRuntime({ packageName, litert: options.litert });
+    const lrt = await loadLiteRt({
+      litert: options.litert,
+      wasmDir: options.litertWasmDir,
+      defaultWasmDir: platform.defaultWasmDir,
+      packageName,
+    });
+    const accelerator = options.accelerator ?? defaultAccelerator;
+    // Generic tensor I/O with the wasm core (JSInferenceSession): the host
+    // owns the LiteRT sessions and tensor memory, and `setModel` lets the
+    // modelBaseUrl branch feed the same run() implementation. One host per
+    // core, installed by the first open: every instance of the module runs
+    // through it, each under its own prefix (see `makeLiteRtHost`), compiled
+    // for the accelerator its own open asked for.
+    liteRtHost ??= makeLiteRtHost({
+      accelerator,
+      loadAndCompile: lrt.loadAndCompile,
+      Tensor: lrt.Tensor,
+      readModelSource: platform.readModelSource,
+    });
+    const { host, setModel, scope, release } = liteRtHost;
+    installHost(host);
+    // The prefixes this instance's models are named under, freed when it is disposed.
+    const prefixes = [];
+    const own = (prefix) => {
+      prefixes.push(prefix);
+      scope(prefix, accelerator);
+    };
+    let released = false;
+    const releaseAll = () => {
+      if (!released) for (const prefix of prefixes) release(prefix);
+      released = true;
+    };
+
+    try {
       const onProgress = typeof options.onProgress === "function" ? options.onProgress : undefined;
       let handle;
       if (options.modelBaseUrl != null) {
+        const served = files ?? { artifact, sidecars };
         const { sidecars: fetched, modelBytes } =
-          await fetchSelfHostedModel(options.modelBaseUrl, { model: artifact, sidecars });
+          await fetchSelfHostedModel(options.modelBaseUrl, { model: served.artifact, sidecars: served.sidecars });
+        // Named after this load and where its files came from.
+        const namespace = `s${++selfHostedLoads}/${selfHostedNamespace(options.modelBaseUrl)}`;
+        own(namespace);
         const compiled = await compileModel(lrt.loadAndCompile, modelBytes, accelerator);
-        setModel(compiled.model, compiled.accelerator);
-        handle = core.createSelfHosted(fetched);
+        setModel(compiled.model, compiled.accelerator, namespace);
+        // A model sidecar (Eye's face detector) is compiled here under its file
+        // name, like the artifact; the rest cross into wasm.
+        for (const name of Object.keys(fetched).filter((n) => n.endsWith(".tflite"))) {
+          const other = await compileModel(lrt.loadAndCompile, fetched[name], accelerator);
+          setModel(other.model, other.accelerator, namespace + name);
+          delete fetched[name];
+        }
+        fetched[".dal-namespace"] = new TextEncoder().encode(namespace);
+        handle = core.createSelfHosted(fetched, variant);
       } else {
         // `directory` (node) adopts a folder you populated. Base for the managed
         // nested cache (node): ~/.cache; empty (in-memory) in the browser.
         const cacheRoot = options.cacheRoot ?? (await platform.defaultCacheRoot());
-        handle = core.create(cacheRoot, options.directory ?? null);
+        handle = core.create(cacheRoot, options.directory ?? null, variant);
       }
-      return readyModel({ core, packageName, handle, onProgress });
-    },
-  };
+      // What the core compiles for this instance itself, on download or first use.
+      if (handle) own(handleNamespace(handle));
+      return await readyModel({ core, packageName, handle, onProgress, onDispose: releaseAll });
+    } catch (error) {
+      releaseAll();
+      throw error;
+    }
+  }
 }

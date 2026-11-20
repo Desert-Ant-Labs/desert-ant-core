@@ -201,12 +201,13 @@ public extension StoredModel {
     /// node (avoiding a large copy across the wasm boundary), the bytes in the
     /// browser, whose store is in memory. The host's typed contract lives in
     /// `Sources/JSHost/Host.swift`.
-    func createJavaScriptSession(modelFile: String) async throws {
+    /// `name` is what the sessions that run it call it: unique to the instance that loads it.
+    func createJavaScriptSession(modelFile: String, name: String) async throws {
         do {
             if jsIsNode() {
-                try await dalModelHost.createSessionFromPath(path(modelFile))
+                try await dalModelHost.createSessionFromPath(path(modelFile), name)
             } else {
-                try await dalModelHost.createSessionFromBytes(JSUint8Array(try read(modelFile)))
+                try await dalModelHost.createSessionFromBytes(JSUint8Array(try read(modelFile)), name)
             }
         } catch let error as JSException {
             throw ModelStoreError.io("the host could not compile the model: \(error)")
