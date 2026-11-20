@@ -4,8 +4,16 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-/** A 2D point in the same coordinate space as the input stroke. */
+/** A 2D point in the same coordinate space as the input strokes. */
 data class Point(val x: Double, val y: Double)
+
+/**
+ * One stroke of a drawing: its [points] in drawing order and, optionally, the
+ * time of each point in milliseconds, on one clock for the whole drawing, so
+ * the pauses between strokes show. Give times for every stroke or for none:
+ * without them, Shapes reads the strokes as drawn at a steady pace.
+ */
+data class Stroke(val points: List<Point>, val times: List<Double> = emptyList())
 
 /**
  * A recognized shape, in the same coordinates as the input stroke. The kinds
@@ -13,14 +21,21 @@ data class Point(val x: Double, val y: Double)
  *
  * Every shape has [outline], a polyline you can draw. A closed shape's outline
  * doesn't repeat its first point. A connector's outline runs from start to
- * end, and an arrow's outline is its shaft (see [Arrow.arrowheads]).
+ * end, and an arrow's outline is its shaft (see [Arrow.arrowheads]). [paths]
+ * gives the polylines to draw: one per stroke for a plus or a cross.
  */
 sealed class Shape {
     abstract val outline: List<Point>
     abstract val kind: Kind
 
+    /** The polylines to draw: a plus's or a cross's two strokes, the [outline] for any other kind. */
+    open val paths: List<List<Point>> get() = listOf(outline)
+
     /** What a shape is, without its geometry. */
-    enum class Kind { LINE, CURVE, ARROW, RECTANGLE, ELLIPSE, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, HEART, CLOUD, SCRIBBLE }
+    enum class Kind {
+        LINE, CURVE, ARROW, RECTANGLE, ELLIPSE, TRIANGLE, DIAMOND, PENTAGON, HEXAGON, STAR, HEART, CLOUD, SCRIBBLE,
+        CHECK, CROSS, BRACKET, ZIGZAG, PLUS,
+    }
 
     /** A straight connector. */
     data class Line(val from: Point, val to: Point, override val outline: List<Point>) : Shape() {
@@ -134,5 +149,53 @@ sealed class Shape {
      */
     data class Scribble(val hull: List<Point>, override val outline: List<Point>) : Shape() {
         override val kind get() = Kind.SCRIBBLE
+    }
+
+    /** A check mark: the end of the short arm, the corner, the end of the long arm. */
+    data class Check(val start: Point, val corner: Point, val end: Point, override val outline: List<Point>) : Shape() {
+        override val kind get() = Kind.CHECK
+    }
+
+    /**
+     * A cross mark: two straight strokes, each from its upper end, the one
+     * whose upper end is further left first. The outline is the first stroke,
+     * then the second.
+     */
+    data class Cross(
+        val firstFrom: Point, val firstTo: Point, val secondFrom: Point, val secondTo: Point,
+        override val outline: List<Point>,
+    ) : Shape() {
+        override val kind get() = Kind.CROSS
+        override val paths get() = listOf(listOf(firstFrom, firstTo), listOf(secondFrom, secondTo))
+    }
+
+    /**
+     * A plus mark: two straight strokes, the more level one first from its
+     * left end, then the more upright one from its upper end. The outline is
+     * the first stroke, then the second.
+     */
+    data class Plus(
+        val firstFrom: Point, val firstTo: Point, val secondFrom: Point, val secondTo: Point,
+        override val outline: List<Point>,
+    ) : Shape() {
+        override val kind get() = Kind.PLUS
+        override val paths get() = listOf(listOf(firstFrom, firstTo), listOf(secondFrom, secondTo))
+    }
+
+    /** A bracket or brace: four [points] from its top end, through its two corners, to its other end. */
+    data class Bracket(val points: List<Point>, override val outline: List<Point>) : Shape() {
+        override val kind get() = Kind.BRACKET
+    }
+
+    /**
+     * A zigzag, such as a highlight: from [from] to [to], `abs(amplitude)` wide across, with `2 * teeth` straight
+     * runs. The sign of [amplitude] is the side the zigzag starts on: positive on the left of the direction of
+     * travel on a y-down canvas, negative on the right.
+     */
+    data class Zigzag(
+        val from: Point, val to: Point, val amplitude: Double, val teeth: Double,
+        override val outline: List<Point>,
+    ) : Shape() {
+        override val kind get() = Kind.ZIGZAG
     }
 }

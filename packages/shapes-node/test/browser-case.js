@@ -22,6 +22,10 @@ export async function run({ Shapes }, { litert, litertWasmDir }) {
       circle: await shapes.recognize(circle),
       line: await shapes.recognize(drag),
       zigzag: await shapes.recognize(zigzag),
+      plus: await shapes.recognize([
+        { points: Array.from({ length: 25 }, (_, i) => ({ x: 20 + i * (160 / 24), y: 100 })) },
+        { points: Array.from({ length: 25 }, (_, i) => ({ x: 100, y: 20 + i * (160 / 24) })) },
+      ]),
       degenerate: await shapes.recognize([{ x: 1, y: 1 }]),
     };
   } finally {
@@ -41,8 +45,11 @@ export function check(result) {
   if (result.line?.kind !== "line") {
     throw new Error(`expected a line from a straight drag, got ${JSON.stringify(result.line)}`);
   }
-  if (result.zigzag?.kind !== "scribble" || !(result.zigzag.hull?.length >= 3)) {
-    throw new Error(`expected a scribble from a zigzag, got ${JSON.stringify(result.zigzag)}`);
+  if (result.zigzag?.kind !== "zigzag" || !(result.zigzag.teeth > 0)) {
+    throw new Error(`expected a zigzag, got ${JSON.stringify(result.zigzag)}`);
+  }
+  if (result.plus?.kind !== "plus") {
+    throw new Error(`expected a plus from two strokes, got ${JSON.stringify(result.plus)}`);
   }
   if (result.degenerate !== null) {
     throw new Error(`expected null for a one-point stroke, got ${JSON.stringify(result.degenerate)}`);

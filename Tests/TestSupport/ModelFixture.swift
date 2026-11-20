@@ -31,9 +31,10 @@ public enum ModelFixture {
         try fm.createDirectory(at: directory, withIntermediateDirectories: true)
         for entry in M.files[.current] ?? [] {
             let name = entry.hasSuffix("/") ? String(entry.dropLast()) : entry
-            try fm.copyItem(
-                at: URL(fileURLWithPath: files.path(name)),
-                to: directory.appendingPathComponent(name))
+            // an entry can sit in a folder of the repo (`coreml-palette4/shapes.mlmodelc`)
+            let destination = directory.appendingPathComponent(name)
+            try fm.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.copyItem(at: URL(fileURLWithPath: files.path(name)), to: destination)
         }
     }
 }

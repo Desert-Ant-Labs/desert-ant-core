@@ -133,12 +133,16 @@ struct ModelCatalogTests {
         #expect(RedactModel.artifact(for: .apple) == RedactModel.coreML)
         #expect(EmoModel.artifact(for: .android) == EmoModel.tflite)
         #expect(EmoModel.supports(.web))
-        #expect(ShapesModel.artifact(for: .apple) == ShapesModel.coreML)
-        #expect(ShapesModel.files[.linux] == [ShapesModel.tflite, ShapesModel.meta])
+        #expect(ShapesModel.artifact(for: .apple) == "coreml-palette4/shapes.mlmodelc")
+        #expect(ShapesModel.files[.apple] == ["coreml-palette4/shapes.mlmodelc/", "coreml-palette4/shapes_meta.json"])
+        for platform in [ModelPlatform.android, .linux, .windows, .web] {
+            #expect(ShapesModel.files[platform] == ["litert-int8/shapes.tflite", "litert-int8/shapes_meta.json"], "\(platform.rawValue)")
+            #expect(ShapesModel.supports(platform), "\(platform.rawValue)")
+        }
         #expect(AlignModel.files[.apple] == ["align-coarse.mlmodelc/", "align-fine.mlmodelc/"] + AlignModel.sidecars)
         #expect(AlignModel.files[.linux] == [AlignModel.coarseTFLite, AlignModel.fineTFLite] + AlignModel.sidecars)
         #expect(!AlignModel.supports(.web))
-        #expect(!AlignModel.supports(.android))
+        #expect(AlignModel.files[.android] == AlignModel.files[.linux])
     }
 }
 
