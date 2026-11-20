@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#MISE description="Check that every package publish:npm ships names this repo in repository.url"
+#MISE description="Check that every package publish:npm ships names this repo in repository.url and packs the third-party notices"
 #MISE dir="{{config_root}}"
 #MISE tools={node="22"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
@@ -15,6 +15,9 @@ check() { # <directory>
     directory=$(node -p "require('./$dir/package.json').repository?.directory ?? ''")
     [ "$url" = "$expected" ] || { echo "  $dir: repository.url is ${url:-<missing>}" >&2; bad=1; }
     [ "$directory" = "$dir" ] || { echo "  $dir: repository.directory is ${directory:-<missing>}" >&2; bad=1; }
+    # publish:npm copies THIRD_PARTY_NOTICES.md into the package, but npm packs only what files names.
+    node -e "process.exit(require('./$dir/package.json').files?.includes('THIRD_PARTY_NOTICES.md') ? 0 : 1)" \
+        || { echo "  $dir: files leaves out THIRD_PARTY_NOTICES.md, so npm would not pack it" >&2; bad=1; }
 }
 
 check js
@@ -22,5 +25,5 @@ for model in $(dal_models_with node); do
     check "packages/$model-node"
 done
 
-[ "$bad" = 0 ] || { echo "error: every published package needs repository.url $expected and its own repository.directory" >&2; exit 1; }
+[ "$bad" = 0 ] || { echo "error: every published package needs repository.url $expected, its own repository.directory, and THIRD_PARTY_NOTICES.md in files" >&2; exit 1; }
 echo "ok"
