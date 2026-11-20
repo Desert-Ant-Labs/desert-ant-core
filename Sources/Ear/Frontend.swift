@@ -17,7 +17,6 @@ import WASILibc
 import CRT
 #endif
 import AudioDSP
-import Foundation
 
 /// Turns samples into the tensor the detector consumes.
 struct Frontend: Sendable {
@@ -179,7 +178,7 @@ struct Frontend: Sendable {
         }
 
         let rate = 16000.0 / Double(hop)
-        func coefficient(_ hz: Double) -> Double { 1 - Foundation.exp(-2.0 * .pi * hz / rate) }
+        func coefficient(_ hz: Double) -> Double { 1 - exp(-2.0 * .pi * hz / rate) }
         let fast = coefficient(8), slow = coefficient(2)
 
         var lowFast = 0.0, lowSlow = 0.0

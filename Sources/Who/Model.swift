@@ -1,6 +1,12 @@
 import AudioIO
 import DesertAnt
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 /// Runs the pipeline: resample -> log-mel over the whole recording -> the
 /// encoder graph over a piece -> the query graph -> the decision rule -> turns;

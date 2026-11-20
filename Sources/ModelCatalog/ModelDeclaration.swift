@@ -1,7 +1,13 @@
 // The shared half of a catalog entry. Each model's own module (`Sources/Emo`,
 // `Sources/Redact`, ...) holds only its data, so adding a model changes nothing here.
 
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import ModelStore
 import Usage
 

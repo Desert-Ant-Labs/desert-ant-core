@@ -1,6 +1,12 @@
 import AudioIO
 import DesertAnt
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 
 public extension Who {
     /// Who spoke when, from an audio file: any format `AudioIO` decodes, downmixed and resampled to the model's rate.

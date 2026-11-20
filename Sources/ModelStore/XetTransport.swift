@@ -10,7 +10,13 @@
 // consumer without the trait, and every Linux/Android/wasm build, keeps the
 // URLSession path.
 #if canImport(Xet)
+#if os(Android)
+// Do not import Foundation on Android: it pulls in the full ICU payload.
+// Use FoundationEssentials to keep ICU out of the SDK.
+import FoundationEssentials
+#else
 import Foundation
+#endif
 import Xet
 
 /// ``ModelTransport`` that downloads Xet-backed files through the CAS and falls
