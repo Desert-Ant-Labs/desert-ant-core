@@ -65,15 +65,21 @@ public struct ModelStore: Sendable {
 
     /// Whether the model is fully present and intact. Reads the resolved
     /// manifest written at download time (so it knows the exact files, folders
-    /// already expanded) and re-hashes each against its recorded SHA-256. A
-    /// truncated/corrupted file reports `false` and re-downloads. Fully offline.
+    /// already expanded) and re-hashes each of this spec's files against its
+    /// recorded SHA-256. A truncated/corrupted file reports `false` and
+    /// re-downloads. Fully offline.
+    ///
+    /// Specs that share a location (one repo and revision, different files) share
+    /// its manifest: each counts as downloaded once every file it asks for is
+    /// recorded there, whatever else the other specs added.
     public func isDownloaded(_ model: ModelSpec) -> Bool {
         guard isValid(model),
               let bytes = try? fs.read(manifestPath(model)),
               let manifest = Manifest.parse(bytes),
-              manifest.requested == model.files,
-              !manifest.entries.isEmpty else { return false }
-        for e in manifest.entries {
+              model.files.allSatisfy(manifest.requested.contains) else { return false }
+        let entries = manifest.entries.filter { Self.belongs($0.path, to: model.files) }
+        guard !entries.isEmpty else { return false }
+        for e in entries {
             guard isSafeRelativePath(e.path), e.size >= 0,
                   e.sha256.count == 64, e.sha256.allSatisfy({ $0.isHexDigit }),
                   let d = try? fs.digest(filePath(model, e.path)),
@@ -81,6 +87,11 @@ public struct ModelStore: Sendable {
                   d.sha256 == e.sha256 else { return false }
         }
         return true
+    }
+
+    /// Whether a resolved file is one of `requested`, itself or inside a requested folder.
+    static func belongs(_ path: String, to requested: [String]) -> Bool {
+        requested.contains { $0.hasSuffix("/") ? path.hasPrefix($0) || path == String($0.dropLast()) : path == $0 }
     }
 
     /// Ensure the model is present and valid, downloading only what is missing.
@@ -95,11 +106,10 @@ public struct ModelStore: Sendable {
         progress: @Sendable @escaping (DownloadProgress) -> Void = { _ in }
     ) async throws -> StoredModel {
         guard isValid(model) else { throw ModelStoreError.invalidSpec }
-        // Coalesce concurrent downloads of the same location: two callers
-        // racing one model would otherwise write the same `.part` temps and
-        // corrupt the result (see DownloadCoordinator). A caller that joins an
-        // in-flight download shares its outcome; its own `progress` closure is
-        // not driven, which no caller depends on for correctness.
+        // One download at a time per location: two callers racing one model
+        // would otherwise write the same `.part` temps and corrupt the result
+        // (see DownloadCoordinator). A caller that waited finds the files the
+        // first one fetched and downloads only what its own spec still lacks.
         return try await DownloadCoordinator.shared.run(location: location(of: model)) {
             try await self.performDownload(model, progress: progress)
         }
@@ -134,12 +144,53 @@ public struct ModelStore: Sendable {
         }
         await transport.finishDownloads()
 
-        try fs.makeDirectory(parentDir(manifestPath(model)))
-        try fs.write(
-            manifestPath(model),
-            Manifest(requested: model.files, entries: manifest).serialized()
-        )
+        try recordInManifest(model, manifest)
         return storedModel(for: model)
+    }
+
+    /// Records files you placed at `model`'s location in its manifest, hashed as they are, so the location's other
+    /// specs can download into it without making yours look missing: a location with a manifest is download-managed,
+    /// and only files it records count as present.
+    public func record(_ model: ModelSpec) async throws {
+        guard isValid(model) else { throw ModelStoreError.invalidSpec }
+        // A download at this location rewrites the same manifest: one at a time, or one loses the other's entries.
+        let store = self
+        try await DownloadCoordinator.shared.run(location: location(of: model)) { try store.recordNow(model) }
+    }
+
+    private func recordNow(_ model: ModelSpec) throws {
+        let root = location(of: model)
+        var entries: [Manifest.Entry] = []
+        for requested in model.files {
+            let paths = requested.hasSuffix("/") ? filesUnder(root, String(requested.dropLast())) : [requested]
+            guard !paths.isEmpty else { throw ModelStoreError.localFileMissing(requested) }
+            for path in paths {
+                let d = try fs.digest(join(root, path))
+                entries.append(.init(path: path, size: d.size, sha256: d.sha256))
+            }
+        }
+        try recordInManifest(model, entries)
+    }
+
+    /// Writes `model`'s entries into its location's manifest, keeping what the location's other specs recorded, so
+    /// each stays downloaded.
+    private func recordInManifest(_ model: ModelSpec, _ entries: [Manifest.Entry]) throws {
+        var merged = Manifest(requested: model.files, entries: entries)
+        if let bytes = try? fs.read(manifestPath(model)), let previous = Manifest.parse(bytes) {
+            merged.requested = previous.requested.filter { !model.files.contains($0) } + model.files
+            merged.entries = previous.entries.filter { !Self.belongs($0.path, to: model.files) } + entries
+        }
+        try fs.makeDirectory(parentDir(manifestPath(model)))
+        try fs.write(manifestPath(model), merged.serialized())
+    }
+
+    /// The files inside `folder` (relative to `root`), every level down, as repo-relative paths.
+    private func filesUnder(_ root: String, _ folder: String) -> [String] {
+        fs.listDirectory(join(root, folder)).sorted().flatMap { name -> [String] in
+            let path = folder + "/" + name
+            let inside = filesUnder(root, path)
+            return inside.isEmpty ? (fs.size(join(root, path)) != nil ? [path] : []) : inside
+        }
     }
 
     /// Fetch every resolved file, reporting one combined progress across them.

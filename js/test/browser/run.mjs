@@ -182,12 +182,18 @@ const MIME = {
   ".tflite": "application/octet-stream",
 };
 
+// DAL_BROWSER_ISOLATED=1 serves every response cross-origin isolated (COOP and COEP), which LiteRT.js needs for its
+// threaded wasm; without it the page runs wasm on one thread, as a page without those headers does.
+const ISOLATION = process.env.DAL_BROWSER_ISOLATED === "1"
+  ? { "cross-origin-opener-policy": "same-origin", "cross-origin-embedder-policy": "require-corp" }
+  : {};
+
 function serve(pages) {
   return http.createServer(async (req, res) => {
     try {
       const { pathname } = new URL(req.url, "http://localhost");
       if (pages.has(pathname)) {
-        res.writeHead(200, { "content-type": "text/html" });
+        res.writeHead(200, { "content-type": "text/html", ...ISOLATION });
         return res.end(pages.get(pathname));
       }
       const file = path.join(REPO, decodeURIComponent(pathname));
@@ -197,7 +203,7 @@ function serve(pages) {
         return res.end("forbidden");
       }
       const body = await fs.promises.readFile(file);
-      res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream" });
+      res.writeHead(200, { "content-type": MIME[path.extname(file)] ?? "application/octet-stream", ...ISOLATION });
       res.end(body);
     } catch {
       res.writeHead(404);

@@ -55,10 +55,11 @@ export interface HostTensor {
  *  package's own `dist/bridge-js.d.ts` (`Imports`). `mise run check:types` proves
  *  this matches it. */
 export interface ModelHost {
-  createSessionFromPath(path: string): Promise<void>;
-  createSessionFromBytes(bytes: Uint8Array): Promise<void>;
-  run(inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
-  runSignature(signature: string, inputs: Record<string, HostTensor>): Promise<Record<string, HostTensor>>;
+  /** `name` keys the compiled model: the artifact's file name, or `""` for the one the page compiled. */
+  createSessionFromPath(path: string, name: string): Promise<void>;
+  createSessionFromBytes(bytes: Uint8Array, name: string): Promise<void>;
+  run(inputs: Record<string, HostTensor>, name: string): Promise<Record<string, HostTensor>>;
+  runSignature(signature: string, inputs: Record<string, HostTensor>, name: string): Promise<Record<string, HostTensor>>;
 }
 
 /** The import object a core is instantiated with. */
@@ -81,7 +82,46 @@ export function makeLiteRtHost(options: {
   loadAndCompile: (data: Uint8Array, opts: { accelerator: string }) => Promise<any>;
   Tensor: new (data: any, dims: number[]) => any;
   readModelSource: (source: any) => Promise<any>;
-}): { host: ModelHost; setModel: (model: any) => void };
+}): {
+  host: ModelHost;
+  setModel: (model: any, compiledFor?: string, name?: string) => void;
+  /** The models named under `prefix` (one loaded instance's) compile for `accelerator`. */
+  scope: (prefix: string, accelerator: string) => void;
+  /** The instance behind `prefix` is gone: free its models, each once the runs using it finish. */
+  release: (prefix: string) => void;
+};
+
+/** The prefix of the models the core instance behind `handle` compiles. */
+export function handleNamespace(handle: number): string;
+
+/** How sure a match must be: the cosine similarity at or above which two faceprints are one person. */
+export declare const Level: Readonly<{ recommended: 0.4129; strict: 0.5116 }>;
+export type LevelName = "recommended" | "strict";
+
+/** One face's identity, from Face or from Eye with `faceprints`: 128 numbers of unit length. Compare faceprints of
+ *  one `model` only. */
+export declare class Faceprint {
+  constructor(values: ArrayLike<number>, model?: string);
+  readonly values: Float32Array;
+  readonly model: string;
+  /** The values as 512 bytes, little-endian float32. */
+  readonly data: Uint8Array;
+  static fromData(data: Uint8Array | ArrayBuffer, model: string): Faceprint;
+  static fromJSON(json: string | { model: string; data: string }): Faceprint;
+  /** The direction of the mean: one reference from several photos of a person. */
+  static average(faceprints: Faceprint[]): Faceprint | null;
+  toJSON(): { model: string; data: string };
+  /** Cosine similarity, -1..1. 0 for faceprints of different lengths, which come from different embedders. */
+  similarity(other: Faceprint): number;
+  isSamePerson(other: Faceprint, level?: LevelName | number): boolean;
+  /** Whether `other` comes from the same embedder: the same model and length. */
+  isComparable(other: Faceprint): boolean;
+}
+
+/** Every faceprint matching `reference`, most similar first. */
+export declare function matches(
+  reference: Faceprint, faceprints: Faceprint[], options?: { level?: LevelName | number },
+): { index: number; similarity: number }[];
 
 /** What a core reports about its model, from the Swift catalog declaration.
  *  Mirrors `ModelInfo` in Sources/WasmBindings/Exports.swift. */
@@ -146,13 +186,14 @@ export interface ModelLoadOptions {
 /** A bound SDK: `open(options)` resolves the model and returns it ready. */
 export interface ModelSdk {
   core: NormalizedCore;
-  open(options?: ModelLoadOptions): Promise<LoadedModel>;
+  /** `variant` is another way to run the model (Face's `"detector"`); `files` is what its `modelBaseUrl` serves. */
+  open(options?: ModelLoadOptions, how?: { variant?: string; files?: { artifact: string; sidecars: string[] } }): Promise<LoadedModel>;
 }
 
 /** Either core, normalized to what {@link LoadedModel} drives. */
 export interface NormalizedCore {
-  create(cacheRoot: string, directory: string | null): number;
-  createSelfHosted?(files: Record<string, Uint8Array>): number;
+  create(cacheRoot: string, directory: string | null, variant?: string): number;
+  createSelfHosted?(files: Record<string, Uint8Array>, variant?: string): number;
   isDownloaded(handle: number): boolean;
   download(handle: number, onProgress?: (fraction: number) => void): Promise<void | boolean>;
   run(
@@ -178,6 +219,8 @@ export function readyModel(options: {
   packageName: string;
   handle: number;
   onProgress?: (fraction: number) => void;
+  /** Called once when the model is disposed, or when it fails to load. */
+  onDispose?: () => void;
 }): Promise<LoadedModel>;
 
 /** The browser/WebAssembly half of a model package: instantiate the core through
@@ -227,7 +270,10 @@ export const CALL_GROUP_END_SYMBOL: string;
 export interface WasmCore {
   modelInfo(): ModelInfo;
   create(cacheRoot: string | null, directory: string | null): number;
+  /** One of the model's variants (Face's `"detector"`, Eye's `"faceprints"`), or 0 for a variant it has none of. */
+  createVariant(variant: string, cacheRoot: string | null, directory: string | null): number;
   createSelfHosted(files: Record<string, Uint8Array>): number;
+  createSelfHostedVariant(variant: string, files: Record<string, Uint8Array>): number;
   isDownloaded(handle: number): boolean;
   download(handle: number, onProgress: (fraction: number) => void): Promise<boolean>;
   run(

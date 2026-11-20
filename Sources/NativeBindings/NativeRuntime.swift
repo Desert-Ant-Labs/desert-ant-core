@@ -23,8 +23,8 @@ public func nativeCreate(
     cacheRoot: UnsafePointer<CChar>?,
     directory: UnsafePointer<CChar>?
 ) -> UnsafeMutableRawPointer? {
-    guard string(modelId) == binding.id else { return nil }
-    let instance = binding.make(cacheRoot: string(cacheRoot), directory: string(directory))
+    guard let instance = binding.make(id: string(modelId), cacheRoot: string(cacheRoot),
+                                      directory: string(directory)) else { return nil }
     return Unmanaged.passRetained(NativeHandle(instance)).toOpaque()
 }
 

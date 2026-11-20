@@ -225,6 +225,76 @@ final class ModelStoreTests {
         #expect(!s.isDownloaded(b))
     }
 
+    /// Files you placed stay usable offline once another spec downloads into the same folder, when recorded first.
+    @Test func placedFilesRecordedBesideADownload() async throws {
+        let fs = FoundationFileSystem()
+        try fs.makeDirectory(tmp + "/eye.mlmodelc/weights")
+        try fs.write(tmp + "/eye.mlmodelc/weights/weight.bin", [UInt8](repeating: 5, count: 30))
+        try fs.write(tmp + "/eye.mlmodelc/model.mil", [UInt8](repeating: 6, count: 10))
+        try fs.write(tmp + "/eye_meta.json", Array("{}".utf8))
+        let placed = model(["eye.mlmodelc/", "eye_meta.json"])
+        let detector = model(["face_detect.tflite"])
+        let s = store(MockTransport(["face_detect.tflite": [UInt8](repeating: 7, count: 20)]))
+
+        try await s.record(placed)
+        try await s.download(detector)
+        let offline = store(OfflineTransport())
+        #expect(offline.isDownloaded(placed) && offline.isDownloaded(detector))
+
+        try fs.write(tmp + "/eye_meta.json", Array("changed".utf8))
+        #expect(!offline.isDownloaded(placed), "a recorded file that changed is no longer intact")
+    }
+
+    /// Records and downloads at one location never lose each other's manifest entries, however they overlap.
+    @Test func concurrentRecordsAndDownloadsKeepEveryEntry() async throws {
+        let fs = FoundationFileSystem()
+        try fs.makeDirectory(tmp)
+        for k in 0..<8 { try fs.write(tmp + "/placed\(k).bin", [UInt8](repeating: UInt8(k), count: 10 + k)) }
+        let placed = (0..<8).map { model(["placed\($0).bin"]) }
+        var remote: [String: [UInt8]] = [:]
+        for k in 0..<8 { remote["remote\(k).bin"] = [UInt8](repeating: UInt8(100 + k), count: 20 + k) }
+        let s = store(MockTransport(remote))
+        let downloaded = (0..<8).map { model(["remote\($0).bin"]) }
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for k in 0..<8 {
+                group.addTask { try await s.record(placed[k]) }
+                group.addTask { _ = try await s.download(downloaded[k]) }
+            }
+            try await group.waitForAll()
+        }
+        let offline = store(OfflineTransport())
+        for k in 0..<8 {
+            #expect(offline.isDownloaded(placed[k]) && offline.isDownloaded(downloaded[k]), "file \(k)")
+        }
+    }
+
+    @Test func specsThatShareALocationEachStayDownloaded() async throws {
+        let payload = ["detect.mlmodelc/model.mil": [UInt8](repeating: 1, count: 40),
+                       "embed.mlmodelc/model.mil": [UInt8](repeating: 2, count: 60)]
+        let t = MockTransport(payload)
+        let s = store(t)
+        let detector = model(["detect.mlmodelc/"])
+        let both = model(["detect.mlmodelc/", "embed.mlmodelc/"])
+
+        try await s.download(detector)
+        #expect(s.isDownloaded(detector) && !s.isDownloaded(both))
+        try await s.download(both)
+        #expect(t.downloadCount == 2, "the detector is not fetched twice")
+        let offline = store(OfflineTransport())
+        #expect(offline.isDownloaded(detector) && offline.isDownloaded(both))
+        try await offline.download(detector)
+
+        // Asked for together, each gets its own files.
+        try FileManager.default.removeItem(atPath: tmp)
+        let u = MockTransport(payload)
+        let racing = store(u)
+        async let one = racing.download(detector)
+        async let two = racing.download(both)
+        _ = try await (one, two)
+        #expect(racing.isDownloaded(detector) && racing.isDownloaded(both))
+        #expect(u.downloadCount == 2)
+    }
+
     @Test func unsafePathsAndTreeEntriesAreRejected() async throws {
         let s = store(MockTransport(["../escape": [1]]))
         do { try await s.download(model(["../escape"])); Issue.record("expected invalid spec") }

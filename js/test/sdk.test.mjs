@@ -213,8 +213,12 @@ test("createWasmSdk applies the host's log level to the core, now and on each ch
 
 test("createWasmSdk's modelBaseUrl path compiles the model and passes only sidecars", async () => {
   const exports = fakeExports();
-  let sidecarNames;
-  exports.createSelfHosted = (files) => { sidecarNames = Object.keys(files); return 13; };
+  let sidecarNames, namespace;
+  exports.createSelfHosted = (files) => {
+    sidecarNames = Object.keys(files).filter((n) => n !== ".dal-namespace");
+    namespace = new TextDecoder().decode(files[".dal-namespace"]);
+    return 13;
+  };
   let compiled = 0;
   const orig = globalThis.fetch;
   globalThis.fetch = async () => ({ arrayBuffer: async () => new Uint8Array([1]).buffer });
@@ -230,4 +234,84 @@ test("createWasmSdk's modelBaseUrl path compiles the model and passes only sidec
   }
   assert.equal(compiled, 1, "the host compiled the model itself");
   assert.deepEqual(sidecarNames, ["y.json"], "the artifact never crosses into the core");
+  assert.equal(namespace, "s1//assets/y/", "the core names this load's models after the load and where it came from");
+});
+
+test("createWasmSdk keeps overlapping loads apart: each its own accelerator, models and release", async () => {
+  let installed;
+  const exports = fakeExports();
+  const asked = [];
+  const freed = [];
+  // The core compiles its model during download, as the Swift core does, under the handle's prefix; the first
+  // download is the slower one, so the second load starts and ends inside it.
+  let n = 0;
+  exports.create = () => ++n;
+  exports.download = async (handle) => {
+    if (handle === 1) await new Promise((r) => setTimeout(r, 20));
+    await installed.createSessionFromBytes(new Uint8Array([handle]), `h${handle}//models/face.tflite`);
+    return true;
+  };
+  const sdk = await createWasmSdk({
+    platform: fakePlatform(exports, (host) => { installed = host; }),
+    packageName: "@x/y",
+  });
+  const compileFor = {
+    ...litert,
+    loadAndCompile: async (bytes, o) => {
+      asked.push([bytes[0], o.accelerator]);
+      return { run: async () => ({}), delete() { freed.push(bytes[0]); } };
+    },
+  };
+  const [gpu, cpu] = await Promise.all([
+    sdk.open({ litert: compileFor, litertWasmDir: "/wasm/", accelerator: "webgpu" }),
+    sdk.open({ litert: compileFor, litertWasmDir: "/wasm/", accelerator: "wasm" }),
+  ]);
+  assert.deepEqual(asked.sort(), [[1, "webgpu"], [2, "wasm"]]);
+  cpu.dispose();
+  assert.deepEqual(freed, [2], "disposing one instance frees its model alone");
+  await installed.run({}, "h1//models/face.tflite");
+  gpu.dispose();
+  assert.deepEqual(freed, [2, 1]);
+});
+
+test("disposing a model keeps its models until the calls already started finish", async () => {
+  let installed;
+  const exports = fakeExports();
+  const freed = [];
+  const destroyed = [];
+  let resume;
+  exports.create = () => 1;
+  exports.destroy = (h) => destroyed.push(h);
+  exports.download = async (handle) => {
+    await installed.createSessionFromBytes(new Uint8Array([1]), `h${handle}/detector.tflite`);
+    await installed.createSessionFromBytes(new Uint8Array([2]), `h${handle}/embedder.tflite`);
+    return true;
+  };
+  // One SDK call that runs the detector, waits, then runs the embedder, as `faces()` does.
+  exports.run = async () => {
+    await installed.run({}, "h1/detector.tflite");
+    await new Promise((r) => { resume = r; });
+    await installed.run({}, "h1/embedder.tflite");
+    return new FfiWriter().str("ok").done();
+  };
+  const sdk = await createWasmSdk({
+    platform: fakePlatform(exports, (host) => { installed = host; }),
+    packageName: "@x/y",
+  });
+  const lrt = {
+    ...litert,
+    loadAndCompile: async (bytes) => ({ run: async () => ({}), delete() { freed.push(bytes[0]); } }),
+  };
+  const model = await sdk.open({ litert: lrt, litertWasmDir: "/wasm/" });
+  const call = model.run(new Uint8Array(), new Uint8Array());
+  await new Promise((r) => setTimeout(r, 0));
+  model.dispose();
+  await assert.rejects(() => model.run(new Uint8Array(), new Uint8Array()), /disposed/);
+  assert.equal(model.isDownloaded(), false);
+  assert.deepEqual([freed, destroyed], [[], []], "the call in flight keeps the models and the handle");
+  resume();
+  assert.equal((await call).str(), "ok");
+  assert.deepEqual([freed.sort(), destroyed], [[1, 2], [1]]);
+  model.dispose();
+  assert.deepEqual(destroyed, [1], "disposing twice releases once");
 });

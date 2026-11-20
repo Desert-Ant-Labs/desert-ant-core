@@ -110,6 +110,10 @@ Everything below is generated from `manifest.json`: the SDK's libraries, then ea
   https://huggingface.co/facebook/PE-Core-S16-384
   Copyright (c) Meta Platforms, Inc. and affiliates
 
+### Face
+
+Face's weights build on no third-party model, and none of its training data asks for attribution.
+
 ### Gist
 
 #### Models
@@ -169,6 +173,8 @@ Everything below is generated from `manifest.json`: the SDK's libraries, then ea
 
 - **Quick, Draw! dataset**, Google. CC BY 4.0.
   https://github.com/googlecreativelab/quickdraw-dataset
+- **DIDI: Digital Ink Diagram data**, Google. CC BY 4.0.
+  https://github.com/google-research/google-research/tree/master/didi_dataset
 
 ### Title
 
