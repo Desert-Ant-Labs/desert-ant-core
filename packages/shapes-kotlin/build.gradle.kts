@@ -3,6 +3,6 @@
 plugins { id("ai.desertant.model-sdk") }
 
 desertAntSdk {
-    description = "On-device single-stroke shape recognition for Android: turns one hand-drawn stroke " +
-        "into a clean connector, arrow, shape, or erase gesture, fully on device."
+    description = "On-device shape recognition for Android: snaps hand-drawn shapes, arrows and marks " +
+        "to clean ones, from one stroke or several, fully on device."
 }

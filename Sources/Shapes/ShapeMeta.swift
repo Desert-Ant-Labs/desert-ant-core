@@ -1,65 +1,121 @@
 import JSON
 
-/// The model's sidecar file, `shapes_meta.json`, with the classifier's class
-/// order, the reject classes, the input length, and the calibrated gates for
-/// each kind. Every platform downloads the file with the model, so each
-/// platform uses the values the model was exported with.
+/// The model's sidecar file, `shapes_meta.json`: the kinds in output order, the
+/// kinds Shapes rejects, the input size, where each kind's template numbers sit
+/// in the `numbers` output and how they are coded, and the residual gates. Every
+/// build has its copy beside it, so each platform reads the values its build was
+/// exported with.
 struct ShapeMeta: Sendable {
-    /// One entry per classifier output. The entry is `nil` for a class this SDK
-    /// doesn't know, from a model newer than the SDK, and Shapes rejects that class.
-    let classes: [Shape.Kind?]
-    /// Classifier outputs Shapes always rejects (`none`).
+    /// The model's kinds in output order, by name (`none` included).
+    let kinds: [String]
+    /// Output indices Shapes always rejects (`none`).
     let rejects: Set<Int>
-    /// Points per resampled stroke (the graph's input length).
+    /// Points per drawing (the graph's input length).
     let pointCount: Int
-    /// The gates for each kind.
-    let gates: [Shape.Kind: Gate]
-    /// The largest deviation over chord length for which a connector is straight.
-    let straightTolerance: Double
+    /// Strokes kept per drawing, in drawing order.
+    let maxStrokes: Int
+    /// The input's values per point, by name, in order: x, y, dx, dy, start,
+    /// and log1p_dt for a model that reads time.
+    let channels: [String]
+    /// Channels the model was trained with at 0 (a time channel it does not
+    /// read): fed 0 for every point.
+    let zeroChannels: Set<String>
+    /// Width of the `numbers` output.
+    let numbersWidth: Int
+    /// Each kind's slice of `numbers`, by kind name.
+    let numbers: [String: KindNumbers]
+    /// The largest residual at which each kind snaps, by kind name; a kind with
+    /// no gate always snaps.
+    let residGates: [String: Double]
+    /// The most of a finished drawing's fitted outline that may lie far from
+    /// the ink, by kind name, where the release tunes it; other kinds take
+    /// `Model.maximumUndrawn`.
+    let undrawnLimits: [String: Double]
 
-    struct Gate: Sendable {
-        var conf: Double = 0
-        var resid: Double = .infinity
+    struct KindNumbers: Sendable {
+        /// Where the kind's outputs start in `numbers`.
+        let offset: Int
+        /// The kind's outputs: its numbers, an angle as `cos` and `sin`.
+        let outputs: [String]
+        /// The template numbers the outputs decode to, in order.
+        let names: [String]
+        /// How many times a turn brings the template back onto itself: an angle
+        /// comes out as the cos and sin of `symmetry` times the angle.
+        let symmetry: Int?
+        /// A zigzag's teeth come out divided by this.
+        let teethScale: Double?
     }
 
     init(json: String) throws {
         let raw = try JSONDecoder().decode(Raw.self, from: json)
-        classes = raw.classes.map { Shape.Kind(rawValue: $0) }
-        rejects = Set(raw.classes.indices.filter { (raw.rejectClasses ?? ["none"]).contains(raw.classes[$0]) })
+        kinds = raw.kinds
+        rejects = Set(raw.kinds.indices.filter { raw.rejectKinds.contains(raw.kinds[$0]) })
         pointCount = raw.pointCount
-        var gates: [Shape.Kind: Gate] = [:]
-        for (name, g) in raw.gates {
-            guard let kind = Shape.Kind(rawValue: name) else { continue }
-            gates[kind] = Gate(conf: g.conf ?? 0, resid: g.resid ?? .infinity)
+        maxStrokes = raw.maxStrokes
+        channels = raw.input?.x.channels ?? Ink.channels
+        zeroChannels = Set(raw.input?.x.zeroChannels ?? [])
+        numbersWidth = raw.outputs.numbers.last ?? 0
+        numbers = raw.numbers.kinds.mapValues {
+            KindNumbers(offset: $0.offset, outputs: $0.outputs, names: $0.numbers,
+                        symmetry: $0.symmetry, teethScale: $0.teethScale)
         }
-        self.gates = gates
-        straightTolerance = raw.fit?.straightTolerance ?? 0.06
+        residGates = raw.residGates
+        undrawnLimits = raw.undrawnLimits ?? [:]
     }
 
     private struct Raw: Decodable {
-        let classes: [String]
-        let rejectClasses: [String]?
+        let kinds: [String]
+        let rejectKinds: [String]
         let pointCount: Int
-        let gates: [String: RawGate]
-        let fit: RawFit?
+        let maxStrokes: Int
+        let input: RawInput?
+        let outputs: RawOutputs
+        let numbers: RawNumbers
+        let residGates: [String: Double]
+        let undrawnLimits: [String: Double]?
 
         enum CodingKeys: String, CodingKey {
-            case classes, gates, fit
-            case rejectClasses = "reject_classes"
+            case kinds, input, outputs, numbers
+            case rejectKinds = "reject_kinds"
             case pointCount = "n_points"
+            case maxStrokes = "max_strokes"
+            case residGates = "resid_gates"
+            case undrawnLimits = "undrawn_limits"
         }
     }
 
-    private struct RawGate: Decodable {
-        let conf: Double?
-        let resid: Double?
+    private struct RawInput: Decodable {
+        let x: RawX
     }
 
-    private struct RawFit: Decodable {
-        let straightTolerance: Double?
+    private struct RawX: Decodable {
+        let channels: [String]?
+        let zeroChannels: [String]?
 
         enum CodingKeys: String, CodingKey {
-            case straightTolerance = "straight_tolerance"
+            case channels
+            case zeroChannels = "zero_channels"
+        }
+    }
+
+    private struct RawOutputs: Decodable {
+        let numbers: [Int]
+    }
+
+    private struct RawNumbers: Decodable {
+        let kinds: [String: RawKind]
+    }
+
+    private struct RawKind: Decodable {
+        let offset: Int
+        let outputs: [String]
+        let numbers: [String]
+        let symmetry: Int?
+        let teethScale: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case offset, outputs, numbers, symmetry
+            case teethScale = "teeth_scale"
         }
     }
 }

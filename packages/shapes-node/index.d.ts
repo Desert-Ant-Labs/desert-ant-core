@@ -4,10 +4,17 @@
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
 export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
-/** A 2D point, in the same coordinate space as the input stroke. */
+/** A 2D point, in the same coordinate space as the input strokes. */
 export interface Point {
   x: number;
   y: number;
+}
+
+/** One stroke of a drawing: its points in drawing order and, optionally, the
+ *  time of each point in milliseconds, on one clock for the whole drawing. */
+export interface Stroke {
+  points: readonly Point[] | readonly number[];
+  times?: readonly number[];
 }
 
 /** The polyline every shape has. A closed shape's outline doesn't repeat its
@@ -15,6 +22,9 @@ export interface Point {
  *  outline is its shaft (see {@link arrowheads}). */
 interface Drawable {
   outline: Point[];
+  /** The polylines to draw: a plus's or a cross's two strokes, the outline for
+   *  any other kind. */
+  paths: Point[][];
 }
 
 /** A straight connector. */
@@ -97,6 +107,45 @@ export interface ScribbleShape extends Drawable {
   hull: Point[];
 }
 
+/** A check mark: the end of the short arm, the corner, the end of the long arm. */
+export interface CheckShape extends Drawable {
+  kind: "check";
+  start: Point;
+  corner: Point;
+  end: Point;
+}
+
+/** A cross or a plus: two straight strokes. A cross's first stroke is the one
+ *  whose upper end is further left, each from its upper end. A plus's first
+ *  stroke is the more level one, from its left end, then the more upright one,
+ *  from its upper end. The outline is the first stroke, then the second. */
+export interface CrossShape extends Drawable {
+  kind: "cross" | "plus";
+  firstFrom: Point;
+  firstTo: Point;
+  secondFrom: Point;
+  secondTo: Point;
+}
+
+/** A bracket or brace: four points from its top end, through its two corners,
+ *  to its other end. */
+export interface BracketShape extends Drawable {
+  kind: "bracket";
+  points: Point[];
+}
+
+/** A zigzag, such as a highlight: from `from` to `to`, `|amplitude|` wide
+ *  across, with `2 * teeth` straight runs. The sign of `amplitude` is the side
+ *  the zigzag starts on: positive on the left of the direction of travel on a
+ *  y-down canvas, negative on the right. */
+export interface ZigzagShape extends Drawable {
+  kind: "zigzag";
+  from: Point;
+  to: Point;
+  amplitude: number;
+  teeth: number;
+}
+
 /**
  * A recognized shape, discriminated by `kind`. The kinds and field names are
  * the same in Swift and Kotlin.
@@ -111,7 +160,11 @@ export type Shape =
   | StarShape
   | HeartShape
   | CloudShape
-  | ScribbleShape;
+  | ScribbleShape
+  | CheckShape
+  | CrossShape
+  | BracketShape
+  | ZigzagShape;
 
 /** Every kind `recognize` can return. */
 export type ShapeKind = Shape["kind"];
@@ -130,16 +183,22 @@ export interface RecognizeOptions extends CallOptions {
   /** How Shapes snaps rotation (default `"snapped"`). */
   rotation?: Rotation;
   /**
-   * The kinds Shapes recognizes, all 13 by default. For a stroke of any other
-   * kind, `recognize` returns `null`. For example, leave out `"scribble"` if
+   * The kinds Shapes recognizes, all of them by default. For a drawing of any
+   * other kind, `recognize` returns `null`. For example, leave out `"scribble"` if
    * your app has no erase gesture.
    */
   kinds?: readonly ShapeKind[];
   /**
-   * The lowest classifier confidence Shapes accepts, on top of each kind's calibrated threshold
-   * (default `0`, which applies only the model's own gates).
+   * The lowest model confidence Shapes accepts, on top of its own checks (default `0`,
+   * which applies only its own checks).
    */
   minimumConfidence?: number;
+  /**
+   * `true` (the default) for the moment the pen lifts: a finished outline
+   * snaps only once the whole outline is drawn, so a box missing a side comes
+   * back `null`. Pass `false` for a preview while the pen still moves.
+   */
+  isFinished?: boolean;
 }
 
 /**
@@ -156,10 +215,12 @@ export declare function arrowheads(shape: Shape, length: number): Point[][];
 export type LoadOptions = ModelLoadOptions;
 
 /**
- * Shapes turns a hand-drawn stroke into a clean shape on the device: a
- * connector, an arrow, a rectangle, an ellipse, a polygon, a star, a heart, a
- * cloud, or a scribble, which your app can use as an erase gesture. For any
- * other stroke, `recognize` returns `null`, so you can keep that stroke as ink.
+ * Shapes turns a hand-drawn shape into a clean shape on the device: a line or
+ * curve, an arrow, a rectangle, an ellipse, a triangle, a diamond, a pentagon,
+ * a hexagon, a star, a heart, a cloud, a scribble (your app can use it as an
+ * erase gesture), a check, a cross, a plus, a bracket, or a zigzag. The shape
+ * can take a few strokes, such as a cross or a box drawn side by side. For
+ * any other ink, `recognize` returns `null`, so you can keep it as ink.
  *
  * The default `@desert-ant-labs/shapes` import is the browser WebAssembly +
  * LiteRT.js build:
@@ -176,7 +237,7 @@ export type LoadOptions = ModelLoadOptions;
  * const shapes = await Shapes.load();
  * const shape = await shapes.recognize(points, { rotation: "upright" });
  * if (shape?.kind === "scribble") eraseUnder(shape.hull);
- * else if (shape) draw(shape.outline);
+ * else if (shape) draw(shape.paths);
  * ```
  */
 export declare class Shapes {
@@ -195,6 +256,16 @@ export declare class Shapes {
    */
   recognize(
     points: readonly Point[] | readonly number[],
+    options?: RecognizeOptions,
+  ): Promise<Shape | null>;
+  /**
+   * Recognize a drawing of one or more strokes, in drawing order, such as a
+   * plus drawn in two strokes. Give `times` for every stroke or for none:
+   * without them, Shapes reads the strokes as drawn at a steady pace. Returns
+   * the clean shape, or `null` for ink that isn't a shape.
+   */
+  recognize(
+    strokes: readonly Stroke[],
     options?: RecognizeOptions,
   ): Promise<Shape | null>;
   /** Whether the model is usable with no network. */

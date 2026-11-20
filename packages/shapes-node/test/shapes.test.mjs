@@ -1,7 +1,6 @@
 // The shapes-node test suite. Runs server-side in Node against the native core
 // (the `@desert-ant-labs/shapes/native` entry, i.e. node.js). The default
-// universal WebAssembly + LiteRT.js entry is exercised by the headless-Chromium
-// example.
+// universal WebAssembly + LiteRT.js entry is exercised by `mise run test:browser`.
 //
 // The npm package does not bundle the model: `Shapes.load()` downloads it from
 // the Hugging Face Hub at the pinned revision and caches it. We cover both load
@@ -84,12 +83,23 @@ test("an arrow keeps its head, and arrowheads() draws it", modelOpts, async () =
   assert.deepEqual(heads[0][1], shape.to);
 });
 
-test("a zigzag is a scribble with a hull, unless left out of kinds", modelOpts, async () => {
+test("a zigzag is a zigzag with its teeth, unless left out of kinds", modelOpts, async () => {
   const shape = await shapes.recognize(zigzag());
-  assert.equal(shape?.kind, "scribble", `got ${JSON.stringify(shape)}`);
-  assert.ok(shape.hull.length >= 3);
+  assert.equal(shape?.kind, "zigzag", `got ${JSON.stringify(shape)}`);
+  assert.ok(shape.teeth > 0 && shape.amplitude > 0);
   const kinds = ["line", "curve", "arrow", "rectangle", "ellipse"];
   assert.equal(await shapes.recognize(zigzag(), { kinds }), null);
+});
+
+test("two timed strokes, level then upright, make a plus", modelOpts, async () => {
+  const across = trace([{ x: 20, y: 100 }, { x: 180, y: 100 }], 24);
+  const down = trace([{ x: 100, y: 20 }, { x: 100, y: 180 }], 24);
+  const shape = await shapes.recognize([
+    { points: across, times: across.map((_, i) => i * 16) },
+    { points: down, times: down.map((_, i) => 600 + i * 16) },
+  ]);
+  assert.equal(shape?.kind, "plus", `got ${JSON.stringify(shape)}`);
+  assert.ok(Math.abs(shape.firstFrom.y - shape.firstTo.y) < 5, "the level stroke comes first");
 });
 
 test("rotation: upright removes it, free keeps it", modelOpts, async () => {

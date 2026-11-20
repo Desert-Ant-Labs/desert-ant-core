@@ -1,14 +1,14 @@
 // Shapes' public API, written once over whichever core the entry point bound
 // (browser.js's WebAssembly core or node.js's native core); @desert-ant-labs/core
 // turns either into the same `LoadedModel`.
-import { decodeShape, encodeInput, encodeOptions, flattenPoints } from "./codec.js";
+import { decodeShape, encodeInput, encodeOptions, normalizeStrokes } from "./codec.js";
 
 /**
  * Build the `Shapes` class over a bound SDK (`createWasmSdk` / `createNativeSdk`).
  */
 export function makeShapes(sdk) {
   /**
-   * On-device single-stroke shape recognition. Create one with
+   * On-device shape recognition. Create one with
    * `await Shapes.load(...)` and reuse it, mirroring the Swift SDK.
    *
    * ```js
@@ -33,24 +33,30 @@ export function makeShapes(sdk) {
     }
 
     /**
-     * Recognizes one hand-drawn stroke and returns the clean shape, or `null`
-     * for a stroke that isn't a shape. `points` is either `[{x, y}, ...]` or a
-     * flat `[x0, y0, x1, y1, ...]`.
+     * Recognizes a hand-drawn shape and returns the clean shape, or `null` for
+     * ink that isn't a shape. `input` is one stroke, as `[{x, y}, ...]` or a
+     * flat `[x0, y0, x1, y1, ...]`, or a drawing of several strokes, as
+     * `[{points, times?}, ...]` in drawing order. `times` holds a time in
+     * milliseconds for each point, on one clock for the whole drawing. Give
+     * times for every stroke or for none.
      *
      * `options.rotation` is `"snapped"` (the default, 15° steps and snaps onto
      * the axes), `"upright"` (no rotation), or `"free"` (as drawn).
-     * `options.kinds` lists the kinds Shapes recognizes, all 13 by default.
-     * `options.minimumConfidence` (default `0`) is the lowest classifier
-     * confidence Shapes accepts, on top of each kind's calibrated threshold. `options.deviceId` (a string or a
+     * `options.kinds` lists the kinds Shapes recognizes, all of them by default.
+     * `options.minimumConfidence` (default `0`) is the lowest model
+     * confidence Shapes accepts, on top of its own checks.
+     * `options.isFinished` (default `true`) waits for a closed outline to be
+     * drawn whole; pass `false` for a preview while the pen moves. `options.deviceId` (a string or a
      * zero-arg function returning one) names the end-user device for the call;
      * licensing does not read it yet. `options.group` has no effect.
      */
-    async recognize(points, options = {}) {
-      const flat = flattenPoints(points);
-      if (flat.length < 4) return null;   // fewer than two points is degenerate
+    async recognize(input, options = {}) {
+      const strokes = normalizeStrokes(input).filter((s) => s.flat.length >= 2);
+      const points = strokes.reduce((n, s) => n + Math.floor(s.flat.length / 2), 0);
+      if (points < 2) return null;   // fewer than two points is degenerate
       const payload = encodeOptions(options);
       return decodeShape(
-        await this.#model.run(encodeInput(flat), payload, options));
+        await this.#model.run(encodeInput(strokes), payload, options));
     }
 
     /** Whether the model is usable with no network. */

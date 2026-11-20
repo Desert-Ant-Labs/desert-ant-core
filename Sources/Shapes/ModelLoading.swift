@@ -21,7 +21,7 @@ public struct ModelAssets: Sendable {
     /// pick this platform's session for the artifact.
     static func shapes(files: StoredModel) async throws -> ModelAssets {
         ModelAssets(
-            metaJSON: try files.readString(ShapesModel.meta),
+            metaJSON: try files.readString(ShapesModel.meta(for: .current)),
             session: try await files.inferenceSession(
                 model: ShapesModel.artifact, sdk: ShapesModel.sdkInfo))
     }

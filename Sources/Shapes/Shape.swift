@@ -37,11 +37,28 @@ public enum Shape: Sendable, Equatable {
     /// The erase gesture. `hull` is the convex hull of the scribble. To erase,
     /// delete the content inside the hull.
     case scribble(hull: [Point])
+    /// A check mark: the end of the short arm, the corner, the end of the long arm.
+    case check(start: Point, corner: Point, end: Point)
+    /// A cross mark: two straight strokes, each from its upper end, the one
+    /// whose upper end is further left first.
+    case cross(firstFrom: Point, firstTo: Point, secondFrom: Point, secondTo: Point)
+    /// A plus mark: two straight strokes, the more level one first from its
+    /// left end, then the more upright one from its upper end.
+    case plus(firstFrom: Point, firstTo: Point, secondFrom: Point, secondTo: Point)
+    /// A bracket or brace: four points from its top end, through its two
+    /// corners, to its other end.
+    case bracket(points: [Point])
+    /// A zigzag, such as a highlight: from `from` to `to`, `abs(amplitude)`
+    /// wide across, with `2 * teeth` straight runs. The sign of `amplitude` is
+    /// the side the zigzag starts on: positive on the left of the direction of
+    /// travel on a y-down canvas, negative on the right.
+    case zigzag(from: Point, to: Point, amplitude: Double, teeth: Double)
 
     /// What a shape is, without its geometry.
     public enum Kind: String, Sendable, CaseIterable, Hashable {
         case line, curve, arrow, rectangle, ellipse, triangle, diamond, pentagon, hexagon
         case star, heart, cloud, scribble
+        case check, cross, bracket, zigzag, plus
     }
 
     public var kind: Kind {
@@ -59,21 +76,27 @@ public enum Shape: Sendable, Equatable {
         case .heart: .heart
         case .cloud: .cloud
         case .scribble: .scribble
+        case .check: .check
+        case .cross: .cross
+        case .plus: .plus
+        case .bracket: .bracket
+        case .zigzag: .zigzag
         }
     }
 
-    /// Whether the outline is a closed loop (everything but connectors).
+    /// Whether the outline is a closed loop (everything but connectors and marks).
     public var isClosed: Bool {
         switch self {
-        case .line, .curve, .arrow: false
+        case .line, .curve, .arrow, .check, .cross, .plus, .bracket, .zigzag: false
         default: true
         }
     }
 
     /// A polyline you can draw. A closed shape's outline doesn't repeat its
     /// first point. A connector's outline runs from start to end, and an
-    /// arrow's outline is its shaft (see ``arrowheads(length:)``). `samples`
-    /// sets the number of points on curved outlines.
+    /// arrow's outline is its shaft (see ``arrowheads(length:)``). A cross's or a
+    /// plus's outline is its first stroke, then its second: draw it with
+    /// ``paths(samples:)``. `samples` sets the number of points on curved outlines.
     public func outline(samples: Int = 64) -> [Point] {
         let n = max(samples, 8)
         switch self {
@@ -101,7 +124,26 @@ public enum Shape: Sendable, Equatable {
                 .map { Point(x: $0.x, y: $0.y) }
         case let .cloud(outline), let .scribble(outline):
             return outline
+        case let .check(a, b, c):
+            return [a, b, c]
+        case let .cross(a, b, c, d), let .plus(a, b, c, d):
+            return [a, b, c, d]
+        case let .bracket(points):
+            return points
+        case let .zigzag(from, to, amplitude, teeth):
+            return Templates.zigzag(from: V2(from.x, from.y), to: V2(to.x, to.y), amplitude: amplitude, teeth: teeth)
+                .map { Point(x: $0.x, y: $0.y) }
         }
+    }
+
+    /// Every polyline to draw, apart from an arrow's heads: two for a cross or a plus, one
+    /// (``outline(samples:)``) for every other shape.
+    public func paths(samples: Int = 64) -> [[Point]] {
+        switch self {
+        case let .cross(a, b, c, d), let .plus(a, b, c, d): return [[a, b], [c, d]]
+        default: break
+        }
+        return [outline(samples: samples)]
     }
 
     /// An arrow's heads, each an open polyline `[barb, tip, barb]` with barbs
@@ -144,6 +186,21 @@ enum Bezier {
 
 /// Outlines with a fixed template.
 enum Templates {
+    /// A zigzag's vertices: `2 * teeth` runs (at least 2) across the line from
+    /// `from` to `to`, alternating `amplitude / 2` to either side, the first to
+    /// the left of the direction of travel on a y-down canvas.
+    static func zigzag(from a: V2, to b: V2, amplitude: Double, teeth: Double) -> [V2] {
+        let k = max(2, Int((2 * teeth).rounded(.toNearestOrEven)))
+        let d = b - a
+        let length = max(d.length, 1e-6)
+        let normal = V2(-d.y / length, d.x / length)
+        return (0...k).map { i -> V2 in
+            let along = d * (Double(i) / Double(k))
+            let side: Double = i % 2 == 0 ? -amplitude / 2 : amplitude / 2
+            return a + along + normal * side
+        }
+    }
+
     /// The parametric heart x = 16 sin^3 t, y = -(13 cos t - 5 cos 2t -
     /// 2 cos 3t - cos 4t), scaled to the box, with its point down in y-down
     /// canvas space.
