@@ -107,7 +107,8 @@ struct LicenseE2ETests {
             await client.modelLoaded(model: load.model, modelVersion: load.modelVersion)
         }
         if let readyFile = plan.readyFile {
-            FileManager.default.createFile(atPath: readyFile, contents: Data())
+            try #require(FileManager.default.createFile(atPath: readyFile, contents: Data()),
+                         "could not write the ready file at \(readyFile)")
         }
 
         func allActivated() -> Bool {

@@ -226,8 +226,9 @@ public final class Clear: @unchecked Sendable {
         #endif
     }
 
-    /// `computeUnits` selects the Core ML compute units on Apple (ignored by the
-    /// LiteRT/JS backends). Default `.all`, letting Core ML place the
+    /// `computeUnits` selects the Core ML compute units on Apple. On LiteRT,
+    /// `.cpuOnly` keeps the model off the GPU, and Android always runs it on the
+    /// CPU. The JS backend ignores it. Default `.all`, letting Core ML place the
     /// ANE-optimized graph on the Neural Engine. Pass `.cpuOnly` only when a
     /// deployment needs an explicit CPU fallback.
     ///
