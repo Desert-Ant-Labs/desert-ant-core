@@ -51,6 +51,11 @@ public enum EyeBinding: ModelBinding {
     public static func make(cacheRoot: String?, directory: String?) -> any BoundModel {
         Eye(directory: directory, cacheRoot: cacheRoot)
     }
+
+    /// `faceprints`: an eye whose faces also carry their faceprint (`faceprint` in each face's JSON).
+    public static func make(variant: String, cacheRoot: String?, directory: String?) -> (any BoundModel)? {
+        variant == "faceprints" ? Eye(directory: directory, cacheRoot: cacheRoot, faceprints: true) : nil
+    }
 }
 
 extension Details {

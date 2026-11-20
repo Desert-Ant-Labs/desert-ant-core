@@ -1,5 +1,6 @@
 package ai.desertant.eye
 
+import ai.desertant.core.Faceprint
 import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.math.abs
@@ -44,6 +45,8 @@ data class Face(
     /** Overall quality of the face in this photo, `0..1`. */
     val quality: Double,
     val confidences: Map<Tag, Double>,
+    /** The face's identity, from an [Eye] created with `faceprints = true`, else null: the same faceprint Face makes. */
+    val faceprint: Faceprint? = null,
 ) {
     fun confidence(tag: Tag): Double? = confidences[tag]
 
@@ -157,7 +160,8 @@ class Analysis internal constructor(
                     Face(box(f.getJSONObject("box")), f.getDouble("detection_confidence"),
                         List(lm.length()) { Point(lm.getJSONObject(it).getDouble("x"), lm.getJSONObject(it).getDouble("y")) },
                         Pose(pose.getDouble("yaw"), pose.getDouble("pitch"), pose.getDouble("roll")),
-                        f.getDouble("quality"), tags(f.getJSONObject("tags")))
+                        f.getDouble("quality"), tags(f.getJSONObject("tags")),
+                        f.optJSONObject("faceprint")?.let(Faceprint::fromJson))
                 },
                 crops = list("crops") { Crop(box(it.getJSONObject("box")), it.getDouble("score")) },
                 details = details,
