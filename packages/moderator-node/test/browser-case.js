@@ -58,6 +58,8 @@ async function timed(fn) {
 
 export async function run({ Moderator }, { litert, litertWasmDir }) {
   const golden = await (await fetch(RESOURCES + "moderator_golden.json")).json();
+  // The browser loads moderator.tflite, so it compares against the LiteRT file's own outputs when the golden has them.
+  const expected = golden.litert ?? golden;
   const load = await timed(() => Moderator.load({ litert, litertWasmDir }));
   const moderator = load.value;
   const out = { loadMs: load.ms, isDownloaded: moderator.isDownloaded(), golden: {}, timings: {} };
@@ -67,7 +69,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
     out.synthetic = {};
     for (const q of QUALITIES) {
       out.synthetic[q] = (await moderator.analyze(syn, { quality: q })).regions;
-      out.golden[`synthetic_${q}`] = golden.synthetic[q];
+      out.golden[`synthetic_${q}`] = expected.synthetic[q];
     }
     // RGBA and RGB spellings of the same pixels score identically.
     const rgba = new ImageData(syn.width, syn.height);
@@ -92,7 +94,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
       const t = await timed(() => moderator.analyze(img, { quality: q }));
       out.timings[`sfw_${img.naturalWidth}x${img.naturalHeight}_${q}`] = t.ms;
       out[`sfw_${q}`] = t.value.regions;
-      out.golden[`sfw_${q}`] = golden.sfw[q];
+      out.golden[`sfw_${q}`] = expected.sfw[q];
     }
 
     // The positive fixture, downloaded, as a Blob and as an <img>.
@@ -100,7 +102,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
     const posImg = await imageElement(posBlob);
     out.positive = await moderator.analyze(posBlob);
     out.positiveImg = await moderator.analyze(posImg);
-    out.golden.positive = golden.positive.accurate;
+    out.golden.positive = expected.positive.accurate;
     out.positiveStrict = await moderator.analyze(posBlob, { threshold: 0.99 });
     out.positiveTopless = await moderator.analyze(posBlob, { policy: "allowTopless", quality: "fast" });
 

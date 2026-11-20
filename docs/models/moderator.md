@@ -8,7 +8,7 @@ On-device NSFW image detection, trained only on licensed and synthetic data.
 | | |
 | --- | --- |
 | **Platforms** | iOS, macOS, tvOS, visionOS, Android, Linux, Windows, Browser, Node |
-| **Weights** | [v1.0.0](https://huggingface.co/desert-ant-labs/moderator/tree/v1.0.0) |
+| **Weights** | [v1.1.0](https://huggingface.co/desert-ant-labs/moderator/tree/v1.1.0) |
 | **Demo** | https://desertant.com/models/moderator/ |
 <!-- model:end -->
 
@@ -22,7 +22,7 @@ Per-region detail (nipples, genitals, buttocks, nudity, sexual activity) is avai
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "4.3.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
 ```
 
 Then add the `Moderator` product to your target.
@@ -30,7 +30,7 @@ Then add the `Moderator` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:moderator:4.3.0")
+implementation("ai.desertant:moderator:5.0.0")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
