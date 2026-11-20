@@ -29,27 +29,32 @@ import JavaScriptKit
     }
 }
 
-/// The model host: how a wasm core compiles and runs its model.
+/// The model host: how a wasm core compiles and runs its models.
 ///
-/// `createSession` is two methods rather than one taking a path-or-bytes union,
-/// because a union is not expressible in the bridge: node hands over the cached
-/// file path, the browser the model bytes it fetched.
+/// `createSessionFrom*` are two methods rather than one taking a path-or-bytes
+/// union, because a union is not expressible in the bridge: node hands over the
+/// cached file path, the browser the model bytes it fetched.
+///
+/// `name` keys a compiled model, so one core can hold several (Face's detector
+/// and embedder): the artifact's file name, or empty for the model the page
+/// compiled itself (the `modelBaseUrl` path). It comes last so a host that
+/// ignores it still serves a core with one model.
 @JSClass public struct DalModelHost {
     /// Compile the model at a cached path (node).
-    @JSFunction public func createSessionFromPath(_ path: String) async throws(JSException)
+    @JSFunction public func createSessionFromPath(_ path: String, _ name: String) async throws(JSException)
 
     /// Compile the model from its bytes (browser).
-    @JSFunction public func createSessionFromBytes(_ bytes: JSUint8Array) async throws(JSException)
+    @JSFunction public func createSessionFromBytes(_ bytes: JSUint8Array, _ name: String) async throws(JSException)
 
-    /// Run the compiled model over named input tensors, returning named outputs.
+    /// Run a compiled model over named input tensors, returning named outputs.
     @JSFunction public func run(
-        _ inputs: [String: HostTensor]
+        _ inputs: [String: HostTensor], _ name: String
     ) async throws(JSException) -> [String: HostTensor]
 
-    /// Run one named signature of the compiled model: a model that carries one
+    /// Run one named signature of a compiled model: a model that carries one
     /// graph per task (Eye) compiles once and runs each by name.
     @JSFunction public func runSignature(
-        _ signature: String, _ inputs: [String: HostTensor]
+        _ signature: String, _ inputs: [String: HostTensor], _ name: String
     ) async throws(JSException) -> [String: HostTensor]
 }
 

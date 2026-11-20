@@ -57,7 +57,8 @@ public func androidRun(
     _ options: jbyteArray?
 ) -> jbyteArray? {
     installDesertAntHostBridge(env)
-    guard let inputBytes = androidOptionalBytes(env, input) else { return nil }
+    // A null input is a failure; an empty one is a payload (Face's library calls take no input).
+    guard let inputBytes = hostCopyBytes(env, input) else { return nil }
     let optionsBytes = androidOptionalBytes(env, options) ?? []
     let buffer = inputBytes.withUnsafeBufferPointer { input in
         optionsBytes.withUnsafeBufferPointer { options in

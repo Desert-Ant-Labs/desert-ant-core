@@ -8,7 +8,8 @@
 //
 // Recording the requested paths matters. Two ModelSpecs can point at the same
 // repo and revision but request different artifacts. A manifest for one must not
-// make the other appear downloaded.
+// make the other appear downloaded. They share the location's one manifest, which
+// holds the union of what each asked for.
 
 struct Manifest: Equatable {
     struct Entry: Equatable {

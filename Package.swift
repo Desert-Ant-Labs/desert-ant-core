@@ -156,13 +156,13 @@ struct ModelPackage {
     var dependencies: [Target.Dependency] = []
     var resources: [Resource] = []
     var testDependencies: [Target.Dependency] = []
+    /// Where the target's sources are, when not `Sources/<name>`. Its `Web/` entry
+    /// point stays at `Sources/<name>/Web`.
+    var path: String? = nil
     var testResources: [Resource] = []
     /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
     /// platform, and a product promising an artifact that cannot load is worse than its absence.
     var appleOnly: Bool = false
-    /// Whether this model gets an `Android` dynamic library. `Align` has no `.android` artifact:
-    /// the host bridge has no NFC, so the lexical bytes could not match training.
-    var androidLibrary: Bool = true
     /// Whether this model has a `Web/` entry point and so a wasm product.
     var web: Bool = true
     /// Whether this model gets a `Node` dynamic library.
@@ -220,9 +220,11 @@ let models: [ModelPackage] = [
     ),
     // One multifunction model (a Core ML function / LiteRT signature per task);
     // pure-Swift Pillow resampling, whose Lanczos and bicubic kernels need sin.
+    // Faces come from Face's detector (and faceprints from its embedder), in
+    // FaceCore, which Eye re-exports for the types it shares with Face.
     .init(
         name: "Eye",
-        dependencies: [.product(name: "RealModule", package: "swift-numerics")],
+        dependencies: ["FaceCore", .product(name: "RealModule", package: "swift-numerics")],
         testResources: [
             .copy("Resources/eye_golden.json"),
             .copy("Resources/eye_fixture.gray"),
@@ -254,8 +256,7 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/golden.json"),
             .copy("Resources/calibration_golden.json"),
-        ],
-        androidLibrary: false
+        ]
     ),
 ] + [
     // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
@@ -264,6 +265,27 @@ let models: [ModelPackage] = [
     ModelPackage(name: "Title",
                  dependencies: [.byName(name: "Transcript")] + mlxProducts,
                  appleOnly: true),
+    // The SDK half of Face (the library, grouping, the bindings); the detector,
+    // the embedder and the catalog are FaceCore's (see `faceCoreTargets`).
+    ModelPackage(name: "Face",
+                 dependencies: ["FaceCore"],
+                 testDependencies: ["FaceCore"],
+                 path: "Sources/Face/SDK",
+                 testResources: [
+                     .copy("Resources/face_golden.json"),
+                     .copy("Resources/single_a1.png"),
+                     .copy("Resources/single_a2.png"),
+                     .copy("Resources/single_b1.png"),
+                     .copy("Resources/group.png"),
+                     .copy("Resources/empty.png"),
+                     .copy("Resources/aligned_a1.png"),
+                     .copy("Resources/single_a1.rgb"),
+                     .copy("Resources/single_a2.rgb"),
+                     .copy("Resources/single_b1.rgb"),
+                     .copy("Resources/group.rgb"),
+                     .copy("Resources/empty.rgb"),
+                     .copy("Resources/aligned_a1.rgb"),
+                 ]),
 ]
 let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name) }
 
@@ -274,6 +296,20 @@ let modelDependencies: [Target.Dependency] = models.map { .byName(name: $0.name)
 // every other model its Kotlin and JavaScript SDKs are direct ports of the same
 // frozen spec (packages/tongue-kotlin, packages/tongue-node), locked to this
 // target by the shared golden vectors in Tests/TongueTests/Resources.
+// What Face shares with Eye: the catalog, the detector and the embedder, and the
+// types both return. Not a model (check:isolation lets two models share it), so
+// Eye reaches Face's detector without carrying the Face SDK. It is
+// `Sources/Face` itself, so `Sources/Face/Catalog.swift` stays where every tool
+// that reads a model's catalog looks; the Face target is `Sources/Face/SDK`.
+let faceCoreTargets: [Target] = [
+    .target(
+        name: "FaceCore",
+        dependencies: [.byName(name: "DesertAnt"), .product(name: "RealModule", package: "swift-numerics")],
+        path: "Sources/Face",
+        exclude: ["SDK", "Web"]
+    ),
+]
+
 let tongueProducts: [Product] = [
     .library(name: "Tongue", targets: ["Tongue"]),
 ]
@@ -329,7 +365,8 @@ let products: [Product] = [
 // a whole-package `swift build --swift-sdk <wasm>`, so they follow the same gate
 // as the *Web products.
 + (noJavaScriptKit
-    ? [.library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"])]
+    ? [.library(name: "CoreAndroidTests", type: .dynamic, targets: ["CoreAndroidTests"]),
+       .library(name: "UnicodeAndroidTests", type: .dynamic, targets: ["UnicodeAndroidTests"])]
     : [])
 
 // `appleOnly` models (Title) have no `Web/` entry point, so they get no wasm product.
@@ -341,9 +378,7 @@ let modelProducts: [Product] = models.flatMap { model -> [Product] in
     model.appleOnly || !noJavaScriptKit
         ? [.library(name: model.name, targets: [model.name])]
         : [.library(name: model.name, targets: [model.name])]
-            + (model.androidLibrary
-                ? [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
-                : [])
+            + [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
             + (model.nodeLibrary
                 ? [.library(name: "\(model.name)Node", type: .dynamic, targets: [model.name])]
                 : [])
@@ -365,10 +400,10 @@ let modelTargets: [Target] = models.map { model in
         name: model.name,
         dependencies: [.byName(name: "DesertAnt"), .byName(name: "NativeBindings")]
             + model.dependencies,
-        path: "Sources/\(model.name)",
+        path: model.path ?? "Sources/\(model.name)",
         // Only models with a wasm entry point have a `Web/` directory to exclude. An exclude
         // naming a path that does not exist is a warning today and could become an error.
-        exclude: model.appleOnly || !model.web ? [] : ["Web"],
+        exclude: model.appleOnly || !model.web || model.path != nil ? [] : ["Web"],
         resources: model.resources
     )
 } + modelWasmTargets
@@ -561,6 +596,10 @@ let libraryTargets: [Target] = [
                 ? [] : [.plugin(name: "BridgeJS", package: "JavaScriptKit")]
         ),
         .target(
+            name: "UnicodeAndroidTests",
+            dependencies: ["HostBridge", "Emo", "Gist", "Redact", "Toxic", "Voz"]
+        ),
+        .target(
             name: "CoreAndroidTests",
             dependencies: ["HostBridge", "PlatformSupport", "Regex", "JSON", "TextNormalization", "Usage"]
         ),
@@ -629,6 +668,8 @@ let vozDependencies: [Target.Dependency] = [
     .byName(name: "DesertAnt"),
     .byName(name: "AudioIO"),
     .byName(name: "NativeBindings"),
+    .byName(name: "CStrings"),
+    .target(name: "CHostBridge", condition: .when(platforms: [.android])),
     .target(name: "CLiteRt", condition: .when(platforms: [.linux, .android])),
 ] + onnxProducts
 // AudioIO for the portable WAV decoder the ONNX end-to-end test reads its
@@ -670,7 +711,7 @@ let vozTargets: [Target] = [
 
 let coreTargets: [Target] =
     libraryTargets + testTargets + modelTargets + modelTestTargets
-    + tongueTargets + vozTargets
+    + faceCoreTargets + tongueTargets + vozTargets
 
 // On wasm every test target is its own runner (SwiftPM 6.4 builds one
 // `<Target>-test-runner.wasm` per test target), so each needs JavaScriptKit's
