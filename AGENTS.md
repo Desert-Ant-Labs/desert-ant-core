@@ -167,7 +167,10 @@ second table under it, which promises nothing to install. Do not mark a model
 stable to move it up: ship an SDK.
 
 **Internal models.** `visibility: internal` is separate from lifecycle and means
-the Hub card is never touched. `face` is gated on the Hub.
+the Hub card is never touched.
+
+**Weights without notices.** `notices: []` on a model means its weights ship no
+`THIRD_PARTY_NOTICES.md`: its pages link none, and `private/check-release` asks for none.
 
 **Versions.** One `VERSION` governs every artifact in this repo. Use
 `mise run set-version X.Y.Z`, which also renders the docs. Do not set a version
@@ -179,7 +182,21 @@ every Mac and device the team uses. `--abi all` or `DAL_ANDROID_ABIS` builds
 more, and CI sets `x86_64` for its emulator. Anything that publishes must pin
 both ABIs, as `publish:maven` and the release workflow do, because
 `build:android` only checks the ABIs it was asked for. Do not make both the
-default again.
+default again. Every `publish:maven` run, `--local` included, also passes
+`--no-configuration-cache`, so the signing key and Central credentials it
+reads while configuring never land in a cache entry. A publish keeps the
+javadoc and sources jars, which Central requires: `-PdalPublishDocs=false` is
+for `check:android-consumer` alone.
+
+**Android configuration cache.** The root build has it on, and a cache problem
+fails the build, so new build logic has to be cache-safe. The trap that bit us:
+the cache stores an `Exec` task's environment as it was configured and replays
+it, which runs the task with stale settings and writes any secret in the shell
+into the entry. So `buildSwiftNatives` is configured with an empty environment
+and takes the caller's as it starts (`UseCallerEnvironment` in
+`ModelSdkPlugin.kt`); the variables it depends on are task inputs. With the
+cache on, tasks from different projects also run in parallel, which is why the
+Swift cross-compiles share one lock (`SwiftBuildLock`).
 
 **Testing Android changes in an app.** `mise run publish:maven --local`
 publishes every `ai.desertant:*` artifact to `~/.m2` at `VERSION`, keeping the
@@ -187,11 +204,53 @@ caller's ABIs. desert-ant-android-examples builds from there by default: it
 takes the highest `ai.desertant:core` version in `~/.m2` for every module.
 Keep `--local` publishing core and every model at one version.
 
+**Android test selection.** Default to plain JVM unit tests in `src/test`.
+Use the least expensive environment that exercises the behavior under test:
+
+- Plain JUnit for Kotlin/Java logic, FFI payloads, error handling, concurrency,
+  and native handle ownership through a fake `NativeModelApi`. Being in an
+  Android module does not make a test need Robolectric.
+- Robolectric only when the assertion depends on Android framework behavior,
+  such as Context attachment, SharedPreferences storage selection, or Android
+  Base64/JSON serialization. Keep these cases in separate test classes with
+  `RobolectricTestRunner`; do not convert existing plain JVM suites wholesale.
+  Use the existing API 24 and 37 coverage unless another API exercises a
+  specific compatibility boundary. Do not add an API matrix to pure logic.
+- Instrumented tests in `src/androidTest` for shipping JNI libraries, LiteRT,
+  inference, codecs, hardware bitmaps, actual pre-unlock access and persistence
+  across process death. Android runtime differences in Unicode, regex,
+  networking and cryptographic providers also need device or emulator evidence;
+  Robolectric is not proof of those compatibility contracts.
+
+Keep pure logic tests outside the Robolectric runner even when nearby framework
+tests use it. Add Robolectric to another module only for a concrete framework
+boundary, not through the shared Android convention plugin by default. The
+commands, examples and current scope are in [Android testing](docs/notes/android-testing.md).
+
 **Android NDK.** One pin, in `ANDROID_NDK_VERSION`. The mise tasks, every
 Gradle module's `ndkVersion` and the CI NDK caches all read it; `mise run
 android-sdk` installs it into the Android SDK. Do not write an NDK version
 anywhere else, and do not resolve one from `ANDROID_NDK_HOME`. The Swift
 natives need r30 or later (`build:android-natives` says why).
+
+**Android JDK.** Gradle runs on one JDK everywhere, pinned twice because two
+kinds of entry point read it: `vars.java` in `mise.toml` for the mise tasks, and
+`gradle/gradle-daemon-jvm.properties` for Android Studio, a plain `./gradlew`
+and CI. `androidconsumer/` and `gradle-plugin/` each carry an identical copy of
+that file, since a build run with `-p` reads its own.
+`mise run check:java` fails if any of them, or a `temurin-NN` in the workflows,
+disagrees. The `mise.toml` header says how to move it.
+
+**Android Kotlin floor.** The SDKs compile with the newest Kotlin (`kotlin` in
+`gradle/libs.versions.toml`) but promise apps an older one, `kotlinFloor` in the
+same file. The convention plugins set every SDK module's language and API
+version and its kotlin-stdlib dependency from it, so no module has to set it.
+`mise run check:android-consumer` builds an app against the published SDKs on
+both versions, and fails if the README states a different floor. Raising the
+floor raises what every app needs: do it on purpose, and say so in the release
+notes. kotlin-stdlib and the kotlinx libraries set the same floor through
+the POMs, so move them on purpose too, and the floor run fails if the stdlib
+an app resolves is newer than the floor.
 
 **Weights revisions** are per model and live in both `Catalog.swift` and the
 manifest. They have nothing to do with `VERSION`.

@@ -14,6 +14,9 @@
 #   mise run test:bundles        every npm package through the real bundlers
 #   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
 #   mise run check:swift-floor   the package builds on the Swift the README promises
+#   mise run check:android-consumer  an app builds against the published Android
+#                                SDKs, on the oldest and the newest Kotlin
+#   mise run check:java          every Gradle build and CI lane pins the same JDK
 #
 #   mise run build:swift [model] Swift targets, all at once or one model
 #   mise run build:wasm  [model] the browser core -> packages/<model>-node/dist
@@ -56,9 +59,22 @@
 # Each toolchain gets its own SwiftPM scratch directory (.build-host,
 # .build-android for the snapshot natives, .build-androidtest for the on-device
 # harness, .build for wasm) so their artifacts never collide.
+#
+# One JDK runs Gradle everywhere: Temurin 21. The Android tasks get it from
+# vars.java below, and mise sets JAVA_HOME inside them. Android Studio, a plain
+# ./gradlew and CI read gradle/gradle-daemon-jvm.properties instead, Gradle's
+# daemon JVM criteria, and use a matching local JDK or download one into
+# ~/.gradle/jdks. androidconsumer/ and gradle-plugin/ each carry an identical
+# copy, because a build run with -p reads its own. To move the JDK:
+#
+#   ./gradlew updateDaemonJvm --jvm-version=NN --jvm-vendor=adoptium
+#   copy gradle/gradle-daemon-jvm.properties into each of those two builds
+#   set vars.java to "temurin-NN", and the temurin-NN literals in .github/workflows
+#   mise run check:java
 
 [vars]
 swift = "6.4.1"
+java = "temurin-21"
 
 [env]
 # Non-empty also vendors the LiteRT GPU accelerator sibling on Linux.
@@ -75,6 +91,7 @@ depends = ["build:swift", "build:wasm", "build:node-native", "build:android"]
 description = "Run every check and test suite that needs no device or simulator"
 depends = [
     "check:version",
+    "check:java",
     "check:commits",
     "check:npm-repo",
     "check:manifest",
@@ -83,6 +100,8 @@ depends = [
     "check:isolation",
     "check:types",
     "check:swift-floor",
+    # Not check:android-consumer: like build:android, it needs the Android SDK
+    # and the Swift cross-compile for every model, and the android CI jobs run it.
     "test:swift",
     "test:wasi",
     "test:js",

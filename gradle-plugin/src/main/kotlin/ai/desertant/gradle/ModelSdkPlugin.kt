@@ -1,12 +1,14 @@
 package ai.desertant.gradle
 
 import com.android.build.api.dsl.LibraryExtension
-import org.gradle.api.JavaVersion
+import org.gradle.api.Action
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.Task
+import org.gradle.api.services.BuildService
+import org.gradle.api.services.BuildServiceParameters
 import org.gradle.api.tasks.Exec
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
+import java.io.File
 
 /**
  * `ai.desertant.model-sdk`: the Android library (AAR) convention for a model's
@@ -28,25 +30,19 @@ class ModelSdkPlugin : Plugin<Project> {
         val model = project.dalModel
         ext.displayName.convention("Desert Ant ${project.dalProduct}")
 
-        project.pluginManager.apply("com.android.library")
-        project.pluginManager.apply("org.jetbrains.kotlin.android")
+        project.configureDesertAntAndroid()
 
         project.extensions.configure(LibraryExtension::class.java) { android ->
             android.namespace = "ai.desertant.$model"
-            android.compileSdk = 35
-            android.defaultConfig.minSdk = 24 // NFKC via host java.text.Normalizer (API 1+); no platform libicu
             android.defaultConfig.testInstrumentationRunner = "ai.desertant.androidtest.HubTestRunner"
-            android.sourceSets.getByName("androidTest").java.srcDir(project.rootProject.file("androidtest/runner"))
+            // `kotlin`, not `java`: built-in Kotlin ignores Kotlin sources
+            // added to a source set's java directories.
+            android.sourceSets.getByName("androidTest").kotlin.directories
+                .add(project.rootProject.file("androidtest/runner").path)
             android.defaultConfig.ndk.abiFilters.addAll(listOf("arm64-v8a", "x86_64"))
-            android.buildTypes.getByName("release").isMinifyEnabled = false
-            android.compileOptions.sourceCompatibility = JavaVersion.VERSION_17
-            android.compileOptions.targetCompatibility = JavaVersion.VERSION_17
         }
 
-        project.tasks.withType(KotlinCompile::class.java).configureEach { task ->
-            task.compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
-        }
-
+        val libs = project.libs
         val deps = project.dependencies
         // `:core` is a project in the same build, so a model AAR builds from a
         // clean checkout with nothing published yet. The generated POM still
@@ -54,10 +50,10 @@ class ModelSdkPlugin : Plugin<Project> {
         // Core also owns LoadedModel's coroutine runtime, so there is no second
         // direct dependency here. `api` so an app reaches core's DesertAnt
         // settings through any model it depends on.
-        deps.add("api", project.project(":core"))
-        deps.add("androidTestImplementation", "androidx.test.ext:junit:1.2.1")
-        deps.add("androidTestImplementation", "androidx.test:runner:1.6.2")
-        deps.add("androidTestImplementation", "org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+        deps.add("api", deps.project(mapOf("path" to ":core")))
+        deps.addProvider("androidTestImplementation", libs.library("androidx-test-ext-junit"))
+        deps.addProvider("androidTestImplementation", libs.library("androidx-test-runner"))
+        deps.addProvider("androidTestImplementation", libs.library("kotlinx-coroutines-test"))
 
         // The Swift JNI library per ABI, built into src/main/jniLibs before the
         // Android packaging steps. ai.desertant:core supplies the one shared
@@ -67,23 +63,82 @@ class ModelSdkPlugin : Plugin<Project> {
             task.group = "build"
             task.description = "Cross-compiles the Android native libraries into jniLibs."
             task.workingDir = repoRoot
+            // `mise` and the environment are filled in as the task starts
+            // (UseCallerEnvironment), not here: the configuration cache stores
+            // what an Exec task was configured with and replays it.
             task.commandLine("mise", "run", "build:android-natives", model)
-            task.environment("MISE_TRUSTED_CONFIG_PATHS", repoRoot.absolutePath)
+            task.setEnvironment(emptyMap<String, Any>())
+            task.doFirst(UseCallerEnvironment(repoRoot.absolutePath))
             // The NDK pin is an input: moving it relinks against another libc++.
             task.inputs.file(repoRoot.resolve("ANDROID_NDK_VERSION"))
-            // The ABI choice is an input too, or switching it (--abi all after
-            // an arm64-only build) finds this task up to date and packages the
-            // old ABIs.
-            task.inputs.property(
-                "abis",
-                project.providers.environmentVariable("DAL_ANDROID_ABIS").orElse(""),
-            )
+            // So are the variables build:android-natives reads to pick the ABIs
+            // and the toolchain (DAL_ANDROID_ABIS and _API, the DAL_SWIFT_*
+            // pins, DAL_LITERT_ANDROID_VERSION). Otherwise switching one, say
+            // --abi all after an arm64-only build, finds this task up to date
+            // and packages the old natives.
+            for (prefix in listOf("DAL_ANDROID_", "DAL_SWIFT_", "DAL_LITERT_")) {
+                task.inputs.property(prefix, project.providers.environmentVariablesPrefixedBy(prefix))
+            }
             task.inputs.dir(repoRoot.resolve("Sources"))
             task.inputs.dir(repoRoot.resolve("mise-tasks"))
             task.outputs.dir(project.projectDir.resolve("src/main/jniLibs"))
+            task.usesService(swiftBuildLock(project))
         }
         project.tasks.named("preBuild").configure { it.dependsOn(buildNatives) }
 
         project.configureDesertAntPublishing(ext)
+    }
+}
+
+/**
+ * mise, found on the caller's PATH. Since Gradle 9.6 an Exec task looks a bare
+ * command up on the daemon's own PATH, which is the PATH of whatever started
+ * that daemon (Android Studio, another shell), not the caller's: a daemon
+ * started without ~/.local/bin on its PATH fails to start `mise` for every
+ * later build. The environment the build sees is still the caller's, so
+ * resolve the path from that. Falls back to the bare name, which is what the
+ * error then names.
+ */
+private fun miseExecutable(path: String?): String {
+    val names = listOf("mise", "mise.exe")
+    return path.orEmpty()
+        .split(File.pathSeparator)
+        // A relative entry would resolve against the daemon's directory, not the
+        // caller's, so only absolute ones count.
+        .filter { it.isNotEmpty() && File(it).isAbsolute }
+        .flatMap { dir -> names.map { File(dir, it) } }
+        .firstOrNull { it.isFile && it.canExecute() }
+        ?.path ?: "mise"
+}
+
+/**
+ * One cross-compile at a time. Every model's build:android-natives shares the
+ * `.build-android` scratch directory and the Swift SDK links under it, and two
+ * at once fail on those (`ln: ... File exists`) or wait on SwiftPM's lock.
+ * The configuration cache runs tasks of different projects in parallel, so
+ * nothing else keeps them apart.
+ */
+abstract class SwiftBuildLock : BuildService<BuildServiceParameters.None>
+
+private fun swiftBuildLock(project: Project) =
+    project.gradle.sharedServices.registerIfAbsent("swiftBuildLock", SwiftBuildLock::class.java) {
+        it.maxParallelUsages.set(1)
+    }
+
+/**
+ * Runs build:android-natives in the caller's environment, read as the task
+ * starts. The configuration cache stores an Exec task's environment and
+ * replays it, so one taken while configuring would cross-compile with stale
+ * DAL_* settings, and would write whatever the shell held (HF_TOKEN, the
+ * signing key) into the cache entry. It also finds mise on that PATH, so a
+ * different PATH does not throw the cache entry away. A class, not a lambda:
+ * the configuration cache cannot store a Kotlin lambda.
+ */
+private class UseCallerEnvironment(private val repoRoot: String) : Action<Task> {
+    override fun execute(task: Task) {
+        val exec = task as Exec
+        val caller = System.getenv()
+        exec.setEnvironment(caller + ("MISE_TRUSTED_CONFIG_PATHS" to repoRoot))
+        exec.executable = miseExecutable(caller["PATH"])
     }
 }

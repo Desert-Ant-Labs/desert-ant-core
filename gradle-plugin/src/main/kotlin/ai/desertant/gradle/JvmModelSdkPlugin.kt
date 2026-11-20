@@ -28,8 +28,10 @@ class JvmModelSdkPlugin : Plugin<Project> {
         project.pluginManager.apply("org.jetbrains.dokka")
 
         project.extensions.configure(KotlinJvmProjectExtension::class.java) { kotlin ->
-            kotlin.jvmToolchain(17)
+            kotlin.jvmToolchain(project.libs.version("jvmTarget").toInt())
             kotlin.explicitApi()
+            kotlin.compilerOptions.useKotlinFloor(project)
+            kotlin.coreLibrariesVersion = project.libs.version("kotlinFloor")
         }
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")

@@ -1,13 +1,20 @@
 # Desert Ant Android convention plugins
 
-Two plugins that carry the Android build/publish boilerplate every
+Four plugins that carry the Android build/publish boilerplate every
 `packages/<model>-kotlin` module and `kotlin/` (the core AAR) would otherwise
-copy (~200 lines of `build.gradle.kts` + `swift-android.gradle.kts` each):
+copy:
 
-- **`ai.desertant.model-sdk`** - a model's AAR module. Applies AGP + Kotlin,
-  configures the Android boilerplate, wires the Swift JNI cross-compile
+- **`ai.desertant.android-library`** - the Android defaults every AAR shares:
+  AGP, which compiles the Kotlin too (built-in Kotlin), with compileSdk, minSdk,
+  the JVM target and the Kotlin floor from `gradle/libs.versions.toml`. Applied
+  by the core AAR, and by `model-sdk`.
+- **`ai.desertant.model-sdk`** - a model's AAR module. Applies the defaults
+  above, wires the Swift JNI cross-compile
   (`mise run build:android-natives <model>`), depends on `ai.desertant:core`, and
   applies the publishing convention below.
+- **`ai.desertant.jvm-model-sdk`** - a pure-Kotlin model (Tongue): a plain JVM
+  jar at the Kotlin floor, with no native code and no `ai.desertant:core`
+  dependency.
 - **`ai.desertant.publish`** - the Maven Central publishing convention on its
   own: Central portal upload, signing when a key is present, one release variant
   with sources and javadoc, and the shared source-available POM. Used by the core
@@ -35,18 +42,19 @@ Everything else is derived: the model id is the Gradle project name (`:emo` from
 reads `VERSION`), and the namespace, coordinates, POM, core dependency, and
 instrumentation-test dependencies follow from those.
 
-It is also published to Maven Central as
-`ai.desertant:model-sdk-gradle-plugin`, versioned with desert-ant-core's
-`vX.Y.Z` tags, for anything consuming it from outside this repo.
+Versions come from the root build's catalog, `gradle/libs.versions.toml`, which
+this build reads too (`settings.gradle.kts`), so the plugin versions the root
+applies and the ones these conventions compile against are the same.
 
-## Build and publish
+It is not published. Up to 4.3.0 it also went to Maven Central as
+`ai.desertant:model-sdk-gradle-plugin`; those versions stay there, and no later
+one will.
+
+## Build
 
 ```bash
-./gradlew -p gradle-plugin build     # compile and test it
-mise run publish:maven               # ships it with everything else on a release
-mise run publish:maven --local       # to ~/.m2, keyless, for testing consumers
+./gradlew -p gradle-plugin build     # compile it
 ```
 
-`--local` builds only arm64-v8a by default, like every local Android build. Set
-`DAL_ANDROID_ABIS=all` for an x86_64 consumer. Publishing to Maven Central
-always builds both ABIs.
+The root build compiles it as part of any Android task, so there is no separate
+step before `mise run build:android` or `mise run publish:maven`.

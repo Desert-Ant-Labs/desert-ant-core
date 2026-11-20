@@ -2,48 +2,22 @@
 #MISE description="Provision the Android SDK and point Gradle at it"
 #MISE dir="{{config_root}}"
 #MISE hide=true
-#MISE tools={java="temurin-21"}
+#MISE tools={java="{{ vars.java }}"}
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # Reuse a usable SDK already on the machine (Android Studio, a CI runner);
 # otherwise vendor Google's command-line tools into .android-sdk. Either way,
 # write local.properties, which is how Gradle finds the SDK - so no Android task
 # needs ANDROID_HOME in the environment.
-clt="${DAL_ANDROID_CMDLINE_TOOLS:-11076708}"
 existing="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
 if [ -n "$existing" ] && [ -d "$existing" ]; then sdk="$existing"; else sdk="$PWD/.android-sdk"; fi
 
-# Google ships both a POSIX launcher and a .bat. The launcher builds a CLASSPATH
-# out of Unix paths that the Windows JVM cannot read, so a Windows host has to
-# use the .bat - which unzips without an exec bit, so test it with -f there and
-# keep the stricter -x everywhere else.
-ext="" usable=-x
-[ "$(dal_host_os)" = windows ] && { ext=".bat"; usable=-f; }
-sdkmanager=""
-for candidate in "$sdk/cmdline-tools/latest/bin/sdkmanager$ext" "$sdk/cmdline-tools/bin/sdkmanager$ext" \
-    "$sdk/tools/bin/sdkmanager$ext"; do
-    [ $usable "$candidate" ] && { sdkmanager="$candidate"; break; }
-done
-
-# Google ships the tools unpacked under cmdline-tools/, but sdkmanager expects
-# them at cmdline-tools/latest/.
-if [ -z "$sdkmanager" ]; then
-    echo "Provisioning the Android command-line tools $clt into $sdk (one-time)..."
-    mkdir -p "$sdk/cmdline-tools"
-    # Google publishes exactly three names: linux, mac, win.
-    case "$(dal_host_os)" in
-        darwin) os=mac ;;
-        windows) os=win ;;
-        *) os=linux ;;
-    esac
-    tmp=$(mktemp -d)
-    trap 'rm -rf "$tmp"' EXIT
-    curl -fSL -o "$tmp/clt.zip" "https://dl.google.com/android/repository/commandlinetools-$os-${clt}_latest.zip"
-    unzip -qo "$tmp/clt.zip" -d "$tmp"
-    rm -rf "$sdk/cmdline-tools/latest"
-    mv "$tmp/cmdline-tools" "$sdk/cmdline-tools/latest"
-    sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager$ext"
-fi
+# An installed sdkmanager can still be too old to parse android-37.0. The
+# emulator action uses latest/bin explicitly, so update that copy too.
+python3 Tools/android/environment.py provision --sdk "$sdk"
+ext=""
+[ "$(dal_host_os)" = windows ] && ext=".bat"
+sdkmanager="$sdk/cmdline-tools/latest/bin/sdkmanager$ext"
 
 # Every consumer below is a native tool (sdkmanager.bat, and Gradle reading
 # local.properties), so they get the host's own spelling of the path; on Linux
@@ -52,12 +26,19 @@ sdk_native="$sdk"
 command -v cygpath > /dev/null 2>&1 && sdk_native=$(cygpath -w "$sdk")
 
 # Idempotent: sdkmanager no-ops on packages that are already installed.
+# Take the platform from the same catalog as Gradle. Since API 37, the SDK
+# package includes the minor version even for the base platform.
+compile_sdk=$(sed -nE 's/^compileSdk[[:space:]]*=[[:space:]]*"([0-9]+)".*/\1/p' gradle/libs.versions.toml)
+[ -n "$compile_sdk" ] || { echo "error: compileSdk missing from catalog" >&2; exit 1; }
+platform="android-$compile_sdk"
+[ "$compile_sdk" -lt 37 ] || platform="$platform.0"
+# Build-tools 36.0.0 is the oldest AGP 9.5 accepts and its default.
 export ANDROID_HOME="$sdk_native" ANDROID_SDK_ROOT="$sdk_native"
-if [ ! -d "$sdk/platforms/android-35" ] || [ ! -d "$sdk/build-tools/35.0.0" ] \
+if [ ! -d "$sdk/platforms/$platform" ] || [ ! -d "$sdk/build-tools/36.0.0" ] \
     || [ ! -d "$sdk/platform-tools" ]; then
-    echo "Installing the Android SDK packages (platform 35, build-tools 35.0.0, platform-tools)..."
+    echo "Installing the Android SDK packages ($platform, build-tools 36.0.0, platform-tools)..."
     yes | "$sdkmanager" --sdk_root="$sdk_native" --licenses > /dev/null 2>&1 || true
-    "$sdkmanager" --sdk_root="$sdk_native" "platforms;android-35" "build-tools;35.0.0" platform-tools > /dev/null
+    "$sdkmanager" --sdk_root="$sdk_native" "platforms;$platform" "build-tools;36.0.0" platform-tools > /dev/null
 fi
 
 # The pinned NDK, side by side in this SDK, where both dal_android_ndk and AGP
@@ -74,5 +55,5 @@ fi
 # Windows path has to be written with forward slashes (Gradle accepts them) or
 # every separator would be swallowed.
 echo "sdk.dir=${sdk_native//\\//}" > local.properties
-echo "sdk.dir=${sdk_native//\\//}" > androidtest/local.properties
+echo "sdk.dir=${sdk_native//\\//}" > androidconsumer/local.properties
 echo "Android SDK ready: $sdk_native"
