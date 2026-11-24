@@ -2,11 +2,16 @@ package ai.desertant.gradle
 
 import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import com.vanniktech.maven.publish.JavadocJar
+import com.vanniktech.maven.publish.JavaPlatform
 import com.vanniktech.maven.publish.KotlinJvm
 import com.vanniktech.maven.publish.MavenPublishBaseExtension
 import com.vanniktech.maven.publish.SourcesJar
+import groovy.util.Node
+import groovy.util.NodeList
+import org.gradle.api.Action
 import org.gradle.api.GradleException
 import org.gradle.api.Project
+import org.gradle.api.XmlProvider
 import org.gradle.api.artifacts.MinimalExternalModuleDependency
 import org.gradle.api.artifacts.VersionCatalog
 import org.gradle.api.artifacts.VersionCatalogsExtension
@@ -54,7 +59,7 @@ internal fun KotlinCommonCompilerOptions.configureSdkCompiler(project: Project) 
     freeCompilerArgs.add("-Xwarning-level=DEPRECATION:error")
 }
 
-/** Shared knobs for the two publishable Android artifact shapes. */
+/** Shared POM metadata for the Android publications. */
 abstract class DesertAntPublishExtension {
     /** POM display name, e.g. "Desert Ant Emo". */
     abstract val displayName: Property<String>
@@ -78,7 +83,11 @@ abstract class DesertAntPublishExtension {
  * run for Tongue. Central rejects a deployment without them, so publish:maven
  * never sets it.
  */
-internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension, jvm: Boolean = false) {
+internal fun Project.configureDesertAntPublishing(
+    ext: DesertAntPublishExtension,
+    jvm: Boolean = false,
+    managedAars: Set<String> = emptySet(),
+) {
     pluginManager.apply("com.vanniktech.maven.publish")
     val publishing = extensions.getByType(MavenPublishBaseExtension::class.java)
     publishing.publishToMavenCentral()
@@ -91,7 +100,9 @@ internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension
     if (!providers.gradleProperty("signingInMemoryKey").orNull.isNullOrEmpty()) publishing.signAllPublications()
     val docs = providers.gradleProperty("dalPublishDocs").orNull != "false"
     val sourcesJar = if (docs) SourcesJar.Sources() else SourcesJar.None()
-    if (jvm) {
+    if (pluginManager.hasPlugin("java-platform")) {
+        publishing.configure(JavaPlatform())
+    } else if (jvm) {
         // Dokka, not the `javadoc` task: a Kotlin source set has no Java
         // sources, so the javadoc tool would ship a jar holding only a manifest.
         val javadocJar = if (docs) JavadocJar.Dokka("dokkaGeneratePublicationHtml") else JavadocJar.None()
@@ -127,5 +138,39 @@ internal fun Project.configureDesertAntPublishing(ext: DesertAntPublishExtension
             scm.connection.set("scm:git:git://github.com/Desert-Ant-Labs/desert-ant-core.git")
             scm.developerConnection.set("scm:git:ssh://git@github.com/Desert-Ant-Labs/desert-ant-core.git")
         }
+        if (managedAars.isNotEmpty()) {
+            pom.withXml(MarkAarDependencies(group.toString(), managedAars, managed = true))
+        } else if (pluginManager.hasPlugin("com.android.library")) {
+            pom.withXml(MarkAarDependencies(group.toString(), setOf("core"), managed = false))
+        }
     }
+}
+
+// Maven keys managed dependencies by type and defaults omitted types to jar.
+// Match on group too: a third-party `core` (com.google.zxing:core) is a jar.
+private class MarkAarDependencies(
+    private val group: String,
+    private val artifacts: Set<String>,
+    private val managed: Boolean,
+) : Action<XmlProvider> {
+    override fun execute(xml: XmlProvider) {
+        val root = xml.asNode()
+        val dependencies = if (managed) {
+            (root.get("dependencyManagement") as NodeList).getAt("dependencies")
+        } else {
+            root.get("dependencies") as NodeList
+        }
+        for (dependency in dependencies.getAt("dependency").filterIsInstance<Node>()) {
+            val groupId = (dependency.get("groupId") as NodeList).text()
+            val artifactId = (dependency.get("artifactId") as NodeList).text()
+            if (groupId == group && artifactId in artifacts) {
+                dependency.appendNode("type", "aar")
+            }
+        }
+    }
+}
+
+internal fun Project.exportDesertAntPlatform() {
+    val deps = dependencies
+    deps.add("api", deps.platform(deps.project(mapOf("path" to ":bom"))))
 }

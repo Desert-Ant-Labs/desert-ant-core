@@ -20,6 +20,11 @@ public func toxic_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: UnsafePo
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_toxic_ToxicNative_nativeSdkVersion")
+public func androidSdkVersionToxic(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_toxic_ToxicNative_create")
 public func androidCreateToxic(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                                _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,

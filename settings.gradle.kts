@@ -1,5 +1,5 @@
 // One Gradle build for every publishable Android artifact in this repo:
-// `ai.desertant:core` (kotlin/) and one AAR per model (packages/<model>-kotlin).
+// `ai.desertant:bom`, `ai.desertant:core` (kotlin/), and one artifact per model.
 //
 // The model modules used to be separate builds that resolved the convention
 // plugin and `ai.desertant:core` from Maven Central, so they could not be built
@@ -38,6 +38,7 @@ dependencyResolutionManagement {
 
 rootProject.name = "desert-ant-core"
 
+include("bom")
 include("core")
 project(":core").projectDir = file("kotlin")
 

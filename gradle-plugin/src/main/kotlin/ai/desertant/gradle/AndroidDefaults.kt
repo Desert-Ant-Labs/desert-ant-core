@@ -2,9 +2,17 @@ package ai.desertant.gradle
 
 import com.android.build.api.dsl.LibraryExtension
 import com.android.build.api.dsl.Lint
+import com.android.build.api.variant.LibraryAndroidComponentsExtension
+import org.gradle.api.DefaultTask
 import org.gradle.api.JavaVersion
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.Property
+import org.gradle.api.tasks.CacheableTask
+import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
 
@@ -43,10 +51,44 @@ internal fun Project.configureDesertAntAndroid() {
         android.compileOptions.targetCompatibility = JavaVersion.toVersion(jvmTarget)
         configureDesertAntLint(android.lint)
     }
+    configureSdkVersionSource()
     extensions.configure(KotlinAndroidProjectExtension::class.java) { kotlin ->
         kotlin.compilerOptions.jvmTarget.set(JvmTarget.fromTarget(jvmTarget))
         kotlin.compilerOptions.configureSdkCompiler(this)
         kotlin.coreLibrariesVersion = libs.version("kotlinFloor")
+    }
+}
+
+// An internal SDK_VERSION constant in the module's namespace, for the runtime
+// version handshake. Not BuildConfig, which would add a public class to every AAR.
+// One task per variant: AGP points each task's outputDir at its variant's
+// generated directory.
+private fun Project.configureSdkVersionSource() {
+    val sdkVersion = version.toString()
+    extensions.getByType(LibraryAndroidComponentsExtension::class.java).onVariants { variant ->
+        val name = variant.name.replaceFirstChar { it.uppercase() }
+        val task = tasks.register("generate${name}SdkVersion", GenerateSdkVersion::class.java) {
+            it.packageName.set(variant.namespace)
+            it.sdkVersion.set(sdkVersion)
+        }
+        variant.sources.kotlin?.addGeneratedSourceDirectory(task, GenerateSdkVersion::outputDir)
+    }
+}
+
+@CacheableTask
+abstract class GenerateSdkVersion : DefaultTask() {
+    @get:Input abstract val packageName: Property<String>
+    @get:Input abstract val sdkVersion: Property<String>
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val pkg = packageName.get()
+        val dir = outputDir.get().asFile.resolve(pkg.replace('.', '/'))
+        dir.mkdirs()
+        dir.resolve("SdkVersion.kt").writeText(
+            "package $pkg\n\ninternal const val SDK_VERSION = \"${sdkVersion.get()}\"\n",
+        )
     }
 }
 

@@ -20,6 +20,11 @@ public func ear_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: UnsafePoin
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_ear_EarNative_nativeSdkVersion")
+public func androidSdkVersionEar(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_ear_EarNative_create")
 public func androidCreateEar(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                                  _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,

@@ -71,6 +71,7 @@ class LoadedModel internal constructor(
     )
 
     init {
+        // The model bridge verifies the Kotlin and JNI versions before a handle exists.
         native.ensureLoaded()
         // Construction is cheap: the native side is lazy, so nothing is
         // downloaded or loaded until download() or the first run().

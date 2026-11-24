@@ -4,7 +4,8 @@ import ai.desertant.core.NativeLibraries
 import ai.desertant.core.NativeModelApi
 
 internal object GistNative : NativeModelApi {
-    override fun ensureLoaded() = NativeLibraries.loadModel("GistAndroid")
+    override fun ensureLoaded() = NativeLibraries.loadModel("GistAndroid", SDK_VERSION, ::nativeSdkVersion)
+    private external fun nativeSdkVersion(): ByteArray?
     override external fun create(modelId: ByteArray, cacheRoot: ByteArray?, directory: ByteArray?): Long
     override external fun destroy(handle: Long)
     override external fun isDownloaded(handle: Long): Int

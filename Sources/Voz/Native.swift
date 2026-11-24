@@ -24,6 +24,11 @@ public func voz_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: UnsafePoin
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_voz_VozNative_nativeSdkVersion")
+public func androidSdkVersionVoz(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_voz_VozNative_create")
 public func androidCreateVoz(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                              _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,

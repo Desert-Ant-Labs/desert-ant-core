@@ -27,6 +27,7 @@ trap 'rm -f "$notes"' EXIT
         echo "- Android: \`ai.desertant:$model:$version\`"
     done
     echo "- Android (shared runtime): \`ai.desertant:core:$version\`"
+    echo "- Android (version alignment): \`ai.desertant:bom:$version\`"
     for model in $(dal_models_with node); do
         echo "- npm: \`@desert-ant-labs/$model@$version\`"
     done

@@ -2,6 +2,11 @@
 import Android
 import DesertAnt
 
+public func androidSdkVersion(_ env: HostEnv) -> jbyteArray? {
+    // check:version keeps the shared Swift version in step with Gradle's VERSION.
+    hostMakeBytes(env, Array(defaultSDKVersion.utf8))
+}
+
 public func androidHandle(_ pointer: UnsafeMutableRawPointer?) -> jlong {
     jlong(Int(bitPattern: pointer))
 }
