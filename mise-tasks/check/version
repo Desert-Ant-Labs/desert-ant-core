@@ -30,6 +30,18 @@ done
 # The `sdk.version` every license grant sends.
 check "$(sed -n -E 's|^public let defaultSDKVersion = "([^"]*)".*|\1|p' Sources/Usage/Wire.swift)" \
     "Sources/Usage/Wire.swift defaultSDKVersion"
+check "$(sed -n -E 's|.*SDK_VERSION = "([^"]*)".*|\1|p' packages/tongue-node/src/version.ts)" \
+    "packages/tongue-node/src/version.ts"
+check "$(sed -n -E 's|.*const val SDK_VERSION = "([^"]*)".*|\1|p' packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/license/Wire.kt)" \
+    "packages/tongue-kotlin Wire.kt SDK_VERSION"
+
+# The setup guide's install lines, which set-version rewrites; none found means they moved.
+pins=$(grep -o -E '(ai\.desertant:[a-z0-9-]+:|desert-ant-core\.git", from: "|@desert-ant-labs/[a-z0-9-]+@)[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?' docs/setup.md 2>/dev/null \
+    | grep -o -E '[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$' || true)
+[ -n "$pins" ] || { echo "  docs/setup.md: no install lines found" >&2; bad=1; }
+for found in $pins; do
+    check "$found" "docs/setup.md"
+done
 
 # The Gradle artifacts are not checked here because they cannot drift: every
 # Gradle project reads VERSION at configuration time (build.gradle.kts), so no
