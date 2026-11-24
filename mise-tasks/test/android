@@ -106,6 +106,10 @@ sdkroot=".build-androidtest/swift-sdks"
 rm -rf "$sdkroot" && mkdir -p "$sdkroot"
 ln -sfn "$bundle" "$sdkroot/$(basename "$bundle")"
 
+# The harness links against the Android LiteRT libs, which build:android-natives
+# would otherwise be the first to fetch.
+dal_vendor_litert_android
+
 # Cross-compile the JNI harness per ABI and stage it (plus the NDK's
 # libc++_shared.so) into the Gradle module's jniLibs. A static stdlib bundles the
 # Swift runtime into the .so, matching how a shipping Android artifact looks.
@@ -162,8 +166,14 @@ fi
 
 # The compatibility runner supplies per-library arguments in isolated processes.
 # The regular suite runs the core harness here, then each model's suite below.
-./gradlew --no-daemon :androidtest:connectedAndroidTest \
-    -Pandroid.testInstrumentationRunnerArguments.class=ai.desertant.core.androidtest.CoreBridgeTest
+core=(":androidtest:connectedAndroidTest"
+    "-Pandroid.testInstrumentationRunnerArguments.class=ai.desertant.core.androidtest.CoreBridgeTest")
+# CoreBridgeTest loads Tongue, which asks for a license. The device does not
+# inherit the host's environment, so without this it would ask the license server.
+if [ -n "${DAL_LICENSE_ENDPOINT:-}" ]; then
+    core+=("-Pandroid.testInstrumentationRunnerArguments.DAL_LICENSE_ENDPOINT=$DAL_LICENSE_ENDPOINT")
+fi
+./gradlew --no-daemon "${core[@]}"
 
 # Each model AAR's own instrumented suite, on the same booted device, in one
 # Gradle invocation so the JVM/configuration cost is paid once. Gradle builds
@@ -182,7 +192,7 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         tasks+=(":$model:test")
     fi
 done
-for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N FACE_BENCH FACE_BENCH_N UHM_BENCH UHM_BENCH_N; do
+for name in HF_TOKEN DAL_HF_REPO_SUFFIX DAL_LICENSE_ENDPOINT EYE_BENCH EYE_BENCH_N FACE_BENCH FACE_BENCH_N UHM_BENCH UHM_BENCH_N DAL_SPEECH_PARITY; do
     if [ -n "${!name:-}" ]; then tasks+=("-Pandroid.testInstrumentationRunnerArguments.$name=${!name}"); fi
 done
 [ ${#tasks[@]} -eq 0 ] || ./gradlew --no-daemon "${tasks[@]}"
