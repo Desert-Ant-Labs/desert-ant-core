@@ -6,7 +6,7 @@
 #USAGE flag "--local" help="Publish to ~/.m2 instead (keyless, for testing consumers)"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# The Maven side of a release: ai.desertant:core and one artifact per model.
+# The Maven side of a release: the BOM, core, and one artifact per model.
 # The convention plugins are an included build and core is a project dependency
 # (settings.gradle.kts), so nothing here waits for anything to appear on Central
 # mid-release. The plugins themselves are not published: nothing outside this
@@ -32,7 +32,7 @@ fi
 export DAL_ANDROID_ABIS="arm64-v8a x86_64"
 
 if [ "${DAL_PUBLISH_TARGET:-}" = github ]; then
-    tasks=(":core:publishAllPublicationsToGitHubPackagesRepository")
+    tasks=(":bom:publishAllPublicationsToGitHubPackagesRepository" ":core:publishAllPublicationsToGitHubPackagesRepository")
     for model in $(dal_models_with kotlin); do
         tasks+=(":$model:publishAllPublicationsToGitHubPackagesRepository")
     done
@@ -58,6 +58,7 @@ published() {
 # together. Skip the artifacts already on Central; Central rejects a deployment
 # that contains one.
 projects=()
+published bom || projects+=(":bom:publishAndReleaseToMavenCentral")
 published core || projects+=(":core:publishAndReleaseToMavenCentral")
 for model in $(dal_models_with kotlin); do
     published "$model" || projects+=(":$model:publishAndReleaseToMavenCentral")

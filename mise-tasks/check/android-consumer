@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-#MISE description="Build a consumer app on both Kotlin pins and lint it on the SDK compiler"
+#MISE description="Build a consumer app against the published SDKs and lint it on the SDK compiler"
 #MISE dir="{{config_root}}"
 #MISE depends=["android-sdk"]
 #MISE tools={java="{{ vars.java }}"}
 #USAGE flag "--abi <abi>" help="ABIs to build: arm64-v8a (the default), x86_64, or all"
+#USAGE flag "--stage-handshake" help="Stage aligned and deliberately mismatched consumer APKs for Android instrumentation"
+#USAGE flag "--handshake-abi <abi>" help="Limit the staged consumer APKs to a single ABI"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # Everything else Android here builds inside the root Gradle build, where the
@@ -12,13 +14,13 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # repo and builds androidconsumer/ against them: every SDK, called through its
 # public API from outside the build, packaged into a debug APK.
 #
-# Two compilers, both from the catalog. `floor` (kotlinFloor) is the oldest
-# Kotlin we commit to for apps using these SDKs, and the language, API and
-# stdlib version every SDK module is built against. Older ones may well work,
-# but nothing proves it, so we don't promise it. `sdk_kotlin` (kotlin) is the
-# compiler the SDKs themselves build with. Both must support
-# the AGP and Gradle the fixture builds with (kotlinlang.org lists the ranges
-# per release).
+# The app builds with `sdk_kotlin` (kotlin in the catalog), the compiler the SDKs
+# themselves build with. It must support the AGP and Gradle the fixture builds
+# with (kotlinlang.org lists the ranges per release). `floor` (kotlinFloor) is
+# the language, API and stdlib version every SDK module is built against, and
+# the oldest Kotlin the README promises. We don't build an app on it: Kotlin's
+# own compatibility guarantees cover older minor versions, so only the README
+# agreement below is checked.
 catalog_version() {
     sed -nE "s/^$1[[:space:]]*=[[:space:]]*\"([^\"]+)\".*/\1/p" gradle/libs.versions.toml
 }
@@ -79,26 +81,68 @@ done
 # Gradle reads maven.repo.local when it publishes and when it resolves.
 repo="$PWD/$fixture/build/m2"
 rm -rf "$repo"
-echo "== publishing ai.desertant:* $(dal_version) to $repo =="
+version=$(dal_version)
+echo "== publishing ai.desertant:* $version to $repo =="
 # Without the javadoc and sources jars (dalPublishDocs, Support.kt): the
 # fixture only compiles against the AARs and jars, and building the docs is
 # about half of what the publish costs from a clean tree. Unsigned too: an
 # empty signingInMemoryKey overrides one from the environment, so a key set for
 # releases is never read here and never reaches the configuration cache.
 ./gradlew -Dmaven.repo.local="$repo" -PdalPublishDocs=false -PsigningInMemoryKey= publishToMavenLocal
+app_list=$(IFS=,; echo "${app_models[*]}")
+jvm_list=$(IFS=,; echo "${jvm_models[*]}")
+python3 Tools/android/consumer.py verify "$repo" "$version" "$app_list" "$jvm_list"
+
+# A real release from before the BOM with both Android ABIs and the same
+# LoadedModel JVM signatures. Keep it in this repo so Central cannot hide a
+# missing local candidate.
+legacy=4.2.0
+for model in emo core; do
+    directory="$repo/ai/desertant/$model/$legacy"
+    mkdir -p "$directory"
+    for ext in pom module aar; do
+        name="$model-$legacy.$ext"
+        curl -fsSL --retry 3 "https://repo.maven.apache.org/maven2/ai/desertant/$model/$legacy/$name" -o "$directory/$name"
+    done
+done
+
+consumer() {
+    local kotlin=$1 consumer_repo=$2
+    shift 2
+    ./gradlew -p "$fixture" --no-daemon -Dmaven.repo.local="$consumer_repo" -PdalConsumerKotlin="$kotlin" \
+        -PdalConsumerModels="$app_list" -PdalConsumerJvmModels="$jvm_list" "$@"
+}
 
 # --no-daemon: the fixture's Gradle needs 8 GB (androidconsumer/gradle.properties),
 # and a daemon would keep it after the check ends. On CI's self-hosted runner
 # that sat idle next to the emulator and the on-device run's own Gradle.
-for kotlin in "$floor" "$sdk_kotlin"; do
-    echo "== building $fixture with Kotlin $kotlin =="
-    tasks=(:app:assembleDebug :jvm:compileKotlin :app:checkKotlinStdlib :jvm:checkKotlinStdlib)
-    if [ "$kotlin" = "$sdk_kotlin" ]; then
-        tasks+=(:app:lint)
+echo "== building $fixture with Kotlin $sdk_kotlin =="
+consumer "$sdk_kotlin" "$repo" :app:assembleDebug :jvm:run :app:lint \
+    :app:checkKotlinStdlib :jvm:checkKotlinStdlib :app:checkSdkAlignment :jvm:checkSdkAlignment
+consumer "$sdk_kotlin" "$repo" -PdalConsumerMixedVersion="$legacy" :app:checkSdkAlignment
+older_platform=4.2.0-bom-fixture
+python3 Tools/android/consumer.py older-platform "$repo" "$version" "$older_platform"
+consumer "$sdk_kotlin" "$repo" -PdalConsumerMixedVersion="$older_platform" :app:checkSdkAlignment
+echo "ok: an app builds against the published SDKs on Kotlin $sdk_kotlin"
+
+if [ -n "${usage_stage_handshake:-}" ]; then
+    staged="$PWD/.build/android-compat/consumer"
+    stale_repo="$PWD/$fixture/build/m2-stale-native"
+    rm -rf "$staged" "$stale_repo"
+    mkdir -p "$staged"
+    echo "$version" > "$staged/version"
+    python3 Tools/android/consumer.py stale-native "$repo" "$stale_repo" "$version" "$legacy"
+    handshake_abi=()
+    if [ -n "${usage_handshake_abi:-}" ]; then
+        handshake_abi+=("-PdalConsumerHandshakeAbi=$usage_handshake_abi")
     fi
-    ./gradlew -p "$fixture" --no-daemon -Dmaven.repo.local="$repo" -PdalConsumerKotlin="$kotlin" \
-        -PdalConsumerModels="$(IFS=,; echo "${app_models[*]}")" \
-        -PdalConsumerJvmModels="$(IFS=,; echo "${jvm_models[*]}")" \
-        "${tasks[@]}"
-done
-echo "ok: an app builds against the published SDKs on Kotlin $floor and $sdk_kotlin"
+    for scenario in matching legacy-core stale-native; do
+        scenario_repo="$repo"
+        [ "$scenario" != stale-native ] || scenario_repo="$stale_repo"
+        consumer "$sdk_kotlin" "$scenario_repo" -PdalConsumerLegacyVersion="$legacy" -PdalConsumerHandshake="$scenario" \
+            "${handshake_abi[@]}" :handshake:assembleDebug :handshake:assembleDebugAndroidTest
+        mkdir -p "$staged/$scenario"
+        cp "$fixture/handshake/build/outputs/apk/debug/handshake-debug.apk" "$staged/$scenario/app.apk"
+        cp "$fixture/handshake/build/outputs/apk/androidTest/debug/handshake-debug-androidTest.apk" "$staged/$scenario/test.apk"
+    done
+fi

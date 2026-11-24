@@ -22,7 +22,7 @@ Shapes also recognizes six marks: a check, a cross, a plus, a bracket, a zigzag 
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0")
 ```
 
 Then add the `Shapes` product to your target.
@@ -30,7 +30,8 @@ Then add the `Shapes` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:shapes:5.0.0")
+implementation(platform("ai.desertant:bom:6.0.0"))
+implementation("ai.desertant:shapes")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

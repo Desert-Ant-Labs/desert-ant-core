@@ -69,5 +69,29 @@ mise run test:android
 
 That task also runs the core's plain JVM and Robolectric tests. The focused
 runtime matrix and its preparation commands are described in
-[Android Unicode compatibility](android-unicode.md). Keep that matrix as the
+[Android SDK verification](android-verification.md). Keep that matrix as the
 compatibility gate; Robolectric complements it.
+
+## Published artifacts and version alignment
+
+`mise run check:android-consumer` publishes the BOM, core, and every SDK into
+the fixture's own Maven Local repository. It checks the POM and Gradle module
+metadata, builds against versionless dependencies with the pinned Kotlin
+compiler, runs Tongue on a plain JVM, and checks that an older model request
+aligns without an explicit BOM import.
+
+The Android compatibility workflow stages three consumer APK pairs with
+`mise run test:android-prepare`. On API 31 in the prepare job and on API 24 and
+37 in full runs, it constructs Emo from matching artifacts, forces an older
+core, and substitutes a pre-handshake native library into a current AAR. This smoke test needs no model weights or network
+access on the device. CI stages only the emulator ABI for these APKs. To run
+the smoke test on a connected Android target:
+
+```sh
+python3 Tools/android/consumer.py run .build/android-compat/consumer "$ANDROID_SERIAL" .build/android-compat/results/consumer
+```
+
+For the full sample app, publish with `mise run publish:maven --local`. Use
+`DAL_ANDROID_ABIS=all` when testing on an x86_64 emulator. Build
+`desert-ant-android-examples` in its default local mode so all model
+dependencies resolve through the just-published BOM.

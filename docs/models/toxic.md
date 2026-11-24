@@ -22,7 +22,7 @@ Toxic flags hateful, abusive and threatening text on device, in 35 languages, so
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0")
 ```
 
 Then add the `Toxic` product to your target.
@@ -30,7 +30,8 @@ Then add the `Toxic` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:toxic:5.0.0")
+implementation(platform("ai.desertant:bom:6.0.0"))
+implementation("ai.desertant:toxic")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

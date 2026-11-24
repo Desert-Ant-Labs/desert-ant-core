@@ -20,6 +20,11 @@ public func uhm_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: UnsafePoin
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_uhm_UhmNative_nativeSdkVersion")
+public func androidSdkVersionUhm(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_uhm_UhmNative_create")
 public func androidCreateUhm(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                              _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,

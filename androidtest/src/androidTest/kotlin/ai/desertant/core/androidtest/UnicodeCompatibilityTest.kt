@@ -1,7 +1,6 @@
 package ai.desertant.core.androidtest
 
 import ai.desertant.DesertAntNative
-import ai.desertant.core.NativeLibraries
 import ai.desertant.tongue.runGoldenVectors
 import android.icu.lang.UCharacter
 import android.icu.util.VersionInfo
@@ -135,7 +134,8 @@ class NativeLibraryCompatibilityTest {
     @Test fun loadsShippingLibrary() {
         val library = InstrumentationRegistry.getArguments().getString("nativeLibrary")
             ?: error("nativeLibrary argument is required")
-        NativeLibraries.loadModel(library)
-        NativeLibraries.loadModel(library)
+        System.loadLibrary("LiteRt")
+        System.loadLibrary(library)
+        System.loadLibrary(library)
     }
 }

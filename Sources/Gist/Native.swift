@@ -20,6 +20,11 @@ public func gist_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: UnsafePoi
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_gist_GistNative_nativeSdkVersion")
+public func androidSdkVersionGist(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_gist_GistNative_create")
 public func androidCreateGist(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                                  _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,

@@ -4,7 +4,8 @@ import ai.desertant.core.NativeLibraries
 import ai.desertant.core.NativeModelApi
 
 internal object ModeratorNative : NativeModelApi {
-    override fun ensureLoaded() = NativeLibraries.loadModel("ModeratorAndroid")
+    override fun ensureLoaded() = NativeLibraries.loadModel("ModeratorAndroid", SDK_VERSION, ::nativeSdkVersion)
+    private external fun nativeSdkVersion(): ByteArray?
     override external fun create(modelId: ByteArray, cacheRoot: ByteArray?, directory: ByteArray?): Long
     override external fun destroy(handle: Long)
     override external fun isDownloaded(handle: Long): Int

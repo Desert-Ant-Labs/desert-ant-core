@@ -5,9 +5,7 @@ import org.gradle.api.Project
 
 /**
  * `ai.desertant.publish`: the publishing half of the model-SDK convention, for
- * an Android library that is not a model - today just `ai.desertant:core`. It
- * exists so the ~40 lines of source-available POM boilerplate are written once
- * and both artifacts provably ship the same license and SCM metadata.
+ * `ai.desertant:core` and `ai.desertant:bom`.
  *
  *     plugins { id("ai.desertant.publish") }
  *     desertAntPublish { displayName = "..."; description = "..." }
@@ -15,6 +13,17 @@ import org.gradle.api.Project
 class CoreLibraryPlugin : Plugin<Project> {
     override fun apply(project: Project) {
         val ext = project.extensions.create("desertAntPublish", DesertAntPublishExtension::class.java)
-        project.configureDesertAntPublishing(ext)
+        if (project.pluginManager.hasPlugin("java-platform")) {
+            val modules = project.rootProject.subprojects.filter {
+                it.name == "core" || it.projectDir.parentFile.name == "packages"
+            }
+            val deps = project.dependencies
+            modules.forEach { deps.constraints.add("api", deps.project(mapOf("path" to it.path))) }
+            val aars = modules.filter { it.file("src/main/AndroidManifest.xml").isFile }.map { it.name }.toSet()
+            project.configureDesertAntPublishing(ext, managedAars = aars)
+        } else {
+            project.exportDesertAntPlatform()
+            project.configureDesertAntPublishing(ext)
+        }
     }
 }

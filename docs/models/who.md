@@ -25,7 +25,7 @@ Who numbers the speakers in the order they first speak, and when two people talk
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0")
 ```
 
 Then add the `Who` product to your target.
@@ -33,7 +33,8 @@ Then add the `Who` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:who:5.0.0")
+implementation(platform("ai.desertant:bom:6.0.0"))
+implementation("ai.desertant:who")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))

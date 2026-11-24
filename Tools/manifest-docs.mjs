@@ -278,7 +278,8 @@ function install(model, version) {
       "**Kotlin** ([requirements](../../README.md#android))",
       "",
       "```kotlin",
-      `implementation("${kotlin.package}:${version}")`,
+      `implementation(platform("ai.desertant:bom:${version}"))`,
+      `implementation("${kotlin.package}")`,
       "```",
       ""
     );

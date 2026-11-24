@@ -20,6 +20,11 @@ public func moderator_create(_ modelId: UnsafePointer<CChar>?, _ cacheRoot: Unsa
 #endif
 
 #if os(Android)
+@_cdecl("Java_ai_desertant_moderator_ModeratorNative_nativeSdkVersion")
+public func androidSdkVersionModerator(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?) -> jbyteArray? {
+    androidSdkVersion(env)
+}
+
 @_cdecl("Java_ai_desertant_moderator_ModeratorNative_create")
 public func androidCreateModerator(_ env: UnsafeMutablePointer<JNIEnv?>, _ cls: jclass?,
                                 _ modelId: jbyteArray?, _ cacheRoot: jbyteArray?,
