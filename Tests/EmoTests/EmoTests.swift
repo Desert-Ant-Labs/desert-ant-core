@@ -105,15 +105,19 @@ extension EmoModelTests {
     func aFailingLicenseServerChangesNoSuggestion(_ kind: LicenseServer) async throws {
         let text = "Pay my bills"
         let expected = try await Emo().suggestions(for: text, limit: 5)
+        let appId = "ai.desertant.emo.outage.\(UUID().uuidString)"
         let server = try #require(kind == .silent
-            ? StubLicenseServer()
-            : StubLicenseServer(answer: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
-        defer { server.stop() }
+            ? StubLicenseServer(appId: appId)
+            : StubLicenseServer(appId: appId, answer: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
+        defer {
+            server.stop()
+            UserDefaults.standard.removeObject(forKey: "ai.desertant.license.\(appId)")
+        }
 
         let keyless = hostProvidedApiKey() == nil
         let (results, abandoned) = try await withEnvironment([
             "DAL_LICENSE_ENDPOINT": server.endpoint,
-            "DAL_APP_ID": "ai.desertant.emo.outage.\(UUID().uuidString)",
+            "DAL_APP_ID": appId,
         ]) {
             // The load alone: resolving the files, building the session (which starts the license
             // check), and the model. Not the first prediction, which is no part of the question.
@@ -154,10 +158,12 @@ private func withEnvironment<T>(_ values: [String: String], _ body: () async thr
 
 /// A 127.0.0.1 license server that holds Emo's grant open until release(), then closes it or
 /// sends `answer`. It records a grant the client gave up on (its own timeout) while held.
+/// Another model's grant under `appId` gets a final refusal, so Emo's grant is not queued behind it.
 private final class StubLicenseServer: @unchecked Sendable {
     let port: UInt16
     private let fd: Int32
     private let answer: String?
+    private let appId: String
     private let lock = NSLock()
     private var released = false
     private var stopped = false
@@ -170,7 +176,7 @@ private final class StubLicenseServer: @unchecked Sendable {
     var abandoned: Bool { lock.withLock { gaveUp } }
     var answered: Int { lock.withLock { replies } }
 
-    init?(answer response: String? = nil) {
+    init?(appId app: String, answer response: String? = nil) {
         #if canImport(Glibc)
         let listener = socket(AF_INET, Int32(SOCK_STREAM.rawValue), 0)
         #else
@@ -190,6 +196,7 @@ private final class StubLicenseServer: @unchecked Sendable {
         fd = listener
         port = UInt16(bigEndian: addr.sin_port)
         answer = response
+        appId = app
         Thread.detachNewThread { [self] in acceptLoop() }
     }
 
@@ -229,7 +236,14 @@ private final class StubLicenseServer: @unchecked Sendable {
         let (target, body) = readRequest(client)
         let now = ContinuousClock.now
         // Other suites load models under this environment too; holding their grants would fill URLSession's six connections to this host.
-        guard target.hasSuffix("/license"), (try? JSONDecoder().decode(Grant.self, from: Data(body)))?.model == "emo" else {
+        guard target.hasSuffix("/license"), let grant = try? JSONDecoder().decode(Grant.self, from: Data(body)),
+              grant.app.id == appId
+        else {
+            close(client)
+            return
+        }
+        guard grant.model == "emo" else {
+            reply("HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: 23\r\nConnection: close\r\n\r\n{\"error\":\"other model\"}", to: client)
             close(client)
             return
         }
@@ -253,15 +267,19 @@ private final class StubLicenseServer: @unchecked Sendable {
             if peeked > 0 { Thread.sleep(forTimeInterval: 0.02) }
         }
         if let answer, !isStopped {
-            let bytes = Array(answer.utf8)
-            #if canImport(Glibc)
-            _ = send(client, bytes, bytes.count, Int32(MSG_NOSIGNAL))
-            #else
-            _ = send(client, bytes, bytes.count, 0)
-            #endif
+            reply(answer, to: client)
             lock.withLock { replies += 1 }
         }
         close(client)
+    }
+
+    private func reply(_ text: String, to client: Int32) {
+        let bytes = Array(text.utf8)
+        #if canImport(Glibc)
+        _ = send(client, bytes, bytes.count, Int32(MSG_NOSIGNAL))
+        #else
+        _ = send(client, bytes, bytes.count, 0)
+        #endif
     }
 
     private func readRequest(_ client: Int32) -> (target: String, body: [UInt8]) {
@@ -288,7 +306,9 @@ private final class StubLicenseServer: @unchecked Sendable {
     }
 
     private struct Grant: Decodable {
+        struct App: Decodable { let id: String }
         let model: String
+        let app: App
     }
 }
 #endif
