@@ -7,6 +7,17 @@ import DesertAnt
 
 #if !os(WASI)
 @Suite(.serialized, .modelBacked) struct UhmRuntimeTests {
+    @Test func detectsTheRecordedHesitation() async throws {
+        let clip = try #require(Bundle.module.url(forResource: "filler-uh", withExtension: "wav"))
+        let result = try await Uhm().analyze(audioURL: clip, options: .init(bias: .recall, includeTypes: false))
+        #expect(abs(result.audioDuration - 2.3475) < 0.01)
+        // The 0.85 s recording starts after 0.75 s of added silence.
+        #expect(result.fillers.contains {
+            (0.70...1.20).contains($0.start) && (1.20...1.70).contains($0.end)
+                && (0.50...1.0).contains($0.confidence) && $0.type == nil
+        }, "no filler at the recorded hesitation: \(result.fillers)")
+    }
+
     @Test func theTierDeclaresACoreAIArtifactBesideCoreML() {
         let high = Uhm.Quality.high
         #expect(high.coreAI == "uhm.aimodel")

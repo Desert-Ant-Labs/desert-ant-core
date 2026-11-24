@@ -68,17 +68,9 @@ struct ModeratorTests {
 #if !os(WASI)
     @Suite(.serialized, .modelBacked)
     struct ModelTests {
-        /// The shipped int8 Core ML file against the fp32 reference, or the LiteRT file against its own outputs.
-        static let tolerance = 0.02
-
         @Test(arguments: Quality.allCases)
         func syntheticMatchesReference(quality: Quality) async throws {
-            let golden = try Golden.load()
-            let image = ModeratorTests.synthetic(width: golden.synthetic.width, height: golden.synthetic.height)
-            let moderator = try makeModerator()
-            let result = try await moderator.analyze(image, options: .init(quality: quality))
-            try expectClose(result.regions, golden.expectedSynthetic(quality))
-            #expect(moderator.isDownloaded())
+            try await ModeratorTests.checkSynthetic(using: makeModerator(), quality: quality)
         }
 
 #if canImport(ImageIO)
@@ -88,7 +80,7 @@ struct ModeratorTests {
             let golden = try Golden.load()
             let url = try #require(Bundle.module.url(forResource: "sfw_beach", withExtension: "png"))
             let result = try await makeModerator().analyze(contentsOf: url, options: .init(quality: quality))
-            try expectClose(result.regions, golden.expectedSFW(quality))
+            ModeratorTests.expectClose(result.regions, golden.expectedSFW(quality))
             #expect(!result.isNSFW)
             #expect(result.score < 0.2)
         }
@@ -135,14 +127,23 @@ struct ModeratorTests {
             }
             return Moderator()
         }
+    }
 
-        private func expectClose(_ got: Regions, _ want: Golden.Regions,
-                                 sourceLocation: SourceLocation = #_sourceLocation) throws {
-            let pairs = [(got.nipples, want.nipples), (got.genitals, want.genitals),
-                         (got.buttocks, want.buttocks), (got.nude, want.nude), (got.sexAct, want.sexAct)]
-            for (g, w) in pairs {
-                #expect(abs(g - w) < Self.tolerance, "got \(got), want \(want)", sourceLocation: sourceLocation)
-            }
+    static func checkSynthetic(using moderator: Moderator, quality: Quality) async throws {
+        let golden = try Golden.load()
+        let image = synthetic(width: golden.synthetic.width, height: golden.synthetic.height)
+        let result = try await moderator.analyze(image, options: .init(quality: quality))
+        expectClose(result.regions, golden.expectedSynthetic(quality))
+        #expect(moderator.isDownloaded())
+    }
+
+    private static func expectClose(_ got: Regions, _ want: Golden.Regions,
+                                    sourceLocation: SourceLocation = #_sourceLocation) {
+        let pairs = [(got.nipples, want.nipples), (got.genitals, want.genitals),
+                     (got.buttocks, want.buttocks), (got.nude, want.nude), (got.sexAct, want.sexAct)]
+        // The int8 Core ML file compares to the fp32 reference. LiteRT uses its own outputs.
+        for (g, w) in pairs {
+            #expect(abs(g - w) < 0.02, "got \(got), want \(want)", sourceLocation: sourceLocation)
         }
     }
 #endif
@@ -170,6 +171,21 @@ struct ModeratorTests {
         return String(repeating: "0", count: 16 - hex.count) + hex
     }
 }
+
+#if os(iOS) && targetEnvironment(simulator)
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["DAL_IOS_MODERATOR_MODEL_DIR"] != nil,
+                "stage the pinned moderator.mlmodelc and set DAL_IOS_MODERATOR_MODEL_DIR"))
+struct ModeratorSimulatorParityTests {
+    @Test func syntheticMatchesStagedAppleModel() async throws {
+        try await withStagedSimulatorModel("Moderator", environmentKey: "DAL_IOS_MODERATOR_MODEL_DIR",
+                                           entry: ModeratorModel.coreML) { directory in
+            let moderator = Moderator(directory: directory)
+            try #require(moderator.isDownloaded(), "the staged Core ML artifact was not adopted")
+            try await ModeratorTests.checkSynthetic(using: moderator, quality: .fast)
+        }
+    }
+}
+#endif
 
 #if !os(WASI)
 struct Golden: Decodable {

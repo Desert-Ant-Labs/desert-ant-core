@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device multilingual PII redaction for Android: names, addresses, emails, cards, " +
         "IBANs, national IDs and VAT numbers, across 27 languages."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/RedactTests/Resources"))
+}

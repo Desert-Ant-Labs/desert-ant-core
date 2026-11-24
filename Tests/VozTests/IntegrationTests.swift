@@ -24,6 +24,30 @@ private struct Fixture {
     }
 }
 
+@Test(.enabled(if: ProcessInfo.processInfo.environment["DAL_SPEECH_PARITY"] == "1",
+               "set DAL_SPEECH_PARITY=1 and stage the pinned Core ML model"))
+func transcribesLibriVoxSpeechWithWordTimings() async throws {
+    let directory = try #require(ProcessInfo.processInfo.environment["VOZ_MODEL_DIR"])
+    let voz = try Voz(modelDirectory: URL(fileURLWithPath: directory))
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let clip = root.appendingPathComponent("packages/voz-node/test/fixtures/speech.wav")
+    let result = try await voz.transcribe(clip)
+    let expectedPhrases = #"\bpublic domain\b.*\bmore information\b"#
+    let timedWords = result.words.map(\.text).joined(separator: " ")
+    for (label, value) in [("transcript", result.text), ("timed words", timedWords)] {
+        let normalized = value.lowercased().split { !$0.isASCII || !$0.isLetter }.joined(separator: " ")
+        #expect(normalized.range(of: expectedPhrases, options: .regularExpression) != nil, "\(label): \(normalized)")
+    }
+    #expect(abs(result.duration - 6.0) < 0.01)
+    #expect(result.words.count > 5)
+    #expect(result.words.map(\.start) == result.words.map(\.start).sorted())
+    #expect(result.words.allSatisfy {
+        !$0.text.isEmpty && $0.start >= 0 && $0.end >= $0.start && $0.end <= result.duration + 0.5
+    })
+    #expect((result.words.last?.start ?? 0) > 0.5)
+}
+
 @Suite(.enabled(if: Fixture() != nil, "set VOZ_MODEL_DIR and VOZ_AUDIO"))
 struct VozIntegration {
 

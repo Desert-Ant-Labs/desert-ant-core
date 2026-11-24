@@ -13,12 +13,11 @@ import java.io.File
 
 /**
  * Fast instrumented smoke for the Android binding, so voz stays in the
- * every-commit device lane without its multi-gigabyte model. The suite never
+ * every-commit device lane without downloading the model. The suite never
  * downloads: it proves the part only a device can, that libVozAndroid.so, the
  * static Swift runtime, and LiteRT load, and that a handle created through the
- * shared core crosses JNI and releases cleanly. Anything needing the weights
- * lives in the evaluation harness beside the training run, as with the Swift
- * suite.
+ * shared core crosses JNI and releases cleanly. VozSpeechParityTest loads the
+ * weights on demand.
  */
 @RunWith(AndroidJUnit4::class)
 class VozTest {

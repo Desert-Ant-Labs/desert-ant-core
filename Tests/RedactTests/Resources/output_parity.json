@@ -1,0 +1,61 @@
+[
+  {
+    "name": "email-numbering",
+    "neural": false,
+    "text": "😀 Cafe\u0301: email alice@example.com, then bob@example.com.",
+    "redactedText": "😀 Cafe\u0301: email [EMAIL_1], then [EMAIL_2].",
+    "items": [
+      {
+        "label": "EMAIL",
+        "original": "alice@example.com",
+        "placeholder": "[EMAIL_1]",
+        "start": 16,
+        "end": 33
+      },
+      {
+        "label": "EMAIL",
+        "original": "bob@example.com",
+        "placeholder": "[EMAIL_2]",
+        "start": 40,
+        "end": 55
+      }
+    ]
+  },
+  {
+    "name": "iban-after-emoji",
+    "neural": false,
+    "text": "👩‍💻 Cafe\u0301: pay to DE89370400440532013000 today.",
+    "redactedText": "👩‍💻 Cafe\u0301: pay to [BANK_ACCOUNT_1] today.",
+    "items": [
+      {
+        "label": "BANK_ACCOUNT",
+        "original": "DE89370400440532013000",
+        "placeholder": "[BANK_ACCOUNT_1]",
+        "start": 20,
+        "end": 42
+      }
+    ]
+  },
+  {
+    "name": "neural-given-name",
+    "neural": true,
+    "text": "Email Anna Kovács at anna@example.hu.",
+    "redactedText": "Email [GIVEN_NAME_1] Kovács at [EMAIL_1].",
+    "items": [
+      {
+        "label": "GIVEN_NAME",
+        "original": "Anna",
+        "placeholder": "[GIVEN_NAME_1]",
+        "start": 6,
+        "end": 10
+      },
+      {
+        "label": "EMAIL",
+        "original": "anna@example.hu",
+        "placeholder": "[EMAIL_1]",
+        "start": 21,
+        "end": 36
+      }
+    ]
+  }
+]

@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device content topic tagging for Android: multi-label topics from a fixed " +
         "36-topic taxonomy across 101 languages, fully on device."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/GistTests/Resources"))
+}

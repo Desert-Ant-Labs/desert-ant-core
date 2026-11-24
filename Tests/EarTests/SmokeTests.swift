@@ -44,13 +44,39 @@ struct SmokeTests {
         return samples
     }
 
-    @Test func resolvesTheModelAndRunsIt() async throws {
+    #if os(Linux)
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["EAR_CAPTURE_ANDROID_PARITY"] != "1",
+                   "capturing a new Android reference"))
+    #else
+    @Test
+    #endif
+    func resolvesTheModelAndRunsIt() async throws {
         let ear = try await ear()
+        #if os(Linux)
+        let golden = try ParityReference.load()
+        let samples = Self.parityAudio(sampleCount: golden.sampleCount, sampleRate: golden.sampleRate)
+        let sampleRate = golden.sampleRate
+        #else
+        let samples = Self.audio()
+        let sampleRate = 16_000
+        #endif
         let began = Date()
-        let detection = try await ear.identify(samples: Self.audio(), sampleRate: 16000)
+        let detection = try await ear.identify(samples: samples, sampleRate: Double(sampleRate))
         let seconds = Date().timeIntervalSince(began)
 
-        // A language, not a specific one.
+        #if os(Linux)
+        #expect(golden.revision == EarModel.revision)
+        #expect(golden.backend == "litert")
+        #expect(detection.windows == golden.windows)
+        #expect(detection.isReliable == golden.isReliable)
+        try #require(!golden.candidates.isEmpty)
+        let prefix = detection.candidates.prefix(golden.candidates.count)
+        #expect(prefix.map(\.language) == golden.candidates.map(\.language))
+        for (actual, expected) in zip(prefix, golden.candidates) {
+            #expect(abs(actual.probability - expected.probability) < 0.01, "\(expected.language)")
+        }
+        #endif
+
         let language = try #require(detection.language)
         #expect(!language.isEmpty)
         #expect(detection.confidence > 0 && detection.confidence <= 1)
@@ -99,5 +125,57 @@ struct SmokeTests {
         _ = try await ModelFixture.files(EarModel.self)
         #expect(Ear.isDownloaded())
     }
+
+    #if os(Linux)
+    private struct ParityReference: Decodable {
+        struct Candidate: Decodable {
+            let language: String
+            let probability: Double
+        }
+
+        let revision, backend: String
+        let sampleRate, sampleCount, windows: Int
+        let isReliable: Bool
+        let candidates: [Candidate]
+
+        static func load() throws -> Self {
+            let url = try #require(Bundle.module.url(forResource: "ear-parity", withExtension: "json"))
+            return try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
+        }
+    }
+
+    private static func parityAudio(sampleCount: Int, sampleRate: Int) -> [Float] {
+        var seed: UInt64 = 12_345
+        return (0..<sampleCount).map { index -> Float in
+            seed = (seed * 1_103_515_245 + 12_345) & 0x7fff_ffff
+            let noise = (Float(seed) / Float(0x7fff_ffff) - 0.5) * 2
+            let syllable = 0.5 + 0.5 * sin(2 * Double.pi * 4 * Double(index) / Double(sampleRate))
+            return Float(syllable * 0.3 * Double(noise))
+        }
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["EAR_CAPTURE_ANDROID_PARITY"] == "1"))
+    func captureAndroidParityReference() async throws {
+        let sampleRate = 16_000
+        let sampleCount = 40 * sampleRate
+        let samples = Self.parityAudio(sampleCount: sampleCount, sampleRate: sampleRate)
+        let detection = try await ear().identify(samples: samples, sampleRate: Double(sampleRate))
+        #expect(detection.candidates.count >= 3)
+        let reference: [String: Any] = [
+            "note": "Swift LiteRT output on Linux. To recapture, run EAR_CAPTURE_ANDROID_PARITY=1 mise run test:swift ear and use the printed JSON.",
+            "revision": EarModel.revision,
+            "backend": "litert",
+            "sampleRate": sampleRate,
+            "sampleCount": sampleCount,
+            "windows": detection.windows,
+            "isReliable": detection.isReliable,
+            "candidates": detection.candidates.prefix(3).map {
+                ["language": $0.language, "probability": $0.probability] as [String: Any]
+            },
+        ]
+        let json = try JSONSerialization.data(withJSONObject: reference, options: [.prettyPrinted, .sortedKeys])
+        print(String(decoding: json, as: UTF8.self))
+    }
+    #endif
 }
 #endif

@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device spoken language identification for Android: name the " +
         "language of a recording before you transcribe it."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/EarTests/Resources"))
+}

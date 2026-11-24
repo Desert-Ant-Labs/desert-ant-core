@@ -17,8 +17,7 @@ import java.io.File
  * every-commit device lane without its model. The suite never downloads: it
  * proves the part only a device can, that libWhoAndroid.so, the static Swift
  * runtime, and LiteRT load, and that a handle created through the shared core
- * crosses JNI and releases cleanly. Anything needing the weights lives in the
- * evaluation harness beside the training run, as with the Swift suite.
+ * crosses JNI and releases cleanly. WhoSpeechParityTest loads the weights on demand.
  */
 @RunWith(AndroidJUnit4::class)
 class WhoTest {

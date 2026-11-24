@@ -1,5 +1,6 @@
 package ai.desertant.uhm
 
+import ai.desertant.androidtest.readSpeechFixture
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.test.runTest
@@ -56,6 +57,17 @@ class UhmTest {
     @Test fun wordsComeBackReconciled() = runTest {
         val result = uhm.detect(silence(), words = listOf(Word(0.1, 0.5, "hi"), Word(1.0, 1.0, "void")))
         assertEquals(listOf(Word(0.1, 0.5, "hi")), result.words)
+    }
+
+    @Test fun detectsTheRecordedHesitation() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val samples = assets.readSpeechFixture("filler-uh.wav")
+        val result = uhm.detect(samples, options = Options(bias = Bias.RECALL))
+        assertEquals(samples.size / 16_000.0, result.audioDuration, 0.01)
+        // The 0.85 s recording starts after 0.75 s of added silence.
+        assertTrue("no filler at the recorded hesitation: ${result.fillers}", result.fillers.any {
+            it.start in 0.70..1.20 && it.end in 1.20..1.70 && it.confidence in 0.50..1.0 && it.type == null
+        })
     }
 
     @Test fun resamplesRatherThanRefusing() = runTest {

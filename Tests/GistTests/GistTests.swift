@@ -42,8 +42,17 @@ struct GistTests {
     @Test func multilingualTopics() async throws {
         let recipe = try await slugs("Recette de poulet rôti pour la semaine")
         #expect(recipe.contains("food-drink"), "got \(recipe)")
-        let match = try await slugs("El equipo gana la final de la copa")
-        #expect(match.contains("sports"), "got \(match)")
+        let url = try #require(Bundle.module.url(forResource: "gist_ranking_golden", withExtension: "json"))
+        let golden = try JSONDecoder().decode(RankingGolden.self, from: Data(contentsOf: url))
+        try #require(!golden.cases.isEmpty)
+        let tagger = try await gist()
+        for row in golden.cases {
+            let got = try await tagger.classify(row.text, topK: row.ranks.count, threshold: 0)
+            #expect(got.map(\.slug) == row.ranks.map(\.label), "\(row.text)")
+            for (topic, expected) in zip(got, row.ranks) {
+                #expect(abs(topic.score - expected.score) <= golden.tolerance, "\(row.text) \(expected.label)")
+            }
+        }
     }
 
     /// `classify` always returns the top topic even when nothing clears the tuned

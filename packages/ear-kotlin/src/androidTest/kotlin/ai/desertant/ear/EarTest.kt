@@ -63,9 +63,16 @@ class EarTest {
      */
     @Test fun matchesTheReferenceOutput() = runTest {
         val expected = fixture()
-        val detection = ear.identify(parityAudio())
+        val sampleRate = expected.getInt("sampleRate")
+        val sampleCount = expected.getInt("sampleCount")
+        val audio = parityAudio(seconds = sampleCount / sampleRate, sampleRate = sampleRate)
+        assertEquals(sampleCount, audio.size)
+        val detection = ear.identify(audio, sampleRate = sampleRate.toDouble())
 
         val candidates = expected.getJSONArray("candidates")
+        assertTrue("reference must contain candidates", candidates.length() > 0)
+        assertTrue("expected at least ${candidates.length()} candidates, got ${detection.candidates.size}",
+            detection.candidates.size >= candidates.length())
         val top = candidates.getJSONObject(0)
         assertEquals("top language differs from the reference",
             top.getString("language"), detection.language)
@@ -78,9 +85,8 @@ class EarTest {
         assertEquals("reliability verdict differs",
             expected.getBoolean("isReliable"), detection.isReliable)
 
-        // The whole ranking, not just the winner: a frontend that is subtly
-        // wrong can still put the same language first.
-        for (i in 0 until minOf(candidates.length(), detection.candidates.size)) {
+        // A frontend regression can leave the winner unchanged and shift the next ranks.
+        for (i in 0 until candidates.length()) {
             val want = candidates.getJSONObject(i)
             assertEquals("candidate $i language differs",
                 want.getString("language"), detection.candidates[i].language)

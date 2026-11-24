@@ -2,6 +2,9 @@ mise.local.toml
 # Personal agent settings, beside the shared .claude/settings.json.
 .claude/settings.local.json
 
+# Local engineering notes.
+/docs/private/
+
 # SwiftPM scratch directories, one per toolchain (see mise.toml): the Xcode,
 # swift.org, and Android snapshot toolchains produce incompatible artifacts.
 # No trailing slash on .build: the wasm tasks turn it into a symlink to their
@@ -10,6 +13,7 @@ mise.local.toml
 .build-wasm-pkg/
 .build-wasi/
 .build-host/
+.build-universal/
 .build-android/
 .build-androidtest/
 .build-floor/
@@ -29,6 +33,7 @@ local.properties
 **/.gradle/
 **/.kotlin/
 /build/
+/bom/build/
 kotlin/build/
 gradle-plugin/build/
 gradle-plugin/bin/
@@ -78,3 +83,4 @@ DerivedData/
 *.iml
 __pycache__/
 packages/*-kotlin/bin/
+/docs/private

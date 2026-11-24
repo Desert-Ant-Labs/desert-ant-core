@@ -111,8 +111,7 @@ struct ShapesTests {
             let shapes = makeShapes()
             var misses: [String] = []
             for c in InkParityTests.cases {
-                let strokes = c.strokes.map { Stroke(points: $0.map { Point(x: $0.x, y: $0.y) }, times: $0.map(\.t)) }
-                let seen = try await shapes.inspect(strokes: strokes, options: Options(rotation: .free))
+                let seen = try await shapes.inspect(strokes: c.timedStrokes, options: Options(rotation: .free))
                 let kind = seen.shape?.kind
                 let want: Set<Shape.Kind> = c.label == "line" ? [.line, .curve]
                     : c.name == "arrow_half" ? [.arrow, .line, .curve] : [Shape.Kind(rawValue: c.label)!]
@@ -142,8 +141,7 @@ struct ShapesTests {
             var checked = 0
             for c in InkParityTests.cases where ["rectangle_half", "ellipse_half"].contains(c.name) && c.ownTop == c.label {
                 checked += 1
-                let strokes = c.strokes.map { Stroke(points: $0.map { Point(x: $0.x, y: $0.y) }, times: $0.map(\.t)) }
-                let seen = try await shapes.inspect(strokes: strokes, options: Options(rotation: .free, isFinished: false))
+                let seen = try await shapes.inspect(strokes: c.timedStrokes, options: Options(rotation: .free, isFinished: false))
                 #expect(seen.shape != nil && seen.rejection == nil, "\(c.name): \(seen.rejection.map { "\($0)" } ?? "no shape")")
                 #expect(seen.undrawn.map { $0 > 0.15 } == true, "\(c.name) is half drawn")
             }

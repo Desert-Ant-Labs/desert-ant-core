@@ -34,11 +34,17 @@ struct EmoModelTests {
     }
 
     @Test func multilingualPredictions() async throws {
+        let url = try #require(Bundle.module.url(forResource: "emo_ranking_golden", withExtension: "json"))
+        let golden = try JSONDecoder().decode(RankingGolden.self, from: Data(contentsOf: url))
+        try #require(!golden.cases.isEmpty)
         let emo = makeEmo()
-        let walk = try await emo.suggestions(for: "犬の散歩", limit: 5).map(\.emoji)
-        #expect(walk.contains { ["🐕", "🐾"].contains($0) }, "got \(walk)")
-        let coffee = try await emo.suggestions(for: "café con leche", limit: 5).map(\.emoji)
-        #expect(coffee.contains { ["☕", "🍵", "🥛"].contains($0) }, "got \(coffee)")
+        for row in golden.cases {
+            let got = try await emo.suggestions(for: row.text, limit: row.ranks.count)
+            #expect(got.map(\.emoji) == row.ranks.map(\.label), "\(row.text)")
+            for (suggestion, expected) in zip(got, row.ranks) {
+                #expect(abs(suggestion.confidence - expected.score) <= golden.tolerance, "\(row.text) \(expected.label)")
+            }
+        }
     }
 
     @Test func ranking() async throws {
@@ -104,7 +110,7 @@ extension EmoModelTests {
             : StubLicenseServer(answer: "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 3600\r\nContent-Type: application/json\r\nContent-Length: 17\r\nConnection: close\r\n\r\n{\"error\":\"retry\"}"))
         defer { server.stop() }
 
-        let keyless = getenv("DAL_API_KEY") == nil
+        let keyless = hostProvidedApiKey() == nil
         let (results, abandoned) = try await withEnvironment([
             "DAL_LICENSE_ENDPOINT": server.endpoint,
             "DAL_APP_ID": "ai.desertant.emo.outage.\(UUID().uuidString)",
