@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/tongue",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "desertant": {
     "pure": true
   },
@@ -28,7 +28,8 @@
   ],
   "scripts": {
     "build": "tsc && cp src/tongue_int8.bin src/tongue_meta.json dist/",
-    "test": "npm run build && node --test test/*.test.js",
+    "test": "npm run build && rm -rf node_modules/.cache/tongue-test && DAL_LICENSE_ENDPOINT=http://127.0.0.1:9/api/v1 DAL_STATE_DIR=node_modules/.cache/tongue-test node --test --test-concurrency=1 test/*.test.js",
+    "test:browser": "npm run build && node test/browser/run.mjs",
     "prepare": "npm run build"
   },
   "keywords": [
