@@ -51,6 +51,11 @@ done
 # It said 0.1.0 through 3.4.0 because nothing rewrote it.
 sed -i.bak -E 's|(defaultSDKVersion = ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
     Sources/Usage/Wire.swift && rm -f Sources/Usage/Wire.swift.bak
+sed -i.bak -E 's|(SDK_VERSION = ")[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?|\1'"$version"'|' \
+    packages/tongue-node/src/version.ts && rm -f packages/tongue-node/src/version.ts.bak
+sed -i.bak -E 's|(const val SDK_VERSION = ")[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?|\1'"$version"'|' \
+    packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/license/Wire.kt \
+    && rm -f packages/tongue-kotlin/src/main/kotlin/ai/desertant/tongue/license/Wire.kt.bak
 
 # The install snippets in the README (SwiftPM `from:` and every ai.desertant
 # Maven coordinate, models included).
@@ -58,6 +63,13 @@ sed -i.bak -E \
     -e 's|(ai\.desertant:[a-z0-9-]+:)[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|g' \
     -e 's|(desert-ant-core\.git", from: ")[0-9]+\.[0-9]+\.[0-9]+|\1'"$version"'|' \
     README.md && rm -f README.md.bak
+
+# The same snippets in the setup guide, plus its npm installs.
+sed -i.bak -E \
+    -e 's|(ai\.desertant:[a-z0-9-]+:)[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?|\1'"$version"'|g' \
+    -e 's|(desert-ant-core\.git", from: ")[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?|\1'"$version"'|' \
+    -e 's|(@desert-ant-labs/[a-z0-9-]+@)[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?|\1'"$version"'|g' \
+    docs/setup.md && rm -f docs/setup.md.bak
 
 # Everything generated from manifest.json, so a release cannot ship a stale
 # table because someone forgot the command.
