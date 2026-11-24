@@ -1,5 +1,7 @@
 package ai.desertant.tongue
 
+import ai.desertant.tongue.license.Licensing
+
 /**
  * On-device language identification for short text, across 84 languages.
  *
@@ -35,8 +37,8 @@ public class Tongue internal constructor(
          * Load the model bundled in this artifact's resources.
          *
          * `context` is an `android.content.Context`, typed as `Any` so this stays
-         * a plain jar that also runs on a bare JVM. Tongue doesn't read it in this
-         * release.
+         * a plain jar that also runs on a bare JVM. The license of this install is
+         * kept in its SharedPreferences, and its package name is the app the license names.
          */
         @JvmStatic
         public fun bundled(context: Any?): Tongue {
@@ -67,16 +69,30 @@ public class Tongue internal constructor(
         @JvmStatic
         public fun of(metadataJson: String, weightBytes: ByteArray, context: Any? = null): Tongue {
             val metadata = Metadata.parse(metadataJson)
-            return Tongue(metadata, Weights(weightBytes, metadata))
+            val tongue = Tongue(metadata, Weights(weightBytes, metadata))
+            Licensing.modelLoaded(context)
+            return tongue
         }
     }
 
-    @Deprecated("Has no effect: Tongue sends no requests. Returns true.")
-    public fun flushTelemetry(): Boolean = true
+    /**
+     * Sends the license requests that wait, before a process exits. False when device
+     * licenses are left. No device request starts after 10 seconds and the call ends within about
+     * 20, so call it off the main thread.
+     */
+    public fun flushLicenses(): Boolean = Licensing.flush()
 
     /** Identify the language of a short string. */
     @JvmOverloads
-    public fun detect(text: String, topK: Int = 3): Detection {
+    public fun detect(text: String, topK: Int = 3): Detection = detect(text, null, topK)
+
+    /**
+     * Identify the language of a short string, on a server, for the end-user device
+     * [deviceId] names. Each device gets one license a month. A null [deviceId] gets none.
+     */
+    @JvmOverloads
+    public fun detect(text: String, deviceId: String?, topK: Int = 3): Detection {
+        Licensing.modelRan(deviceId)
         val normalized = Normalizer.normalize(text)
         val route = Router.route(normalized)
 

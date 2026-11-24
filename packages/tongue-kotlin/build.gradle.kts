@@ -13,15 +13,26 @@ desertAntSdk {
         "Pure Kotlin: no native code and no inference runtime."
 }
 
-// src/test/resources is already a test resource root by convention; re-adding it
-// makes processTestResources see every vector file twice and fail on duplicates.
+sourceSets.test {
+    kotlin.srcDir(rootProject.file("Tools/android/tongue"))
+    resources.srcDir(rootProject.file("Tests/TongueTests/Resources"))
+}
+
+// A model load asks for a license. Nothing listens on this port, so no run from here reaches the license server.
+val deadLicenseEndpoint = "http://127.0.0.1:9/api/v1"
+// The license file of these runs stays in the build directory, out of the developer's home.
+val licenseStateDir = layout.buildDirectory.dir("license-state").get().asFile.path
+
+tasks.test {
+    environment("DAL_LICENSE_ENDPOINT", deadLicenseEndpoint)
+    environment("DAL_STATE_DIR", licenseStateDir)
+}
 
 tasks.register<JavaExec>("goldenVectors") {
     description = "Replay golden/ through this port; the cross-platform contract."
     group = "verification"
+    environment("DAL_LICENSE_ENDPOINT", deadLicenseEndpoint)
+    environment("DAL_STATE_DIR", licenseStateDir)
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("ai.desertant.tongue.GoldenVectorTestKt")
 }
-tasks.named("check") { dependsOn("goldenVectors") }
-
-sourceSets.test { kotlin.srcDir(rootProject.file("Tools/android/tongue")) }

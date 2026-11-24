@@ -3,6 +3,9 @@ package ai.desertant.core.androidtest
 import ai.desertant.DesertAntNative
 import ai.desertant.core.HostBridge
 import ai.desertant.core.HostBridgeTestHooks
+import ai.desertant.tongue.Tongue
+import android.content.Context
+import android.system.Os
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.serialization.json.Json
@@ -10,7 +13,10 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.net.InetAddress
@@ -113,11 +119,14 @@ class CoreBridgeTest {
         }
 
     /**
-     * Serve one request on [server], answering 202 "ok", and collect its request
+     * Serve one request on [server], answering 202 "ok" or [response], and collect its request
      * line, headers and body. Failures are swallowed: an uncaught exception on
      * this thread would crash the test process and hide the assertion message.
      */
-    private fun serveOnce(server: ServerSocket): Pair<Thread, List<String>> {
+    private fun serveOnce(
+        server: ServerSocket,
+        response: String = "HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok",
+    ): Pair<Thread, List<String>> {
         val request = java.util.Collections.synchronizedList(mutableListOf<String>())
         val started = System.currentTimeMillis()
         val serving = thread {
@@ -139,11 +148,52 @@ class CoreBridgeTest {
                         }
                     }
                     request += String(body)
-                    socket.getOutputStream().write("HTTP/1.1 202 Accepted\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".toByteArray())
+                    socket.getOutputStream().write(response.toByteArray())
                 }
             } catch (_: Exception) {
             }
         }
         return serving to request
+    }
+
+    // Tongue reaches SharedPreferences by reflection, keeps the install id where the core's models keep theirs, and asks with it.
+    @Test
+    fun tongueKeepsItsInstallIdInTheSharedStoreAndAsksWithIt() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = context.getSharedPreferences("desert-ant", Context.MODE_PRIVATE)
+        // No core model is loaded in this process, so only Tongue can write the id.
+        assertNull(HostBridge.preferences)
+        // An id or a Tongue license from an earlier run would leave nothing to write or to ask.
+        val cleared = store.edit().remove(INSTALL_ID_KEY)
+        store.all.keys.filter { it.startsWith("ai.desertant.tongue.license.") }.forEach { cleared.remove(it) }
+        assertTrue(cleared.commit())
+        val endpointBefore = Os.getenv("DAL_LICENSE_ENDPOINT")
+        ServerSocket(0, 2, InetAddress.getByName("127.0.0.1")).use { server ->
+            // The core is in this app, so Tongue first waits 10 seconds for the core's id.
+            server.soTimeout = 20_000
+            try {
+                // Set here too, so a run without the runner's argument never asks the license server.
+                Os.setenv("DAL_LICENSE_ENDPOINT", "http://127.0.0.1:${server.localPort}/api/v1", true)
+                // A refusal, so Tongue does not ask again after the endpoint is restored.
+                val refusal = """{"error":"test_refusal"}"""
+                val (serving, request) = serveOnce(
+                    server,
+                    "HTTP/1.1 422 Unprocessable Entity\r\nContent-Type: application/json\r\nContent-Length: ${refusal.length}\r\nConnection: close\r\n\r\n$refusal",
+                )
+                Tongue.bundled(context)
+                serving.join(25_000)
+                val installId = store.getString(INSTALL_ID_KEY, null)
+                assertFalse("request seen: $request", installId.isNullOrEmpty())
+                assertEquals("request seen: $request", "POST /api/v1/license HTTP/1.1", request.getOrNull(1))
+                assertTrue("request seen: $request", "\"installId\":\"$installId\"" in request.last())
+                assertTrue("request seen: $request", "\"model\":\"tongue\"" in request.last())
+            } finally {
+                if (endpointBefore == null) Os.unsetenv("DAL_LICENSE_ENDPOINT") else Os.setenv("DAL_LICENSE_ENDPOINT", endpointBefore, true)
+            }
+        }
+    }
+
+    private companion object {
+        const val INSTALL_ID_KEY = "ai.desertant.usage.deviceId"
     }
 }
