@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+#MISE description="Fail if any commit in a range, or a PR title, does not follow the commit format"
+#MISE dir="{{config_root}}"
+#MISE tools={node="22"}
+#USAGE arg "[range]" help="Commits to check (default: origin/main..HEAD)"
+#USAGE flag "--title <title>" help="Check a pull request title instead of a range"
+set -euo pipefail
+
+# The rules live in Tools/commit-lint.mjs, which the commit-msg hook runs too.
+node --test Tools/commit-lint.test.mjs >/dev/null
+if [ -n "${usage_title:-}" ]; then
+    node Tools/commit-lint.mjs --title "$usage_title"
+else
+    node Tools/commit-lint.mjs --range "${usage_range:-origin/main..HEAD}"
+fi

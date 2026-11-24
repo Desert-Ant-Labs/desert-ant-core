@@ -1,0 +1,6 @@
+#!/bin/sh
+# Conventional Commits check; the rules live in Tools/commit-lint.mjs.
+# Turn it on with `mise run setup:hooks`. CI runs the same check, so skipping the
+# hook with --no-verify only moves the failure to the pull request.
+command -v node >/dev/null 2>&1 || { echo "commit-msg: node not found, skipping the commit format check" >&2; exit 0; }
+exec node "$(git rev-parse --show-toplevel)/Tools/commit-lint.mjs" --file "$1"

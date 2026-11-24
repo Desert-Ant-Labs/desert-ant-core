@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Point git at .githooks so every commit message is checked locally"
+#MISE dir="{{config_root}}"
+set -euo pipefail
+
+# Local to this clone and shared by its worktrees. Leave a hooks path someone set
+# on purpose alone, and say so.
+current=$(git config --get core.hooksPath || true)
+if [ -n "$current" ] && [ "$current" != ".githooks" ]; then
+    echo "core.hooksPath is already $current; not changing it. Run .githooks/commit-msg from your hook to keep the commit format check." >&2
+    exit 1
+fi
+# Without a hooksPath, git runs .git/hooks. Pointing elsewhere would silently stop
+# any hook already installed there, so leave those clones to wire it up by hand.
+if [ -z "$current" ]; then
+    dir=$(git rev-parse --git-path hooks)
+    existing=$(find "$dir" -maxdepth 1 -type f ! -name '*.sample' 2>/dev/null | head -1)
+    if [ -n "$existing" ]; then
+        echo "$dir already has hooks (for example $(basename "$existing")); not changing core.hooksPath. Call .githooks/commit-msg from your commit-msg hook to keep the commit format check." >&2
+        exit 1
+    fi
+fi
+git config core.hooksPath .githooks
+echo "commit-msg hook enabled (core.hooksPath=.githooks)"
