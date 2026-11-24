@@ -60,7 +60,7 @@ struct CNGLicenseVerifier: LicenseSignatureVerifier {
         defer { BCryptDestroyKey(key) }
 
         var hash: BCRYPT_HASH_HANDLE?
-        // The SHA-256 pseudo-handle, as in ModelStore's SHA256: bcrypt.h spells it as a macro Swift cannot import.
+        // The SHA-256 pseudo-handle, as in PlatformSupport's SHA256: bcrypt.h spells it as a macro Swift cannot import.
         guard BCryptCreateHash(BCRYPT_ALG_HANDLE(bitPattern: 0x41), &hash, nil, 0, nil, 0, 0) >= 0 else { return false }
         defer { BCryptDestroyHash(hash) }
         var input = message

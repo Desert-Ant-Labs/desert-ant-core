@@ -48,7 +48,7 @@ export function makeShapes(sdk) {
      * `options.isFinished` (default `true`) waits for a closed outline to be
      * drawn whole; pass `false` for a preview while the pen moves. `options.deviceId` (a string or a
      * zero-arg function returning one) names the end-user device for the call;
-     * licensing does not read it yet. `options.group` has no effect.
+     * licensing counts one license a month for each. `options.group` has no effect.
      */
     async recognize(input, options = {}) {
       const strokes = normalizeStrokes(input).filter((s) => s.flat.length >= 2);
@@ -66,10 +66,10 @@ export function makeShapes(sdk) {
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
     /**
-     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * Wait for the license requests in flight, and send the device licenses that wait for their batch, so a short-lived process (a CLI,
      * a Lambda) does not exit before they finish.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Release the model. The recognizer is unusable afterwards. */
     dispose() { this.#model.dispose(); }

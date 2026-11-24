@@ -85,8 +85,8 @@ export declare class Moderator {
   static load(options?: LoadOptions): Promise<Moderator>;
   /** Score an image for nudity or sexual activity. */
   analyze(image: ImageInput, options?: AnalyzeOptions): Promise<Moderation>;
-  /** Wait for the license requests in flight. */
-  flushTelemetry(): Promise<boolean>;
+  /** Wait for the license requests in flight, and send the device licenses that wait for their batch. */
+  flushLicenses(): Promise<boolean>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
   /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */

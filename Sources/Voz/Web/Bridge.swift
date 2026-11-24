@@ -1,6 +1,7 @@
 #if os(WASI)
 import Foundation
 import JavaScriptKit
+import DesertAnt
 @_spi(VozWeb) import Voz
 
 // The `@JS` surface: load once, then transcribe a Float32Array. Everything else
@@ -109,6 +110,21 @@ nonisolated(unsafe) private var voz: Voz?
 /// Whether ``load(meta:vocab:embedding:lanes:batch:fused:)`` has run.
 @JS public func isLoaded() -> Bool { voz != nil }
 
+/// The API key from `DesertAnt.configure` in JavaScript.
+@JS public func configure(apiKey: String) {
+    DesertAnt.configure(apiKey: apiKey)
+}
+
+/// Wait for the license requests in flight and send the queued device licenses. False when device licenses are left.
+@JS public func flushLicenses() async -> Bool {
+    await LicenseFlush.shared.flushAndWait()
+}
+
+/// The device id secret from `DesertAnt.configure` in JavaScript, or `nil` for none.
+@JS public func configureDeviceIdSecret(secret: String?) {
+    DesertAnt.configure(deviceIdSecret: secret)
+}
+
 /// Transcribe audio the host decodes in pieces, so memory does not grow with
 /// the recording.
 ///
@@ -126,7 +142,8 @@ nonisolated(unsafe) private var voz: Voz?
 @JS public func transcribeStream(
     seconds: Double, totalSamples: Int,
     pull: @escaping (Int) -> JSObject?,
-    onProgress: @escaping (Double) -> Void
+    onProgress: @escaping (Double) -> Void,
+    deviceId: String?
 ) async throws(JSException) -> VozTranscript {
     guard let voz else {
         throw JSException(message: "voz: load() first")
@@ -140,17 +157,19 @@ nonisolated(unsafe) private var voz: Voz?
     }
     let source = Source(pull: pull, report: onProgress)
     do {
-        let result = try await voz.transcribe(
-            duration: seconds,
-            totalSamples: totalSamples > 0 ? totalSamples : nil,
-            pull: { count in
-                guard let pending = source.pull(count),
-                      let promise = JSPromise(from: pending.jsValue) else { return [] }
-                let settled = try await awaited(promise)
-                guard let chunk = JSFloat32Array(from: settled) else { return [] }
-                return chunk.withUnsafeBytes { Array($0) }
-            },
-            progress: { progress in source.report(progress.fractionCompleted) })
+        let result = try await InferenceContext.$deviceId.withValue(deviceId) {
+            try await voz.transcribe(
+                duration: seconds,
+                totalSamples: totalSamples > 0 ? totalSamples : nil,
+                pull: { count in
+                    guard let pending = source.pull(count),
+                          let promise = JSPromise(from: pending.jsValue) else { return [] }
+                    let settled = try await awaited(promise)
+                    guard let chunk = JSFloat32Array(from: settled) else { return [] }
+                    return chunk.withUnsafeBytes { Array($0) }
+                },
+                progress: { progress in source.report(progress.fractionCompleted) })
+        }
         return VozTranscript(
             text: result.text,
             words: result.words.map { VozWord(text: $0.text, start: $0.start, end: $0.end) },
@@ -187,7 +206,7 @@ private func awaited(_ promise: JSPromise) async throws -> JSValue {
 /// rejects an optional closure parameter; the JS seam passes a no-op when the
 /// caller supplied none.
 @JS public func transcribe(
-    samples: JSFloat32Array, onProgress: @escaping (Double) -> Void
+    samples: JSFloat32Array, onProgress: @escaping (Double) -> Void, deviceId: String?
 ) async throws(JSException) -> VozTranscript {
     guard let voz else {
         throw JSException(message: "voz: load() first")
@@ -202,8 +221,10 @@ private func awaited(_ promise: JSPromise) async throws -> JSValue {
     }
     let reporter = Reporter(report: onProgress)
     do {
-        let result = try await voz.transcribe(samples: audio) { progress in
-            reporter.report(progress.fractionCompleted)
+        let result = try await InferenceContext.$deviceId.withValue(deviceId) {
+            try await voz.transcribe(samples: audio) { progress in
+                reporter.report(progress.fractionCompleted)
+            }
         }
         return VozTranscript(
             text: result.text,

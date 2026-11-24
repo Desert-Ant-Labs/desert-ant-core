@@ -42,8 +42,8 @@ function fakeCore({ downloaded = false, failDownload = false } = {}) {
       calls.push(["destroy", handle]);
       live.delete(handle);
     },
-    async flushTelemetry() {
-      calls.push(["flushTelemetry"]);
+    async flushLicenses() {
+      calls.push(["flushLicenses"]);
       return true;
     },
     withCallGroup: async (body) => {
@@ -94,6 +94,15 @@ test("run passes the options payload and resolved device id through, and drops t
   const run = core.calls.find((c) => c[0] === "run");
   assert.deepEqual(run.slice(2), ["hello", options, null, "device-42"]);
 });
+test("a deviceId that is not a string is refused before the run", async () => {
+  const core = fakeCore();
+  const model = await readyModel({ core, packageName: "@x/y", handle: core.create("/c", "") });
+  for (const deviceId of [42, {}, async () => "device-42"]) {
+    await assert.rejects(model.run("hello", new Uint8Array(), { deviceId }), TypeError);
+  }
+  assert.equal(core.calls.filter((c) => c[0] === "run").length, 0);
+});
+
 
 test("dispose releases the handle once and makes later calls throw", async () => {
   const core = fakeCore();
@@ -115,17 +124,17 @@ test("withCallGroup still runs the body with a group id", async () => {
   assert.equal(core.calls.find((c) => c[0] === "run")[4], null);
 });
 
-test("flushTelemetry reaches the core, and a core without the hook is not an error", async () => {
+test("flushLicenses reaches the core, and a core without the hook is not an error", async () => {
   const core = fakeCore();
   const model = await readyModel({ core, packageName: "@x/y", handle: core.create("/c", "") });
-  assert.equal(await model.flushTelemetry(), true);
-  assert.equal(core.calls.filter((c) => c[0] === "flushTelemetry").length, 1);
+  assert.equal(await model.flushLicenses(), true);
+  assert.equal(core.calls.filter((c) => c[0] === "flushLicenses").length, 1);
 
   // Defensive only: both cores bind the hook. A host-supplied binary that lacks it
   // must still not make the wrapper throw.
-  const older = { ...fakeCore(), flushTelemetry: undefined };
+  const older = { ...fakeCore(), flushLicenses: undefined };
   const other = await readyModel({ core: older, packageName: "@x/y", handle: older.create("/c", "") });
-  assert.equal(await other.flushTelemetry(), true);
+  assert.equal(await other.flushLicenses(), true);
 });
 
 test("wasmCore adapts the wasm ABI to the shared core shape", async () => {
@@ -164,6 +173,7 @@ function fakeExports() {
   return {
     // The catalog facts come from the core itself, not from the package.
     modelInfo: () => ({ id: "y", sdkVersion: "1.0.0", artifact: "y.tflite", sidecars: ["y.json"] }),
+    configure: () => {},
     create: (cacheRoot, directory) => (cacheRoot === "/home/.cache" && directory === null ? 11 : 12),
     createSelfHosted: () => 13,
     isDownloaded: () => false,

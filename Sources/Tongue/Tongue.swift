@@ -52,6 +52,7 @@ public struct Tongue: Sendable {
 
     /// Identify the language of a short string.
     public func detect(_ text: String, topK: Int = 3) -> Detection {
+        licenseRun()
         let normalized = Normalizer.normalize(text)
         let route = Router.route(normalized)
 

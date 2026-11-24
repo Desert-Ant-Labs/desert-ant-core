@@ -288,7 +288,7 @@ export declare class Eye {
   /** Analyze an image. */
   analyze(image: ImageInput, options?: AnalyzeOptions): Promise<Analysis>;
   /** Send recorded usage and await the POST. */
-  flushTelemetry(): Promise<boolean>;
+  flushLicenses(): Promise<boolean>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
   /**

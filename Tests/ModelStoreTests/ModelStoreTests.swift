@@ -4,6 +4,7 @@
 #if !os(WASI)
 import Testing
 import Foundation
+import PlatformSupport
 @testable import ModelStore
 
 /// In-memory transport. `tree` lists the mock's files (reporting each file's

@@ -54,25 +54,43 @@ func dispatchTracked(
     }
 }
 
-// Backs `flushTelemetry()`: waits for the license requests in flight, not for a retry still waiting out its delay.
-public actor TelemetryDebug {
-    public static let shared = TelemetryDebug()
+// Backs `flushLicenses()`: waits for the requests in flight and sends the queued device licenses. No device request starts after 10 seconds.
+public actor LicenseFlush {
+    public static let shared = LicenseFlush()
 
     private let work: InflightWork
+    private let client: DeviceLicenseClient
+    private let now: @Sendable () -> Int64
 
-    init(work: InflightWork = .shared) {
+    init(
+        work: InflightWork = .shared, client: DeviceLicenseClient = .shared,
+        now: @escaping @Sendable () -> Int64 = systemNowMs
+    ) {
         self.work = work
+        self.client = client
+        self.now = now
     }
 
-    public func flushAndWait() async {
+    /// Returns whether no device license is left in the queue.
+    @discardableResult
+    public func flushAndWait() async -> Bool {
+        let ends = now() &+ deviceLicenseFlushMs
+        // Set before the wait, so a send that already runs stops at its next request too.
+        await client.limitSends(until: ends)
         var awaited: Set<Int> = []
+        var sentAll = true
+        // A send that starts while the flush runs is tracked work, so the next pass waits for it.
         while true {
             let pending = work.snapshot().filter { !awaited.contains($0.id) }
-            if pending.isEmpty { return }
             for entry in pending {
                 await entry.task.value
                 awaited.insert(entry.id)
             }
+            sentAll = await client.flush(within: max(ends &- now(), 0))
+            let started = work.snapshot().contains { !awaited.contains($0.id) }
+            if !started || now() >= ends { break }
         }
+        await client.endLimit()
+        return sentAll
     }
 }

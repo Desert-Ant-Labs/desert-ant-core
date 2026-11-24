@@ -23,6 +23,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 - [JavaScript and TypeScript](#javascript-and-typescript)
 - [Command line](#command-line)
 - [Model downloads and caching](#model-downloads-and-caching)
+- [API key](#api-key)
 - [Other notes](#other-notes)
 - [License](#license)
 
@@ -42,7 +43,7 @@ let clean = try await Redact().redaction(of: "Email Anna at anna@example.hu.")
 | **Moderator** | On-device NSFW image detection, trained only on licensed and synthetic data. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/moderator.md) [Model](https://huggingface.co/desert-ant-labs/moderator) |
 | **Redact** | Multilingual on-device PII detection and redaction. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/redact.md) [Model](https://huggingface.co/desert-ant-labs/redact) |
 | **Shapes** | On-device shape recognition for pen, touch and mouse input. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/shapes.md) [Model](https://huggingface.co/desert-ant-labs/shapes) |
-| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | Apple | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) [Model](https://huggingface.co/desert-ant-labs/title) |
+| **Title** | On-device titles and descriptions: a short factual title and a one- to two-sentence description for any passage of text. | Apple · Android | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/title.md) [Model](https://huggingface.co/desert-ant-labs/title) |
 | **Tongue** | On-device language identification for short text across 84 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/tongue.md) [Model](https://huggingface.co/desert-ant-labs/tongue) |
 | **Toxic** | On-device hate-speech triage in 35 languages. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/toxic.md) [Model](https://huggingface.co/desert-ant-labs/toxic) |
 | **Uhm** | On-device filler-word detection: frame-precise "uh"/"um"/"hmm" spans. | Apple · Android · Linux · Windows · Web · Node | [SDK](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/models/uhm.md) [Model](https://huggingface.co/desert-ant-labs/uhm) |
@@ -68,7 +69,7 @@ On Apple platforms, the Swift package requires iOS 18+, macOS 15+, tvOS 18+, vis
 Add the package with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0")
 ```
 
 Then add a product for each model you use, such as `Emo`. Your app includes only the models you add.
@@ -88,14 +89,35 @@ dependencyResolutionManagement {
 
 // build.gradle.kts
 dependencies {
-    implementation("ai.desertant:emo:5.0.0")
-    implementation("ai.desertant:redact:5.0.0")
-    implementation("ai.desertant:clear:5.0.0")
-    implementation("ai.desertant:tongue:5.0.0")
+    implementation(platform("ai.desertant:bom:6.0.0"))
+    implementation("ai.desertant:emo")
+    implementation("ai.desertant:redact")
+    implementation("ai.desertant:clear")
+    implementation("ai.desertant:tongue")
 }
 ```
 
-Tongue has no native code, so you can also use Tongue outside Android, on any JVM 17+.
+Change the BOM version to upgrade all SDKs together. Gradle builds that resolve
+from Gradle Module Metadata (`.module` files) also get the BOM transitively from
+each BOM-enabled SDK. This can align older model versions requested explicitly.
+If your Gradle build resolves from Maven POMs only, import the BOM explicitly
+with `implementation(platform(...))` as shown above.
+
+For Maven, import `ai.desertant:bom` with `<type>pom</type>` and
+`<scope>import</scope>` in `dependencyManagement`. Declare the model dependencies
+without versions and give each Android library `<type>aar</type>`. Tongue is a JAR
+without native code and also runs on any JVM 17+.
+
+If model construction reports a Desert Ant SDK version mismatch, align every
+`ai.desertant` dependency with the BOM and rebuild the app. The error identifies
+the conflicting components. An older core or native library without a version
+check is shown as version unavailable. Models released before the BOM don't run
+with a newer core. Check for forced dependency versions and locally copied AARs
+or native libraries if the versions in your build file already agree.
+
+Models that benefit from it run on the GPU, through the LiteRT GPU accelerator `ai.desertant:core` ships, and fall back to the CPU where the device has no usable GPU. On an emulator they always run on the CPU. Keep `libLiteRtClGlAccelerator.so` in your APK: excluding it leaves every device on the CPU.
+
+Two optional calls help with debugging, and nothing needs them to run a model. `DesertAnt.recentRuns()` lists the last 256 model calls in the process, in memory only, with the processors each one ran on (CPU, GPU, or both when LiteRT splits a graph). `DesertAnt.checkHealth(context)` returns a message for each setup problem it finds, or an empty list, and logs each one: a missing LiteRT library or GPU accelerator for the device's ABI, a model library built for another ABI, no API key, or no INTERNET permission.
 
 ## JavaScript and TypeScript
 
@@ -152,14 +174,35 @@ The SDK downloads each model from [Hugging Face](https://huggingface.co/desert-a
 Our Hugging Face repos use [Xet](https://huggingface.co/docs/hub/en/xet/index) storage, which splits each file into deduplicated chunks that download in parallel instead of as one stream. On Apple platforms, the Swift package can download through Xet when you turn on a package trait:
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0",
         traits: ["Xet"])
 ```
 
 With the trait on, the same files land in the same cache, and the SDK verifies them the same way. If a file isn't on Xet, or the Xet download fails, the SDK falls back to the ordinary HTTPS download. The trait adds [swift-xet](https://github.com/huggingface/swift-xet) and SwiftNIO to your dependencies. Every other platform and SDK downloads over plain HTTPS.
 
+## API key
+
+An app in production needs an API key. Keys are free, from [platform.desertant.com](https://platform.desertant.com). Set the key once, before the first model loads:
+
+```swift
+DesertAnt.configure(apiKey: "dal_...")
+```
+
+```kotlin
+DesertAnt.configure(apiKey = "dal_...")
+```
+
+```js
+import { DesertAnt } from "@desert-ant-labs/emo"; // or any model package
+
+DesertAnt.configure({ apiKey: "dal_..." });
+```
+
+You can build and test without a key. To get a key and read it from your project's secrets on each platform, follow [SDK setup](docs/setup.md). For a server that runs models for many devices, see [Run on a server](docs/notes/server.md).
+
 ## Other notes
 
+- [Run on a server](docs/notes/server.md)
 - [Offline](docs/notes/offline.md)
 - [AWS Lambda on arm64](docs/notes/aws-lambda-arm64.md)
 - [Faster first load on the M6 and A20 Pro](docs/notes/faster-first-load-m6-a20-pro.md)

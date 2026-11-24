@@ -1,3 +1,5 @@
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
+
 /** A word and when it sounds, in seconds from the start of the audio. Times
  *  land on encoder frame boundaries, so their resolution is 80 ms. */
 export interface VozWord {
@@ -56,6 +58,8 @@ export interface VozTranscribeOptions {
   onProgress?: (fraction: number) => void;
   /** The rate of `Float32Array` samples, when it is not 16 kHz. */
   sampleRate?: number;
+  /** On a server: the end-user device this call serves. Licensing counts one license a month for each. */
+  deviceId?: string | (() => string);
 }
 
 /**
@@ -78,6 +82,8 @@ export declare class Voz {
   static load(options?: VozLoadOptions): Promise<Voz>;
   /** Transcribe audio, with a start and an end on every word. */
   transcribe(input: VozAudio, options?: VozTranscribeOptions): Promise<VozResult>;
+  /** Wait for the license requests in flight, and send the device licenses that wait for their batch. */
+  flushLicenses(): Promise<boolean>;
   /** Per-model call counts and wall time for the last transcription. */
   readonly timings: VozTimings;
 }
@@ -120,13 +126,17 @@ export interface ModelCore {
     seconds: number, totalSamples: number,
     pull: (arg0: number) => any | null,
     onProgress: (arg0: number) => void,
+    deviceId: string | null,
   ): Promise<VozTranscript>;
   load(
     meta: Uint8Array, vocab: Uint8Array, embedding: Uint8Array,
     lanes: number, batch: number, fused: boolean,
   ): Promise<boolean>;
   isLoaded(): boolean;
+  configure(apiKey: string): void;
+  flushLicenses(): Promise<boolean>;
+  configureDeviceIdSecret(secret: string | null): void;
   transcribe(
-    samples: Float32Array, onProgress: (arg0: number) => void,
+    samples: Float32Array, onProgress: (arg0: number) => void, deviceId: string | null,
   ): Promise<VozTranscript>;
 }

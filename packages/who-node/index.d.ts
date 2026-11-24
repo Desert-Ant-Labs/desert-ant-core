@@ -88,7 +88,7 @@ export declare class Who {
   /** Who spoke when. */
   diarize(input: AudioInput, options?: DiarizeOptions): Promise<Diarization>;
   /** Send recorded usage and await the POST. */
-  flushTelemetry(): Promise<boolean>;
+  flushLicenses(): Promise<boolean>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
   /**

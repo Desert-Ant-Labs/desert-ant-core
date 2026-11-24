@@ -147,11 +147,33 @@ export function fetchSelfHostedModel(
   files: ModelFileNames,
 ): Promise<{ sidecars: Record<string, Uint8Array>; modelBytes: Uint8Array }>;
 
+export interface DesertAntSettings {
+  /** The API key from platform.desertant.com. */
+  apiKey: string;
+  /**
+   * Only for a process that serves many devices, such as a server: 32 or more
+   * random bytes as text, kept on the server and never changed. The SDK uses it
+   * to turn each call's `deviceId` into the install id it sends. The device id
+   * never leaves the server, and only the holder of the secret can link the two.
+   * `configure` throws outside Node, because a secret in a page or a worker is public.
+   */
+  deviceIdSecret?: string;
+}
+
+/** Internal: a model package registers each core it starts, so `DesertAnt.configure` reaches it. */
+export function registerCore(apply: (settings: { apiKey: string; deviceIdSecret: string | null }) => void): void;
+
+/** Internal: a model package registers the flush of each core it starts, so `flushLicenses()` on any model reaches it. */
+export function registerFlush(flush: () => Promise<boolean>): void;
+
+/** Internal: flush every registered core, and `own` when it is not one of them. Resolves true when every core sent everything. */
+export function flushCores(own?: () => Promise<boolean>): Promise<boolean>;
+
 /** Per-call options. */
 export interface CallOptions {
   /** @deprecated Has no effect. */
   group?: string;
-  /** The end-user device for this call; resolved per call. Licensing does not read it yet. */
+  /** The end-user device this call serves, for a process that serves many. Licensing counts one license a month for each. */
   deviceId?: string | (() => string);
 }
 
@@ -164,8 +186,8 @@ export class LoadedModel {
   isDownloaded(): boolean;
   /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
-  /** Wait for the license requests in flight. */
-  flushTelemetry(): Promise<boolean>;
+  /** Wait for the license requests in flight, and send the device licenses that wait, for every model loaded in the process. Resolves false when devices still wait. */
+  flushLicenses(): Promise<boolean>;
   dispose(): void;
 }
 
@@ -205,7 +227,7 @@ export interface NormalizedCore {
   ): Promise<FfiReader>;
   destroy(handle: number): void;
   /** Wait for the license requests in flight, on either core. */
-  flushTelemetry?(): Promise<boolean>;
+  flushLicenses?(): Promise<boolean>;
   /** @deprecated Has no effect. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
 }
@@ -241,6 +263,8 @@ export const LOG_LEVELS: readonly LogLevel[];
  * runtime. The same names as the Kotlin SDK's `DesertAnt`.
  */
 export const DesertAnt: {
+  /** Sets the API key before the first model loads, and on a server the device id secret. Each call replaces the earlier key. */
+  configure(settings: DesertAntSettings): void;
   /** The least severe level the SDK writes. `"warning"` by default. Set it at any time. */
   logLevel: LogLevel;
   /**
@@ -285,7 +309,7 @@ export interface WasmCore {
   ): Promise<Uint8Array>;
   endCallGroup(id: string | null): void;
   destroy(handle: number): void;
-  flushTelemetry(): Promise<boolean>;
+  flushLicenses(): Promise<boolean>;
   setLogLevel(level: LogLevel): void;
   LogLevel: {
     readonly Debug: "debug";
@@ -294,6 +318,8 @@ export interface WasmCore {
     readonly Error: "error";
     readonly Off: "off";
   };
+  configure(apiKey: string): void;
+  configureDeviceIdSecret(secret: string | null): void;
 }
 
 /** An instantiated core: its exports, and the hook that installs the model host

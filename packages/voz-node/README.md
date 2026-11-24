@@ -1,6 +1,6 @@
 # @desert-ant-labs/voz
 
-On-device speech recognition for JavaScript that runs in the browser and in Node. Give Voz audio and it returns a transcript with a start and an end on every word, across 25 languages. Audio stays local: nothing is uploaded, and there is no API key.
+On-device speech recognition for JavaScript that runs in the browser and in Node. Give Voz audio and it returns a transcript with a start and an end on every word, across 25 languages. Audio stays local: nothing is uploaded.
 
 One entry, `@desert-ant-labs/voz`, and one `Voz` API. Unlike this project's other models there is no `/native` subpath: Voz has no native Node core, so the browser and the server run the same WebAssembly pipeline - the same windowing, lane-batched decode and splice as the Swift SDK - over ONNX Runtime.
 

@@ -43,10 +43,10 @@ export function makeAlign(sdk, sdkVersion) {
     withCallGroup(body) { return this.#model.withCallGroup(body); }
 
     /**
-     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * Wait for the license requests in flight, and send the device licenses that wait for their batch, so a short-lived process (a CLI,
      * a Lambda) does not exit before they finish.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Release the model. The refiner is unusable afterwards. */
     dispose() { this.#model.dispose(); }

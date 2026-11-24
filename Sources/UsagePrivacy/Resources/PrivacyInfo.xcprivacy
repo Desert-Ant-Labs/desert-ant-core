@@ -5,11 +5,13 @@
 	<!--
 	  Apple requires a privacy manifest from any SDK that collects data or calls a
 	  "required reason" API. Licensing (the `Usage` target) does both, and every
-	  model links it through DesertAnt. When a model loads without an activated
-	  license for the month, it sends a generated install identifier to request
-	  and activate one, and it persists that identifier and the license in
-	  UserDefaults. Without this file, apps embedding the SDK can be rejected at
-	  App Store review.
+	  model links it through DesertAnt. When a model loads and the app has no
+	  license, or its license has expired, it sends a generated install identifier
+	  to request one, and it persists that identifier and the license in
+	  UserDefaults. One license covers every model in the app and is valid for one
+	  month. The first time another model loads under that license, it sends the
+	  license with the model's name and version to activate it. Without this file,
+	  apps embedding the SDK can be rejected at App Store review.
 
 	  No model input or output is ever sent: no text, audio, or results.
 	-->

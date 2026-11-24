@@ -186,6 +186,7 @@ public actor Voz {
                                                       configuration: assets.configuration)
         pipeline = Pipeline(assets: assets, engine: engine, buffers: buffers)
         sampleRate = Double(assets.configuration.sampleRate)
+        licenseOnLoad(VozModel.sdkInfo)
     }
     #endif
 
@@ -255,6 +256,7 @@ public actor Voz {
         vocabulary: [String] = [],
         progress: @Sendable (Progress) -> Void
     ) async throws -> Result {
+        licenseOnRun(VozModel.sdkInfo, deviceId: InferenceContext.deviceId)
         await acquirePipeline()
         defer {
             pipeline.booster = nil

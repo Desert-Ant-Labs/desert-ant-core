@@ -8,7 +8,7 @@ import org.junit.Test
 
 class DesertAntTest {
     @After fun reset() {
-        DesertAnt.apiKey = null
+        DesertAnt.configure(apiKey = "")
         DesertAnt.logLevel = LogLevel.WARNING
         DesertAnt.logger = null
     }
@@ -38,8 +38,8 @@ class DesertAntTest {
         assertArrayEquals(ByteArray(0), DesertAntNative.apiKey())
     }
 
-    @Test fun keySetInCodeCrossesTheBridge() {
-        DesertAnt.apiKey = "pk_test_code"
-        assertEquals("pk_test_code", DesertAntNative.apiKey().decodeToString())
+    @Test fun keySetWithConfigureCrossesTheBridge() {
+        DesertAnt.configure(apiKey = "dal_code")
+        assertEquals("dal_code", DesertAntNative.apiKey().decodeToString())
     }
 }

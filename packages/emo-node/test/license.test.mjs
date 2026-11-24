@@ -42,12 +42,12 @@ test.after(() => {
   server.close();
 });
 
-test("a load sends one license grant and no usage, and flushTelemetry waits for its answer", modelOpts, async () => {
+test("a load sends one license grant and no usage, and flushLicenses waits for its answer", modelOpts, async () => {
   assert.ok((await emo.suggestions("Pay my bills", { limit: 1, group: "retired" })).length > 0);
-  await emo.flushTelemetry();
+  await emo.flushLicenses();
 
   assert.deepEqual(requests.map((r) => r.path), ["/api/v1/license"]);
-  assert.equal(answered, 1, "flushTelemetry resolved before the grant was answered");
+  assert.equal(answered, 1, "flushLicenses resolved before the grant was answered");
   assert.equal(requests[0].headers.authorization, undefined);
   const grant = JSON.parse(requests[0].body);
   assert.match(grant.installId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);

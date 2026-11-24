@@ -12,6 +12,7 @@
 // A model package is then: its payload codecs, its public class over
 // `LoadedModel`, and two lines of wiring per entry point.
 import { makeCallGroups } from "./callgroup.js";
+import { flushCores, registerCore, registerFlush } from "./configure.js";
 import { hostLogLevel, registerLogInstaller } from "./log.js";
 import { FfiReader } from "./ffi.js";
 import {
@@ -60,10 +61,13 @@ export class LoadedModel {
   async run(input, options, call = {}) {
     if (this.#disposed || this.#handle == null) throw new Error(`${this.#packageName}: model disposed`);
     const deviceId = typeof call.deviceId === "function" ? call.deviceId() : call.deviceId;
+    if (deviceId != null && typeof deviceId !== "string") {
+      throw new TypeError(`${this.#packageName}: deviceId must be a string, or a function that returns one`);
+    }
     this.#pending += 1;
     try {
       return await this.#core.run(
-        this.#handle, input, options, null, deviceId != null ? String(deviceId) : null);
+        this.#handle, input, options, null, deviceId ?? null);
     } finally {
       this.#pending -= 1;
       if (this.#disposed && this.#pending === 0) this.#release();
@@ -82,12 +86,12 @@ export class LoadedModel {
 
   /**
    * Wait for the license requests in flight, so a process that ends right
-   * after loading a model does not exit before they finish.
+   * after loading a model does not exit before they finish. Every core loaded
+   * in the process is flushed, not only this model's.
    */
-  flushTelemetry() {
-    // Every core built from this source binds the hook; this covers one that does
-    // not, e.g. a host supplying its own binary.
-    return this.#core.flushTelemetry?.() ?? Promise.resolve(true);
+  flushLicenses() {
+    // A core without the hook, e.g. a host supplying its own binary, is left out.
+    return flushCores(this.#core.flushLicenses);
   }
 
   /** Release the model. Calls afterwards throw; calls already started finish first. */
@@ -157,7 +161,7 @@ export function wasmCore(exports) {
       new FfiReader(
         await exports.run(handle, input, options ?? null, group ?? null, deviceId ?? null)),
     destroy: (handle) => exports.destroy(handle),
-    flushTelemetry: () => exports.flushTelemetry(),
+    flushLicenses: () => exports.flushLicenses(),
     ...makeCallGroups(),
   };
 }
@@ -206,12 +210,19 @@ export async function createWasmSdk({ platform, packageName, defaultAccelerator 
   // Numbers the self-hosted loads: each names its models apart from every other's.
   let selfHostedLoads = 0;
   installLogLevel(exports);
+  if (typeof exports.flushLicenses === "function") registerFlush(core.flushLicenses);
+  if (typeof exports.configure === "function") {
+    registerCore(({ apiKey, deviceIdSecret }) => {
+      exports.configure(apiKey);
+      exports.configureDeviceIdSecret?.(deviceIdSecret ?? null);
+    });
+  }
 
   // Debug-only hook for awaiting the license requests in flight. The core's
   // exports belong to this module instance rather than a global registry, so
   // this is how a page reaches them; it exists only under the HTTP debug flag.
   if (globalThis.__dalHttpDebug) {
-    globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
+    globalThis.__dalFlushLicenses = () => core.flushLicenses();
   }
 
   return {

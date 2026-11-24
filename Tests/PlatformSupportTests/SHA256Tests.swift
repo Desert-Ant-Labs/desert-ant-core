@@ -1,5 +1,5 @@
 import Testing
-@testable import ModelStore
+@testable import PlatformSupport
 
 @Suite(.serialized)
 struct SHA256Tests {

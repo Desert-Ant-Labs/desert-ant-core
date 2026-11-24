@@ -121,9 +121,9 @@ export function makeFace(sdk) {
      * coordinates in 0..1 from the top left. `image` is `{ data, width, height }` with RGB or RGBA
      * bytes (an `ImageData` works as is), or in the browser anything `createImageBitmap` accepts.
      */
-    async faces(image, { minimumConfidence, minimumSize, maxFaces } = {}) {
+    async faces(image, { minimumConfidence, minimumSize, maxFaces, deviceId } = {}) {
       const pixels = await toPixels(image);
-      return (await call(this.#model, "faces", { minimumConfidence, minimumSize, maxFaces }, pixels)).map(reviveFace);
+      return (await call(this.#model, "faces", { minimumConfidence, minimumSize, maxFaces }, pixels, deviceId)).map(reviveFace);
     }
 
     /** A new library, or one you saved (`library.save()`) or built from your own rows (`{ faces, names }`). */
@@ -136,7 +136,7 @@ export function makeFace(sdk) {
     isDownloaded() { return this.#model.isDownloaded(); }
 
     /** Send the usage recorded so far and await it, before a short-lived process exits. */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Release the model. The face is unusable afterwards. */
     dispose() { this.#model.dispose(); }
@@ -168,16 +168,16 @@ export function makeFaceDetector(sdk) {
     }
 
     /** The faces in an image, most confident first: `{ box, landmarks, confidence }`, as `Face.faces` takes images. */
-    async faces(image, { minimumConfidence, minimumSize, maxFaces } = {}) {
+    async faces(image, { minimumConfidence, minimumSize, maxFaces, deviceId } = {}) {
       const pixels = await toPixels(image);
-      return call(this.#model, "faces", { minimumConfidence, minimumSize, maxFaces }, pixels);
+      return call(this.#model, "faces", { minimumConfidence, minimumSize, maxFaces }, pixels, deviceId);
     }
 
     /** Whether the detector is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }
 
     /** Send the usage recorded so far and await it, before a short-lived process exits. */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Release the detector. */
     dispose() { this.#model.dispose(); }

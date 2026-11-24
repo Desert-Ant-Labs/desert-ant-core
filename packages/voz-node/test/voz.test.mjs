@@ -4,6 +4,8 @@
 // because that is the only place the three graphs actually run.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { setFlagsFromString } from "node:v8";
+import { runInNewContext } from "node:vm";
 import { makeVoz } from "../voz.js";
 import { hubBaseUrl, MODEL_ID, SAMPLE_RATE } from "../codec.js";
 
@@ -25,11 +27,13 @@ function fakeCore() {
     seen,
     exports: {
       modelInfo: () => INFO,
+      configure: () => {},
       load: async (meta, vocab, embedding, lanes, batch, fused) => {
         Object.assign(seen, { meta, vocab, embedding, lanes, batch, fused });
         return true;
       },
-      transcribeStream: async (seconds, totalSamples, pull, onProgress) => {
+      transcribeStream: async (seconds, totalSamples, pull, onProgress, deviceId) => {
+        seen.deviceId = deviceId;
         // Drain it the way the core does, so the test sees what a real run
         // would: repeated pulls until one comes back empty.
         const chunks = [];
@@ -45,8 +49,9 @@ function fakeCore() {
           duration: seconds, processingTime: 1,
         };
       },
-      transcribe: async (samples, onProgress) => {
+      transcribe: async (samples, onProgress, deviceId) => {
         seen.samples = samples;
+        seen.deviceId = deviceId;
         onProgress(0.5);
         return {
           text: "hello there",
@@ -187,6 +192,51 @@ test("words and their times come back, with the realtime factor computed", async
   assert.deepEqual(fractions, [0.5]);
 });
 
+test("the device id of a call reaches the core, and a call without one passes null", async () => {
+  const core = fakeCore();
+  const Voz = makeVoz(fakePlatform(core));
+  const voz = await Voz.load({ ort: fakeOrt() });
+  await voz.transcribe(new Float32Array(16000), { deviceId: "device-7" });
+  assert.equal(core.seen.deviceId, "device-7");
+  await voz.transcribe(new Float32Array(16000));
+  assert.equal(core.seen.deviceId, null);
+});
+
+test("a device id given as a function is called for its value", async () => {
+  const core = fakeCore();
+  const Voz = makeVoz(fakePlatform(core));
+  const voz = await Voz.load({ ort: fakeOrt() });
+  await voz.transcribe(new Float32Array(16000), { deviceId: () => "device-8" });
+  assert.equal(core.seen.deviceId, "device-8");
+});
+
+test("flushLicenses asks the core, and is true for a core without it", async () => {
+  const core = fakeCore();
+  const Voz = makeVoz(fakePlatform(core));
+  const voz = await Voz.load({ ort: fakeOrt() });
+  assert.equal(await voz.flushLicenses(), true);
+  core.exports.flushLicenses = async () => false;
+  assert.equal(await voz.flushLicenses(), false);
+});
+
+test("flushLicenses on Voz also flushes a core that another model registered", async () => {
+  const { registerFlush } = await import("@desert-ant-labs/core");
+  let other = 0;
+  registerFlush(async () => { other += 1; return true; });
+  const Voz = makeVoz(fakePlatform(fakeCore()));
+  const voz = await Voz.load({ ort: fakeOrt() });
+  await voz.flushLicenses();
+  assert.equal(other, 1);
+});
+
+test("a device id that is not a string is refused before the run", async () => {
+  const core = fakeCore();
+  const Voz = makeVoz(fakePlatform(core));
+  const voz = await Voz.load({ ort: fakeOrt() });
+  await assert.rejects(voz.transcribe(new Float32Array(16000), { deviceId: 42 }), TypeError);
+  assert.equal(core.seen.samples, undefined);
+});
+
 test("samples at another rate are resampled to the model's", async () => {
   const core = fakeCore();
   const Voz = makeVoz(fakePlatform(core));
@@ -276,4 +326,22 @@ test("the execution provider is probed rather than assumed", async () => {
   const Explicit = makeVoz(fakePlatform(explicit));
   await Explicit.load({ ort: fakeOrt(), ep: "wasm" });
   assert.equal(explicit.seen.probedProvider, undefined);
+});
+
+test("a dropped Voz can be freed", async () => {
+  setFlagsFromString("--expose-gc");
+  const gc = runInNewContext("gc");
+  let ref;
+  const platform = {
+    ...fakePlatform(fakeCore()),
+    setupCore: async () => {
+      const core = fakeCore();
+      ref = new WeakRef(core.exports);
+      return core;
+    },
+  };
+  await makeVoz(platform).load({ ort: fakeOrt() });
+  await new Promise((resolve) => setImmediate(resolve));
+  gc();
+  assert.equal(ref.deref(), undefined);
 });

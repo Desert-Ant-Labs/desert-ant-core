@@ -39,10 +39,12 @@ func jsHostValue(_ name: String) -> JSValue {
 #endif
 
 /// A host-provided application identity, overriding the auto-derived default.
-/// On WASI reads `globalThis.__dalAppId` (string or function); elsewhere reads
-/// the `DAL_APP_ID` environment variable. `nil` when unset.
+/// On WASI reads the `DAL_APP_ID` environment variable under Node, then
+/// `globalThis.__dalAppId` (string or function), the order the native entry
+/// uses; elsewhere reads the environment variable. `nil` when unset.
 public func hostProvidedAppId() -> String? {
 #if os(WASI)
+    if let value = nodeEnvironmentVariable("DAL_APP_ID"), !value.isEmpty { return value }
     return jsHostString("__dalAppId")
 #else
     guard let value = environmentVariable("DAL_APP_ID") else { return nil }
@@ -58,23 +60,16 @@ func nodeEnvironmentVariable(_ name: String) -> String? {
 }
 #endif
 
-/// A host-provided publishable API key. `DesertAnt.apiKey` set in code wins
-/// (on Android, Kotlin's `DesertAnt.apiKey`, read through the host bridge);
-/// otherwise on WASI reads `globalThis.__dalApiKey` (string or function), and
-/// elsewhere reads the `DAL_API_KEY` environment variable. `nil` when unset.
+/// The API key from `DesertAnt.configure`, or on Android from Kotlin's `DesertAnt`. `nil` when unset.
 public func hostProvidedApiKey() -> String? {
-    if let key = trimmedKey(DesertAnt.apiKey) { return key }
+    if let key = trimmedKey(DesertAnt.configuredApiKey) { return key }
 #if os(Android)
     if let raw = host_api_key() {
         defer { host_free(raw) }
         if let key = trimmedKey(decodeCString(raw)) { return key }
     }
 #endif
-#if os(WASI)
-    return trimmedKey(jsHostString("__dalApiKey"))
-#else
-    return trimmedKey(environmentVariable("DAL_API_KEY"))
-#endif
+    return nil
 }
 
 /// `key` without surrounding whitespace, or nil when nothing is left. A key
@@ -85,21 +80,6 @@ func trimmedKey(_ key: String?) -> String? {
     // `Character.isWhitespace`, not a list: "\r\n" is one Character in Swift.
     let trimmed = key.drop(while: \.isWhitespace).reversed().drop(while: \.isWhitespace).reversed()
     return trimmed.isEmpty ? nil : String(trimmed)
-}
-
-/// A device id supplied by the host, for cases where the auto-generated,
-/// persisted UUID doesn't fit, chiefly a server-side Node process (no per-device
-/// storage; the "device" is the host's own notion). On WASI reads
-/// `globalThis.__dalDeviceId` (string or function); elsewhere reads the
-/// `DAL_DEVICE_ID` environment variable. `nil` when unset. Licensing counts the
-/// install and does not read it yet.
-public func hostProvidedDeviceId() -> String? {
-#if os(WASI)
-    return jsHostString("__dalDeviceId")
-#else
-    guard let value = environmentVariable("DAL_DEVICE_ID") else { return nil }
-    return value.isEmpty ? nil : value
-#endif
 }
 
 func hostProvidedLicenseEndpoint() -> String? {

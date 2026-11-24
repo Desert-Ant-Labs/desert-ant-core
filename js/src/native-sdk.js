@@ -8,28 +8,16 @@
 // once per model instead of once per runtime.
 //
 // Node-only (loadNative uses node:* + koffi).
-import { loadNative } from "./native.js";
+import { flushNative, loadNative } from "./native.js";
+import { registerFlush } from "./configure.js";
 import { readyModel } from "./sdk.js";
 
 const NATIVE_STARTED = Symbol.for("desert-ant-labs.native-started");
 
-/** `globalThis.__dalDeviceId`, as a string or a zero-arg function, or null. */
-function hostDeviceId() {
-  try {
-    const raw = globalThis.__dalDeviceId;
-    const value = typeof raw === "function" ? raw() : raw;
-    return typeof value === "string" && value.trim() ? value.trim() : null;
-  } catch {
-    // A getter that throws (say, outside a request context) means no host id,
-    // not a failed inference.
-    return null;
-  }
-}
-
 /**
- * The native core reads its host settings from the environment
- * (DAL_APP_ID, DAL_API_KEY, DAL_DEVICE_ID, DAL_LICENSE_ENDPOINT); the browser
- * entry reads the same values from `globalThis.__dal*`. Bridging them means a
+ * The native core reads its host settings from the environment (DAL_APP_ID,
+ * DAL_LICENSE_ENDPOINT); the browser entry reads the same values from
+ * `globalThis.__dal*`. Bridging them means a
  * host sets one spelling on either runtime. Each may be a string or a zero-arg
  * function, the two forms the core's own JS host read accepts. An environment
  * variable already set wins.
@@ -37,16 +25,14 @@ function hostDeviceId() {
  * Run at each load rather than once at import, so a host that imports the package
  * before setting the global is still picked up, but only until a native model
  * first loads in this process: from then on core threads read the environment,
- * and `setenv` racing a `getenv` is a use-after-free on glibc. A device id set
- * later still reaches the core, since `run` passes it per call; a key, app id or
- * endpoint set after the first load has to be in the environment already.
+ * and `setenv` racing a `getenv` is a use-after-free on glibc. An app id or
+ * endpoint set after the first load has to be in the environment already. The
+ * API key comes from `DesertAnt.configure` instead.
  */
 function bridgeHostIdentity() {
   if (globalThis[NATIVE_STARTED]) return;
   for (const [name, env] of [
     ["__dalAppId", "DAL_APP_ID"],
-    ["__dalApiKey", "DAL_API_KEY"],
-    ["__dalDeviceId", "DAL_DEVICE_ID"],
     ["__dalLicenseEndpoint", "DAL_LICENSE_ENDPOINT"],
   ]) {
     let value;
@@ -98,12 +84,8 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
     },
     async run(handle, input, options, _group, deviceId) {
       const payload = options ?? new Uint8Array();
-      // Per call rather than through the environment, which is not written
-      // once a native model has started (see bridgeHostIdentity). The
-      // environment still wins, as it does in the bridge.
-      const device = deviceId ?? (process.env.DAL_DEVICE_ID ? null : hostDeviceId());
       const ptr = await callAsync(
-        lib.run, handle, input, input.length, payload, payload.length, null, device);
+        lib.run, handle, input, input.length, payload, payload.length, null, deviceId ?? null);
       if (!ptr) throw new Error(`${packageName}: the model failed to run`);
       try {
         return decodeResult(ptr);
@@ -112,22 +94,15 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       }
     },
     destroy: (handle) => lib.destroy(handle),
-    // The C symbol is `void`, so resolving it directly would hand a caller
-    // `undefined` where the wasm entry resolves `true` and both are declared
-    // `Promise<boolean>`. The flush cannot report a partial failure: it either
-    // returned or it threw.
-    async flushTelemetry() {
-      await callAsync(lib.flushTelemetry);
-      return true;
-    },
+    flushLicenses: () => flushNative(lib, callAsync),
     withCallGroup,
   };
 
   // Global hook for awaiting the license requests in flight without a model
   // reference, mirroring the wasm entry (`createWasmSdk`). Gated on
-  // DAL_HTTP_DEBUG; a host holding a model calls its `flushTelemetry()` instead.
+  // DAL_HTTP_DEBUG; a host holding a model calls its `flushLicenses()` instead.
   if (process.env.DAL_HTTP_DEBUG) {
-    globalThis.__dalFlushTelemetry = () => core.flushTelemetry();
+    globalThis.__dalFlushLicenses = () => core.flushLicenses();
   }
 
   return {
@@ -141,6 +116,8 @@ export function createNativeSdk({ here, packageName, modelId, coreName }) {
       // default would relocate every existing cache.
       const handle = core.create(options.cacheRoot ?? null, options.directory ?? null, variant);
       globalThis[NATIVE_STARTED] = true;
+      // Registered at the first load: a flush must not load the library of a package that has no model yet.
+      registerFlush(core.flushLicenses);
       return readyModel({ core, packageName, handle, onProgress });
     },
   };

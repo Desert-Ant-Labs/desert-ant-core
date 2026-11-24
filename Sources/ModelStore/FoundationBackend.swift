@@ -3,6 +3,8 @@
 // Foundation; it is gated off Android and wasm, which supply host-backed
 // transport/filesystem instead. So `import Foundation` never reaches those
 // builds (no ICU on Android, no bloat on wasm).
+import PlatformSupport
+
 #if canImport(Foundation) && !os(Android) && !os(WASI)
 #if os(Android)
 // Do not import Foundation on Android: it pulls in the full ICU payload.

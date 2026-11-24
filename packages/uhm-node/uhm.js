@@ -53,7 +53,7 @@ export function makeUhm(sdk) {
      * `type` is null outside Apple: the per-filler type labeler is SoundAnalysis.
      *
      * `options.deviceId` (a string or a zero-arg function returning one) names
-     * the end-user device for the call; licensing does not read it yet.
+     * the end-user device for the call; licensing counts one license a month for each.
      * `options.group` has no effect.
      */
     async detect(samples, sampleRate = SAMPLE_RATE, options = {}) {
@@ -73,7 +73,7 @@ export function makeUhm(sdk) {
      * Wait for the license requests in flight, so a short-lived process (a CLI,
      * a Lambda) does not exit before they finish.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Release the model. The detector is unusable afterwards. */
     dispose() { this.#model.dispose(); }

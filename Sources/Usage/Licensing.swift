@@ -2,6 +2,8 @@ import JSON
 import PlatformSupport
 #if os(WASI)
 import JavaScriptKit
+#else
+import Dispatch
 #endif
 
 let defaultLicenseEndpoint = "https://events.desertant.com/api/v1"
@@ -11,12 +13,12 @@ let licenseNetworkRetryMs: Int64 = 5 * 60 * 1000
 let licenseMinBackoffMs: Int64 = 60 * 1000
 let licenseMaxBackoffMs: Int64 = 6 * hourMs
 let licenseTerminalWaitMs: Int64 = dayMs
-private let licenseTimeoutSeconds = 10.0
+let licenseTimeoutSeconds = 10.0
 
 #if os(WASI)
-private let licenseKeyInBody = true
+let licenseKeyInBody = true
 #else
-private let licenseKeyInBody = false
+let licenseKeyInBody = false
 #endif
 
 package func licenseOnLoad(_ sdk: SDKInfo) {
@@ -45,31 +47,69 @@ struct StoredLicense: Codable, Equatable {
     var token: String?
     var licenseId: String?
     var period: String?
-    var activated = false
-    var lastFailedGrantAt: Int64?
+    var activatedModels: [String]?
+    var refusedAt: [String: Int64]?
     var serverOffset: Int64 = 0
 
     mutating func dropToken() {
         token = nil
         licenseId = nil
         period = nil
-        activated = false
+        activatedModels = nil
+    }
+
+    func isRefused(_ model: String, at time: Int64) -> Bool {
+        guard let refused = refusedAt?[model] else { return false }
+        return time >= refused && time &- refused < licenseTerminalWaitMs
+    }
+
+    mutating func refuse(_ model: String, at time: Int64) {
+        refusedAt = (refusedAt ?? [:]).merging([model: time]) { $1 }
+    }
+
+    mutating func dropEndedRefusals(at time: Int64) {
+        guard let waits = refusedAt?.filter({ isRefused($0.key, at: time) }) else { return }
+        refusedAt = waits.isEmpty ? nil : waits
     }
 }
 
-func licenseStorageKey(_ namespace: String, _ model: String) -> String {
-    "ai.desertant.license.\(namespace).\(model)"
+extension StoredLicense {
+    init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        token = try values.decodeIfPresent(String.self, forKey: .token)
+        licenseId = try values.decodeIfPresent(String.self, forKey: .licenseId)
+        period = try values.decodeIfPresent(String.self, forKey: .period)
+        activatedModels = try values.decodeIfPresent([String].self, forKey: .activatedModels)
+        refusedAt = try values.decodeIfPresent([String: Int64].self, forKey: .refusedAt)
+        serverOffset = try values.decodeIfPresent(Int64.self, forKey: .serverOffset) ?? 0
+    }
+}
+
+#if os(WASI)
+func withLicenseRecordLock<T>(_ body: () -> T) -> T { body() }
+#else
+private let licenseRecordLock = DispatchSemaphore(value: 1)
+
+func withLicenseRecordLock<T>(_ body: () -> T) -> T {
+    licenseRecordLock.wait()
+    defer { licenseRecordLock.signal() }
+    return body()
+}
+#endif
+
+func licenseStorageKey(_ namespace: String) -> String {
+    "ai.desertant.license.\(namespace)"
 }
 
 extension UsageStorage {
-    func loadLicense(_ namespace: String, _ model: String) -> StoredLicense {
-        get(licenseStorageKey(namespace, model))
+    func loadLicense(_ namespace: String) -> StoredLicense {
+        get(licenseStorageKey(namespace))
             .flatMap { try? JSONDecoder().decode(StoredLicense.self, from: $0) } ?? StoredLicense()
     }
 
-    func saveLicense(_ license: StoredLicense, _ namespace: String, _ model: String) {
+    func saveLicense(_ license: StoredLicense, _ namespace: String) {
         guard let json = try? JSONEncoder().encodeToString(license) else { return }
-        set(licenseStorageKey(namespace, model), json)
+        set(licenseStorageKey(namespace), json)
     }
 }
 
@@ -85,10 +125,12 @@ struct LicenseGrantRequest: Encodable {
 
 struct LicenseActivateRequest: Encodable {
     var license: String
+    var model: String
+    var modelVersion: String
     var key: String?
 }
 
-private struct LicenseGrantResponse: Decodable {
+struct LicenseGrantResponse: Decodable {
     var token: String
     var serverTime: String?
 }
@@ -153,6 +195,14 @@ func scheduleLicenseRetry(after delay: Int64, _ work: @escaping @Sendable () asy
 #endif
 }
 
+func canScheduleLicenseRetry() -> Bool {
+#if os(WASI)
+    JSObject.global.setTimeout.function != nil
+#else
+    true
+#endif
+}
+
 actor LicenseClient {
     static let shared = LicenseClient()
 
@@ -168,16 +218,20 @@ actor LicenseClient {
     private let post: Post
     private let now: @Sendable () -> Int64
     private let schedule: LicenseScheduler
+    private let canSchedule: @Sendable () -> Bool
     private let jitter: @Sendable (Int64) -> Int64
     private let publicKeys: [String: String]
     private let verifier: (any LicenseSignatureVerifier)?
     private let endpoint: @Sendable () -> String
     private let identity: @Sendable () -> LicenseIdentity
+    private let secret: @Sendable () -> String?
 
     private var running: Set<String> = []
     private var waiting: Set<String> = []
+    private var wanted: [String: [(model: String, version: String)]] = [:]
     private var attempts: [String: Int] = [:]
-    // Read once: a store that drops writes would otherwise mint a new install, and a new license, per grant.
+    private var unsaved: [String: (json: String, stored: String?)] = [:]
+    // Kept in memory: a store that drops writes would otherwise make a new install id, and a new license, for each request.
     private lazy var installId = storage.persistentDeviceId()
 
     init(
@@ -187,35 +241,53 @@ actor LicenseClient {
         },
         now: @escaping @Sendable () -> Int64 = systemNowMs,
         schedule: @escaping LicenseScheduler = scheduleLicenseRetry,
+        canSchedule: @escaping @Sendable () -> Bool = canScheduleLicenseRetry,
         jitter: @escaping @Sendable (Int64) -> Int64 = { Int64.random(in: 0...$0) },
         publicKeys: [String: String] = licensePublicKeys,
         verifier: (any LicenseSignatureVerifier)? = defaultLicenseVerifier(),
         endpoint: @escaping @Sendable () -> String = { hostProvidedLicenseEndpoint() ?? defaultLicenseEndpoint },
-        identity: @escaping @Sendable () -> LicenseIdentity = currentLicenseIdentity
+        identity: @escaping @Sendable () -> LicenseIdentity = currentLicenseIdentity,
+        secret: @escaping @Sendable () -> String? = { DesertAnt.configuredDeviceIdSecret }
     ) {
         self.storage = storage
         self.post = post
         self.now = now
         self.schedule = schedule
+        self.canSchedule = canSchedule
         self.jitter = jitter
         self.publicKeys = publicKeys
         self.verifier = verifier
         self.endpoint = endpoint
         self.identity = identity
+        self.secret = secret
     }
 
     func modelLoaded(model: String, modelVersion: String) async {
         let who = identity()
-        let slot = who.namespace + "\u{0}" + model
+        wanted[who.namespace, default: []].removeAll { $0.model == model }
+        wanted[who.namespace, default: []].append((model, modelVersion))
+        await work(who)
+    }
+
+    private func work(_ who: LicenseIdentity) async {
+        let slot = who.namespace
+        // A server with a device id secret licenses the devices it serves, and not itself.
+        if who.platform == "server", secret() != nil {
+            wanted[slot] = nil
+            return
+        }
         guard !running.contains(slot), !waiting.contains(slot) else { return }
         running.insert(slot)
-        let outcome = await advance(who, model: model, modelVersion: modelVersion)
+        var outcome = Outcome.settled
+        while case .settled = outcome, let next = wanted[slot]?.first {
+            outcome = await advance(who, model: next.model, modelVersion: next.version)
+            if case .settled = outcome { wanted[slot]?.removeAll { $0 == next } }
+        }
         running.remove(slot)
 
         let delay: Int64
         switch outcome {
         case .settled:
-            attempts[slot] = nil
             return
         case .network:
             delay = licenseNetworkRetryMs
@@ -224,45 +296,39 @@ actor LicenseClient {
             attempts[slot] = attempt + 1
             delay = licenseBackoff(attempt: attempt, retryAfter: retryAfter, jitter: jitter)
         }
+        guard canSchedule() else { return }
         waiting.insert(slot)
-        schedule(delay) { await self.retry(slot, model: model, modelVersion: modelVersion) }
+        schedule(delay) { await self.retry(slot) }
     }
 
-    private func retry(_ slot: String, model: String, modelVersion: String) async {
+    private func retry(_ slot: String) async {
         waiting.remove(slot)
-        await modelLoaded(model: model, modelVersion: modelVersion)
+        let who = identity()
+        if who.namespace != slot, let moved = wanted.removeValue(forKey: slot) {
+            wanted[who.namespace, default: []].append(contentsOf: moved)
+            attempts[slot] = nil
+        }
+        await work(who)
     }
 
     private func advance(_ who: LicenseIdentity, model: String, modelVersion: String) async -> Outcome {
-        var license = storage.loadLicense(who.namespace, model)
-        let deviceNow = now()
-        if let stored = license.token {
-            let serverNow = deviceNow &+ license.serverOffset
-            if let token = LicenseToken(stored), let end = await verifiedPeriodEnd(token),
-               serverNow / 1000 >= token.payload.iat {
-                if serverNow < end {
-                    if license.activated { return .settled }
-                    return await activate(&license, who, model: model)
-                }
-                // A past month's license that never activated is sent late, then replaced.
-                if !license.activated {
-                    let outcome = await activate(&license, who, model: model)
-                    guard case .settled = outcome else { return outcome }
-                }
+        while true {
+            if load(who).isRefused(model, at: now()) { return .settled }
+            var stored = await replaceUnlessValid(who) { _ in }
+            if !stored.valid {
+                let outcome = await grant(who, model: model, modelVersion: modelVersion)
+                guard case .settled = outcome else { return outcome }
+                stored = await replaceUnlessValid(who) { _ in }
             }
-            license.dropToken()
-            storage.saveLicense(license, who.namespace, model)
+            guard stored.valid, let token = stored.license.token,
+                  stored.license.activatedModels?.contains(model) != true
+            else { return .settled }
+            if let outcome = await activate(token, who, model: model, modelVersion: modelVersion) { return outcome }
         }
-        if let failedAt = license.lastFailedGrantAt, deviceNow >= failedAt,
-           deviceNow &- failedAt < licenseTerminalWaitMs {
-            return .settled
-        }
-        return await grant(&license, who, model: model, modelVersion: modelVersion)
     }
 
-    private func grant(
-        _ license: inout StoredLicense, _ who: LicenseIdentity, model: String, modelVersion: String
-    ) async -> Outcome {
+    private func grant(_ who: LicenseIdentity, model: String, modelVersion: String) async -> Outcome {
+        if let stored = storage.get(deviceIdKey), !stored.isEmpty { installId = stored }
         let request = LicenseGrantRequest(
             installId: installId,
             model: model,
@@ -277,8 +343,7 @@ actor LicenseClient {
         case .done:
             break
         case .terminal:
-            license.lastFailedGrantAt = received
-            storage.saveLicense(license, who.namespace, model)
+            _ = await replaceUnlessValid(who) { $0.refuse(model, at: received) }
             return .settled
         case .retry:
             return .backoff(retryAfter: licenseRetryAfter(response))
@@ -288,21 +353,114 @@ actor LicenseClient {
         guard let granted = try? JSONDecoder().decode(LicenseGrantResponse.self, from: response.body) else {
             return .backoff(retryAfter: licenseRetryAfter(response))
         }
-        if let serverTime = granted.serverTime.flatMap(parseISO8601) {
-            license.serverOffset = serverTime &- received
+        var candidate = StoredLicense(token: granted.token)
+        if let serverTime = granted.serverTime.flatMap(parseISO8601) { candidate.serverOffset = serverTime &- received }
+        let usable = await isValid(candidate)
+        if usable { attempts[who.namespace] = nil }
+        _ = await replaceUnlessValid(who) { license in
+            guard usable, let token = LicenseToken(granted.token) else {
+                license.refuse(model, at: received)
+                return
+            }
+            license.token = granted.token
+            license.licenseId = token.payload.lid
+            license.period = token.payload.period
+            license.activatedModels = [model]
+            license.serverOffset = candidate.serverOffset
+            license.refusedAt?[model] = nil
         }
-        guard let token = LicenseToken(granted.token), await verifiedPeriodEnd(token) != nil else {
-            license.lastFailedGrantAt = received
-            storage.saveLicense(license, who.namespace, model)
+        return .settled
+    }
+
+    // Returns nil when the request must be sent again with the token that is stored now.
+    private func activate(
+        _ token: String, _ who: LicenseIdentity, model: String, modelVersion: String
+    ) async -> Outcome? {
+        let request = LicenseActivateRequest(
+            license: token, model: model, modelVersion: modelVersion, key: licenseKeyInBody ? who.apiKey : nil)
+        guard let response = await send("activate", request, who) else { return .network }
+        let received = now()
+        let action = licenseResponseAction(status: response.status, body: response.body)
+        let reply = try? JSONDecoder().decode(LicenseActivateResponse.self, from: response.body)
+        if action == .retryNetwork { return .network }
+        guard action == .terminal || (action == .done && reply?.activated == true) else {
+            return .backoff(retryAfter: licenseRetryAfter(response))
+        }
+        if action == .done { attempts[who.namespace] = nil }
+        return withLicenseRecordLock {
+            var license = load(who)
+            if action == .terminal {
+                if response.status == 422 {
+                    guard license.token == token else { return nil }
+                    license.dropToken()
+                }
+                license.refuse(model, at: received)
+            } else {
+                guard license.token == token else { return nil }
+                if license.activatedModels?.contains(model) != true {
+                    license.activatedModels = (license.activatedModels ?? []) + [model]
+                }
+                if let serverTime = reply?.serverTime.flatMap(parseISO8601) {
+                    license.serverOffset = serverTime &- received
+                }
+            }
+            save(license, who)
             return .settled
         }
-        license.token = granted.token
-        license.licenseId = token.payload.lid
-        license.period = token.payload.period
-        license.activated = false
-        license.lastFailedGrantAt = nil
-        storage.saveLicense(license, who.namespace, model)
-        return await activate(&license, who, model: model)
+    }
+
+    // Other clients write this record too, so a write starts from what is stored now.
+    private func replaceUnlessValid(
+        _ who: LicenseIdentity, _ change: (inout StoredLicense) -> Void
+    ) async -> (license: StoredLicense, valid: Bool) {
+        let key = licenseStorageKey(who.namespace)
+        while true {
+            let raw = read(key)
+            let stored = load(who)
+            if await isValid(stored) { return (stored, true) }
+            var license = stored
+            license.dropToken()
+            change(&license)
+            license.dropEndedRefusals(at: now())
+            let saved: StoredLicense? = withLicenseRecordLock {
+                guard read(key) == raw else { return nil }
+                if license != stored { save(license, who) }
+                return license
+            }
+            if let saved { return (saved, false) }
+        }
+    }
+
+    // The copy in memory serves only while the store holds what it held when the write failed.
+    private func read(_ key: String) -> String? {
+        let kept = storage.get(key)
+        guard let copy = unsaved[key] else { return kept }
+        if kept == copy.stored { return copy.json }
+        unsaved[key] = nil
+        return kept
+    }
+
+    private func load(_ who: LicenseIdentity) -> StoredLicense {
+        read(licenseStorageKey(who.namespace))
+            .flatMap { try? JSONDecoder().decode(StoredLicense.self, from: $0) } ?? StoredLicense()
+    }
+
+    private func save(_ license: StoredLicense, _ who: LicenseIdentity) {
+        var license = license
+        license.dropEndedRefusals(at: now())
+        guard let json = try? JSONEncoder().encodeToString(license) else { return }
+        let key = licenseStorageKey(who.namespace)
+        storage.set(key, json)
+        let kept = storage.get(key)
+        unsaved[key] = kept == json ? nil : (json, kept)
+    }
+
+    private func isValid(_ license: StoredLicense) async -> Bool {
+        guard let token = license.token.flatMap(LicenseToken.init), let end = await verifiedPeriodEnd(token) else {
+            return false
+        }
+        let serverNow = now() &+ license.serverOffset
+        return serverNow / 1000 >= token.payload.iat && serverNow < end
     }
 
     private func verifiedPeriodEnd(_ token: LicenseToken) async -> Int64? {
@@ -310,38 +468,18 @@ actor LicenseClient {
         return parseISO8601(token.payload.periodEnd)
     }
 
-    private func activate(_ license: inout StoredLicense, _ who: LicenseIdentity, model: String) async -> Outcome {
-        guard let token = license.token else { return .settled }
-        let request = LicenseActivateRequest(license: token, key: licenseKeyInBody ? who.apiKey : nil)
-        guard let response = await send("activate", request, who) else { return .network }
-        let received = now()
-        switch licenseResponseAction(status: response.status, body: response.body) {
-        case .done:
-            guard let result = try? JSONDecoder().decode(LicenseActivateResponse.self, from: response.body),
-                  result.activated
-            else { return .backoff(retryAfter: licenseRetryAfter(response)) }
-            if let serverTime = result.serverTime.flatMap(parseISO8601) {
-                license.serverOffset = serverTime &- received
-            }
-            license.activated = true
-        case .terminal:
-            license.dropToken()
-            license.lastFailedGrantAt = received
-        case .retry:
-            return .backoff(retryAfter: licenseRetryAfter(response))
-        case .retryNetwork:
-            return .network
-        }
-        storage.saveLicense(license, who.namespace, model)
-        return .settled
-    }
-
     private func send(_ path: String, _ body: some Encodable, _ who: LicenseIdentity) async -> HTTPResponse? {
         guard let payload = try? JSONEncoder().encode(body) else { return nil }
-        var headers: [String: String] = [:]
-        if !licenseKeyInBody, let key = who.apiKey { headers["Authorization"] = "Bearer \(key)" }
-        var base = endpoint()
-        while base.hasSuffix("/") { base.removeLast() }
-        return try? await post(base + "/" + path, payload, headers)
+        return await postLicenseRequest(path, payload, apiKey: who.apiKey, endpoint: endpoint(), post: post)
     }
+}
+
+func postLicenseRequest(
+    _ path: String, _ payload: [UInt8], apiKey: String?, endpoint: String, post: LicenseClient.Post
+) async -> HTTPResponse? {
+    var headers: [String: String] = [:]
+    if !licenseKeyInBody, let apiKey { headers["Authorization"] = "Bearer \(apiKey)" }
+    var base = endpoint
+    while base.hasSuffix("/") { base.removeLast() }
+    return try? await post(base + "/" + path, payload, headers)
 }

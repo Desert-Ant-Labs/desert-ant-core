@@ -1,6 +1,8 @@
 // A `FileSystem` over raw POSIX (open/read/write/rename/mkdir/stat/unlink), no
 // Foundation. This is the Android filesystem backend; because POSIX is
 // identical on Linux, the exact same code is exercised by the tests on the host.
+import PlatformSupport
+
 #if os(Android) || canImport(Glibc) || canImport(Darwin)
 
 #if os(Android)

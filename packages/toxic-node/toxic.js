@@ -38,7 +38,7 @@ export function makeToxic(sdk) {
      *
      * `options.thresholds` maps a label to the threshold that replaces the
      * model's default for that head. `options.deviceId` names the end-user
-     * device for the call; licensing does not read it yet. `options.group` has
+     * device for the call; licensing counts one license a month for each. `options.group` has
      * no effect.
      */
     async analyze(text, options = {}) {
@@ -47,10 +47,10 @@ export function makeToxic(sdk) {
     }
 
     /**
-     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * Wait for the license requests in flight, and send the device licenses that wait for their batch, so a short-lived process (a CLI,
      * a Lambda) does not exit before they finish.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }

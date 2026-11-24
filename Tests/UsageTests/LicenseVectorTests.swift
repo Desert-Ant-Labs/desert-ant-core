@@ -74,12 +74,18 @@ private struct LicenseVectors: Decodable {
         }
     }
 
-    @Test func periodsEndOnTheFirstInstantOfTheNextMonth() throws {
-        for period in try LicenseVectors.load().periods {
+    @Test func periodsEndOneMonthAfterTheServerTime() throws {
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = try #require(TimeZone(identifier: "UTC"))
+        let periods = try LicenseVectors.load().periods
+        #expect(periods.count >= 12)
+        for period in periods {
             let serverTime = try #require(parseISO8601(period.serverTime))
             let end = try #require(parseISO8601(period.periodEnd))
-            #expect(serverTime < end && end - serverTime <= 31 * dayMs, "\(period.serverTime)")
-            #expect(iso8601(epochMs: end).hasSuffix("-01T00:00:00.000Z"))
+            let issued = Date(timeIntervalSince1970: Double(serverTime / 1000))
+            let oneMonthLater = try #require(utc.date(byAdding: .month, value: 1, to: issued))
+            #expect(end == Int64(oneMonthLater.timeIntervalSince1970) * 1000, "\(period.serverTime)")
+            #expect(!period.periodEnd.contains("."), "\(period.serverTime)")
             #expect(iso8601(epochMs: serverTime).hasPrefix(period.period))
         }
     }
@@ -145,18 +151,16 @@ private struct LicenseVectors: Decodable {
         #expect(await verifyLicenseToken(token, publicKeys: licensePublicKeys, verifier: defaultLicenseVerifier()))
     }
 
-    @Test func grantsAndActivatesTheValidVectorToken() async throws {
+    @Test func storesTheValidVectorToken() async throws {
         let vectors = try LicenseVectors.load()
         let token = try vectors.token("valid")
         let h = LicenseHarness(verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
         await h.host.queue("license", grantReply(token))
-        await h.host.queue("activate", activatedReply)
 
         await h.load()
 
-        #expect(await h.host.paths == ["license", "activate"])
+        #expect(await h.host.paths == ["license"])
         #expect(h.stored.token == token)
-        #expect(h.stored.activated)
     }
 
     @Test func discardsTheTamperedVectorTokens() async throws {
@@ -169,7 +173,7 @@ private struct LicenseVectors: Decodable {
 
             #expect(await h.host.paths == ["license"], "\(name)")
             #expect(h.stored.token == nil, "\(name)")
-            #expect(h.stored.lastFailedGrantAt == serverNoon, "\(name)")
+            #expect(h.stored.refusedAt == ["emo": serverNoon], "\(name)")
         }
     }
 
@@ -178,22 +182,20 @@ private struct LicenseVectors: Decodable {
         let valid = try vectors.token("valid")
         let parts = valid.split(separator: ".").map(String.init)
         let payload = String(decoding: try #require(base64Decode(parts[1])), as: UTF8.self)
-        let later = payload.replacingOccurrences(of: "2026-11-01T00:00:00Z", with: "2027-11-01T00:00:00Z")
+        let later = payload.replacingOccurrences(of: "2026-11-07T00:00:00Z", with: "2027-11-07T00:00:00Z")
         try #require(later != payload)
         var stored = try ["bad-signature", "tampered-payload", "unknown-kid", "malformed"].map { ($0, try vectors.token($0)) }
         stored.append(("later-period-end", parts[0] + "." + base64URL(Array(later.utf8)) + "." + parts[2]))
 
         for (name, token) in stored {
             let h = LicenseHarness(verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
-            h.storage.saveLicense(StoredLicense(token: token, activated: true), "dal_test", "emo")
+            h.storage.saveLicense(StoredLicense(token: token), "dal_test")
             await h.host.queue("license", grantReply(valid))
-            await h.host.queue("activate", activatedReply)
 
             await h.load()
 
-            #expect(await h.host.paths == ["license", "activate"], "\(name)")
+            #expect(await h.host.paths == ["license"], "\(name)")
             #expect(h.stored.token == valid, "\(name)")
-            #expect(h.stored.activated, "\(name)")
         }
     }
 
@@ -201,28 +203,33 @@ private struct LicenseVectors: Decodable {
         let vectors = try LicenseVectors.load()
         let h = LicenseHarness(verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
         let refused = serverNoon - hourMs
-        h.storage.saveLicense(
-            StoredLicense(token: try vectors.token("tampered-payload"), activated: true, lastFailedGrantAt: refused),
-            "dal_test", "emo")
+        let record = StoredLicense(token: try vectors.token("tampered-payload"), refusedAt: ["emo": refused])
+        h.storage.saveLicense(record, "dal_test")
 
         await h.load()
 
         #expect(await h.host.paths == [])
-        #expect(h.stored == StoredLicense(lastFailedGrantAt: refused))
+        #expect(h.stored == record)
+
+        await h.load("redact")
+        #expect(await h.host.paths == ["license"])
+        #expect(h.stored == StoredLicense(refusedAt: ["emo": refused]))
     }
 
     @Test func theExpiryComesFromTheSignedTokenNotTheRecord() async throws {
         let vectors = try LicenseVectors.load()
         let valid = try vectors.token("valid")
-        let h = LicenseHarness(now: novemberFirst - 1, verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
+        let signed = try #require(LicenseToken(valid))
+        let end = try #require(parseISO8601(signed.payload.periodEnd))
+        let h = LicenseHarness(now: end - 1, verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
         h.storage.set(
-            licenseStorageKey("dal_test", "emo"),
-            #"{"token":"\#(valid)","periodEnd":\#(novemberFirst + 365 * dayMs),"activated":true,"serverOffset":0}"#)
+            licenseStorageKey("dal_test"),
+            #"{"token":"\#(valid)","periodEnd":\#(end + 365 * dayMs),"activatedModels":["emo"],"serverOffset":0}"#)
 
         await h.load()
         #expect(await h.host.paths == [])
 
-        h.clock.ms = novemberFirst
+        h.clock.ms = end
         await h.load()
         #expect(await h.host.paths == ["license"])
         #expect(h.stored.token == nil)
@@ -234,20 +241,19 @@ private struct LicenseVectors: Decodable {
         let issued = try #require(LicenseToken(valid)).payload.iat * 1000
         let cases: [(Int64, [String])] = [
             (issued - serverNoon, []),
-            (issued - serverNoon - 1, ["license", "activate"]),
-            (-365 * dayMs, ["license", "activate"]),
+            (issued - serverNoon - 1, ["license"]),
+            (-365 * dayMs, ["license"]),
         ]
         for (offset, paths) in cases {
             let h = LicenseHarness(verifier: defaultLicenseVerifier(), publicKeys: vectors.publicKeys)
-            h.storage.saveLicense(StoredLicense(token: valid, activated: true, serverOffset: offset), "dal_test", "emo")
+            h.storage.saveLicense(StoredLicense(token: valid, activatedModels: ["emo"], serverOffset: offset), "dal_test")
             await h.host.queue("license", grantReply(valid))
-            await h.host.queue("activate", activatedReply)
 
             await h.load()
 
             #expect(await h.host.paths == paths, "offset \(offset)")
             #expect(h.stored.serverOffset == (paths.isEmpty ? offset : 0), "offset \(offset)")
-            #expect(h.stored.activated, "offset \(offset)")
+            #expect(h.stored.token == valid, "offset \(offset)")
         }
     }
     #endif

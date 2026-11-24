@@ -13,6 +13,7 @@
 // imports `Voz` without calling `Voz.load()` pays nothing.
 import * as platform from "#platform";
 import { makeVoz } from "./voz.js";
+export { DesertAnt } from "@desert-ant-labs/core";
 
 export { SAMPLE_RATE } from "./codec.js";
 

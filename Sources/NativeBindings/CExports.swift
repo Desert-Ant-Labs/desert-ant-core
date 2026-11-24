@@ -1,4 +1,5 @@
 #if !os(WASI) && !os(Android)
+import CStrings
 import DesertAnt
 
 @_cdecl("dal_is_downloaded")
@@ -32,9 +33,22 @@ public func dal_destroy(_ handle: UnsafeMutableRawPointer?) {
     nativeDestroy(handle)
 }
 
-@_cdecl("dal_flush_telemetry")
-public func dal_flush_telemetry() {
-    nativeFlushTelemetry()
+// 1 when no device license is left in the queue, 0 when some are.
+@_cdecl("dal_flush_licenses")
+public func dal_flush_licenses() -> Int32 {
+    nativeFlushLicenses() ? 1 : 0
+}
+
+// The API key from `DesertAnt.configure` in JavaScript.
+@_cdecl("dal_configure")
+public func dal_configure(_ apiKey: UnsafePointer<CChar>) {
+    DesertAnt.configure(apiKey: decodeCString(apiKey))
+}
+
+// The device id secret from `DesertAnt.configure` in JavaScript, or NULL for none.
+@_cdecl("dal_configure_device_id_secret")
+public func dal_configure_device_id_secret(_ secret: UnsafePointer<CChar>?) {
+    DesertAnt.configure(deviceIdSecret: secret.map(decodeCString))
 }
 
 @_cdecl("dal_buffer_free")
