@@ -38,8 +38,8 @@ export function encodeCall(op, args = {}) {
   return new FfiWriter().str(op).str(JSON.stringify(args)).done();
 }
 
-export async function call(model, op, args = {}, image = null) {
-  const reader = await model.run(image ? encodeImage(image) : EMPTY, encodeCall(op, args));
+export async function call(model, op, args = {}, image = null, deviceId = undefined) {
+  const reader = await model.run(image ? encodeImage(image) : EMPTY, encodeCall(op, args), { deviceId });
   if (!reader || reader.remaining === 0) throw new Error(`${PACKAGE_NAME}: ${op} failed`);
   return JSON.parse(reader.str());
 }

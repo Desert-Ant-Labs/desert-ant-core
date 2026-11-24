@@ -114,7 +114,7 @@ export async function run({ Moderator }, { litert, litertWasmDir }) {
     };
     out.api = {
       withCallGroup: typeof moderator.withCallGroup,
-      flushTelemetry: typeof moderator.flushTelemetry,
+      flushLicenses: typeof moderator.flushLicenses,
     };
     out.grouped = await moderator.withCallGroup(async (group) =>
       (await moderator.analyze(syn, { group, quality: "fast" })).score);
@@ -168,7 +168,7 @@ export function check(r) {
   for (const [name, got] of Object.entries(r.errors)) {
     if (got !== "TypeError") fail(`${name}: expected TypeError, got ${got}`);
   }
-  if (r.api.withCallGroup !== "function" || r.api.flushTelemetry !== "function") fail("API surface");
+  if (r.api.withCallGroup !== "function" || r.api.flushLicenses !== "function") fail("API surface");
   if (!(r.grouped >= 0 && r.grouped <= 1)) fail(`grouped call returned ${r.grouped}`);
   if (r.afterDispose === "resolved") fail("analyze after dispose() resolved");
 }

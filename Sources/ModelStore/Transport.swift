@@ -4,6 +4,8 @@
 // (java.net / JS fetch, POSIX / node fs). URLs and paths are plain strings so
 // nothing Foundation crosses the seam.
 
+import PlatformSupport
+
 /// One file in a repo, from the Hub tree listing.
 public struct RemoteEntry: Sendable, Equatable {
     /// Repo-relative path.

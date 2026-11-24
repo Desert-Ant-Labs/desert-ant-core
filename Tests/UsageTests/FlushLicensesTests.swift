@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import Usage
 #if canImport(Darwin)
@@ -9,6 +10,18 @@ import Glibc
 private actor Flag {
     private(set) var isSet = false
     func set() { isSet = true }
+}
+
+private final class Calls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        return count
+    }
 }
 
 private actor Gate {
@@ -27,14 +40,14 @@ private actor Gate {
     }
 }
 
-@Suite(.serialized) struct FlushTelemetryTests {
+@Suite(.serialized) struct FlushLicensesTests {
     @Test func workIsRegisteredBeforeDispatchReturns() async {
         let registry = InflightWork()
         let gate = Gate()
         dispatchTracked(into: registry) { await gate.wait() }
         #expect(registry.count == 1, "the work was not registered when dispatch returned")
         await gate.release()
-        await TelemetryDebug(work: registry).flushAndWait()
+        await LicenseFlush(work: registry).flushAndWait()
     }
 
     @Test func aFlushWaitsForTheWorkInFlight() async {
@@ -44,7 +57,7 @@ private actor Gate {
             try? await Task.sleep(nanoseconds: 300_000_000)
             await done.set()
         }
-        await TelemetryDebug(work: registry).flushAndWait()
+        await LicenseFlush(work: registry).flushAndWait()
         #expect(await done.isSet, "flushAndWait returned before the work finished")
     }
 
@@ -58,15 +71,32 @@ private actor Gate {
                 await done.set()
             }
         }
-        await TelemetryDebug(work: registry).flushAndWait()
+        await LicenseFlush(work: registry).flushAndWait()
         #expect(await done.isSet, "flushAndWait returned before the follow-up work finished")
+    }
+
+    @Test func aFlushWaitsForWorkThatStartsDuringItsLastSend() async {
+        let registry = InflightWork()
+        let done = Flag()
+        let calls = Calls()
+        let flush = LicenseFlush(work: registry) {
+            if calls.next() == 2 {
+                dispatchTracked(into: registry) {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                    await done.set()
+                }
+            }
+            return systemNowMs()
+        }
+        await flush.flushAndWait()
+        #expect(await done.isSet, "flushAndWait returned before the work that started during the send finished")
     }
 
     @Test func twoFlushesAtOnceBothWait() async {
         let registry = InflightWork()
         let gate = Gate()
         dispatchTracked(into: registry) { await gate.wait() }
-        let debug = TelemetryDebug(work: registry)
+        let debug = LicenseFlush(work: registry)
         let first = Flag()
         let second = Flag()
         let flushes = [
@@ -87,13 +117,13 @@ private actor Gate {
         let before = InflightWork.shared.registeredTotal
         licenseOnLoad(SDKInfo(name: "Test", version: "0.0.0", model: "flush-test", modelVersion: "v0"))
         #expect(InflightWork.shared.registeredTotal > before, "a model load started no tracked work")
-        await TelemetryDebug.shared.flushAndWait()
+        await LicenseFlush.shared.flushAndWait()
     }
 
     @Test func aFlushDoesNotWaitForARetryStillInItsDelay() async {
         let fired = Flag()
         scheduleLicenseRetry(after: 60_000) { await fired.set() }
-        await TelemetryDebug.shared.flushAndWait()
+        await LicenseFlush.shared.flushAndWait()
         #expect(await !fired.isSet)
     }
 
@@ -122,7 +152,7 @@ private actor Gate {
         // The client gives up at licenseTimeoutSeconds (10 s); the slack above it absorbs
         // suite parallelism on a loaded CI runner. The bound only needs to stay well under
         // Foundation's 60 s default to prove the timeout was passed at all.
-        #expect(clock.now - started < .seconds(30), "flushTelemetry() would wait out the platform default timeout")
+        #expect(clock.now - started < .seconds(30), "flushLicenses() would wait out the platform default timeout")
     }
     #endif
 }

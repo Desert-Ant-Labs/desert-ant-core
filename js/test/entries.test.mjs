@@ -13,6 +13,8 @@ test("browser-safe entry exports the expected surface", async () => {
     "makeModelHostSeam",
     "fetchSelfHostedModel",
     "createWasmSdk",
+    "registerFlush",
+    "flushCores",
     "readyModel",
     "wasmCore",
     "browserSetup",

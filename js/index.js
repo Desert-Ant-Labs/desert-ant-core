@@ -8,6 +8,7 @@
 export { FfiReader, FfiWriter } from "./src/ffi.js";
 export { Faceprint, Level, matches } from "./src/faceprint.js";
 export { DesertAnt, LOG_LEVELS } from "./src/log.js";
+export { registerCore, registerFlush, flushCores } from "./src/configure.js";
 export { makeCallGroups, CALL_GROUP_END_SYMBOL } from "./src/callgroup.js";
 export { createWasmSdk, LoadedModel, readyModel, wasmCore } from "./src/sdk.js";
 export {

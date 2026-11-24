@@ -1,7 +1,7 @@
 {
   "description": "Shared license contract vectors for dal-core and the SDKs. Test material only; never use these keys or this secret outside tests.",
   "licenseIdSecret": "dal-license-test-secret-0123456789abcdef",
-  "licenseIdEncoding": "HMAC-SHA256(secret, for each of [\"dal-license-id/v1\", installId, app, model, period]: 4-byte big-endian UTF-8 length then the UTF-8 bytes); first 16 bytes; byte 6 = (b & 0x0f) | 0x80; byte 8 = (b & 0x3f) | 0x80; lowercase 8-4-4-4-12 hex",
+  "licenseIdEncoding": "HMAC-SHA256(secret, for each of [\"dal-license-id/v2\", installId, app, period]: 4-byte big-endian UTF-8 length then the UTF-8 bytes); first 16 bytes; byte 6 = (b & 0x0f) | 0x80; byte 8 = (b & 0x3f) | 0x80; lowercase 8-4-4-4-12 hex",
   "keys": [
     {
       "kid": "test-1",
@@ -44,63 +44,43 @@
     {
       "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
       "app": "ios:com.acme.app",
-      "model": "emo",
       "period": "2026-10",
-      "licenseId": "efe0d0d2-a957-8026-8b33-e6618d4f4dff"
+      "licenseId": "7e33d8a7-32c1-8f75-9fc5-88a8a6e19e43"
     },
     {
       "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
       "app": "ios:com.acme.app",
-      "model": "emo",
       "period": "2026-11",
-      "licenseId": "bf321334-9e93-8b14-becc-df6c85017435"
-    },
-    {
-      "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
-      "app": "ios:com.acme.app",
-      "model": "redact",
-      "period": "2026-10",
-      "licenseId": "5cdcd9d9-3ecf-83c4-93f9-ca60d56b5957"
+      "licenseId": "be79e3fe-e9be-8150-9a01-e92ec87a68c4"
     },
     {
       "installId": "7f9c2ba4-e88f-4c6e-9b1a-3d5e8a2f6c01",
       "app": "android:com.acme.app",
-      "model": "emo",
       "period": "2026-10",
-      "licenseId": "ca4596ac-1f44-802b-82bb-681f09b0519a"
+      "licenseId": "3c744396-ba3e-8bcd-9f02-5ea931e1ecdf"
     },
     {
       "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
       "app": "web:acme.co.uk",
-      "model": "clear",
       "period": "2027-01",
-      "licenseId": "e0a73f5a-008c-831d-9d72-ca0aca801793"
-    },
-    {
-      "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
-      "app": "ios:ab",
-      "model": "c",
-      "period": "2026-10",
-      "licenseId": "f6626fad-79c1-87f0-8616-0815b564d503"
-    },
-    {
-      "installId": "0d6e1f3a-2b4c-4d5e-8f60-718293a4b5c6",
-      "app": "ios:a",
-      "model": "bc",
-      "period": "2026-10",
-      "licenseId": "05240fc4-a78b-8420-ae40-b8f0adc3aa0c"
+      "licenseId": "387ca9a3-3e18-8840-9cf8-c58211cf6445"
     }
   ],
   "periods": [
     {
       "serverTime": "2026-10-07T12:00:00Z",
       "period": "2026-10",
-      "periodEnd": "2026-11-01T00:00:00Z"
+      "periodEnd": "2026-11-07T12:00:00Z"
+    },
+    {
+      "serverTime": "2026-10-27T09:15:30Z",
+      "period": "2026-10",
+      "periodEnd": "2026-11-27T09:15:30Z"
     },
     {
       "serverTime": "2026-10-31T23:59:59.999Z",
       "period": "2026-10",
-      "periodEnd": "2026-11-01T00:00:00Z"
+      "periodEnd": "2026-11-30T23:59:59Z"
     },
     {
       "serverTime": "2026-11-01T00:00:00Z",
@@ -110,7 +90,42 @@
     {
       "serverTime": "2026-12-15T08:30:00Z",
       "period": "2026-12",
-      "periodEnd": "2027-01-01T00:00:00Z"
+      "periodEnd": "2027-01-15T08:30:00Z"
+    },
+    {
+      "serverTime": "2026-12-31T23:00:00Z",
+      "period": "2026-12",
+      "periodEnd": "2027-01-31T23:00:00Z"
+    },
+    {
+      "serverTime": "2027-01-30T10:00:00Z",
+      "period": "2027-01",
+      "periodEnd": "2027-02-28T10:00:00Z"
+    },
+    {
+      "serverTime": "2027-01-31T10:00:00Z",
+      "period": "2027-01",
+      "periodEnd": "2027-02-28T10:00:00Z"
+    },
+    {
+      "serverTime": "2027-03-31T00:00:00Z",
+      "period": "2027-03",
+      "periodEnd": "2027-04-30T00:00:00Z"
+    },
+    {
+      "serverTime": "2028-01-30T10:00:00Z",
+      "period": "2028-01",
+      "periodEnd": "2028-02-29T10:00:00Z"
+    },
+    {
+      "serverTime": "2028-01-31T10:00:00Z",
+      "period": "2028-01",
+      "periodEnd": "2028-02-29T10:00:00Z"
+    },
+    {
+      "serverTime": "2028-02-29T12:00:00Z",
+      "period": "2028-02",
+      "periodEnd": "2028-03-29T12:00:00Z"
     }
   ],
   "appIdentity": [
@@ -158,18 +173,23 @@
       "platform": "server",
       "appId": "Acme-Backend",
       "app": "server:acme-backend"
+    },
+    {
+      "platform": "embedded",
+      "appId": "Acme-Thermostat",
+      "app": "embedded:acme-thermostat"
     }
   ],
   "tokens": [
     {
       "name": "valid",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1SUJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.BqJ-EHLpp7YZK9xPFw65uo03UV8FOJU1uCZ2A1Kad-U-2q5sHjeQ-tgzQG6VqOAJK8z0BN8tOTtYExcy-qwPfg",
       "expect": "valid",
       "payload": {
         "v": 1,
-        "lid": "efe0d0d2-a957-8026-8b33-e6618d4f4dff",
+        "lid": "7e33d8a7-32c1-8f75-9fc5-88a8a6e19e43",
         "period": "2026-10",
-        "periodEnd": "2026-11-01T00:00:00Z",
+        "periodEnd": "2026-11-07T00:00:00Z",
         "app": "ios:com.acme.app",
         "model": "emo",
         "modelVersion": "1.2.0",
@@ -181,13 +201,13 @@
     },
     {
       "name": "valid-old-key",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMSIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjYuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.-5ko_PR3uy1Fyp19T77XPR6O7IsdD_t-gyh6lQCG6jusTmVDqPAAaDWkIhmANxv5A4LF3KcOdsbt7LOR-uY4ng",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMSIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjYuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.ZEfna7gf_mCauxzZ8QKCbG1RVdd3WQ6v2vsOyRAnq3lY24VF0J6RwhYQ0xvYG011IH6c4eZGycnhuHOKD0qoxg",
       "expect": "valid",
       "payload": {
         "v": 1,
-        "lid": "efe0d0d2-a957-8026-8b33-e6618d4f4dff",
+        "lid": "7e33d8a7-32c1-8f75-9fc5-88a8a6e19e43",
         "period": "2026-10",
-        "periodEnd": "2026-11-01T00:00:00Z",
+        "periodEnd": "2026-11-07T00:00:00Z",
         "app": "ios:com.acme.app",
         "model": "emo",
         "modelVersion": "1.2.0",
@@ -199,37 +219,37 @@
     },
     {
       "name": "wrong-alg",
-      "token": "eyJhbGciOiJFUzM4NCIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.xugIx8Y-nzeIO6vsF5qNwNLJzUNqGOid502ZJwi_azpBcD2m7iaZUdT7SS8zdrJ9RRQX3QSh_HObTqBAWKl-kA",
+      "token": "eyJhbGciOiJFUzM4NCIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.o-dP2Ze36QHippI_YnmDnwszeY1C8A5yY3POaw0yhTFnUXrETEFs_WdAozev3h4XUidqTnmwm6fgj2CQEdfU3g",
       "expect": "invalid_license"
     },
     {
       "name": "none-alg",
-      "token": "eyJhbGciOiJub25lIiwia2lkIjoidGVzdC0yIiwidHlwIjoiZGFsLWxpY2Vuc2Urand0In0.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.",
+      "token": "eyJhbGciOiJub25lIiwia2lkIjoidGVzdC0yIiwidHlwIjoiZGFsLWxpY2Vuc2Urand0In0.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.",
       "expect": "invalid_license"
     },
     {
       "name": "wrong-typ",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6IkpXVCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.yJjev-KTXcJ9fN-u33r3ViSbEbxS6HyJqI7XZkjHMynyAaffH8XqWLKdVTronVWZZOVRyYpBKd1k5UDcUqLBLg",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6IkpXVCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.1rl7nZB8r4kXQatWnp3LECCuFw3oCGWDKotBLyRWQaC9KLaRfaKpWIJtWwJSKTav-Ew1LSeN1B1uFrs1PV871Q",
       "expect": "invalid_license"
     },
     {
       "name": "bad-signature",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1doJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.BqJ-EHLpp7YZK91PFw65uo03UV8FOJU1uCZ2A1Kad-U-2q5sHjeQ-tgzQG6VqOAJK8z0BN8tOTtYExcy-qwPfg",
       "expect": "invalid_license"
     },
     {
       "name": "der-signature",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.MEQCIF66-dh59vMeUTlf1uhu1S9Pioo_JBF7DwCpg5lK2VOmAiA8WXjFySZnxJDH-0718p1Z3EkUyIkV9QXkf0Y-Bdz5Kw",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.MEUCIAzrRyKN7ZmPA--XCl3vozdZS5JFsM0DcB_mqV6eHjr9AiEAoUSO_g2WJspdSW9-kKNnspWNMdEYSz4j3KpE8zdianQ",
       "expect": "invalid_license"
     },
     {
       "name": "tampered-payload",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTA5IiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.TAC0--4OF4EL1SUJFcLUc434aqvy_2-R7Vpis_wZzizE0wdAL4nfcMB0W81Sx7V2NFBDhxt1W9CMtolKYsUOjw",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtMiIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTA5IiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.BqJ-EHLpp7YZK9xPFw65uo03UV8FOJU1uCZ2A1Kad-U-2q5sHjeQ-tgzQG6VqOAJK8z0BN8tOTtYExcy-qwPfg",
       "expect": "invalid_license"
     },
     {
       "name": "unknown-kid",
-      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtdW5rbm93biIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiJlZmUwZDBkMi1hOTU3LTgwMjYtOGIzMy1lNjYxOGQ0ZjRkZmYiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wMVQwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.yXsOF0yxFF_z0bbg3tPJ0id0WAYZuY0VmPP8sg9fC2Xaqx5mX13CP8BWAwP1T0snuVicnPmajsOWai4oArr9Qw",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6InRlc3QtdW5rbm93biIsInR5cCI6ImRhbC1saWNlbnNlK2p3dCJ9.eyJ2IjoxLCJsaWQiOiI3ZTMzZDhhNy0zMmMxLThmNzUtOWZjNS04OGE4YTZlMTllNDMiLCJwZXJpb2QiOiIyMDI2LTEwIiwicGVyaW9kRW5kIjoiMjAyNi0xMS0wN1QwMDowMDowMFoiLCJhcHAiOiJpb3M6Y29tLmFjbWUuYXBwIiwibW9kZWwiOiJlbW8iLCJtb2RlbFZlcnNpb24iOiIxLjIuMCIsInNkayI6ImRlc2VydC1hbnQtY29yZSIsInNka1ZlcnNpb24iOiIzLjcuMCIsInBsYXRmb3JtIjoiaW9zIiwiaWF0IjoxNzkxMzMxMjAwfQ.C42TFKffHR_t0VEJWykt1SFLf3yCbt12u1_CCvQXvAmfRW1husOYoD3f6MM3EqRdeMO3sHz9gQj9mbkSCSrwyQ",
       "expect": "unknown_key"
     },
     {

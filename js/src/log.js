@@ -12,6 +12,8 @@
 //
 // Browser-safe: no `node:*`.
 
+import { configure } from "./configure.js";
+
 export const LOG_LEVELS = ["debug", "info", "warning", "error", "off"];
 
 const INSTALLERS = Symbol.for("desert-ant-labs.log-installers");
@@ -51,6 +53,10 @@ function reinstall() {
  * default) is the platform's log.
  */
 export const DesertAnt = {
+  /** Sets the API key; each call replaces the earlier key. */
+  configure(settings) {
+    configure(settings);
+  },
   get logLevel() {
     return hostLogLevel() ?? "warning";
   },

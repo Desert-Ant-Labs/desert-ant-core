@@ -38,7 +38,7 @@ export function makeModerator(sdk) {
      * `options.threshold` (default `0.5`), `options.policy` (`"standard"` or
      * `"allowTopless"`), `options.quality` (`"fast"`, `"balanced"`, or
      * `"accurate"`, the default). `options.deviceId` names the end-user device
-     * for the call; licensing does not read it yet. `options.group` has no
+     * for the call; licensing counts one license a month for each. `options.group` has no
      * effect.
      */
     async analyze(image, options = {}) {
@@ -48,10 +48,10 @@ export function makeModerator(sdk) {
     }
 
     /**
-     * Wait for the license requests in flight, so a short-lived process (a CLI,
+     * Wait for the license requests in flight, and send the device licenses that wait for their batch, so a short-lived process (a CLI,
      * a Lambda) does not exit before they finish.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }

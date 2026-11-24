@@ -48,7 +48,7 @@ export function makeWho(sdk, decodeAudio) {
      * Send the usage recorded so far and await the POST, so a short-lived process
      * (a CLI, a Lambda) does not exit before it lands.
      */
-    flushTelemetry() { return this.#model.flushTelemetry(); }
+    flushLicenses() { return this.#model.flushLicenses(); }
 
     /** Whether the model is usable with no network. */
     isDownloaded() { return this.#model.isDownloaded(); }

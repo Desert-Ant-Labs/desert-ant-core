@@ -20,6 +20,7 @@
 #if os(WASI)
 import DesertAnt
 import JavaScriptKit
+import DesertAnt
 
 /// What this module's model is, for the JS SDK that wraps it.
 ///
@@ -108,6 +109,16 @@ import JavaScriptKit
         handle: handle, input: input, options: options, deviceId: deviceId)
 }
 
+/// The API key from `DesertAnt.configure` in JavaScript.
+@JS public func configure(apiKey: String) {
+    DesertAnt.configure(apiKey: apiKey)
+}
+
+/// The device id secret from `DesertAnt.configure` in JavaScript, or `nil` for none.
+@JS public func configureDeviceIdSecret(secret: String?) {
+    DesertAnt.configure(deviceIdSecret: secret)
+}
+
 /// Has no effect. Kept so an older `@desert-ant-labs/core` still finds it.
 @JS public func endCallGroup(id: String?) {}
 
@@ -118,8 +129,8 @@ import JavaScriptKit
 
 /// Wait for the license requests in flight, so a short-lived process does not
 /// exit before they finish.
-@JS public func flushTelemetry() async -> Bool {
-    await installedModelHost?.flushTelemetry() ?? false
+@JS public func flushLicenses() async -> Bool {
+    await installedModelHost?.flushLicenses() ?? false
 }
 
 /// How much the SDK says, from the most talkative to silent: the names

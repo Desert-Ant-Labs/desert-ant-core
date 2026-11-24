@@ -20,9 +20,9 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
   `modelBaseUrl` serves, and returns a ready `LoadedModel`.
 - `LoadedModel` - a loaded model behind an opaque core handle: `run(text,
   options, { deviceId })` returning an `FfiReader`, plus `isDownloaded`,
-  `flushTelemetry`, and `dispose`. The same object on both runtimes, so a package
-  writes its public class once. `flushTelemetry` waits for the license requests
-  in flight. `withCallGroup` and the `group` call option are still accepted and
+  `flushLicenses`, and `dispose`. The same object on both runtimes, so a package
+  writes its public class once. `flushLicenses` waits for the license requests
+  in flight, for every model loaded in the process. `withCallGroup` and the `group` call option are still accepted and
   have no effect.
 - `makeModelHostSeam()` / `makeLiteRtHost(...)` - the model host a wasm core is
   instantiated with (`dalModelHost` in its generated `Imports`, from
@@ -39,7 +39,7 @@ Browser-safe entry (`@desert-ant-labs/core`, no `node:*`):
 - `browserSetup` / `browserWasmDir` / `browserReadModelSource` /
   `browserCacheRoot` - the browser half of a model's `#platform` seam.
 - The wasm ABI itself (`create`, `createSelfHosted`, `isDownloaded`, `download`,
-  `run`, `endCallGroup`, `destroy`, `flushTelemetry`), the twin of the native
+  `run`, `endCallGroup`, `destroy`, `flushLicenses`), the twin of the native
   `dal_*` symbols, is what BridgeJS generates from the `@JS` entry points in the
   model's `Web/main.swift`; its types live in the package's own generated
   `dist/bridge-js.d.ts`. Both setups return it, so a model package writes no wasm

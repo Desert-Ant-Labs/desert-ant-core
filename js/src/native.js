@@ -15,6 +15,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { FfiReader } from "./ffi.js";
 import { makeCallGroups } from "./callgroup.js";
+import { registerCore } from "./configure.js";
 import { LOG_LEVELS, hostLogLevel, hostLogHandler, registerLogInstaller } from "./log.js";
 
 const require = createRequire(import.meta.url);
@@ -156,6 +157,31 @@ export function installLogging(core, koffi, platform = process.platform) {
   void platform;
 }
 
+// A core built before dal_configure existed keeps reading DAL_API_KEY itself.
+export function installConfigure(core) {
+  let configure;
+  try {
+    configure = core.func("void dal_configure(const char*)");
+  } catch {
+    return;
+  }
+  let configureSecret;
+  try {
+    configureSecret = core.func("void dal_configure_device_id_secret(const char*)");
+  } catch {
+    configureSecret = null;
+  }
+  registerCore(({ apiKey, deviceIdSecret }) => {
+    configure(apiKey);
+    configureSecret?.(deviceIdSecret ?? null);
+  });
+}
+
+// Resolves whether no device license is left in the queue.
+export async function flushNative(lib, callAsync) {
+  return (await callAsync(lib.flushLicenses)) !== 0;
+}
+
 /**
  * The C ABI every model-specific native library implements. Everything but the
  * constructor is generic, since options in and results out are FFI payloads
@@ -170,9 +196,7 @@ export const dalSymbols = (modelId) => ({
   // options and the result. A video model needs no new symbol here.
   run: "void* dal_run(void*, const uint8_t*, int, const uint8_t*, int, const char*, const char*)",
   destroy: "void dal_destroy(void*)",
-  // The `flushTelemetry()` behind the SDKs': block until the license requests
-  // in flight finish.
-  flushTelemetry: "void dal_flush_telemetry()",
+  flushLicenses: "int dal_flush_licenses()",
   bufferFree: "void dal_buffer_free(void*)",
 });
 
@@ -245,6 +269,7 @@ export function loadNative({ here, packageName, coreName, modelId, symbols, targ
     checkLibcurl(core, packageName);
     installLicenseVerifier(core, koffi);
     installLogging(core, koffi);
+    installConfigure(core);
     lib = {};
     for (const [name, proto] of Object.entries(symbols)) lib[name] = core.func(proto);
     return lib;

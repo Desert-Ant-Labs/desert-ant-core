@@ -106,10 +106,10 @@ package extension StoredModel {
     }
 }
 
-// Every session the factory builds starts its model's license check, which never blocks the session.
+// Every session the factory builds starts its model's license checks, which never block the session.
 func licensed(_ session: any InferenceSession, sdk: SDKInfo) -> any InferenceSession {
     licenseOnLoad(sdk)
-    return session
+    return LicensedSession(base: session, sdk: sdk)
 }
 
 #if canImport(CLiteRt)

@@ -2,7 +2,7 @@
 // libcurl must get an ordinary error from load(), not an abort later.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { checkLibcurl } from "../src/native.js";
+import { checkLibcurl, dalSymbols, flushNative } from "../src/native.js";
 
 const core = (probe) => ({
   func(proto) {
@@ -28,4 +28,18 @@ test("a core built before the probe existed is not checked", () => {
 
 test("other platforms never ask", () => {
   checkLibcurl({ func: () => assert.fail("probed off Linux") }, "pkg", "darwin");
+});
+
+const callNow = (fn) => Promise.resolve(fn());
+
+test("a flush reports whether device licenses are left", async () => {
+  assert.equal(dalSymbols("emo").flushLicenses, "int dal_flush_licenses()");
+  assert.equal(await flushNative({ flushLicenses: () => 0 }, callNow), false);
+  assert.equal(await flushNative({ flushLicenses: () => 1 }, callNow), true);
+});
+
+// koffi 3.0 to 3.1.6 crashes Node when an async call to a function that returns void finishes.
+test("no call that runs on a worker thread returns void", () => {
+  const symbols = dalSymbols("emo");
+  for (const name of ["download", "run", "flushLicenses"]) assert.doesNotMatch(symbols[name], /^void /);
 });

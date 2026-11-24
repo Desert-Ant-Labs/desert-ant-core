@@ -18,3 +18,4 @@ export const FaceDetector = makeFaceDetector(sdk);
 
 export { FaceLibrary } from "./face.js";
 export { Faceprint, Level } from "./faceprint.js";
+export { DesertAnt } from "@desert-ant-labs/core/node";

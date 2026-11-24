@@ -10,6 +10,7 @@ import { browserSetup } from "../src/litert.js";
 function fakeCore() {
   return {
     modelInfo: () => ({ id: "shapes", sdkVersion: "1.0.0", artifact: "shapes.tflite", sidecars: [] }),
+    configure: () => {},
     create: () => 1,
     createSelfHosted: () => 2,
     isDownloaded: () => true,
@@ -17,7 +18,7 @@ function fakeCore() {
     run: async () => new Uint8Array(),
     endCallGroup: () => {},
     destroy: () => {},
-    flushTelemetry: async () => true,
+    flushLicenses: async () => true,
     setLogLevel: () => {},
   };
 }

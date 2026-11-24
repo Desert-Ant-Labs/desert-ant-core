@@ -10,24 +10,18 @@ import { createNativeSdk } from "../src/native-sdk.js";
 test("a host global set after the package loads still reaches the native core", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
-  const names = ["DAL_APP_ID", "DAL_API_KEY", "DAL_DEVICE_ID"];
+  const names = ["DAL_APP_ID"];
   const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
   for (const name of names) delete process.env[name];
   try {
     // Built first, as a package's module scope does at import.
     const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
-    globalThis.__dalAppId = "com.acme.server";
-    globalThis.__dalApiKey = () => "dal_test";
-    globalThis.__dalDeviceId = "host-device";
+    globalThis.__dalAppId = () => "com.acme.server";
 
     await assert.rejects(sdk.open(), "there is no native library here to load");
-    assert.equal(process.env.DAL_APP_ID, "com.acme.server");
-    assert.equal(process.env.DAL_API_KEY, "dal_test", "a function-valued global is called");
-    assert.equal(process.env.DAL_DEVICE_ID, "host-device");
+    assert.equal(process.env.DAL_APP_ID, "com.acme.server", "a function-valued global is called");
   } finally {
     delete globalThis.__dalAppId;
-    delete globalThis.__dalApiKey;
-    delete globalThis.__dalDeviceId;
     for (const name of names) {
       if (saved[name] === undefined) delete process.env[name];
       else process.env[name] = saved[name];
@@ -58,17 +52,17 @@ test("the license endpoint override reaches the native core", async () => {
 test("an environment variable already set wins over the host global", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
-  const saved = process.env.DAL_API_KEY;
-  process.env.DAL_API_KEY = "dal_from_env";
+  const saved = process.env.DAL_APP_ID;
+  process.env.DAL_APP_ID = "com.acme.env";
   try {
     const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
-    globalThis.__dalApiKey = "dal_from_global";
+    globalThis.__dalAppId = "com.acme.global";
     await assert.rejects(sdk.open());
-    assert.equal(process.env.DAL_API_KEY, "dal_from_env");
+    assert.equal(process.env.DAL_APP_ID, "com.acme.env");
   } finally {
-    delete globalThis.__dalApiKey;
-    if (saved === undefined) delete process.env.DAL_API_KEY;
-    else process.env.DAL_API_KEY = saved;
+    delete globalThis.__dalAppId;
+    if (saved === undefined) delete process.env.DAL_APP_ID;
+    else process.env.DAL_APP_ID = saved;
     fs.rmSync(here, { recursive: true, force: true });
   }
 });
@@ -79,18 +73,18 @@ test("once a native model has started, the bridge no longer writes the environme
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
   const started = Symbol.for("desert-ant-labs.native-started");
-  const saved = process.env.DAL_API_KEY;
-  delete process.env.DAL_API_KEY;
+  const saved = process.env.DAL_APP_ID;
+  delete process.env.DAL_APP_ID;
   globalThis[started] = true;
   try {
     const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
-    globalThis.__dalApiKey = "dal_late";
+    globalThis.__dalAppId = "com.acme.late";
     await assert.rejects(sdk.open());
-    assert.equal(process.env.DAL_API_KEY, undefined);
+    assert.equal(process.env.DAL_APP_ID, undefined);
   } finally {
     delete globalThis[started];
-    delete globalThis.__dalApiKey;
-    if (saved !== undefined) process.env.DAL_API_KEY = saved;
+    delete globalThis.__dalAppId;
+    if (saved !== undefined) process.env.DAL_APP_ID = saved;
     fs.rmSync(here, { recursive: true, force: true });
   }
 });
@@ -98,7 +92,7 @@ test("once a native model has started, the bridge no longer writes the environme
 test("a host getter that throws does not fail the load", async () => {
   const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
   fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
-  globalThis.__dalDeviceId = () => {
+  globalThis.__dalAppId = () => {
     throw new Error("no request context");
   };
   try {
@@ -106,7 +100,24 @@ test("a host getter that throws does not fail the load", async () => {
     // It still rejects, but at the missing native library, not at the getter.
     await assert.rejects(sdk.open(), (error) => !String(error?.message).includes("no request context"));
   } finally {
-    delete globalThis.__dalDeviceId;
+    delete globalThis.__dalAppId;
+    fs.rmSync(here, { recursive: true, force: true });
+  }
+});
+
+test("the API key global no longer reaches the environment", async () => {
+  const here = fs.mkdtempSync(path.join(os.tmpdir(), "dal-native-sdk-"));
+  fs.writeFileSync(path.join(here, "package.json"), JSON.stringify({ version: "0.0.0" }));
+  const saved = process.env.DAL_API_KEY;
+  delete process.env.DAL_API_KEY;
+  try {
+    const sdk = createNativeSdk({ here, packageName: "test", modelId: "test", coreName: "TestNode" });
+    globalThis.__dalApiKey = "dal_global";
+    await assert.rejects(sdk.open());
+    assert.equal(process.env.DAL_API_KEY, undefined);
+  } finally {
+    delete globalThis.__dalApiKey;
+    if (saved !== undefined) process.env.DAL_API_KEY = saved;
     fs.rmSync(here, { recursive: true, force: true });
   }
 });

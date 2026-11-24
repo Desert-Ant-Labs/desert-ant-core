@@ -25,7 +25,7 @@ struct LicenseE2EPlan: Decodable {
     var now: String
     var retryScale: Int64
     var loads: [Load]
-    var waitActivated: Bool
+    var waitLicensed: Bool
     var timeoutSeconds: Double
     var readyFile: String?
     var realModel: RealModel?
@@ -111,26 +111,26 @@ struct LicenseE2ETests {
                          "could not write the ready file at \(readyFile)")
         }
 
-        func allActivated() -> Bool {
+        func allLicensed() -> Bool {
             plan.loads.allSatisfy { load in
-                storages[load.device]?.loadLicense(load.key ?? load.app, load.model).activated == true
+                storages[load.device]?.loadLicense(load.key ?? load.app).activatedModels?.contains(load.model) == true
             }
         }
-        if plan.waitActivated {
+        if plan.waitLicensed {
             let deadline = Date().addingTimeInterval(plan.timeoutSeconds)
-            while !allActivated(), Date() < deadline {
+            while !allLicensed(), Date() < deadline {
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
-            #expect(allActivated(), "a device did not activate its license before the timeout")
+            #expect(allLicensed(), "a device did not activate its license for its models before the timeout")
         }
 
         var result: [String: Any] = ["retries": retries.snapshot]
         if let real = plan.realModel {
             let who = currentLicenseIdentity()
-            let key = licenseStorageKey(who.namespace, EmoModel.id)
+            let key = licenseStorageKey(who.namespace)
             UserDefaults.standard.removeObject(forKey: key)
             let suggestions = try await Emo(directory: real.directory).suggestions(for: "Pay my bills", limit: 3)
-            await TelemetryDebug.shared.flushAndWait()
+            await LicenseFlush.shared.flushAndWait()
             #expect(!suggestions.isEmpty)
             result["realModel"] = [
                 "installId": defaultStorage().persistentDeviceId(),

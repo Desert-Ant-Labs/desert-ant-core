@@ -22,6 +22,46 @@ struct StorageTests {
         #expect(store.persistentDeviceId() == id)     // stable across calls
     }
 
+    @Test func theInstallIdIsTheStoredOneWhenAnotherClientWroteAtTheSameMoment() {
+        final class OverwrittenStorage: UsageStorage {
+            var values: [String: String] = [:]
+            func get(_ key: String) -> String? { values[key] }
+            func set(_ key: String, _ value: String) { values[key] = "written-by-another-client" }
+        }
+        let store = OverwrittenStorage()
+        #expect(store.persistentDeviceId() == "written-by-another-client")
+        #expect(store.persistentDeviceId() == "written-by-another-client")
+    }
+
+    @Test func theInstallIdIsTheNewOneWhenTheStoreDropsTheWrite() {
+        struct DroppingStorage: UsageStorage {
+            func get(_ key: String) -> String? { nil }
+            func set(_ key: String, _ value: String) {}
+        }
+        #expect(DroppingStorage().persistentDeviceId().count == 36)
+    }
+
+    #if os(Linux)
+    @Test func userDefaultsWritesToDiskAndSeesAnotherWritersValue() throws {
+        let suite = "dal.usage.test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = UserDefaultsStorage(defaults: defaults)
+        #expect(store.get("theirs") == nil)
+        store.set("mine", "1")
+
+        let config = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] ?? NSHomeDirectory() + "/.config"
+        let file = URL(fileURLWithPath: config).appendingPathComponent(suite + ".plist")
+        var onDisk = try #require(
+            PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil) as? [String: Any])
+        #expect(onDisk["mine"] as? String == "1")
+
+        onDisk["theirs"] = "2"
+        try PropertyListSerialization.data(fromPropertyList: onDisk, format: .xml, options: 0).write(to: file)
+        #expect(store.get("theirs") == "2")
+    }
+    #endif
+
     #if canImport(Foundation) && !os(Android) && !os(WASI)
     @Test func userDefaultsPersists() throws {
         let suite = "dal.usage.test.\(UUID().uuidString)"
@@ -61,8 +101,8 @@ struct StorageTests {
         let store = JSKeyValueStorage(object: object)
         store.set("k", "v")
         #expect(store.get("k") == nil)
-        store.saveLicense(StoredLicense(token: "t"), "acme", "emo")
-        #expect(store.loadLicense("acme", "emo") == StoredLicense())
+        store.saveLicense(StoredLicense(token: "t"), "acme")
+        #expect(store.loadLicense("acme") == StoredLicense())
     }
 
     @Test func aPropertyWhoseGetterThrowsReadsAsAbsent() {

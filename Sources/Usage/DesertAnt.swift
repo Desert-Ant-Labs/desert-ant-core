@@ -1,6 +1,4 @@
-// Process-wide SDK configuration set by the host app in code, for platforms
-// where an environment variable is not a natural fit (an iOS or Android app
-// has no launch environment of its own).
+// Process-wide SDK configuration that the host app sets in code with DesertAnt.configure.
 
 #if !os(WASI)
 import Dispatch
@@ -9,23 +7,46 @@ import PlatformSupport
 
 /// Process-wide Desert Ant configuration.
 ///
-/// Set once at launch, before the first model loads:
+/// Call once at launch, before the first model loads:
 ///
 /// ```swift
-/// DesertAnt.apiKey = "pk_live_..."
+/// DesertAnt.configure(apiKey: "dal_...")
 /// ```
-///
-/// The key is read on each model load, when the SDK requests or activates that
-/// model's license. When unset, resolution falls back to the `DAL_API_KEY`
-/// environment variable (`__dalApiKey` on JS hosts), and with neither present
-/// the license is activated without a key. See `hostProvidedApiKey()`.
 public enum DesertAnt {
-    /// The publishable API key sent with license grants and activations, shared by every
-    /// model SDK in the process. `nil` (the default) means "not set in code";
-    /// an empty string is treated as unset.
-    public static var apiKey: String? {
-        get { withLock { storedApiKey } }
-        set { withLock { storedApiKey = newValue } }
+    /// Sets the API key, replacing an earlier one.
+    public static func configure(apiKey: String) {
+        withLock { storedApiKey = apiKey }
+    }
+
+    /// Sets the API key and the device id secret, for a process that serves many devices, such
+    /// as a server. Do not use it in an app that ships to users: a secret in an app is public.
+    ///
+    /// The secret is 32 or more random bytes as text, kept on the server and never changed. The
+    /// SDK uses it to turn each call's device id into the install id it sends. The device id
+    /// never leaves the server, and only the holder of the secret can link the two.
+    public static func configure(apiKey: String, deviceIdSecret: String) {
+        if trimmedKey(deviceIdSecret) == nil {
+            Log.warning("DesertAnt.configure was given a blank deviceIdSecret, so device ids are hashed without a secret.")
+        }
+        withLock {
+            storedApiKey = apiKey
+            storedDeviceIdSecret = deviceIdSecret
+        }
+    }
+
+    package static var configuredApiKey: String? { withLock { storedApiKey } }
+
+    package static var configuredDeviceIdSecret: String? { trimmedKey(withLock { storedDeviceIdSecret }) }
+
+    // For the JavaScript bindings, which pass the key and the secret with one call each, and for tests.
+    /// Sends the license requests that wait, before a process exits. False when device licenses are left.
+    @discardableResult
+    public static func flushLicenses() async -> Bool {
+        await LicenseFlush.shared.flushAndWait()
+    }
+
+    package static func configure(deviceIdSecret: String?) {
+        withLock { storedDeviceIdSecret = deviceIdSecret }
     }
 
     @available(*, deprecated, message: "Has no effect. The SDK sends no device context.")
@@ -77,6 +98,7 @@ public enum DesertAnt {
     // the accessors still have to be data-race free under Swift 6, and the
     // package floor (iOS 17) predates Synchronization.Mutex.
     private nonisolated(unsafe) static var storedApiKey: String?
+    private nonisolated(unsafe) static var storedDeviceIdSecret: String?
     private nonisolated(unsafe) static var storedSendsDeviceContext = true
     private nonisolated(unsafe) static var storedFasterNeuralEngineCompile = true
 

@@ -9,7 +9,7 @@
 // `platform` is the `#platform` seam: instantiating the core, caching bundle
 // files, and decoding audio all differ between a browser and Node, and nothing
 // else here does.
-import { loadVoz, hasWebNN } from "@desert-ant-labs/core";
+import { loadVoz, hasWebNN, registerCore, registerFlush, flushCores } from "@desert-ant-labs/core";
 import { hubBaseUrl, PACKAGE_NAME, SAMPLE_RATE } from "./codec.js";
 import { mediaSource, wavSource } from "./stream.js";
 
@@ -77,6 +77,18 @@ export function makeVoz(platform) {
       onProgress, cache = true, ep = "auto",
     } = {}) {
       const core = await platform.setupCore();
+      if (typeof core.exports.configure === "function") {
+        const exports = new WeakRef(core.exports);
+        registerCore(({ apiKey, deviceIdSecret }) => {
+          exports.deref()?.configure(apiKey);
+          exports.deref()?.configureDeviceIdSecret?.(deviceIdSecret ?? null);
+        });
+      }
+      if (!core.flush) {
+        const held = new WeakRef(core.exports);
+        core.flush = async () => (await held.deref()?.flushLicenses?.()) ?? true;
+        registerFlush(core.flush);
+      }
       const info = core.exports.modelInfo();
       const asked = modelBaseUrl ?? hubBaseUrl(info, revision ?? info.revision);
       if (!asked.endsWith("/")) {
@@ -119,10 +131,18 @@ export function makeVoz(platform) {
      * encoded file (`ArrayBuffer`, `Uint8Array`, `Blob`, `File`), which the
      * browser decodes with Web Audio and Node with the portable WAV codec.
      *
+     * On a server, `deviceId` (a string or a zero-arg function returning one)
+     * names the end-user device for the call; licensing counts one license a
+     * month for each.
+     *
      * @returns {Promise<{ text: string, words: Array<{ text: string, start: number, end: number }>,
      *   duration: number, processingTime: number, realtimeFactor: number }>}
      */
-    async transcribe(input, { onProgress, sampleRate } = {}) {
+    async transcribe(input, { onProgress, sampleRate, deviceId: device } = {}) {
+      const deviceId = typeof device === "function" ? device() : device;
+      if (deviceId != null && typeof deviceId !== "string") {
+        throw new TypeError("voz: deviceId must be a string, or a function that returns one");
+      }
       this.#host.resetTimings();
 
       // Anything file-shaped is read in pieces, so memory does not grow with
@@ -137,7 +157,7 @@ export function makeVoz(platform) {
           const result = await this.#core.exports.transcribeStream(
             streamed.seconds, streamed.totalSamples,
             (count) => streamed.pull(count),
-            onProgress ?? (() => {}));
+            onProgress ?? (() => {}), deviceId ?? null);
           return this.#finish(result);
         }
       }
@@ -145,7 +165,7 @@ export function makeVoz(platform) {
       const samples = await this.#samples(input, sampleRate);
       if (!samples.length) throw new Error("voz: no samples to transcribe");
       const result = await this.#core.exports.transcribe(
-        samples, onProgress ?? (() => {}));
+        samples, onProgress ?? (() => {}), deviceId ?? null);
       return this.#finish(result);
     }
 
@@ -158,6 +178,15 @@ export function makeVoz(platform) {
         realtimeFactor: result.processingTime > 0
           ? result.duration / result.processingTime : 0,
       };
+    }
+
+    /**
+     * Wait for the license requests in flight, and send the device licenses
+     * that wait for their batch, so a short-lived process does not exit before
+     * they finish.
+     */
+    async flushLicenses() {
+      return flushCores(this.#core.flush ?? (async () => true));
     }
 
     /** Per-model call counts and wall time for the last transcription. Useful

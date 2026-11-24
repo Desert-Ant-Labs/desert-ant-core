@@ -66,15 +66,15 @@ Which file format the core opens is its own business: it resolves the artifacts 
 
 ## Model licenses
 
-Loading the model requests and activates that month's license in the background. The refiner never waits for the license. A server that wants to name itself instead of sending its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`.
+Loading a model requests a license in the background when your application has none on that machine, or when its license has expired. One license covers every model your application runs there and is valid for one month. The first time another model loads under that license, the SDK activates the license for that model too. The refiner never waits for these requests. A server that sets a device id secret gets no license for itself: it gets one for each end-user device. A server that wants to name itself instead of sending its process name sets `DAL_APP_ID` or `globalThis.__dalAppId`.
 
-A worker that exits right after loading the model calls `flushTelemetry()` first. The promise resolves once the license requests in flight have finished:
+A worker that exits right after loading the model calls `flushLicenses()` first. The promise resolves once the license requests in flight have finished:
 
 ```js
-await align.flushTelemetry();
+await align.flushLicenses();
 ```
 
-`refine` still accepts `deviceId` and `group`, and `withCallGroup` still runs its body. Neither option changes licensing.
+`refine` takes `deviceId`, the end-user device the call serves: licensing counts one license a month for each. See [Run on a server](https://github.com/Desert-Ant-Labs/desert-ant-core/blob/main/docs/notes/server.md). `group` has no effect, and `withCallGroup` still runs its body.
 
 ## Platforms
 

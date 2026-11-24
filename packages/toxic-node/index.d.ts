@@ -2,6 +2,7 @@
 // for every model, such as how a model is loaded and its per-call options,
 // comes from @desert-ant-labs/core, so it is documented in one place.
 import type { CallOptions, ModelLoadOptions } from "@desert-ant-labs/core";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 /** The three heads that say what a text does. */
 export type ContentLabel = "HATEFUL" | "ABUSIVE" | "THREAT";
@@ -72,8 +73,8 @@ export declare class Toxic {
   static load(options?: LoadOptions): Promise<Toxic>;
   /** Score a text for hate, abuse and threats, and for the group it targets. */
   analyze(text: string, options?: AnalyzeOptions): Promise<Analysis>;
-  /** Wait for the license requests in flight. */
-  flushTelemetry(): Promise<boolean>;
+  /** Wait for the license requests in flight, and send the device licenses that wait for their batch. */
+  flushLicenses(): Promise<boolean>;
   /** Whether the model is usable with no network. */
   isDownloaded(): boolean;
   /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */

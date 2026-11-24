@@ -211,11 +211,10 @@ public final class ModelHost {
         models[handle] = nil
     }
 
-    /// Wait for the license requests in flight. The `flushTelemetry()` a
-    /// browser or Node host calls.
-    func flushTelemetry() async -> Bool {
-        await TelemetryDebug.shared.flushAndWait()
-        return true
+    /// Wait for the license requests in flight and send the queued device licenses. The
+    /// `flushLicenses()` a browser or Node host calls. False when device licenses are left.
+    func flushLicenses() async -> Bool {
+        await LicenseFlush.shared.flushAndWait()
     }
 
     // MARK: handles

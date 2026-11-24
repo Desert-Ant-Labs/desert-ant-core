@@ -33,7 +33,7 @@ public enum InferenceError: Error, Sendable {
 public protocol InferenceSession: Sendable {
     /// Run the model. `deviceId` names the end-user device for multi-tenant
     /// hosts (e.g. a server serving many users); `nil` uses the default device.
-    /// The backends ignore it, and licensing does not read it yet. Most callers
+    /// The backends ignore it, and licensing counts one license for each device id. Most callers
     /// use the two-argument convenience below.
     func run(inputs: [String: Tensor], outputs: [String], deviceId: String?) async throws -> [Tensor]
 
@@ -63,15 +63,9 @@ public extension InferenceSession {
     /// from "it is 128".
     func inputWidth(_ name: String) -> Int? { nil }
 
-    /// Run, resolving the device id without the SDK having to pass one.
-    /// Precedence:
-    ///   1. `InferenceContext.deviceId`: a per-call task-local the host binds
-    ///      around this call (the correct path for concurrent multi-tenant hosts).
-    ///   2. `hostProvidedDeviceId()`: a host default (`globalThis.__dalDeviceId`
-    ///      on WASI; native host id elsewhere).
-    ///   3. `nil`: the default device.
+    /// Run for the device the host bound around this call with `InferenceContext.deviceId`, or
+    /// for the default device when it bound none.
     func run(inputs: [String: Tensor], outputs: [String]) async throws -> [Tensor] {
-        let deviceId = InferenceContext.deviceId ?? hostProvidedDeviceId()
-        return try await run(inputs: inputs, outputs: outputs, deviceId: deviceId)
+        try await run(inputs: inputs, outputs: outputs, deviceId: InferenceContext.deviceId)
     }
 }

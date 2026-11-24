@@ -12,6 +12,7 @@ export interface Pixels { data: ArrayLike<number> | ArrayBufferView; width: numb
 import type { Faceprint, LevelName } from "@desert-ant-labs/core";
 
 export { Faceprint, Level, LevelName } from "@desert-ant-labs/core";
+export { DesertAnt, type LogLevel } from "@desert-ant-labs/core";
 
 /** A face `FaceDetector` found: where it is, without a faceprint. */
 export interface FaceDetection {
@@ -60,7 +61,13 @@ export interface SavedLibrary {
 }
 
 /** Which faces to keep: defaults 0.35 for `Face` and 0.3 for `FaceDetector`, 32 pixels and 20 faces. */
-export interface FacesOptions { minimumConfidence?: number; minimumSize?: number; maxFaces?: number }
+export interface FacesOptions {
+  minimumConfidence?: number;
+  minimumSize?: number;
+  maxFaces?: number;
+  /** On a server: the end-user device this call serves. Licensing counts one license a month for each. */
+  deviceId?: string | (() => string);
+}
 
 /** The people in a set of photos, for a people view where the user sees, names and fixes faces. */
 export declare class FaceLibrary {
@@ -93,7 +100,7 @@ export declare class Face {
   faces(image: Pixels | ImageBitmapSource, options?: FacesOptions): Promise<DetectedFace[]>;
   library(saved?: SavedLibrary | null): Promise<FaceLibrary>;
   isDownloaded(): boolean;
-  flushTelemetry(): Promise<boolean>;
+  flushLicenses(): Promise<boolean>;
   dispose(): void;
   static matches(reference: Faceprint, faceprints: Faceprint[], options?: { level?: LevelName | number }): { index: number; similarity: number }[];
 }
@@ -103,6 +110,6 @@ export declare class FaceDetector {
   static load(options?: LoadOptions): Promise<FaceDetector>;
   faces(image: Pixels | ImageBitmapSource, options?: FacesOptions): Promise<FaceDetection[]>;
   isDownloaded(): boolean;
-  flushTelemetry(): Promise<boolean>;
+  flushLicenses(): Promise<boolean>;
   dispose(): void;
 }

@@ -41,7 +41,7 @@ export async function run({ Toxic }, { litert, litertWasmDir }) {
     };
     out.api = {
       withCallGroup: typeof toxic.withCallGroup,
-      flushTelemetry: typeof toxic.flushTelemetry,
+      flushLicenses: typeof toxic.flushLicenses,
     };
     out.grouped = await toxic.withCallGroup(async (group) => (await toxic.analyze("hello", { group })).scores.HATEFUL);
   } finally {
@@ -73,7 +73,7 @@ export function check(r) {
   for (const [name, got] of Object.entries(r.errors)) {
     if (got !== "TypeError") fail(`${name}: expected TypeError, got ${got}`);
   }
-  if (r.api.withCallGroup !== "function" || r.api.flushTelemetry !== "function") fail("API surface");
+  if (r.api.withCallGroup !== "function" || r.api.flushLicenses !== "function") fail("API surface");
   if (!(r.grouped >= 0 && r.grouped <= 1)) fail(`grouped call returned ${r.grouped}`);
   if (r.afterDispose === "resolved") fail("analyze after dispose() resolved");
 }

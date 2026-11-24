@@ -38,6 +38,8 @@ extension UsageStorage {
         if let existing = get(deviceIdKey), !existing.isEmpty { return existing }
         let id = generateUUID()
         set(deviceIdKey, id)
+        // Another client may have written its id at the same moment: the stored one is the one to use.
+        if let stored = get(deviceIdKey), !stored.isEmpty { return stored }
         return id
     }
 }
@@ -77,8 +79,22 @@ public final class InMemoryStorage: UsageStorage {
 public struct UserDefaultsStorage: UsageStorage {
     private let defaults: UserDefaults
     public init(defaults: UserDefaults = .standard) { self.defaults = defaults }
-    public func get(_ key: String) -> String? { defaults.string(forKey: key) }
-    public func set(_ key: String, _ value: String) { defaults.set(value, forKey: key) }
+    public func get(_ key: String) -> String? {
+        synchronize()
+        return defaults.string(forKey: key)
+    }
+
+    public func set(_ key: String, _ value: String) {
+        defaults.set(value, forKey: key)
+        synchronize()
+    }
+
+    // Foundation on Linux reads and writes the file only on synchronize.
+    private func synchronize() {
+        #if os(Linux)
+        _ = defaults.synchronize()
+        #endif
+    }
 }
 #endif
 

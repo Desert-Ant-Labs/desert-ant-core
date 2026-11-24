@@ -84,18 +84,16 @@ private struct Vectors: Decodable {
         #expect(defaultLicenseVerifier() is WebCryptoLicenseVerifier)
     }
 
-    @Test func grantsAndActivatesTheValidVectorToken() async throws {
+    @Test func storesTheValidVectorToken() async throws {
         let vectors = try Vectors.load()
         let token = try vectors.token("valid")
         let h = LicenseHarness(verifier: WebCryptoLicenseVerifier(), publicKeys: vectors.publicKeys)
         await h.host.queue("license", grantReply(token))
-        await h.host.queue("activate", activatedReply)
 
         await h.load()
 
-        #expect(await h.host.paths == ["license", "activate"])
+        #expect(await h.host.paths == ["license"])
         #expect(h.stored.token == token)
-        #expect(h.stored.activated)
     }
 
     @Test func discardsTheTamperedVectorTokens() async throws {
@@ -108,7 +106,7 @@ private struct Vectors: Decodable {
 
             #expect(await h.host.paths == ["license"], "\(name)")
             #expect(h.stored.token == nil, "\(name)")
-            #expect(h.stored.lastFailedGrantAt == serverNoon, "\(name)")
+            #expect(h.stored.refusedAt == ["emo": serverNoon], "\(name)")
         }
     }
 }

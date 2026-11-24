@@ -1,6 +1,7 @@
 #if !os(WASI)
 import Testing
 import Foundation
+import PlatformSupport
 @testable import ModelStore
 
 /// Streaming the hash must not weaken what verification catches.

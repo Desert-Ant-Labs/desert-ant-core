@@ -2,6 +2,7 @@
 #if !os(WASI)
 import Testing
 import Foundation
+import PlatformSupport
 @testable import ModelStore
 
 /// Exercises the real Apple/Linux path end-to-end against the public

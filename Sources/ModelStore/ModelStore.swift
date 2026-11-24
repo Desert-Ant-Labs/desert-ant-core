@@ -1,4 +1,6 @@
 
+import PlatformSupport
+
 /// One total download progress across all of a model's files: bytes downloaded
 /// out of the combined size of every file (not per file).
 public struct DownloadProgress: Sendable {

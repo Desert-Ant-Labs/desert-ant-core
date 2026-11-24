@@ -272,8 +272,8 @@ export declare class Shapes {
   isDownloaded(): boolean;
   /** @deprecated Has no effect: runs `body` with a group id that nothing reads. */
   withCallGroup<T>(body: (group: string) => Promise<T>): Promise<T>;
-  /** Wait for the license requests in flight. */
-  flushTelemetry(): Promise<boolean>;
+  /** Wait for the license requests in flight, and send the device licenses that wait for their batch. */
+  flushLicenses(): Promise<boolean>;
   /** Release the model. The recognizer is unusable afterwards. Both builds. */
   dispose(): void;
 }
