@@ -14,6 +14,9 @@ import { dirname, join } from "node:path";
 import { Tongue, normalize, route, fnv1a, buckets, MAX_CHARACTERS } from "../dist/index.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
+// A run outside `npm test` must not reach the license server either.
+process.env.DAL_LICENSE_ENDPOINT ||= "http://127.0.0.1:9/api/v1";
+process.env.DAL_STATE_DIR ||= join(here, "..", "node_modules", ".cache", "tongue-test");
 const vectors = async (name) => JSON.parse(await readFile(join(here, name), "utf8"));
 
 test("normalizer matches the reference", async () => {

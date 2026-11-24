@@ -10,8 +10,8 @@
  *
  * One entry point for browser and Node: there is no wasm module and no inference
  * runtime to swap, because a detection is arithmetic (an int8 gather, a sum, one
- * 59x32 matmul and a masked softmax). The only platform difference is how the
- * 2 MB weights are read, which `load` handles.
+ * 59x32 matmul and a masked softmax). The only platform differences are how the
+ * 2 MB weights are read, which `load` handles, and the crypto behind the license check.
  */
 import { normalize, MAX_CHARACTERS } from "./normalize.js";
 import { route, type Route, type Verdict } from "./router.js";
@@ -19,10 +19,13 @@ import { Weights, type Metadata, type Prediction } from "./model.js";
 // Resolved per platform by the "browser" condition in package.json, so a
 // browser build contains no node: specifiers at all. See platform.browser.ts.
 import { readModel } from "./platform.js";
+import { flushLicenses, licenseOnLoad, licenseOnRun } from "./license.js";
 
 export { normalize, MAX_CHARACTERS, route };
 export type { Route, Verdict, Metadata, Prediction };
 export { fnv1a, buckets, NGRAM_ORDERS } from "./hashing.js";
+export { DesertAnt } from "./configure.js";
+export type { DesertAntSettings, LogLevel } from "./configure.js";
 
 /**
  * How much to trust an answer.
@@ -56,6 +59,12 @@ export interface LoadOptions {
   readonly from?: string;
 }
 
+export interface DetectOptions {
+  readonly topK?: number;
+  /** The end-user device this call serves, for a process that serves many. Licensing counts one license a month for each. */
+  readonly deviceId?: string | (() => string);
+}
+
 export class Tongue {
   private constructor(
     private readonly metadata: Metadata,
@@ -64,7 +73,9 @@ export class Tongue {
 
   /** Load from explicit bytes: the platform-free path. */
   static fromBytes(metadata: Metadata, weightBytes: Uint8Array): Tongue {
-    return new Tongue(metadata, new Weights(weightBytes, metadata));
+    const tongue = new Tongue(metadata, new Weights(weightBytes, metadata));
+    licenseOnLoad();
+    return tongue;
   }
 
   /**
@@ -91,7 +102,10 @@ export class Tongue {
   }
 
   /** Identify the language of a short string. */
-  detect(text: string, topK = 3): Detection {
+  detect(text: string, options: number | DetectOptions = 3): Detection {
+    const call = typeof options === "object" && options !== null ? options : { topK: options };
+    const topK = call.topK ?? 3;
+    licenseOnRun(call.deviceId);
     const normalized = normalize(text);
     const routed = route(normalized);
     const finish = (
@@ -129,9 +143,9 @@ export class Tongue {
     return finish(candidates, this.reliability(normalized, ranked), ranked);
   }
 
-  /** @deprecated Has no effect. Resolves true. */
-  async flushTelemetry(): Promise<boolean> {
-    return true;
+  /** Wait for the license requests in flight, for every model loaded in the process. Resolves false when device licenses still wait. */
+  flushLicenses(): Promise<boolean> {
+    return flushLicenses();
   }
 
   private reliability(text: string, ranked: readonly Prediction[]): Reliability {

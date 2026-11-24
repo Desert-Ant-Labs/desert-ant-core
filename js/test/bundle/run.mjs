@@ -27,6 +27,7 @@
 //   ... --list
 //   ... --only esbuild-browser,next-turbopack
 //   ... --skip next-webpack --keep
+//   ... --packages tongue              # only these model packages
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -182,9 +183,14 @@ function findPackages() {
   return fs
     .readdirSync(dir)
     .map((d) => path.join(dir, d))
-    .filter((d) => fs.existsSync(path.join(d, "package.json")) && fs.existsSync(path.join(d, "browser.js")))
+    .filter((d) => fs.existsSync(path.join(d, "package.json")))
     .map((d) => {
       const pkg = JSON.parse(fs.readFileSync(path.join(d, "package.json"), "utf8"));
+      // A pure package (tongue) has no wasm core to stub: its dist/ is its own TypeScript build.
+      if (pkg.desertant?.pure) {
+        return { dir: d, name: pkg.name, modelId: path.basename(d).replace(/-node$/, ""), pure: true, native: false };
+      }
+      if (!fs.existsSync(path.join(d, "browser.js"))) return null;
       const wasm = pkg.exports?.["./wasm"] ?? "";
       const codec = fs.readFileSync(path.join(d, "codec.js"), "utf8");
       return {
@@ -201,7 +207,8 @@ function findPackages() {
         // "/native" entry for the cases below to build.
         native: Boolean(pkg.exports?.["./native"]),
       };
-    });
+    })
+    .filter(Boolean);
 }
 
 /** The module shape `mise run build:wasm` emits, reduced to what the JS seams
@@ -220,7 +227,7 @@ export const exports = {
   run: async () => new Uint8Array([0, 0, 0, 0]),
   endCallGroup: () => {},
   destroy: () => {},
-  flushTelemetry: async () => true,
+  flushLicenses: async () => true,
 };
 `;
   fs.mkdirSync(path.join(dir, "platforms"), { recursive: true });
@@ -564,7 +571,7 @@ async function main() {
   // the browser suite where build:wasm has run.
   if (has("stage-stub-dist")) {
     if (!REPO) die("no packages/<model>-node found above the working directory");
-    for (const p of findPackages()) {
+    for (const p of findPackages().filter((p) => !p.pure)) {
       const dist = path.join(p.dir, "dist");
       if (fs.existsSync(path.join(dist, "instantiate.js"))) {
         log(`${p.name}: real dist present, leaving it alone`);
@@ -589,8 +596,12 @@ async function main() {
   if (!chosen.length) die(`no scenarios matched (try --list)`);
 
   if (!REPO) die("no packages/<model>-node found above the working directory");
-  const pkgDirs = findPackages();
+  const wanted = list(flag("packages"));
+  const pkgDirs = findPackages().filter((p) => wanted.length === 0 || wanted.includes(path.basename(p.dir).replace(/-node$/, "")));
   if (!pkgDirs.length) die("no model packages found under packages/");
+  for (const p of pkgDirs.filter((p) => p.pure)) {
+    if (!fs.existsSync(path.join(p.dir, "dist", "index.js"))) die(`${p.name} has no dist/; run \`npm run build\` in ${path.relative(REPO, p.dir)}`);
+  }
 
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "dal-bundle-"));
   log(`repo: ${REPO}`);
@@ -600,12 +611,19 @@ async function main() {
   //    them, so a change to either half is tested against the other. The
   //    copies are staged serially (cheap); the npm packs run in parallel.
   const core = stage(path.join(REPO, "js"), work, null);
-  const pkgs = pkgDirs.map((p) => ({ ...p, ...stage(p.dir, work, p) }));
+  const pkgs = pkgDirs.map((p) => ({ ...p, ...stage(p.dir, work, p.pure ? null : p) }));
+  // A pure package's `prepare` runs tsc, which the staged copy has no node_modules for; its dist/ is already built.
+  for (const p of pkgs.filter((p) => p.pure)) {
+    const file = path.join(p.staged, "package.json");
+    const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+    delete pkg.scripts?.prepare;
+    fs.writeFileSync(file, JSON.stringify(pkg, null, 2));
+  }
   const tarballs = await Promise.all([core, ...pkgs].map((p) => pack(p.staged, work)));
   core.tarball = tarballs[0];
   pkgs.forEach((p, i) => (p.tarball = tarballs[i + 1]));
   for (const p of pkgs) {
-    log(`packed ${p.name} (${p.realDist ? "real wasm dist" : "stub dist - run `mise run build:wasm` for the real one"})`);
+    log(`packed ${p.name} (${p.pure ? "its own dist" : p.realDist ? "real wasm dist" : "stub dist - run `mise run build:wasm` for the real one"})`);
   }
 
   // 2. One install for the whole matrix: the tarballs plus the bundlers. The

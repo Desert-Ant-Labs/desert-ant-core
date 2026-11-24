@@ -29,7 +29,7 @@ On genuinely ambiguous input, Tongue says so rather than guessing: `"la casa"` c
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0")
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0")
 ```
 
 Then add the `Tongue` product to your target.
@@ -37,7 +37,8 @@ Then add the `Tongue` product to your target.
 **Kotlin** ([requirements](../../README.md#android))
 
 ```kotlin
-implementation("ai.desertant:tongue:5.0.0")
+implementation(platform("ai.desertant:bom:6.0.0"))
+implementation("ai.desertant:tongue")
 ```
 
 **JavaScript** ([requirements](../../README.md#javascript-and-typescript))
@@ -79,6 +80,19 @@ detection.language                               // "de"
 detection.isTooCloseToCall                       // false
 ```
 
+An app in production sets its API key once, before the first load. An Android app needs the `INTERNET` permission, and passes the Context so Tongue can keep its license. On a JVM server, also set a device id secret and pass the device id of the end user's device with each call. The [server guide](../notes/server.md) has the details.
+
+On a JVM, Tongue keeps its install id and its license in the file `tongue.properties`. The folder is `DAL_STATE_DIR` when you set it. If not, it is `$XDG_CONFIG_HOME/desert-ant`, or `~/.config/desert-ant`. The file holds your API key in plain text, as part of a storage key. On macOS and Linux, only the user that owns the process can read it. On Windows, the file has the permissions of its folder, so point `DAL_STATE_DIR` at a folder only that user can read. When Tongue cannot write the file, it keeps the license in memory and logs one warning.
+
+```kotlin
+import ai.desertant.tongue.DesertAnt
+
+DesertAnt.configure(apiKey, deviceIdSecret)      // on a server; in an app: DesertAnt.configure(apiKey)
+val tongue = Tongue.bundled(null)                // on a server; in an app: Tongue.bundled(context)
+tongue.detect(text, request.deviceId)
+tongue.flushLicenses()                           // before a short-lived process exits; it blocks
+```
+
 ### JavaScript
 
 The JavaScript SDK uses the same import in the browser and in Node. Tongue is plain JavaScript, so you install only `@desert-ant-labs/tongue`.
@@ -97,6 +111,20 @@ A bundler doesn't serve files out of `node_modules`, so in a browser you serve T
 ```ts
 const tongue = await Tongue.load({ from: "/models/tongue" });
 ```
+
+An app in production sets its API key once, before the first load. On a server, also set a device id secret and pass the device id of the end user's device with each call. The [server guide](../notes/server.md) has the details.
+
+```ts
+import { DesertAnt, Tongue } from "@desert-ant-labs/tongue";
+
+// On a server. In a browser: DesertAnt.configure({ apiKey }).
+DesertAnt.configure({ apiKey: process.env.DAL_API_KEY ?? "", deviceIdSecret: process.env.DAL_DEVICE_ID_SECRET });
+const tongue = await Tongue.load();
+tongue.detect(text, { deviceId: request.deviceId });
+await tongue.flushLicenses();                          // before a short-lived process exits
+```
+
+In Node, Tongue keeps its install id and its license in the file `tongue.json`, so a new process asks for no new license. The file is in the folder that `DAL_STATE_DIR` names. Without `DAL_STATE_DIR`, the folder is `$XDG_CONFIG_HOME/desert-ant`, or `~/.config/desert-ant` when `XDG_CONFIG_HOME` is not set. On Windows it is `%APPDATA%\desert-ant`. The file holds your API key in plain text, as part of a storage key. On macOS and Linux, only the user that owns the process can read it. On Windows, the file has the permissions of its folder, so point `DAL_STATE_DIR` at a folder only that user can read. If Tongue cannot write the file, it keeps both in memory, logs one warning, and the model keeps running. In a browser, both are in `localStorage`.
 
 ## Files
 

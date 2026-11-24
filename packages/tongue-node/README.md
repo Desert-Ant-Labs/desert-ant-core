@@ -60,11 +60,17 @@ rather than as an answer, and ask for more text where the product allows it.
 | `Tongue.load(options?)` | load the model; `options.from` is a directory or base URL |
 | `Tongue.fromBytes(metadata, bytes)` | load from bytes you already have |
 | `detect(text, topK?)` | `Detection` |
+| `detect(text, { topK?, deviceId? })` | the same, with the end user's device id on a server |
+| `DesertAnt.configure({ apiKey, deviceIdSecret? })` | set the API key once, before the first load |
+| `flushLicenses()` | wait for license requests still on their way, before a short-lived process exits |
+| `DesertAnt.logLevel`, `DesertAnt.logger` | the least severe level the SDK writes, and where its messages go |
 | `Detection.language` | top candidate, or `null` on empty input |
 | `Detection.candidates` | `Prediction[]` with probabilities |
 | `Detection.reliability` | `"confident"` · `"likely"` · `"tentative"` · `"empty"` |
 | `Detection.isTooCloseToCall` | top two ranked within 0.12, whatever `topK` is |
 | `Detection.route.verdict` | `"decisive"` (script alone settled it) · `"narrowing"` · `"ambiguous"` |
+
+In Node, Tongue keeps its install id and its license in the file `tongue.json`, so a new process asks for no new license. The file is in the folder that `DAL_STATE_DIR` names. Without `DAL_STATE_DIR`, the folder is `$XDG_CONFIG_HOME/desert-ant`, or `~/.config/desert-ant` when `XDG_CONFIG_HOME` is not set. On Windows it is `%APPDATA%\desert-ant`. The file holds your API key in plain text, as part of a storage key. On macOS and Linux, only the user that owns the process can read it. On Windows, the file has the permissions of its folder, so point `DAL_STATE_DIR` at a folder only that user can read. If Tongue cannot write the file, it keeps both in memory, logs one warning, and the model keeps running. In a browser, both are in `localStorage`.
 
 `normalize`, `route`, `fnv1a` and `buckets` are also exported, for anyone
 reproducing the feature pipeline.

@@ -74,6 +74,7 @@ mise run test:bundles                              # everything
 node test/bundle/run.mjs --list
 node test/bundle/run.mjs --only next-turbopack     # one scenario
 node test/bundle/run.mjs --skip next-webpack --keep  # keep the temp workspace
+node test/bundle/run.mjs --packages tongue         # only these model packages
 ```
 
 Roughly 45s end to end, most of it the two Next builds. It needs network for the
