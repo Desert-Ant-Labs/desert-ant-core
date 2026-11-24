@@ -96,4 +96,4 @@ for model in $models; do
 done
 
 # Inspect stripped payloads too: stripping removes the symbol table but leaves ICU data.
-python3 Tools/android/artifacts.py --model "$want" --abis $DAL_ANDROID_ABIS --output .build/android-unicode/artifacts.json
+python3 Tools/android/artifacts.py --model "$want" --abis $DAL_ANDROID_ABIS --output .build/android-compat/artifacts.json

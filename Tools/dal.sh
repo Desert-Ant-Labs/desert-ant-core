@@ -309,6 +309,30 @@ dal_wasm_sdk() {
 
 # ---------------------------------------------------------------- litert
 
+# The Android LiteRT libs, used only while linking each ABI (ai.desertant:core
+# owns the copies that are packaged into an app). Android is pinned on its own:
+# Maven has releases PyPI (the desktop source) does not. A stamp refetches the
+# libs when the version changes. Anything that links against
+# Vendor/litert/lib/android-<arch> calls this first, so a fresh checkout works.
+dal_vendor_litert_android() {
+    local litert_version="${DAL_LITERT_ANDROID_VERSION:-2.3.2}" tmp pair
+    if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
+        || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ] \
+        || [ "$(cat Vendor/litert/lib/android-version 2> /dev/null)" != "$litert_version" ]; then
+        echo "Fetching the LiteRT $litert_version android libs (one-time)..."
+        tmp=$(mktemp -d)
+        curl -fSL -o "$tmp/litert.aar" \
+            "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$litert_version/litert-$litert_version.aar"
+        ( cd "$tmp" && unzip -qo litert.aar )
+        for pair in arm64-v8a:aarch64 x86_64:x86_64; do
+            mkdir -p "Vendor/litert/lib/android-${pair#*:}"
+            cp "$tmp/jni/${pair%:*}/libLiteRt.so" "Vendor/litert/lib/android-${pair#*:}/libLiteRt.so"
+        done
+        echo "$litert_version" > Vendor/litert/lib/android-version
+        rm -rf "$tmp"
+    fi
+}
+
 # Vendor the host's LiteRT runtime into Vendor/litert/lib/<host-arch>. Apple
 # hosts need nothing: the Swift SDK and the Node native both run Core ML there.
 # Linux and Windows both take it from the ai-edge-litert PyPI wheel, which is

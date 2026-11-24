@@ -77,7 +77,7 @@ def provision(sdk):
     return latest
 
 
-def check_avd(name, api, home=None):
+def check_avd(name, api, home=None, tag='default'):
     if home is None:
         home = Path(os.environ.get('ANDROID_AVD_HOME') or
                     str(Path(os.environ.get('ANDROID_USER_HOME', str(Path.home() / '.android'))) / 'avd'))
@@ -86,8 +86,11 @@ def check_avd(name, api, home=None):
     if ini.get('target') != expected:
         raise RuntimeError(f"AVD target is {ini.get('target')!r}, expected {expected}; update command-line tools and recreate the AVD")
     config = properties(Path(ini['path']) / 'config.ini')
-    if f'system-images/{expected}/' not in config.get('image.sysdir.1', '').replace('\\', '/'):
+    sysdir = config.get('image.sysdir.1', '').replace('\\', '/')
+    if f'system-images/{expected}/' not in sysdir:
         raise RuntimeError('AVD system image does not match its requested API')
+    if f'/{expected}/{tag}/' not in sysdir:
+        raise RuntimeError(f'AVD system image is not the {tag!r} flavor: {sysdir}')
     print(f"AVD {name}: target={expected}, RAM={config.get('hw.ramSize')}, data={config.get('disk.dataPartition.size')}")
 
 
@@ -99,8 +102,9 @@ if __name__ == '__main__':
     avd = commands.add_parser('check-avd')
     avd.add_argument('--name', required=True)
     avd.add_argument('--api', type=int, required=True)
+    avd.add_argument('--tag', default='default', help='system image flavor, e.g. default (AOSP) or google_apis')
     args = parser.parse_args()
     if args.command == 'provision':
         provision(args.sdk)
     else:
-        check_avd(args.name, args.api)
+        check_avd(args.name, args.api, tag=args.tag)

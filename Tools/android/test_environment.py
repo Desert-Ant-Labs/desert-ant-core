@@ -87,12 +87,16 @@ class AvdMetadataTests(unittest.TestCase):
             directory.mkdir()
             config = directory / 'config.ini'
             ini = root / 'fixture.ini'
-            config.write_text('image.sysdir.1=system-images/android-37.0/google_apis/x86_64/\n')
+            config.write_text('image.sysdir.1=system-images/android-37.0/default/x86_64/\n')
             ini.write_text(f'path={directory}\ntarget=android-0\n')
             with self.assertRaisesRegex(RuntimeError, 'expected android-37.0'):
                 environment.check_avd('fixture', 37, root)
             ini.write_text(f'path={directory}\ntarget=android-37.0\n')
             environment.check_avd('fixture', 37, root)
+            config.write_text('image.sysdir.1=system-images/android-37.0/google_apis/x86_64/\n')
+            with self.assertRaisesRegex(RuntimeError, "not the 'default' flavor"):
+                environment.check_avd('fixture', 37, root)
+            environment.check_avd('fixture', 37, root, tag='google_apis')
             config.write_text('image.sysdir.1=system-images/android-36/google_apis/x86_64/\n')
             with self.assertRaisesRegex(RuntimeError, 'system image'):
                 environment.check_avd('fixture', 37, root)

@@ -3,7 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 from artifacts import inspect, inspect_harness
-from compatibility import apk_target_sdk, successful, runtime_metadata, valid_runtime
+import os, tempfile
+from compatibility import MODEL_NAMES, SUITE_TIMEOUTS, apk_target_sdk, cached_models_complete, model_cache_dir, model_cache_key, producer, restore_models, suite_timeout, successful, runtime_metadata, valid_runtime
 
 ALIGNED_HEADERS = '  LOAD 0x000000 0x000000 0x000000 0x001000 0x001000 R E 0x4000\n'
 
@@ -19,6 +20,57 @@ class InstrumentationGateTests(unittest.TestCase):
         for failure in ('INSTRUMENTATION_STATUS_CODE: -3', 'INSTRUMENTATION_STATUS_CODE: -4',
                         'INSTRUMENTATION_FAILED', 'Process crashed', 'shortMsg=Native crash', 'FAILURES!!!'):
             self.assertEqual(0, successful('OK (3 tests)\n' + failure))
+
+
+class SuiteTimeoutTests(unittest.TestCase):
+    def test_every_selected_suite_has_a_bounded_timeout(self):
+        for suite in ('NativeLibraryCompatibilityTest', 'UnicodeCompatibilityTest', 'UnicodeModelTest'):
+            self.assertLessEqual(suite_timeout(suite), 300)
+        self.assertEqual({'NativeLibraryCompatibilityTest', 'UnicodeCompatibilityTest', 'UnicodeModelTest'}, set(SUITE_TIMEOUTS))
+
+    def test_unknown_suite_is_an_error_not_an_unbounded_run(self):
+        with self.assertRaises(KeyError):
+            suite_timeout('SomeNewSuite')
+
+
+class ModelCacheTests(unittest.TestCase):
+    def test_key_follows_the_pinned_models(self):
+        a = [{'id': 'emo', 'weights': 'rev1'}, {'id': 'gist', 'weights': 'rev1'}]
+        self.assertEqual(model_cache_key(a), model_cache_key([dict(m) for m in a]))
+        self.assertNotEqual(model_cache_key(a), model_cache_key([a[0], {'id': 'gist', 'weights': 'rev2'}]))
+
+    def test_key_follows_the_hub_repository_suffix(self):
+        models = [{'id': 'emo', 'weights': 'rev1'}]
+        self.assertNotEqual(model_cache_key(models, ''), model_cache_key(models, '-private'))
+        self.assertEqual(model_cache_key(models, '-private'), model_cache_key(models, '-private'))
+
+    def test_producer_is_reaped_when_the_receiver_fails(self):
+        with self.assertRaises(RuntimeError):
+            with producer(['sleep', '30']) as process:
+                raise RuntimeError('receiver failed')
+        self.assertIsNotNone(process.poll())
+        self.assertTrue(process.stdout.closed)
+
+    def test_cache_is_complete_only_with_every_model(self):
+        with tempfile.TemporaryDirectory() as root:
+            directory = Path(root)
+            self.assertFalse(cached_models_complete(directory))
+            for name in MODEL_NAMES[:-1]:
+                (directory / name).mkdir()
+                (directory / name / 'weights.bin').write_bytes(b'x')
+            self.assertFalse(cached_models_complete(directory))
+            (directory / MODEL_NAMES[-1]).mkdir()
+            self.assertFalse(cached_models_complete(directory))  # an empty model directory does not count
+            (directory / MODEL_NAMES[-1] / 'weights.bin').write_bytes(b'x')
+            self.assertTrue(cached_models_complete(directory))
+
+    def test_miss_never_touches_the_device(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {'DAL_ANDROID_MODEL_CACHE': root}):
+            with patch('compatibility.subprocess.run') as run, patch('compatibility.subprocess.Popen') as popen:
+                self.assertFalse(restore_models(['adb'], 'nokey'))
+            run.assert_not_called()
+            popen.assert_not_called()
+            self.assertEqual(Path(root) / 'nokey', model_cache_dir('nokey'))
 
 
 class RuntimeMetadataTests(unittest.TestCase):
@@ -207,11 +259,13 @@ class RegularAndroidSuiteTests(unittest.TestCase):
             gradle.chmod(0o755)
             arguments = root / 'arguments.txt'
             environment = dict(os.environ, MISE_PROJECT_ROOT=str(root), ANDROID_HOME=str(root / 'sdk'),
-                               usage_no_stage='1', usage_core_only='1', DAL_TEST_ARGUMENTS=str(arguments))
+                               usage_no_stage='1', usage_core_only='1', DAL_TEST_ARGUMENTS=str(arguments),
+                               DAL_LICENSE_ENDPOINT='http://127.0.0.1:9/api/v1')
             subprocess.run(['bash', str(root_script)], cwd=root, env=environment, check=True)
             actual = arguments.read_text().splitlines()
             self.assertIn(':androidtest:connectedAndroidTest', actual)
             self.assertIn('-Pandroid.testInstrumentationRunnerArguments.class=ai.desertant.core.androidtest.CoreBridgeTest', actual)
+            self.assertIn('-Pandroid.testInstrumentationRunnerArguments.DAL_LICENSE_ENDPOINT=http://127.0.0.1:9/api/v1', actual)
 
 
 if __name__ == '__main__':

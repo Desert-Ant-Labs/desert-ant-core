@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+#MISE description="Stage the JNI harness and build the Android compatibility test APK"
+#MISE dir="{{config_root}}"
+#MISE tools={java="{{ vars.java }}"}
+#USAGE flag "--abi <abi>" help="ABI for the test harness" default="x86_64"
+set -euo pipefail
+
+# Keep Gradle's native-build input identical to the one test:android-prepare used, so a
+# runner that already built the SDKs reuses that native build instead of redoing it.
+# test:android-prepare exports the SDK ABIs; run alone, this builds both.
+export DAL_ANDROID_ABIS="${DAL_ANDROID_ABIS:-arm64-v8a x86_64}"
+mise run test:android --stage-only --abi "${usage_abi:-x86_64}"
+python3 Tools/android/compatibility.py prepare --abi "${usage_abi:-x86_64}"

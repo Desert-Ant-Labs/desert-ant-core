@@ -28,7 +28,7 @@ class UnicodeModelTest {
         private lateinit var toxic: Toxic
 
         @JvmStatic @BeforeClass fun downloadPinnedModels() = runBlocking {
-            withTimeout(600_000) {
+            withTimeout(180_000) {
                 emo = Emo(context, directory("emo").path)
                 gist = Gist(context, directory("gist").path)
                 redact = Redact(context, directory("redact").path)
@@ -65,7 +65,7 @@ class UnicodeModelTest {
     }
 
     @Test fun semanticResultsAndPositionsRemainAcceptable() = runBlocking {
-        withTimeout(300_000) {
+        withTimeout(120_000) {
             withContext(Dispatchers.Default) {
                 repeat(2) {
                     val suggestions = emo.suggestions("Pay my bills", limit = 5)
@@ -103,7 +103,7 @@ class UnicodeModelTest {
     }
 
     @Test fun publicKotlinBoundaryHandlesAdversarialInputs() = runBlocking {
-        withTimeout(300_000) {
+        withTimeout(120_000) {
             for (text in listOf("", "Ａ\u0000ﬁ", "a\uD800z", "a\uDC00z", "مرحبا नमस्ते 你好 𠀀 👩‍💻", "word ".repeat(100))) {
                 val repaired = text.toByteArray().decodeToString()
                 assertEquals(emo.suggestions(repaired), emo.suggestions(text))

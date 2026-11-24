@@ -36,8 +36,8 @@ android.sourceSets["androidTest"].assets.srcDir("../Tests/AndroidUnicodeFixtures
 android.sourceSets["androidTest"].assets.srcDir("../Tests/GistTests/Resources")
 android.sourceSets["androidTest"].assets.srcDir("../Tests/ToxicTests/Resources")
 android.sourceSets["androidTest"].assets.srcDir("../Tests/RedactTests/Resources")
-android.sourceSets["androidTest"].assets.srcDir("../packages/tongue-kotlin/src/test/resources")
-android.sourceSets["androidTest"].assets.srcDir("../.build/android-unicode/metadata")
+android.sourceSets["androidTest"].assets.srcDir("../Tests/TongueTests/Resources")
+android.sourceSets["androidTest"].assets.srcDir("../.build/android-compat/metadata")
 
 dependencies {
     nativeModels.forEach { implementation(project(":$it")) }
