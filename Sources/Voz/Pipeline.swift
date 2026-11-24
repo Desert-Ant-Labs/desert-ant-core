@@ -6,6 +6,7 @@ import Android
 #else
 import Foundation
 #endif
+import DesertAnt
 
 /// Hands finished windows from the encoding thread to the decoding one.
 ///
@@ -759,21 +760,27 @@ final class Pipeline: @unchecked Sendable {
             #if os(WASI)
             let decodeTask: Task<Void, Never>? = nil
             #else
+            // Detaching drops the task-locals, so the run recorder is carried
+            // over by hand, or the decoder's graph would be missing from the
+            // call's record.
+            let recorder = InferenceContext.runRecorder
             let decodeTask: Task<Void, Never>? = !engine.decodeRunsBesideEncoder ? nil : Task.detached {
-                #if canImport(Darwin)
-                await self.decodeWorker.run { worker in
+                await InferenceContext.$runRecorder.withValue(recorder) {
+                    #if canImport(Darwin)
+                    await self.decodeWorker.run { worker in
+                        await self.decodeGroup(projections: shared, valids: valids,
+                                               count: count, into: decoded,
+                                               awaitWindow: { await gate.wait(for: $0) },
+                                               isReady: { await gate.isReady($0) },
+                                               isolation: worker)
+                    }
+                    #else
                     await self.decodeGroup(projections: shared, valids: valids,
                                            count: count, into: decoded,
                                            awaitWindow: { await gate.wait(for: $0) },
-                                           isReady: { await gate.isReady($0) },
-                                           isolation: worker)
+                                           isReady: { await gate.isReady($0) })
+                    #endif
                 }
-                #else
-                await self.decodeGroup(projections: shared, valids: valids,
-                                       count: count, into: decoded,
-                                       awaitWindow: { await gate.wait(for: $0) },
-                                       isReady: { await gate.isReady($0) })
-                #endif
             }
             #endif
 
@@ -802,13 +809,11 @@ final class Pipeline: @unchecked Sendable {
                         return slice(low, Swift.min(low + c.nSamples, available))
                     }
                 }
-                // Only now do a batch's windows exist for a decode that is
-                // reading alongside this loop.
-                nonisolated(nonsending) func announce(_ b: Int) async {
-                    for lane in 0..<lanes(of: b) {
-                        await gate.produced()
-                        progress(reported(starts[group.lowerBound + b * batch + lane]))
-                    }
+                // Only after a batch is encoded do its windows exist for the
+                // decode reading alongside this loop; each call site below
+                // announces them in place, on the caller's isolation.
+                func progressAt(_ b: Int, _ lane: Int) -> Double {
+                    reported(starts[group.lowerBound + b * batch + lane])
                 }
 
                 if depth == 1 {
@@ -819,7 +824,10 @@ final class Pipeline: @unchecked Sendable {
                     for b in 0..<batches {
                         try await encode(windows: audio(of: b), slot: 0,
                                          into: shared.base + b * batch * stride)
-                        await announce(b)
+                        for lane in 0..<lanes(of: b) {
+                            await gate.produced()
+                            progress(progressAt(b, lane))
+                        }
                     }
                 } else {
                     var landed = [Bool](repeating: false, count: batches)
@@ -850,7 +858,10 @@ final class Pipeline: @unchecked Sendable {
                             free.append(finished.slot)
                             landed[finished.batch] = true
                             while announced < batches, landed[announced] {
-                                await announce(announced)
+                                for lane in 0..<lanes(of: announced) {
+                                    await gate.produced()
+                                    progress(progressAt(announced, lane))
+                                }
                                 announced += 1
                             }
                         }

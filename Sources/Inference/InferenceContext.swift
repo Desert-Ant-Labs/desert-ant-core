@@ -11,12 +11,19 @@
 //         try await emo.suggestions(for: text)
 //     }
 //
-// Licensing counts the install and does not read the device id yet.
+// Licensing counts one license a month for each device id.
 
 public enum InferenceContext {
     /// The end-user device id for the current call, or `nil` for the default
     /// device. Read by `InferenceSession.run(inputs:outputs:)`.
     @TaskLocal public static var deviceId: String?
+
+    #if !os(WASI)
+    /// Where the current call's LiteRT sessions report the processors they ran
+    /// on, or `nil` when nobody is recording. A task-local, so the work a call
+    /// hands to `Task.detached` has to bind it again to be counted.
+    @TaskLocal public static var runRecorder: RunRecorder?
+    #endif
 
     @available(*, deprecated, message: "Has no effect. Licensing counts installs, not calls.")
     @TaskLocal public static var callGroup: InferenceCallGroup?

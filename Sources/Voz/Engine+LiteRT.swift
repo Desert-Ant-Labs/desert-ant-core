@@ -1,6 +1,7 @@
 #if canImport(CLiteRt)
 import CLiteRt
 import CStrings
+import DesertAnt
 #if os(Android)
 // Do not import Foundation on Android: it pulls in the full ICU payload.
 // Use FoundationEssentials to keep ICU out of the SDK.
@@ -59,6 +60,8 @@ final class LiteRTEngine: Engine {
         let inputs: [Buffer]
         let outputs: [(index: Int32, into: Buffer)]
         let name: String
+        /// Reported to the call's run recorder after every successful run.
+        let placement: GraphPlacement
 
         init(session: OpaquePointer, inputs: [Buffer],
              outputs: [(index: Int32, into: Buffer)], name: String) {
@@ -66,6 +69,7 @@ final class LiteRTEngine: Engine {
             self.inputs = inputs
             self.outputs = outputs
             self.name = name
+            placement = .liteRT(graph: name, session: session)
         }
 
         deinit { dal_lrt_free(session) }
@@ -85,6 +89,7 @@ final class LiteRTEngine: Engine {
             guard status == 0 else {
                 throw VozError.invalidModel("inference failed: \(decodeCString(errbuf))")
             }
+            InferenceContext.runRecorder?.record(placement)
             for (index, buffer) in outputs {
                 let bytes = dal_lrt_output_byte_size(session, index)
                 guard let data = dal_lrt_output_data(session, index),

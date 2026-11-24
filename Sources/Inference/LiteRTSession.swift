@@ -46,6 +46,10 @@ final class LiteRTModel: @unchecked Sendable {
     let lock = PlatformMutex()
     /// The signature keys, in the model's order.
     let signatures: [String]
+    /// The model file's name, which names its graphs in the per-run records.
+    let name: String
+    /// What the compile resolved to (see `GraphPlacement.resolve`).
+    let compileInfo: DalLrtCompileInfo
 
     init(modelPath: String, modelBytes: [UInt8]? = nil,
          accelerator: LiteRTSession.Accelerator = .auto,
@@ -73,6 +77,18 @@ final class LiteRTModel: @unchecked Sendable {
         signatures = (0..<Int(dal_lrt_model_num_signatures(handle))).map {
             dal_lrt_model_signature_key(handle, Int32($0)).map(decodeCString) ?? ""
         }
+        name = GraphPlacement.graphName(modelPath: modelPath, modelBytes: modelBytes)
+        var info = DalLrtCompileInfo()
+        dal_lrt_model_compile_info(handle, &info)
+        compileInfo = info
+        GraphPlacement(liteRTGraph: name, info: info).log()
+    }
+
+    /// Where the graph of `signature` (nil: the first) runs. Signatures share
+    /// one compile, so they share its placement, under their own names.
+    func placement(signature: String?) -> GraphPlacement {
+        let key = signature ?? signatures.first ?? ""
+        return GraphPlacement(liteRTGraph: signatures.count > 1 ? "\(name):\(key)" : name, info: compileInfo)
     }
 
     deinit {
@@ -106,6 +122,8 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
     // those same buffers) holds the model's lock: concurrent callers on one
     // session, or on sessions of one model, are safe.
     private let model: LiteRTModel
+    /// Reported to `InferenceContext.runRecorder` after every successful run.
+    private let placement: GraphPlacement
 
     /// LiteRT hardware accelerator bitset (mirrors LiteRtHwAccelerators): 1 =
     /// CPU, 2 = GPU, 4 = NPU. `.auto` (GPU|CPU) prefers the GPU and falls back
@@ -146,6 +164,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
                 "\(decodeCString(errbuf))\(signature.map { " ('\($0)')" } ?? "")")
         }
         self.model = model
+        placement = model.placement(signature: signature)
         session = handle
         let inputCount = Int(dal_lrt_num_inputs(handle))
         inputNames = (0..<inputCount).map {
@@ -242,6 +261,7 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
         guard status == 0 else {
             throw InferenceError.runFailed(decodeCString(errbuf))
         }
+        InferenceContext.runRecorder?.record(placement)
 
         return try outputs.map { name in
             guard let index = outputIndex[name] else {
@@ -269,6 +289,59 @@ final class LiteRTSession: InferenceSession, @unchecked Sendable {
             throw InferenceError.runFailed("unsupported LiteRT output element type")
         }
         return try Tensor(element: element, shape: shape, bytes: bytes)
+    }
+}
+
+extension GraphPlacement {
+    /// The placement a compile's facts amount to.
+    init(liteRTGraph graph: String, info: DalLrtCompileInfo) {
+        let resolved = Self.resolve(requested: info.requested, compiled: info.compiled,
+                                    registered: info.registered,
+                                    nonCpuFullyAccelerated: info.non_cpu_fully_accelerated,
+                                    fallback: info.fallback)
+        self.init(graph: graph, requested: ProcessorSet(rawValue: info.requested).intersection(.known),
+                  processors: resolved.processors, fallback: resolved.fallback)
+    }
+
+    /// Where a graph the caller compiled through the shim directly runs, for
+    /// SDKs that hold shim sessions rather than ``LiteRTSession``s (Voz).
+    /// Logs it, as every LiteRT compile does.
+    public static func liteRT(graph: String, session: OpaquePointer) -> GraphPlacement {
+        var info = DalLrtCompileInfo()
+        dal_lrt_session_compile_info(session, &info)
+        let placement = GraphPlacement(liteRTGraph: graph, info: info)
+        placement.log()
+        return placement
+    }
+
+    /// One line per compile saying where the graph runs. A GPU that failed on a
+    /// real device is a warning: it used to fall back without a word. The
+    /// expected CPU cases (asked for, an emulator, no accelerator library) are
+    /// information, and `DesertAnt.checkHealth` reports the missing library.
+    func log() {
+        let accelerator = requested.contains(.gpu) ? "GPU" : "NPU"
+        let (level, location): (LogLevel, String)
+        switch fallback {
+        case .virtualDevice?:
+            (level, location) = (.info, "the CPU: the \(accelerator) is not used on emulators")
+        case .acceleratorMissing?:
+            (level, location) = (.info, "the CPU: the \(accelerator) accelerator library is not loaded")
+        case .compileFailed?:
+            (level, location) = (.warning, "the CPU: compiling it for the \(accelerator) failed")
+        case .buffersUnavailable?:
+            (level, location) = (.warning, "the CPU: its \(accelerator) buffers could not be mapped")
+        case nil:
+            switch processors {
+            case []: (level, location) = (.debug, "an accelerator or the CPU; the runtime cannot say which")
+            case [.cpu]: (level, location) = (.debug, "the CPU")
+            case [.gpu]: (level, location) = (.info, "the GPU")
+            case [.npu]: (level, location) = (.info, "the NPU")
+            default:
+                let names = (processors.contains(.gpu) ? ["GPU"] : []) + (processors.contains(.npu) ? ["NPU"] : [])
+                (level, location) = (.info, "the \(names.joined(separator: " and ")), with some ops on the CPU")
+            }
+        }
+        Log.log(level, "\(graph) runs on \(location)", source: "litert")
     }
 }
 

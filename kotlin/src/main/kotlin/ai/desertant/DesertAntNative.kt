@@ -1,9 +1,10 @@
 package ai.desertant
 
-import android.util.Log
 import ai.desertant.core.DesertAnt
 import ai.desertant.core.HostBridge
 import ai.desertant.core.LogLevel
+import ai.desertant.core.RunHistory
+import ai.desertant.core.SdkLog
 
 /**
  * Host callbacks shared by every model-specific JNI library. Native model code
@@ -61,7 +62,7 @@ object DesertAntNative {
     fun appId(): ByteArray = HostBridge.appId()
 
     @JvmStatic
-    fun apiKey(): ByteArray = (DesertAnt.apiKey ?: "").toByteArray(Charsets.UTF_8)
+    fun apiKey(): ByteArray = (DesertAnt.currentApiKey ?: "").toByteArray(Charsets.UTF_8)
 
     @JvmStatic
     fun verifyLicense(signature: ByteArray, message: ByteArray, publicKey: ByteArray): Boolean =
@@ -74,22 +75,22 @@ object DesertAntNative {
     // Every message the core writes: the app's logger when it set one, else logcat.
     @JvmStatic
     fun log(level: Int, sourceUtf8: ByteArray, messageUtf8: ByteArray) {
-        val logLevel = LogLevel.entries.getOrElse(level) { LogLevel.ERROR }
-        val source = sourceUtf8.toString(Charsets.UTF_8)
-        val message = messageUtf8.toString(Charsets.UTF_8)
-        val logger = DesertAnt.logger
-        if (logger != null) {
-            logger(logLevel, source, message)
-            return
-        }
-        val text = "$source: $message"
-        when (logLevel) {
-            LogLevel.DEBUG -> Log.d(TAG, text)
-            LogLevel.INFO -> Log.i(TAG, text)
-            LogLevel.WARNING -> Log.w(TAG, text)
-            LogLevel.ERROR, LogLevel.OFF -> Log.e(TAG, text)
-        }
+        SdkLog.write(
+            LogLevel.entries.getOrElse(level) { LogLevel.ERROR },
+            sourceUtf8.toString(Charsets.UTF_8),
+            messageUtf8.toString(Charsets.UTF_8),
+        )
     }
 
-    private const val TAG = "DesertAnt"
+    // One model call's record, for DesertAnt.recentRuns(). Called on the thread
+    // that made the call, right after it returns.
+    @JvmStatic
+    fun recordRun(modelIdUtf8: ByteArray, record: ByteArray) {
+        val run = try {
+            RunHistory.decode(modelIdUtf8.toString(Charsets.UTF_8), record, System.currentTimeMillis())
+        } catch (_: RuntimeException) {
+            null  // a malformed record costs the history one entry, never the call
+        } ?: return
+        RunHistory.add(run)
+    }
 }

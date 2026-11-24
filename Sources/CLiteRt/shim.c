@@ -11,6 +11,74 @@
 #include <string.h>
 #if defined(__ANDROID__)
 #include <EGL/egl.h>
+#include <dlfcn.h>
+#include <pthread.h>
+#include <sys/system_properties.h>
+
+// What a compile resolved to is asked of four functions libLiteRt.so 2.3
+// exports but keeps internal (litert/c/internal/litert_accelerator.h, and
+// litert_compiled_model.h since 2.3), so the vendored headers lack them. They
+// are looked up rather than linked: a runtime without one would otherwise stop
+// every model library from loading, where it should only leave the placement
+// unknown. LiteRT spells the accelerator parameter LiteRtAcceleratorConst, the
+// same pointer. Android only: nothing reads the answer elsewhere.
+typedef struct {
+  LiteRtStatus (*num_accelerators)(LiteRtEnvironment, LiteRtParamIndex*);
+  LiteRtStatus (*accelerator)(LiteRtEnvironment, LiteRtParamIndex, LiteRtAccelerator*);
+  LiteRtStatus (*hardware_support)(LiteRtAccelerator, LiteRtHwAcceleratorSet*);
+  LiteRtStatus (*non_cpu_fully_accelerated)(LiteRtCompiledModel, bool*);
+} DalPlacementApi;
+
+static DalPlacementApi g_placement;
+static pthread_once_t g_placement_once = PTHREAD_ONCE_INIT;
+
+static void placement_api_load(void) {
+  // Already loaded: this library links against it.
+  void* runtime = dlopen("libLiteRt.so", RTLD_NOW | RTLD_NOLOAD);
+  if (!runtime) return;
+  g_placement.num_accelerators =
+      (LiteRtStatus (*)(LiteRtEnvironment, LiteRtParamIndex*))dlsym(runtime, "LiteRtGetNumAccelerators");
+  g_placement.accelerator = (LiteRtStatus (*)(LiteRtEnvironment, LiteRtParamIndex, LiteRtAccelerator*))
+      dlsym(runtime, "LiteRtGetAccelerator");
+  g_placement.hardware_support = (LiteRtStatus (*)(LiteRtAccelerator, LiteRtHwAcceleratorSet*))
+      dlsym(runtime, "LiteRtGetAcceleratorHardwareSupport");
+  g_placement.non_cpu_fully_accelerated = (LiteRtStatus (*)(LiteRtCompiledModel, bool*))
+      dlsym(runtime, "LiteRtCompiledModelIsNonCpuFullyAccelerated");
+  // The handle is kept: the runtime stays loaded for the life of the process.
+}
+
+static const DalPlacementApi* placement_api(void) {
+  pthread_once(&g_placement_once, placement_api_load);
+  return &g_placement;
+}
+
+static int property_equals(const char* name, const char* value) {
+  char found[PROP_VALUE_MAX] = {0};
+  return __system_property_get(name, found) > 0 && strcmp(found, value) == 0;
+}
+
+static int detect_virtual_device(void) {
+  if (property_equals("ro.kernel.qemu", "1") || property_equals("ro.boot.qemu", "1")) return 1;
+  // goldfish and ranchu: the Android emulator, old and new. vbox86: Genymotion.
+  // cutf_cvm: Cuttlefish.
+  static const char* hardware[] = { "goldfish", "ranchu", "vbox86", "cutf_cvm" };
+  for (size_t i = 0; i < sizeof hardware / sizeof hardware[0]; i++)
+    if (property_equals("ro.hardware", hardware[i])) return 1;
+  return property_equals("ro.product.manufacturer", "Genymotion");
+}
+
+// An emulator's GPU stack offers no OpenCL, and LiteRT's GPU accelerator then
+// crashes the process on compile rather than failing it, which no fallback can
+// catch. So on a virtual device the GPU is never registered or asked for.
+static int virtual_device(void) {
+  static int cached = -1;  // a race computes the same answer twice
+  int value = __atomic_load_n(&cached, __ATOMIC_RELAXED);
+  if (value < 0) {
+    value = detect_virtual_device();
+    __atomic_store_n(&cached, value, __ATOMIC_RELAXED);
+  }
+  return value;
+}
 #endif
 
 #ifdef _WIN32
@@ -157,9 +225,19 @@ static LiteRtEnvironment g_env = NULL;
 static LiteRtEnvironment shared_environment(void) {
   ENV_LOCK();
   if (!g_env) {
+    LiteRtEnvOption option;
+    int num_options = 0;
+#if defined(__ANDROID__)
+    if (virtual_device()) {
+      option.tag = kLiteRtEnvOptionTagAutoRegisterAccelerators;
+      option.value.type = kLiteRtAnyTypeInt;
+      option.value.int_value = kLiteRtHwAcceleratorCpu;
+      num_options = 1;
+    }
+#endif
     DalCapture capture;
     capture_begin(&capture);
-    LiteRtStatus status = LiteRtCreateEnvironment(0, NULL, &g_env);
+    LiteRtStatus status = LiteRtCreateEnvironment(num_options, num_options ? &option : NULL, &g_env);
     capture_end(&capture);
     if (status != kLiteRtStatusOk) g_env = NULL;
   }
@@ -197,6 +275,9 @@ struct DalLrtModel {
   // environment none by itself. NULL when unused (CPU, or EGL failed).
   void* egl_display;
   void* egl_context;
+
+  // What the compile resolved to, for dal_lrt_model_compile_info.
+  DalLrtCompileInfo info;
 };
 
 // One signature of a model with its fixed-shape input/output buffers, created
@@ -542,6 +623,15 @@ DalLrtModel* dal_lrt_model_create(const char* path, const void* data, size_t dat
   DalLrtModel* m = (DalLrtModel*)calloc(1, sizeof(DalLrtModel));
   if (!m) { set_err(errbuf, errbuf_len, "out of memory"); return NULL; }
   m->refs = 1;
+  m->info.requested = accelerator ? accelerator : kLiteRtHwAcceleratorCpu;
+  m->info.registered = -1;
+  m->info.non_cpu_fully_accelerated = -1;
+#if defined(__ANDROID__)
+  if ((accelerator & ~kLiteRtHwAcceleratorCpu) && virtual_device()) {
+    accelerator = kLiteRtHwAcceleratorCpu;
+    m->info.fallback = DAL_LRT_FALLBACK_VIRTUAL_DEVICE;
+  }
+#endif
 
   // A GPU request on Android gets a private environment carrying this model's
   // EGL context: LiteRT's GL backend allocates and maps tensor buffers through
@@ -625,15 +715,43 @@ DalLrtModel* dal_lrt_model_create(const char* path, const void* data, size_t dat
   {
     LiteRtHwAcceleratorSet accel =
         accelerator ? (LiteRtHwAcceleratorSet)accelerator : kLiteRtHwAcceleratorCpu;
-    if (model_compile(m, accel, num_threads, gpu_precision, errbuf, errbuf_len) != 0 ||
-        model_probe_buffers(m, errbuf, errbuf_len) != 0) {
+    int compile_failed = model_compile(m, accel, num_threads, gpu_precision, errbuf, errbuf_len) != 0;
+    if (compile_failed || model_probe_buffers(m, errbuf, errbuf_len) != 0) {
       if (m->compiled) { LiteRtDestroyCompiledModel(m->compiled); m->compiled = NULL; }
       if (m->options) { LiteRtDestroyOptions(m->options); m->options = NULL; }
       if (accel == kLiteRtHwAcceleratorCpu ||
           model_compile(m, kLiteRtHwAcceleratorCpu, num_threads, 0, errbuf, errbuf_len) != 0) {
         goto fail;
       }
+      m->info.fallback = compile_failed ? DAL_LRT_FALLBACK_COMPILE_FAILED
+                                        : DAL_LRT_FALLBACK_BUFFERS_UNAVAILABLE;
+      accel = kLiteRtHwAcceleratorCpu;
     }
+    m->info.compiled = accel;
+#if defined(__ANDROID__)
+    // Asked while the compile's EGL context is still current. A GPU in the set
+    // can still mean nothing ran there: LiteRT compiles GPU|CPU without
+    // complaint when the accelerator library never loaded.
+    const DalPlacementApi* api = placement_api();
+    if (accel & ~kLiteRtHwAcceleratorCpu) {
+      LiteRtParamIndex count = 0;
+      if (api->num_accelerators && api->accelerator && api->hardware_support &&
+          api->num_accelerators(m->env, &count) == kLiteRtStatusOk) {
+        m->info.registered = 0;
+        for (LiteRtParamIndex i = 0; i < count; i++) {
+          LiteRtAccelerator registered = NULL;
+          LiteRtHwAcceleratorSet hardware = 0;
+          if (api->accelerator(m->env, i, &registered) == kLiteRtStatusOk && registered &&
+              api->hardware_support(registered, &hardware) == kLiteRtStatusOk)
+            m->info.registered |= hardware;
+        }
+      }
+      bool full = false;
+      if (api->non_cpu_fully_accelerated &&
+          api->non_cpu_fully_accelerated(m->compiled, &full) == kLiteRtStatusOk)
+        m->info.non_cpu_fully_accelerated = full ? 1 : 0;
+    }
+#endif
   }
 
   dal_egl_unbind(m);
@@ -642,6 +760,21 @@ DalLrtModel* dal_lrt_model_create(const char* path, const void* data, size_t dat
 fail:
   model_free(m);
   return NULL;
+}
+
+void dal_lrt_model_compile_info(const DalLrtModel* m, DalLrtCompileInfo* out) {
+  if (!out) return;
+  if (m) {
+    *out = m->info;
+  } else {
+    memset(out, 0, sizeof *out);
+    out->registered = -1;
+    out->non_cpu_fully_accelerated = -1;
+  }
+}
+
+void dal_lrt_session_compile_info(const DalLrtSession* s, DalLrtCompileInfo* out) {
+  dal_lrt_model_compile_info(s ? s->model : NULL, out);
 }
 
 int dal_lrt_model_num_signatures(const DalLrtModel* m) { return m ? m->num_signatures : 0; }

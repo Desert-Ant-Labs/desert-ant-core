@@ -1,5 +1,9 @@
 package ai.desertant.toxic
 
+import ai.desertant.core.DesertAnt
+import ai.desertant.core.FallbackReason
+import ai.desertant.core.Processor
+import android.util.Log
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -93,5 +97,48 @@ class ToxicTest {
     @Test fun rejectsNonFiniteThresholds() {
         val error = runCatching { runBlocking { toxic.analyze("x", Options(thresholds = mapOf(Label.HATEFUL to Double.NaN))) } }.exceptionOrNull()
         assertTrue(error is IllegalArgumentException)
+    }
+
+    /**
+     * Each call is recorded with where its graphs ran, and an emulator never
+     * gets the GPU: the accelerator is packaged here, as in every app, and on
+     * an emulator it would crash the process rather than fail.
+     */
+    @Test fun recordsWhereItsGraphsRan() = runTest {
+        DesertAnt.clearRecentRuns()
+        toxic.analyze(golden.getJSONArray("texts").getString(0))
+
+        val run = DesertAnt.recentRuns("toxic").last()
+        val tag = "ToxicTest"
+        if (Log.isLoggable(tag, Log.INFO)) {
+            Log.i(tag, "graphs: ${run.graphs}")
+        }
+        assertTrue(run.succeeded)
+        assertTrue("no graph recorded", run.graphs.isNotEmpty())
+        assertTrue("toxic asks for the GPU", run.graphs.any { Processor.GPU in it.requested })
+        val emulator = isVirtualDevice()
+        for (graph in run.graphs.filter { Processor.GPU in it.requested }) {
+            if (emulator) {
+                assertEquals(setOf(Processor.CPU), graph.processors)
+                assertEquals(FallbackReason.EMULATOR, graph.fallbackReason)
+            } else {
+                assertTrue("${graph.graph}: ${graph.fallbackReason}", graph.fallbackReason != FallbackReason.EMULATOR)
+            }
+        }
+    }
+
+    /** The shim's own test (detect_virtual_device in Sources/CLiteRt/shim.c), property for property. */
+    private fun isVirtualDevice(): Boolean {
+        fun property(name: String) =
+            Runtime.getRuntime().exec(arrayOf("getprop", name)).inputStream.bufferedReader().readText().trim()
+        return property("ro.kernel.qemu") == "1" || property("ro.boot.qemu") == "1" ||
+            property("ro.hardware") in setOf("goldfish", "ranchu", "vbox86", "cutf_cvm") ||
+            property("ro.product.manufacturer") == "Genymotion"
+    }
+
+    /** The test APK carries what an app would, so the native checks find nothing missing. */
+    @Test fun healthCheckFindsTheRuntimeAndAccelerator() {
+        val issues = DesertAnt.checkHealth(ApplicationProvider.getApplicationContext())
+        assertTrue("$issues", issues.none { ".so" in it })
     }
 }
