@@ -40,6 +40,7 @@ private nonisolated(unsafe) var gAudioDecode: jmethodID?
 private nonisolated(unsafe) var gLicenseVerify: jmethodID?
 private nonisolated(unsafe) var gLogLevel: jmethodID?
 private nonisolated(unsafe) var gLog: jmethodID?
+private nonisolated(unsafe) var gRecordRun: jmethodID?
 
 // MARK: byte-array marshalling
 
@@ -99,7 +100,10 @@ public func hostTakeBuffer(_ env: HostEnv, _ buf: UnsafeMutablePointer<CChar>?) 
 // host callback on an unattached thread; a synchronous path invokes it on the
 // already-attached JNI thread. Detaching the JNI thread would corrupt it, so
 // attach/detach only when GetEnv shows the thread is not already attached.
-private func withHostEnv(_ body: (HostEnv) -> UnsafeMutablePointer<CChar>?) -> UnsafeMutablePointer<CChar>? {
+//
+// Nil when there is no VM or the thread cannot attach; each caller turns that
+// into its own failure value.
+private func withHostEnv<Result>(_ body: (HostEnv) -> Result?) -> Result? {
     guard let vm = gVM else { return nil }
     var raw: UnsafeMutableRawPointer?
     if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
@@ -207,7 +211,7 @@ private func hostAppId() -> UnsafeMutablePointer<CChar>? {
     }
 }
 
-// API key: the key the host app set in code (Kotlin's DesertAnt.apiKey).
+// API key: the key the host app set in code (Kotlin's DesertAnt.configure).
 private func hostApiKey() -> UnsafeMutablePointer<CChar>? {
     withHostEnv { env in
         let result = env.pointee!.pointee.CallStaticObjectMethodA(env, gHostClass, gApiKey, nil)
@@ -216,27 +220,17 @@ private func hostApiKey() -> UnsafeMutablePointer<CChar>? {
 }
 
 private func hostPrefsSet(_ key: UnsafePointer<CChar>?, _ value: UnsafePointer<CChar>?) {
-    guard let vm = gVM else { return }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return }
-        env = e; attached = true
+    _ = withHostEnv { env -> Void? in
+        guard let k = hostMakeBytes(env, cStringBytes(key!)),
+              let v = hostMakeBytes(env, cStringBytes(value!)) else { return nil }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, k); env.pointee!.pointee.DeleteLocalRef(env, v) }
+        let args = [jvalue(l: k), jvalue(l: v)]
+        args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gPrefsSet, $0.baseAddress)
+        }
+        if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+        return ()
     }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
-
-    guard let k = hostMakeBytes(env, cStringBytes(key!)),
-          let v = hostMakeBytes(env, cStringBytes(value!)) else { return }
-    defer { env.pointee!.pointee.DeleteLocalRef(env, k); env.pointee!.pointee.DeleteLocalRef(env, v) }
-    let args = [jvalue(l: k), jvalue(l: v)]
-    args.withUnsafeBufferPointer {
-        env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gPrefsSet, $0.baseAddress)
-    }
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
 }
 
 // Audio decode: marshal the optional path (UTF-8 bytes) and optional file
@@ -281,28 +275,17 @@ private func hostHttpTree(_ url: UnsafePointer<CChar>?) -> UnsafeMutablePointer<
 private func hostHttpDownload(_ url: UnsafePointer<CChar>?, _ dest: UnsafePointer<CChar>?,
                               _ ctx: UnsafeMutableRawPointer?,
                               _ progress: (@convention(c) (UnsafeMutableRawPointer?, Int64) -> Void)?) -> Int32 {
-    guard let vm = gVM else { return -1 }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
-        env = e; attached = true
-    }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
-
-    guard let u = hostMakeBytes(env, cStringBytes(url!)),
-          let d = hostMakeBytes(env, cStringBytes(dest!)) else { return -1 }
-    defer { env.pointee!.pointee.DeleteLocalRef(env, u); env.pointee!.pointee.DeleteLocalRef(env, d) }
-    let args = [jvalue(l: u), jvalue(l: d)]
-    let rc = args.withUnsafeBufferPointer {
-        env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gHttpDownload, $0.baseAddress)
-    }
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
-    return rc
+    withHostEnv { env -> Int32? in
+        guard let u = hostMakeBytes(env, cStringBytes(url!)),
+              let d = hostMakeBytes(env, cStringBytes(dest!)) else { return -1 }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, u); env.pointee!.pointee.DeleteLocalRef(env, d) }
+        let args = [jvalue(l: u), jvalue(l: d)]
+        let rc = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gHttpDownload, $0.baseAddress)
+        }
+        if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
+        return rc
+    } ?? -1
 }
 
 // The host performs the request and returns status, length and body as one
@@ -331,75 +314,72 @@ private func hostHttpRequest(_ method: UnsafePointer<CChar>?, _ url: UnsafePoint
 private func hostLicenseVerify(_ signature: UnsafePointer<UInt8>?, _ signatureLength: Int32,
                                _ message: UnsafePointer<UInt8>?, _ messageLength: Int32,
                                _ publicKey: UnsafePointer<UInt8>?, _ publicKeyLength: Int32) -> Int32 {
-    guard let vm = gVM else { return -1 }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
-        env = e; attached = true
-    }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
-
-    let arrays = [(signature, signatureLength), (message, messageLength), (publicKey, publicKeyLength)].map {
-        hostMakeBytes(env, Array(UnsafeBufferPointer(start: $0.0, count: Int($0.1))))
-    }
-    defer { for array in arrays { if let array { env.pointee!.pointee.DeleteLocalRef(env, array) } } }
-    guard arrays.allSatisfy({ $0 != nil }) else { return 0 }
-    let args = arrays.map { jvalue(l: $0) }
-    let valid = args.withUnsafeBufferPointer {
-        env.pointee!.pointee.CallStaticBooleanMethodA(env, gHostClass, gLicenseVerify, $0.baseAddress)
-    }
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return 0 }
-    return valid == JNI_TRUE ? 1 : 0
+    withHostEnv { env -> Int32? in
+        let arrays = [(signature, signatureLength), (message, messageLength), (publicKey, publicKeyLength)].map {
+            hostMakeBytes(env, Array(UnsafeBufferPointer(start: $0.0, count: Int($0.1))))
+        }
+        defer { for array in arrays { if let array { env.pointee!.pointee.DeleteLocalRef(env, array) } } }
+        guard arrays.allSatisfy({ $0 != nil }) else { return 0 }
+        let args = arrays.map { jvalue(l: $0) }
+        let valid = args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticBooleanMethodA(env, gHostClass, gLicenseVerify, $0.baseAddress)
+        }
+        if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return 0 }
+        return valid == JNI_TRUE ? 1 : 0
+    } ?? -1
 }
 
 // The level the host app set (Kotlin's DesertAnt.logLevel), -1 for none.
 private func hostLogLevel() -> Int32 {
-    guard let vm = gVM else { return -1 }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return -1 }
-        env = e; attached = true
-    }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
-    let level = env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gLogLevel, nil)
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
-    return level
+    withHostEnv { env -> Int32? in
+        let level = env.pointee!.pointee.CallStaticIntMethodA(env, gHostClass, gLogLevel, nil)
+        if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env); return -1 }
+        return level
+    } ?? -1
 }
 
 // A log message for the host's logger (Kotlin's DesertAnt.logger, or logcat
 // behind it). Dropped, not retried, when the host throws.
 private func hostLog(_ level: Int32, _ source: UnsafePointer<CChar>?, _ message: UnsafePointer<CChar>?) {
-    guard let vm = gVM else { return }
-    var raw: UnsafeMutableRawPointer?
-    let env: HostEnv
-    var attached = false
-    if vm.pointee!.pointee.GetEnv(vm, &raw, JNI_VERSION_1_6) == JNI_OK, let raw {
-        env = raw.assumingMemoryBound(to: JNIEnv?.self)
-    } else {
-        var e: HostEnv?
-        guard vm.pointee!.pointee.AttachCurrentThread(vm, &e, nil) == 0, let e else { return }
-        env = e; attached = true
+    _ = withHostEnv { env -> Void? in
+        guard let s = hostMakeBytes(env, cStringBytes(source!)),
+              let m = hostMakeBytes(env, cStringBytes(message!)) else { return nil }
+        defer { env.pointee!.pointee.DeleteLocalRef(env, s); env.pointee!.pointee.DeleteLocalRef(env, m) }
+        let args = [jvalue(i: level), jvalue(l: s), jvalue(l: m)]
+        args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gLog, $0.baseAddress)
+        }
+        if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+        return ()
     }
-    defer { if attached { _ = vm.pointee!.pointee.DetachCurrentThread(vm) } }
+}
 
-    guard let s = hostMakeBytes(env, cStringBytes(source!)),
-          let m = hostMakeBytes(env, cStringBytes(message!)) else { return }
-    defer { env.pointee!.pointee.DeleteLocalRef(env, s); env.pointee!.pointee.DeleteLocalRef(env, m) }
-    let args = [jvalue(i: level), jvalue(l: s), jvalue(l: m)]
-    args.withUnsafeBufferPointer {
-        env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gLog, $0.baseAddress)
+/// Whether the host takes per-call run records (`hostRecordRun`). An older
+/// `ai.desertant:core` does not, and then nothing is recorded.
+public var hostRecordsRuns: Bool { gRecordRun != nil }
+
+/// Hand the host one call's run record (Kotlin's DesertAntNative.recordRun,
+/// behind DesertAnt.recentRuns()). Dropped when the host throws.
+///
+/// Runs on the thread that made the model call, which goes on to hand its
+/// result to Java, so nothing may be left pending: a failed allocation's
+/// OutOfMemoryError is cleared along with anything the host threw.
+public func hostRecordRun(modelId: String, record: [UInt8]) {
+    guard gRecordRun != nil else { return }
+    _ = withHostEnv { env -> Void? in
+        let id = hostMakeBytes(env, Array(modelId.utf8))
+        let bytes = id == nil ? nil : hostMakeBytes(env, record)
+        defer {
+            for ref in [id, bytes] { if let ref { env.pointee!.pointee.DeleteLocalRef(env, ref) } }
+            if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
+        }
+        guard let id, let bytes else { return nil }
+        let args = [jvalue(l: id), jvalue(l: bytes)]
+        args.withUnsafeBufferPointer {
+            env.pointee!.pointee.CallStaticVoidMethodA(env, gHostClass, gRecordRun, $0.baseAddress)
+        }
+        return ()
     }
-    if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
 }
 
 // MARK: install
@@ -456,6 +436,8 @@ public func installHostBridge(_ env: HostEnv, _ cls: jclass?) {
     // Optional: the log level the host app set, and its logger.
     gLogLevel = optionalStaticMethod(env, cls, "logLevel", "()I")
     gLog = optionalStaticMethod(env, cls, "log", "(I[B[B)V")
+    // Optional: per-call run records, for DesertAnt.recentRuns().
+    gRecordRun = optionalStaticMethod(env, cls, "recordRun", "([B[B)V")
     if env.pointee!.pointee.ExceptionCheck(env) == JNI_TRUE { env.pointee!.pointee.ExceptionClear(env) }
     if gRegexMatches != nil { host_set_regex_matches(hostRegexMatches) }
     if gJSONParse != nil { host_set_json_parse(hostJSONParse) }

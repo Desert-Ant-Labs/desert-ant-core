@@ -65,6 +65,35 @@ DalLrtModel* dal_lrt_model_create(const char* path, const void* data, size_t dat
                                   char* errbuf, int errbuf_len);
 // Drop the caller's reference. The model is freed with its last session.
 void dal_lrt_model_release(DalLrtModel* model);
+
+// Why a model that asked for an accelerator was compiled for the CPU instead.
+enum {
+  DAL_LRT_FALLBACK_NONE = 0,
+  // An emulator or other virtual device: the GPU is never attempted there,
+  // because the accelerator crashes the process instead of failing the compile.
+  DAL_LRT_FALLBACK_VIRTUAL_DEVICE = 1,
+  DAL_LRT_FALLBACK_COMPILE_FAILED = 2,
+  // The accelerated compile succeeded but its I/O buffers could not be created
+  // or mapped (see model_probe_buffers in shim.c).
+  DAL_LRT_FALLBACK_BUFFERS_UNAVAILABLE = 3,
+};
+
+// What a model's compile resolved to. Raw facts: the caller decides what they
+// mean (Inference's LiteRTPlacement). The bitsets are LiteRtHwAccelerators.
+typedef struct DalLrtCompileInfo {
+  int requested;  // as asked for, before any fallback
+  int compiled;   // the set the successful compile used
+  // The hardware the environment's registered accelerators support, so a GPU
+  // in `compiled` whose accelerator library never loaded can be told apart
+  // from one that ran. -1 where the runtime is not asked (off Android).
+  int registered;
+  // 1 when the graph runs entirely on GPU/NPU with no CPU partition, 0 when
+  // some or all of it is on the CPU, -1 where the runtime is not asked.
+  int non_cpu_fully_accelerated;
+  int fallback;   // DAL_LRT_FALLBACK_*
+} DalLrtCompileInfo;
+
+void dal_lrt_model_compile_info(const DalLrtModel* model, DalLrtCompileInfo* out);
 int dal_lrt_model_num_signatures(const DalLrtModel* model);
 const char* dal_lrt_model_signature_key(const DalLrtModel* model, int index);
 
@@ -77,6 +106,9 @@ DalLrtSession* dal_lrt_create(const char* path, const void* data, size_t data_le
                               int accelerator, int num_threads, int gpu_precision,
                               char* errbuf, int errbuf_len);
 void dal_lrt_free(DalLrtSession* session);
+
+// The compile info of the model a session runs.
+void dal_lrt_session_compile_info(const DalLrtSession* session, DalLrtCompileInfo* out);
 
 int dal_lrt_num_inputs(const DalLrtSession* session);
 int dal_lrt_num_outputs(const DalLrtSession* session);

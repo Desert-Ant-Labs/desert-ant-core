@@ -5,12 +5,21 @@ import Dispatch
 
 private final class NativeHandle {
     let model: any BoundModel
-    init(_ model: any BoundModel) { self.model = model }
+    /// The catalog id the host created it with, which names its run records.
+    let id: String
+    init(_ model: any BoundModel, id: String) {
+        self.model = model
+        self.id = id
+    }
+}
+
+private func nativeHandle(_ handle: UnsafeMutableRawPointer?) -> NativeHandle? {
+    guard let handle else { return nil }
+    return Unmanaged<NativeHandle>.fromOpaque(handle).takeUnretainedValue()
 }
 
 private func model(_ handle: UnsafeMutableRawPointer?) -> (any BoundModel)? {
-    guard let handle else { return nil }
-    return Unmanaged<NativeHandle>.fromOpaque(handle).takeUnretainedValue().model
+    nativeHandle(handle)?.model
 }
 
 private func string(_ pointer: UnsafePointer<CChar>?) -> String? {
@@ -23,9 +32,10 @@ public func nativeCreate(
     cacheRoot: UnsafePointer<CChar>?,
     directory: UnsafePointer<CChar>?
 ) -> UnsafeMutableRawPointer? {
-    guard let instance = binding.make(id: string(modelId), cacheRoot: string(cacheRoot),
+    let id = string(modelId)
+    guard let instance = binding.make(id: id, cacheRoot: string(cacheRoot),
                                       directory: string(directory)) else { return nil }
-    return Unmanaged.passRetained(NativeHandle(instance)).toOpaque()
+    return Unmanaged.passRetained(NativeHandle(instance, id: id ?? "")).toOpaque()
 }
 
 public func nativeIsDownloaded(_ handle: UnsafeMutableRawPointer?) -> Int32 {
@@ -54,22 +64,61 @@ public func nativeRun(
     optionsLen: Int32,
     deviceId: UnsafePointer<CChar>?
 ) -> UnsafeMutablePointer<CChar>? {
-    guard let model = model(handle) else { return nil }
+    guard let bound = nativeHandle(handle) else { return nil }
     let inputReader = FFIReader(input, inputLen)
     let optionsReader = FFIReader(options, optionsLen)
     let device = string(deviceId)
-    let payload: [UInt8]? = blockingValue(with: model) { model in
+    #if os(Android)
+    // The host keeps the processors each call ran on (DesertAnt.recentRuns()),
+    // when it is new enough to take them.
+    let recorder = hostRecordsRuns ? RunRecorder() : nil
+    let clock = ContinuousClock()
+    let started = clock.now
+    #else
+    let recorder: RunRecorder? = nil
+    #endif
+    let payload: [UInt8]? = blockingValue(with: bound.model) { model in
         await InferenceContext.$deviceId.withValue(device) {
-            await model.run(input: inputReader, options: optionsReader)
+            await InferenceContext.$runRecorder.withValue(recorder) {
+                await model.run(input: inputReader, options: optionsReader)
+            }
         }
     }
+    #if os(Android)
+    if let recorder {
+        hostRecordRun(modelId: bound.id, record: runRecord(recorder.recorded, elapsed: clock.now - started,
+                                                           succeeded: payload != nil))
+    }
+    #endif
     return payload.flatMap(ffiEmit)
 }
 
+#if os(Android)
+/// A call's record as the host reads it (DesertAntNative.recordRun): a format
+/// version, whether the call succeeded, its wall time in milliseconds, then
+/// each graph's name, requested and used processor bits, and fallback code.
+func runRecord(_ graphs: [GraphPlacement], elapsed: Duration, succeeded: Bool) -> [UInt8] {
+    var writer = FFIWriter()
+    writer.u32(1)
+    writer.u32(succeeded ? 1 : 0)
+    let (seconds, attoseconds) = elapsed.components
+    writer.f64(Double(seconds) * 1000 + Double(attoseconds) / 1e15)
+    writer.u32(graphs.count)
+    for graph in graphs {
+        writer.string(graph.graph)
+        writer.u32(Int(graph.requested.rawValue))
+        writer.u32(Int(graph.processors.rawValue))
+        writer.u32(Int(graph.fallback?.rawValue ?? 0))
+    }
+    return writer.bytes
+}
+#endif
+
 /// Block until the license requests in flight finish. The C ABI's
-/// `dal_flush_telemetry`, behind the SDKs' `flushTelemetry()`.
-public func nativeFlushTelemetry() {
-    blockingValue { await TelemetryDebug.shared.flushAndWait() }
+/// `dal_flush_licenses`, behind the SDKs' `flushLicenses()`. False when device licenses are left.
+@discardableResult
+public func nativeFlushLicenses() -> Bool {
+    blockingValue { await LicenseFlush.shared.flushAndWait() }
 }
 
 public func nativeDestroy(_ handle: UnsafeMutableRawPointer?) {
