@@ -3,6 +3,7 @@ package ai.desertant.redact
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.test.runTest
+import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -26,6 +27,32 @@ class RedactTest {
     // Null-safe: if setUp() throws, an unguarded close() replaces the real
     // failure with UninitializedPropertyAccessException and hides the cause.
     @After fun tearDown() { if (::redact.isInitialized) redact.close() }
+
+    @Test fun matchesSharedOutputFixture() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val cases = assets.open("output_parity.json").bufferedReader().use { JSONArray(it.readText()) }
+        assertTrue(cases.length() > 0)
+        for (index in 0 until cases.length()) {
+            val case = cases.getJSONObject(index)
+            val name = case.getString("name")
+            val text = case.getString("text")
+            val items = case.getJSONArray("items")
+            val expected = List(items.length()) { items.getJSONObject(it) }
+            val options = Options(labels = expected.map { it.getString("label") }.toSet())
+            val result = redact.redaction(text, options)
+
+            assertEquals(name, case.getString("redactedText"), result.redactedText)
+            assertEquals(name, text, result.restore(result.redactedText))
+            assertEquals(name, expected.size, result.items.size)
+            for ((item, want) in result.items.zip(expected)) {
+                assertEquals(name, want.getString("label"), item.label)
+                assertEquals(name, want.getString("original"), item.original)
+                assertEquals(name, want.getString("placeholder"), item.placeholder)
+                assertEquals(name, want.getInt("start"), item.start)
+                assertEquals(name, want.getInt("end"), item.end)
+            }
+        }
+    }
 
     @Test fun redactionEndToEnd() = runTest {
         val r = redact.redaction("Email Anna Kovács at anna@example.hu, IBAN DE89370400440532013000.")

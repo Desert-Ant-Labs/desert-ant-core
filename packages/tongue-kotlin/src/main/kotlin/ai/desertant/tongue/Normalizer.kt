@@ -8,7 +8,7 @@ import java.text.Normalizer as JavaNormalizer
  * That module is a frozen specification, not an implementation detail: this file
  * must reproduce its output exactly, or the model sees different features here
  * than it was trained on. The contract is docs/normalizer.md plus
- * src/test/resources/normalize_vectors.json, copied from the reference repo's
+ * Tests/TongueTests/Resources/normalize_vectors.json, copied from the reference repo's
  * golden/ and replayed by GoldenVectorTest.
  *
  * Porting hazards this file is deliberate about:

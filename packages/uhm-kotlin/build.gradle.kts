@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device filler-word detection for Android: find every \"uh\", " +
         "\"um\", and \"hmm\" in a recording."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/UhmTests/Resources"))
+}

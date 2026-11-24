@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device multilingual emoji suggestion for Android: turns a short task, calendar " +
         "entry, or message into ranked emoji, fully on device."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/EmoTests/Resources"))
+}

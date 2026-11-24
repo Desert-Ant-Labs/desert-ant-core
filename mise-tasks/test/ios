@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #MISE description="Run the Swift test suite on an iOS Simulator"
 #MISE dir="{{config_root}}"
+#USAGE flag "--moderator-pilot" help="Run the offline Moderator inference pilot with DAL_IOS_MODERATOR_MODEL_DIR"
+#USAGE flag "--shapes-pilot" help="Run the offline Shapes inference pilot with DAL_IOS_SHAPES_MODEL_DIR"
+#USAGE flag "--simulator <udid>" help="Select a specific iOS simulator"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
 # The auto-generated "<package>-Package" scheme builds every target and runs
@@ -12,15 +15,20 @@ source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 # means the *SDK's* iOS version, and if that runtime is not installed it is a
 # hard "unable to find a destination" failure rather than a fallback to a
 # runtime that is. Picking the udid pins both the device and its runtime.
-device=$(xcrun simctl list devices available \
+if [[ -n "${usage_simulator:-}" ]]; then
+    udid="$usage_simulator"
+    name="$udid"
+else
+    device=$(xcrun simctl list devices available \
     | awk '/^-- iOS /{ios=1; next} /^-- /{ios=0} ios && /^ *iPhone /{last=$0} END{print last}')
-udid=$(printf '%s' "$device" | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f-]{27}')
-[ -n "$udid" ] || {
-    echo "error: no iPhone simulator is available." >&2
-    echo "       Install a runtime with 'xcodebuild -downloadPlatform iOS'." >&2
-    exit 1
-}
-name=$(printf '%s' "${device%% (*}" | sed 's/^ *//')
+    udid=$(printf '%s' "$device" | grep -oE '[0-9A-Fa-f]{8}-[0-9A-Fa-f-]{27}')
+    [ -n "$udid" ] || {
+        echo "error: no iPhone simulator is available." >&2
+        echo "       Install a runtime with 'xcodebuild -downloadPlatform iOS'." >&2
+        exit 1
+    }
+    name=$(printf '%s' "${device%% (*}" | sed 's/^ *//')
+fi
 echo "Using simulator: $name ($udid)"
 
 # On CI, pin DerivedData and the SPM clone dir to repo-local paths so
@@ -43,6 +51,26 @@ fi
 # The simulator does not inherit this environment; xcodebuild passes TEST_RUNNER_ variables on.
 [ -z "${DAL_LICENSE_ENDPOINT:-}" ] || export TEST_RUNNER_DAL_LICENSE_ENDPOINT="$DAL_LICENSE_ENDPOINT"
 
+pilot_flags=()
+parallel=YES
+stage_pilot() {
+    local key="$1" entry="$2" suite="$3" dir
+    dir="${!key:-}"
+    if [[ -z "$dir" || ! -e "$dir/$entry" ]]; then
+        echo "error: $key must contain the pinned $entry" >&2
+        exit 1
+    fi
+    export "TEST_RUNNER_$key=$(cd "$dir" && pwd -P)"
+    pilot_flags+=("-only-testing:$suite")
+    parallel=NO
+}
+if [[ -n "${usage_moderator_pilot:-}" ]]; then
+    stage_pilot DAL_IOS_MODERATOR_MODEL_DIR moderator.mlmodelc ModeratorTests/ModeratorSimulatorParityTests
+fi
+if [[ -n "${usage_shapes_pilot:-}" ]]; then
+    stage_pilot DAL_IOS_SHAPES_MODEL_DIR coreml-palette4/shapes.mlmodelc ShapesTests/ShapesSimulatorParityTests
+fi
+
 # Run the bundles in parallel. This package has 21 test targets, so the run is
 # 21 separate .xctest installs and launches on the simulator; the tests inside
 # them take ~37 s in total, while the launches around them cost ~105 s. Letting
@@ -60,5 +88,6 @@ xcodebuild test \
     ENABLE_TESTABILITY=YES \
     -destination "platform=iOS Simulator,id=$udid" \
     -skipMacroValidation \
-    -parallel-testing-enabled YES \
+    -parallel-testing-enabled "$parallel" \
+    ${pilot_flags[@]+"${pilot_flags[@]}"} \
     ${ci_flags[@]+"${ci_flags[@]}"}

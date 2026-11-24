@@ -1,0 +1,21 @@
+{
+  "revision": "v0.7.0",
+  "tolerance": 0.04,
+  "cases": [
+    {
+      "text": "犬の散歩",
+      "ranks": [
+        {"label": "🐕", "score": 0.544},
+        {"label": "🚶", "score": 0.225},
+        {"label": "🌳", "score": 0.115}
+      ]
+    },
+    {
+      "text": "café con leche",
+      "ranks": [
+        {"label": "☕", "score": 0.486},
+        {"label": "🥛", "score": 0.312}
+      ]
+    }
+  ]
+}

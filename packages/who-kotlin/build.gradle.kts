@@ -9,3 +9,10 @@ desertAntSdk {
     description = "On-device speaker labeling for Android: per-person turns " +
         "with timestamps."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDirs(
+        rootDir.resolve("packages/voz-node/test/fixtures"),
+        rootDir.resolve("Tests/WhoTests/Resources"),
+    )
+}

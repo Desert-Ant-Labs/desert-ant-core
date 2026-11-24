@@ -27,6 +27,12 @@ struct InkParityTests {
         let top: String
         let decoded: [String: Any]?
         let fit: [String: Any]?
+
+        var timedStrokes: [Stroke] {
+            strokes.map { stroke in
+                Stroke(points: stroke.map { Point(x: $0.x, y: $0.y) }, times: stroke.map(\.t))
+            }
+        }
     }
 
     nonisolated(unsafe) static let fixture: (meta: String, cases: [Case])? = {

@@ -2,8 +2,10 @@ package ai.desertant.shapes
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -116,5 +118,60 @@ class ShapesTest {
 
     @Test fun minimumConfidenceRejects() = runTest {
         assertNull(shapes.recognize(circle(), Options(minimumConfidence = 1.0)))
+    }
+
+    @Test fun inkGoldensMatchThroughThePublicApi() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val golden = assets.open("shapes-v2-parity.json").bufferedReader().use { JSONObject(it.readText()) }
+        val cases = golden.getJSONArray("cases")
+        val byName = List(cases.length()) { cases.getJSONObject(it) }.associateBy { it.getString("name") }
+        val kinds = golden.getJSONObject("meta").getJSONArray("kinds")
+        for (name in listOf("plus", "ellipse", "ellipse_half")) {
+            val drawing = byName.getValue(name)
+            val ink = drawing.getJSONArray("strokes")
+            val strokes = List(ink.length()) { index ->
+                val stroke = ink.getJSONArray(index)
+                val points = List(stroke.length()) { stroke.getJSONArray(it) }
+                Stroke(points.map { Point(it.getDouble(0), it.getDouble(1)) }, points.map { it.getDouble(2) })
+            }
+            val logits = drawing.getJSONObject("litert_cpu").getJSONArray("kind_logits")
+            val top = (0 until logits.length()).maxBy { logits.getDouble(it) }
+            val expectedKind = Shape.Kind.valueOf(kinds.getString(top).uppercase())
+            val options = Options(rotation = Rotation.FREE)
+            val shape = shapes.recognize(strokes, options)
+            if (name == "ellipse_half") {
+                assertNull("unfinished ellipse must wait for more ink", shape)
+                val preview = shapes.recognize(strokes, options.copy(isFinished = false))
+                assertEquals(name, expectedKind, preview?.kind)
+            } else {
+                assertEquals(name, expectedKind, shape?.kind)
+                assertFittedGeometry(name, checkNotNull(shape), drawing)
+            }
+        }
+    }
+
+    private fun assertFittedGeometry(name: String, shape: Shape, drawing: JSONObject) {
+        val decoded = drawing.getJSONObject("decoded")
+        val center = decoded.getJSONArray("centre")
+        val scale = decoded.getDouble("scale")
+        fun toDrawingFrame(point: Point) = listOf(
+            (point.x - center.getDouble(0)) / scale,
+            (point.y - center.getDouble(1)) / scale,
+        )
+        val actual = when (shape) {
+            is Shape.Plus -> listOf(shape.firstFrom, shape.firstTo, shape.secondFrom, shape.secondTo)
+                .flatMap(::toDrawingFrame)
+            is Shape.Ellipse -> toDrawingFrame(shape.center) +
+                listOf(shape.semiMajor / scale, shape.semiMinor / scale)
+            else -> error("$name has no geometry check for ${shape.kind}")
+        }
+        val expected = drawing.getJSONObject("fit").getJSONArray("refined")
+        for ((index, value) in actual.withIndex()) {
+            assertEquals("$name fitted coordinate $index", expected.getDouble(index), value, 0.05)
+        }
+        if (shape is Shape.Ellipse) {
+            val drift = Math.IEEEremainder(shape.rotation - expected.getDouble(4), Math.PI)
+            assertEquals("$name fitted rotation", 0.0, drift, 0.1)
+        }
     }
 }

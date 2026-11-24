@@ -50,3 +50,39 @@ struct ParityTests {
         #expect(Set(golden.segments.map(\.speaker)).count <= ours.count)
     }
 }
+
+#if !os(WASI) && !os(Android)
+private struct SpeechSDKGolden: Decodable {
+    struct Span: Decodable { let start, end: Double }
+    let duration: Double
+    let speakers: [[Span]]
+}
+
+@Test(.enabled(if: ProcessInfo.processInfo.environment["DAL_SPEECH_PARITY"] == "1",
+               "set DAL_SPEECH_PARITY=1 and stage the pinned int8 model"))
+func matchesTheLibriVoxTurnReference() async throws {
+    let modelDirectory = try #require(ProcessInfo.processInfo.environment["WHO_MODEL_DIR"])
+    let who = Who(directory: modelDirectory, variant: .int8)
+    try #require(who.isDownloaded(), "stage the pinned int8 artifact in WHO_MODEL_DIR")
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let clip = root.appendingPathComponent("packages/voz-node/test/fixtures/speech.wav")
+    let result = try await who.diarize(contentsOf: clip)
+    let url = try #require(Bundle.module.url(forResource: "who_speech_sdk_golden", withExtension: "json"))
+    let golden = try JSONDecoder().decode(SpeechSDKGolden.self, from: Data(contentsOf: url))
+
+    #expect(abs(result.duration - golden.duration) < 0.01)
+    #expect(result.speakerCount == golden.speakers.count)
+    #expect(result.turns.map(\.start) == result.turns.map(\.start).sorted())
+    #expect(result.turns.allSatisfy { $0.start >= 0 && $0.start < $0.end && $0.end <= result.duration + 0.01 })
+    let speakers = Dictionary(grouping: result.turns, by: \.speaker).values.sorted { $0[0].start < $1[0].start }
+    #expect(speakers.count == golden.speakers.count)
+    for (turns, expected) in zip(speakers, golden.speakers) {
+        #expect(turns.count == expected.count)
+        for (turn, span) in zip(turns, expected) {
+            #expect(abs(turn.start - span.start) <= 0.06)
+            #expect(abs(turn.end - span.end) <= 0.06)
+        }
+    }
+}
+#endif

@@ -3,6 +3,7 @@ package ai.desertant.align
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -46,6 +47,38 @@ class AlignTest {
         assertEquals(words.map { it.text }, out.map { it.text })
         assertTrue("$out", out[0].start < out[0].end)
         assertTrue("no word was refined: the native core ran nothing", out.any { it.refined })
+    }
+
+    @Test fun cascadeMatchesTheSwiftGolden() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val golden = assets.open("golden.json").bufferedReader().use { JSONObject(it.readText()) }
+        val sampleRate = golden.getDouble("sample_rate")
+        val audio = FloatArray(golden.getInt("n_samples")) { index ->
+            val t = index / sampleRate
+            val twoPi = 2.0 * PI
+            (0.3 * sin(twoPi * 200 * t) + 0.2 * sin(twoPi * 350 * t) +
+                0.1 * sin(twoPi * 61 * t) * sin(twoPi * 3 * t)).toFloat()
+        }
+        val input = golden.getJSONArray("words")
+        val words = List(input.length()) { index ->
+            val word = input.getJSONObject(index)
+            Word(word.getString("text"), word.getDouble("start"), word.getDouble("end"))
+        }
+        val corrections = golden.getJSONArray("corrections")
+        assertEquals(words.size * 2, corrections.length())
+        val actual = align.refine(audio, sampleRate = sampleRate, words = words, language = golden.getString("language"))
+        assertEquals(words.map { it.text }, actual.map { it.text })
+
+        // Match the Swift LiteRT budget. This fixture records corrections in seconds.
+        val tolerance = 0.015
+        for ((index, word) in words.withIndex()) {
+            val start = corrections.getDouble(index * 2)
+            val end = corrections.getDouble(index * 2 + 1)
+            val result = actual[index]
+            assertTrue("${word.text}: expected a refined word", result.refined)
+            assertEquals("${word.text} start correction (s)", start, result.start - word.start, tolerance)
+            assertEquals("${word.text} end correction (s)", end, result.end - word.end, tolerance)
+        }
     }
 
     // The core normalizes each word to NFC through the host: a decomposed and a composed spelling are the same bytes to the model.

@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device shape recognition for Android: snaps hand-drawn shapes, arrows and marks " +
         "to clean ones, from one stroke or several, fully on device."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/Fixtures"))
+}

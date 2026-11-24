@@ -1,5 +1,7 @@
 {
-  "note": "Reference output for deterministic synthetic audio, produced by the Swift SDK with LiteRT, the runtime Android uses. The Android binding must reproduce it through JNI.",
+  "note": "Swift LiteRT output on Linux. To recapture, run EAR_CAPTURE_ANDROID_PARITY=1 mise run test:swift ear and use the printed JSON.",
+  "revision": "v0.2.0",
+  "backend": "litert",
   "sampleCount": 640000,
   "sampleRate": 16000,
   "windows": 2,

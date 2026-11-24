@@ -2,8 +2,10 @@ package ai.desertant.gist
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -36,9 +38,22 @@ class GistTest {
         assertTrue("every topic needs a display name", topics.all { it.name.isNotEmpty() })
     }
 
-    @Test fun classifiesMultilingualText() = runTest {
-        val topics = gist.classify("El equipo gana la final de la copa")
-        assertTrue("got ${topics.map { it.slug }}", topics.any { it.slug == "sports" })
+    @Test fun multilingualRankingMatchesTheSharedGolden() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val golden = assets.open("gist_ranking_golden.json").bufferedReader().use { JSONObject(it.readText()) }
+        val cases = golden.getJSONArray("cases")
+        assertTrue(cases.length() > 0)
+        for (index in 0 until cases.length()) {
+            val row = cases.getJSONObject(index)
+            val text = row.getString("text")
+            val ranks = row.getJSONArray("ranks")
+            val expected = List(ranks.length()) { ranks.getJSONObject(it) }
+            val got = gist.classify(text, topK = expected.size, threshold = 0.0)
+            assertEquals(text, expected.map { it.getString("label") }, got.map { it.slug })
+            for ((topic, rank) in got.zip(expected)) {
+                assertEquals(text, rank.getDouble("score"), topic.score, golden.getDouble("tolerance"))
+            }
+        }
     }
 
     @Test fun scoresCoverTheTaxonomy() = runTest {

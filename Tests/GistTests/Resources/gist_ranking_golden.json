@@ -1,0 +1,20 @@
+{
+  "revision": "v2.2.0",
+  "tolerance": 0.02,
+  "cases": [
+    {
+      "text": "El equipo gana la final de la copa",
+      "ranks": [
+        {"label": "sports", "score": 0.988},
+        {"label": "food-drink", "score": 0.495}
+      ]
+    },
+    {
+      "text": "日本の新幹線で京都へ旅行",
+      "ranks": [
+        {"label": "travel", "score": 0.825},
+        {"label": "lifestyle-fashion", "score": 0.322}
+      ]
+    }
+  ]
+}

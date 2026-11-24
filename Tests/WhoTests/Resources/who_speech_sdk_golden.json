@@ -1,0 +1,9 @@
+{
+  "revision": "v0.3.4",
+  "note": "Int8 Core ML and Android LiteRT on the shared LibriVox fixture. The model adds a short second speaker at the end of this single-narrator clip.",
+  "duration": 6.0,
+  "speakers": [
+    [{"start": 0.0, "end": 5.98}],
+    [{"start": 5.76, "end": 5.98}]
+  ]
+}

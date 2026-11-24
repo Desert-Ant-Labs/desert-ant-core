@@ -6,3 +6,7 @@ desertAntSdk {
     description = "On-device word-timestamp refinement for Android: correct the " +
         "start and end of every word in a transcript against its audio."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("Tests/AlignTests/Resources"))
+}

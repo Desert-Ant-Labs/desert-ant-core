@@ -9,3 +9,7 @@ desertAntSdk {
     description = "On-device speech recognition for Android: transcripts with " +
         "word-level timestamps, 25 languages."
 }
+
+android {
+    sourceSets.getByName("androidTest").assets.srcDir(rootDir.resolve("packages/voz-node/test/fixtures"))
+}

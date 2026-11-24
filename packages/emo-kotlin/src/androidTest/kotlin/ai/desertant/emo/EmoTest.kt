@@ -2,8 +2,10 @@ package ai.desertant.emo
 
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -45,5 +47,23 @@ class EmoTest {
 
     @Test fun emptyInputReturnsEmpty() = runTest {
         assertTrue(emo.suggestions("   ").isEmpty())
+    }
+
+    @Test fun multilingualRankingMatchesTheSharedGolden() = runTest {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val golden = assets.open("emo_ranking_golden.json").bufferedReader().use { JSONObject(it.readText()) }
+        val cases = golden.getJSONArray("cases")
+        assertTrue(cases.length() > 0)
+        for (index in 0 until cases.length()) {
+            val row = cases.getJSONObject(index)
+            val text = row.getString("text")
+            val ranks = row.getJSONArray("ranks")
+            val expected = List(ranks.length()) { ranks.getJSONObject(it) }
+            val got = emo.suggestions(text, limit = expected.size)
+            assertEquals(text, expected.map { it.getString("label") }, got.map { it.emoji })
+            for ((suggestion, rank) in got.zip(expected)) {
+                assertEquals(text, rank.getDouble("score"), suggestion.confidence, golden.getDouble("tolerance"))
+            }
+        }
     }
 }
