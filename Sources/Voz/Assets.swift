@@ -5,6 +5,9 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
+#if canImport(CoreML) && arch(x86_64)
+import Accelerate
+#endif
 
 /// The model's host-side half: geometry, vocabulary, and the embedding table.
 ///
@@ -40,9 +43,22 @@ struct Assets {
             throw VozError.invalidModel(
                 "embedding.f16 has \(embeddingBytes.count) bytes, expected \(expected * 2)")
         }
-        #if canImport(CoreML)
+        #if canImport(CoreML) && !arch(x86_64)
         embedding = embeddingBytes.withUnsafeBytes { raw in
             Array(raw.bindMemory(to: Element.self).prefix(expected))
+        }
+        #elseif canImport(CoreML)
+        // The buffers are float32 on x86_64 (see Element), and Swift has no
+        // Float16 there to widen through.
+        embedding = embeddingBytes.withUnsafeBytes { raw in
+            [Element](unsafeUninitializedCapacity: expected) { floats, filled in
+                var source = vImage_Buffer(data: .init(mutating: raw.baseAddress!), height: 1,
+                                           width: vImagePixelCount(expected), rowBytes: expected * 2)
+                var destination = vImage_Buffer(data: floats.baseAddress!, height: 1,
+                                                width: vImagePixelCount(expected), rowBytes: expected * 4)
+                vImageConvert_Planar16FtoPlanarF(&source, &destination, 0)
+                filled = expected
+            }
         }
         #else
         // float16 is what the file holds and float32 is what the wasm boundary

@@ -3,7 +3,21 @@
 #MISE dir="{{config_root}}"
 #MISE tools={swift={version="{{ vars.swift }}", os=["linux"]}}
 #USAGE arg "<model>" help="Model to build, or 'all'" default="all"
+#USAGE flag "--universal" help="Apple only: build arm64 and x86_64, as an app's universal archive does"
 source "$MISE_PROJECT_ROOT/Tools/dal.sh"
+
+# A universal archive compiles every slice, so code that only arm64 accepts
+# (Swift's Float16 is missing on x86_64 macOS) breaks an app's build even though
+# no Intel Mac runs it. Its own scratch path: two architectures make SwiftPM
+# switch build systems, and the products do not mix with .build-host.
+universal=${usage_universal:+1}
+scratch=.build-host
+arch_flags=()
+if [ -n "$universal" ]; then
+    [ "$(dal_host_os)" = darwin ] || { echo "error: --universal builds on macOS only" >&2; exit 1; }
+    scratch=.build-universal
+    arch_flags=(--arch arm64 --arch x86_64)
+fi
 dal_require_swift_packages
 
 dal_vendor_litert
@@ -23,16 +37,19 @@ eval "$(dal_onnxruntime_link_flags)"
 if [ "${usage_model:-all}" = all ]; then
     echo "== all targets =="
     if [ "$(dal_host_os)" = darwin ]; then
-        swift build --scratch-path .build-host -c release \
+        swift build --scratch-path "$scratch" -c release ${arch_flags[@]+"${arch_flags[@]}"} \
             --explicit-target-dependency-import-check error
         # `Title` is MLX and its generation half only compiles behind the `MLX`
         # package trait (see Package.swift), so the build above only covered its
         # stub. Its own scratch path: flipping the trait on and off in
         # .build-host re-resolves the graph twice per run (MLX pulls
         # swift-syntax macro plugins), invalidating every shared target. Same
-        # reasoning as .build-xet below.
-        echo "== Title (MLX trait) =="
-        swift build --scratch-path .build-mlx -c release --traits MLX --target Title
+        # reasoning as .build-xet below. MLX has no x86_64 port, so a universal
+        # build stops at Title's stub.
+        if [ -z "$universal" ]; then
+            echo "== Title (MLX trait) =="
+            swift build --scratch-path .build-mlx -c release --traits MLX --target Title
+        fi
     else
         # MLX has no Linux or Windows port; `Title` is only its stub here.
         swift build --scratch-path .build-host -c release \
@@ -46,12 +63,13 @@ for model in $(dal_select "$usage_model"); do
     # which SwiftPM refuses to select and then silently builds everything.
     if [ "$(dal_host_os)" = darwin ]; then
         # Title's MLX trait gets its own scratch path, see the comment above.
-        scratch=.build-host
+        model_scratch=$scratch
         traits=()
-        if [ "$product" = Title ]; then traits=(--traits MLX); scratch=.build-mlx; fi
+        if [ "$product" = Title ] && [ -z "$universal" ]; then traits=(--traits MLX); model_scratch=.build-mlx; fi
         # `${traits[@]+...}`: bash 3.2 + `set -u` treats expanding an empty
         # array as an unbound variable; this expands to nothing instead.
-        swift build --scratch-path "$scratch" -c release ${traits[@]+"${traits[@]}"} --target "$product"
+        swift build --scratch-path "$model_scratch" -c release ${arch_flags[@]+"${arch_flags[@]}"} \
+            ${traits[@]+"${traits[@]}"} --target "$product"
     else
         # MLX has no Linux or Windows port; `Title` never enters the graph here.
         [ "$product" = Title ] && { echo "skip: MLX is Apple-only"; continue; }
@@ -70,7 +88,7 @@ fi
 # one scratch path leaves the Xcode build system with a module cache it then
 # fails to scan ("clang dependency scanning failure"), and test:swift runs next
 # in .build-host without traits.
-if [ "$(dal_host_os)" = darwin ] && [ "${usage_model:-all}" = all ]; then
+if [ "$(dal_host_os)" = darwin ] && [ "${usage_model:-all}" = all ] && [ -z "$universal" ]; then
     echo "== ModelStore (Xet trait) =="
     swift build --scratch-path .build-xet -c release --traits Xet --target ModelStore
 fi

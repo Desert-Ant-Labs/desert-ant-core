@@ -160,6 +160,10 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
         let shape = array.shape
         switch array.scalarType {
         case .float16:
+            // Swift's Float16 does not exist on x86_64 macOS, and a universal
+            // archive still compiles this slice. The arch gate keeps Intel
+            // building; at runtime no Intel Mac reaches this ANE-backed path.
+            #if arch(arm64) || !os(macOS)
             let halves: [Float16] = array.view(as: Float16.self).withUnsafePointer { base, shape, strides in
                 gather(base, shape: shape, strides: strides)
             }
@@ -174,6 +178,9 @@ final class CoreAISession: InferenceSession, @unchecked Sendable {
                 }
             }
             return Tensor(float32: floats, shape: shape)
+            #else
+            throw InferenceError.runFailed("float16 outputs need an Apple Silicon Mac")
+            #endif
         case .float32:
             let floats: [Float] = array.view(as: Float.self).withUnsafePointer { base, shape, strides in
                 gather(base, shape: shape, strides: strides)
