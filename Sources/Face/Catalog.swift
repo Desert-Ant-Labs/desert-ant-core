@@ -12,7 +12,7 @@ public enum FaceModel: ModelDeclaration {
     public static let id = "face"
     public static let product = "Face"
     public static let revision = "v1.0.0"
-    public static let sdkVersion = "5.0.0"
+    public static let sdkVersion = "6.0.0"
     public static let summary = "On-device face matching across a photo library or through a video."
 
     /// The embedder this SDK's faceprints come from. Faceprints from different embedders don't compare.
