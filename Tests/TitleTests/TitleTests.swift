@@ -17,6 +17,11 @@ import Testing
         #expect(!card.isEmpty)
     }
 
+    @Test func crlfSeparatesTheTitleAndDescription() {
+        let card = Titles.parse("TITLE: Cold plunges and cortisol\r\nDESC: A physiologist explains why.\r\n")
+        #expect(card == Card(title: "Cold plunges and cortisol", description: "A physiologist explains why."))
+    }
+
     /// The training data uses `DESC`, but base-model habits leak `DESCRIPTION` through. Both
     /// are accepted, and that is a deliberate tolerance rather than an oversight.
     @Test func bothSpellingsOfDescriptionAreAccepted() {
@@ -64,15 +69,53 @@ import Testing
         #expect(card.title == "Sleep: the short version")
     }
 
-    /// The prompt is the trained wording and a paraphrase is a different task to the model, so
-    /// its load-bearing parts are pinned. See the doc comment on `Titles.prompt` for why there
-    /// is no RULES block and why it says "passage" rather than "video clip".
+    /// Both SDKs use the passage wording, including for text unrelated to video.
     @Test func thePromptKeepsTheClausesTheModelWasTrainedWith() {
         let p = Titles.prompt
         #expect(p.contains("{clip}"), "the substitution point must survive edits")
         #expect(p.contains("Be specific enough to identify this passage"))
         #expect(p.contains("same language as the passage"))
-        #expect(p.contains("PASSAGE:"), "the label the training pairs used")
+        #expect(p.contains("PASSAGE:"))
         #expect(!p.contains("video"), "non-video callers must not send video instructions")
+    }
+}
+
+@Suite struct TitleAndroidPromptTests {
+    @Test func wrapsOneUserMessageInTheGraniteTemplate() {
+        #expect(Titles.androidPrompt("Café") == """
+            <|start_of_role|>system<|end_of_role|>You are a helpful assistant. Please ensure responses are professional, accurate, and safe.<|end_of_text|>
+            <|start_of_role|>user<|end_of_role|>Write a factual title (3-8 words) and a 1-2 sentence description for this passage.Be specific enough to identify this passage. No emoji, no hashtags, no hype.Write in the same language as the passage.
+
+            PASSAGE:
+            Café<|end_of_text|>
+            <|start_of_role|>assistant<|end_of_role|>
+            """)
+    }
+
+    @Test func trimsOnlyThePassageAtACharacterBoundary() throws {
+        let prefix = "日本👩🏽‍🔬"
+        let target = Titles.androidPrompt(prefix)
+        let fitted = try Titles.fittedAndroidPrompt(prefix + " trailing text", budget: target.utf8.count) {
+            $0.utf8.count
+        }
+        #expect(fitted == target)
+    }
+
+    @Test func replacesNulBeforeCountingTokens() throws {
+        let fitted = try Titles.fittedAndroidPrompt("a\0b", budget: 1_280) {
+            #expect(!$0.utf8.contains(0))
+            return $0.utf8.count
+        }
+        #expect(fitted == Titles.androidPrompt("a\u{FFFD}b"))
+    }
+
+    @Test func boundsTokenizationForLargePassages() throws {
+        let text = String(repeating: "a", count: 100_000)
+        let emptyPromptSize = Titles.androidPrompt("").utf8.count
+        let fitted = try Titles.fittedAndroidPrompt(text, budget: emptyPromptSize + 1_000) { prompt in
+            #expect(prompt.utf8.count <= emptyPromptSize + 1_024)
+            return prompt.utf8.count
+        }
+        #expect(fitted == Titles.androidPrompt(String(text.prefix(1_000))))
     }
 }

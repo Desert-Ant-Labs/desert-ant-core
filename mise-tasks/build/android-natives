@@ -15,7 +15,7 @@ dal_require_swift_packages
 # Uses a static Swift stdlib, so the whole runtime is linked into a
 # dead-stripped, model-specific library instead of shipping the ~10 MB dynamic
 # runtime closure. The NDK C++ runtime is linked statically for the same reason.
-# ai.desertant:core owns LiteRT, so each model AAR carries one library per ABI.
+# ai.desertant:core owns LiteRT. Title packages its separate LiteRT-LM runtime.
 #
 # SWIFT_ANDROID_STATIC_BUILD drops JavaScriptKit from the manifest: its
 # swift-syntax macros build for the host and conflict with the -resource-dir that
@@ -136,26 +136,9 @@ sdkroot=".build-android/swift-sdks"
 rm -rf "$sdkroot" && mkdir -p "$sdkroot"
 ln -sfn "$bundle" "$sdkroot/$(basename "$bundle")"
 
-# LiteRT android libs, used only while linking each ABI. ai.desertant:core owns
-# the copies that are actually packaged into an app.
-# Android is pinned on its own: Maven has releases PyPI (the desktop source) does
-# not. A stamp refetches the libs when the version changes.
+# LiteRT android libs, used only while linking each ABI (see dal_vendor_litert_android).
+dal_vendor_litert_android
 litert_version="${DAL_LITERT_ANDROID_VERSION:-2.3.2}"
-if [ ! -f Vendor/litert/lib/android-aarch64/libLiteRt.so ] \
-    || [ ! -f Vendor/litert/lib/android-x86_64/libLiteRt.so ] \
-    || [ "$(cat Vendor/litert/lib/android-version 2> /dev/null)" != "$litert_version" ]; then
-    echo "Fetching the LiteRT $litert_version android libs (one-time)..."
-    tmp=$(mktemp -d)
-    curl -fSL -o "$tmp/litert.aar" \
-        "https://dl.google.com/dl/android/maven2/com/google/ai/edge/litert/litert/$litert_version/litert-$litert_version.aar"
-    ( cd "$tmp" && unzip -qo litert.aar )
-    for pair in arm64-v8a:aarch64 x86_64:x86_64; do
-        mkdir -p "Vendor/litert/lib/android-${pair#*:}"
-        cp "$tmp/jni/${pair%:*}/libLiteRt.so" "Vendor/litert/lib/android-${pair#*:}/libLiteRt.so"
-    done
-    echo "$litert_version" > Vendor/litert/lib/android-version
-    rm -rf "$tmp"
-fi
 
 # Strip tool: llvm-strip/llvm-objcopy from PATH or the Swift toolchain bin, else
 # the NDK's. Both handle Android ELF from any host.
@@ -185,6 +168,31 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
     # Start empty, or a library left by an earlier build for another ABI would
     # be packaged beside this one, built from older sources.
     rm -rf "$jni_libs"
+
+    title_flags=()
+    if [ "$model" = title ]; then
+        lmlib="$PWD/Vendor/litert-lm/0.19.1"
+        lmlib_sha=1d430d80eaf536f696a4922270ba55eb3d112189ac198c3066d487a45e3b4d4c
+        lmlib_archive="$lmlib/litert_lm_c_api-1.0.0.zip"
+        if [ ! -f "$lmlib_archive" ]; then
+            mkdir -p "$lmlib"
+            download=$(mktemp "$lmlib/download.XXXXXXXX")
+            if ! curl -fSL --retry 3 -o "$download" \
+                "https://github.com/google-ai-edge/LiteRT-LM/releases/download/v0.19.1/litert_lm_c_api-1.0.0.zip" \
+                || ! printf '%s  %s\n' "$lmlib_sha" "$download" | shasum -a 256 -c >/dev/null; then
+                rm -f "$download"
+                exit 1
+            fi
+            mv "$download" "$lmlib_archive"
+        fi
+        printf '%s  %s\n' "$lmlib_sha" "$lmlib_archive" | shasum -a 256 -c >/dev/null
+        unzip -qo "$lmlib_archive" 'include/*' -d "$lmlib"
+        title_flags=(-Xcc "-I$lmlib/include")
+
+        notices="packages/title-kotlin/build/litertLmNotices"
+        mkdir -p "$notices"
+        unzip -qo "$lmlib_archive" LICENSE 'licenses/*' -d "$notices"
+    fi
 
     for pair in $abi_pairs; do
         abi=${pair%:*} arch=${pair#*:}
@@ -226,23 +234,36 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
         #
         # --no-undefined turns a missing runtime symbol into a link error here
         # instead of an UnsatisfiedLinkError on a user's phone.
+        # Android APS2 packing works from API 23; RELR would raise our floor.
+        report_dir="$PWD/.build-android/reports/$model/$abi"
+        mkdir -p "$report_dir"
+        # Ask this build's toolchain, so a retained older layout cannot win.
+        bin_path=$(swift_snapshot swift build --scratch-path .build-android -c release \
+            --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
+            --static-swift-stdlib --show-bin-path)
+        built="$bin_path/lib${product}Android.so"
+        # SwiftPM does not track the map sidecar. Removing a missing map's
+        # product forces the linker to regenerate it after a cache restore.
+        if [ ! -s "$report_dir/link.map" ]; then rm -f "$built"; fi
         swift_snapshot swift build --scratch-path .build-android -c release \
             --product "${product}Android" \
             --swift-sdks-path "$sdkroot" --swift-sdk "$arch-unknown-linux-android$api" \
-            --static-swift-stdlib \
+            --static-swift-stdlib -Xlinker --pack-dyn-relocs=android \
             -Xlinker "-LVendor/litert/lib/android-$arch" -Xlinker "-L$cxx_dir" \
-            ${extra_libs[@]+"${extra_libs[@]}"} -Xlinker --no-undefined
+            ${title_flags[@]+"${title_flags[@]}"} \
+            ${extra_libs[@]+"${extra_libs[@]}"} -Xlinker --no-undefined \
+            -Xlinker "-Map=$report_dir/link.map"
         rm -rf "$cxx_dir"
 
         dest="$jni_libs/$abi"
         mkdir -p "$dest"
-        # Locate the library rather than hardcoding a layout: Swift 6.4 emits
-        # .build/out/Products/Release-android-<arch>/, older SwiftPM used
-        # .build/<triple>/release/. Both spell the arch.
-        built=$(find .build-android -type f -name "lib${product}Android.so" -path "*$arch*" 2> /dev/null | head -1)
-        [ -n "$built" ] \
-            || { echo "error: lib${product}Android.so for $arch not found under .build-android" >&2; exit 1; }
+        [ -f "$built" ] || { echo "error: $built was not built" >&2; exit 1; }
         cp "$built" "$dest/"
+        if [ "$model" = title ]; then
+            lm_arch="$arch"
+            [ "$arch" != aarch64 ] || lm_arch=arm64
+            unzip -p "$lmlib_archive" "lib/android_$lm_arch/liblitert-lm.so" > "$dest/liblitert-lm.so"
+        fi
 
         so="$dest/lib${product}Android.so"
         case "$strip_mode" in
@@ -250,6 +271,8 @@ for model in $(dal_select "${usage_model:-all}" kotlin); do
             strip) "$strip_bin" --strip-unneeded "$so" ;;
             *) echo "warning: no LLVM strip tool found; shipping an unstripped library" >&2 ;;
         esac
+        python3 Tools/android/native_size.py "$report_dir" "$so" \
+            --swift "$snapshot" --ndk "$ndk_version" --api "$api" --litert "$litert_version"
     done
 
     # The AAR ships no model: it downloads the pinned revision on first use.

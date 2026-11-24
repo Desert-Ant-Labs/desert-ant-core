@@ -160,9 +160,6 @@ struct ModelPackage {
     /// point stays at `Sources/<name>/Web`.
     var path: String? = nil
     var testResources: [Resource] = []
-    /// Apple-only models get no Android/Node/wasm products. `Title` is MLX, which has no other
-    /// platform, and a product promising an artifact that cannot load is worse than its absence.
-    var appleOnly: Bool = false
     /// Whether this model has a `Web/` entry point and so a wasm product.
     var web: Bool = true
     /// Whether this model gets a `Node` dynamic library.
@@ -170,7 +167,7 @@ struct ModelPackage {
 }
 
 let models: [ModelPackage] = [
-    .init(name: "Emo"),
+    .init(name: "Emo", testResources: [.copy("Resources/emo_ranking_golden.json")]),
     .init(name: "Clips", dependencies: ["Transcript"]),
     .init(
         name: "Clear",
@@ -180,17 +177,18 @@ let models: [ModelPackage] = [
     .init(
         name: "Redact",
         dependencies: [.product(name: "RealModule", package: "swift-numerics")],
-        testResources: [.copy("Resources/deterministic_corpus.json")]
+        testResources: [.copy("Resources/deterministic_corpus.json"), .copy("Resources/output_parity.json")]
     ),
     .init(
         name: "Uhm",
         dependencies: ["AudioIO", "AudioDSP"],
-        testDependencies: ["AudioIO"]
+        testDependencies: ["AudioIO"],
+        testResources: [.copy("Resources/filler-uh.wav"), .copy("Resources/README.md")]
     ),
     .init(
         name: "Ear",
         dependencies: ["AudioIO", "AudioDSP"],
-        testResources: [.copy("Resources/ear_frontend_golden.json")]
+        testResources: [.copy("Resources/ear_frontend_golden.json"), .copy("Resources/ear-parity.json")]
     ),
     // Five graphs tiled over a recording: Core ML programs on Apple platforms; elsewhere one
     // LiteRT file whose signatures are the graphs, so the wasm host's one model serves all five
@@ -202,6 +200,7 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/who_frontend_golden.json"),
             .copy("Resources/who_parity_golden.json"),
+            .copy("Resources/who_speech_sdk_golden.json"),
         ]
     ),
     .init(
@@ -210,6 +209,7 @@ let models: [ModelPackage] = [
         testResources: [
             .copy("Resources/gist-sdk-oracle.json"),
             .copy("Resources/gist-feature-oracle.json"),
+            .copy("Resources/gist_ranking_golden.json"),
         ]
     ),
     // The geometric fitters and snapping replace `simd` (Apple-only) with a
@@ -259,12 +259,13 @@ let models: [ModelPackage] = [
         ]
     ),
 ] + [
-    // Cards are written for a `Clip`, which `Transcript` declares. Declared unconditionally;
-    // without the `MLX` trait its MLX dependencies are pruned and the target compiles as a
-    // stub (`#if MLX` in Title.swift), so the graph is identical on every platform.
+    // Title uses MLX through the Apple trait, and LiteRT-LM only on Android.
     ModelPackage(name: "Title",
-                 dependencies: [.byName(name: "Transcript")] + mlxProducts,
-                 appleOnly: true),
+                 dependencies: [.byName(name: "Transcript"),
+                                .target(name: "CTitleRuntime", condition: .when(platforms: [.android]))]
+                     + mlxProducts,
+                 web: false,
+                 nodeLibrary: false),
     // The SDK half of Face (the library, grouping, the bindings); the detector,
     // the embedder and the catalog are FaceCore's (see `faceCoreTargets`).
     ModelPackage(name: "Face",
@@ -369,13 +370,12 @@ let products: [Product] = [
        .library(name: "UnicodeAndroidTests", type: .dynamic, targets: ["UnicodeAndroidTests"])]
     : [])
 
-// `appleOnly` models (Title) have no `Web/` entry point, so they get no wasm product.
-let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly && $0.web }.map { model in
+let modelWasmProducts: [Product] = noJavaScriptKit ? [] : models.filter { $0.web }.map { model in
     .executable(name: "\(model.name)Web", targets: ["\(model.name)Web"])
 }
 
 let modelProducts: [Product] = models.flatMap { model -> [Product] in
-    model.appleOnly || !noJavaScriptKit
+    !noJavaScriptKit
         ? [.library(name: model.name, targets: [model.name])]
         : [.library(name: model.name, targets: [model.name])]
             + [.library(name: "\(model.name)Android", type: .dynamic, targets: [model.name])]
@@ -384,7 +384,7 @@ let modelProducts: [Product] = models.flatMap { model -> [Product] in
                 : [])
 } + modelWasmProducts
 
-let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { !$0.appleOnly && $0.web }.map { model in
+let modelWasmTargets: [Target] = noJavaScriptKit ? [] : models.filter { $0.web }.map { model in
     .executableTarget(
         name: "\(model.name)Web",
         dependencies: [
@@ -403,7 +403,7 @@ let modelTargets: [Target] = models.map { model in
         path: model.path ?? "Sources/\(model.name)",
         // Only models with a wasm entry point have a `Web/` directory to exclude. An exclude
         // naming a path that does not exist is a warning today and could become an error.
-        exclude: model.appleOnly || !model.web || model.path != nil ? [] : ["Web"],
+        exclude: !model.web || model.path != nil ? [] : ["Web"],
         resources: model.resources
     )
 } + modelWasmTargets
@@ -423,6 +423,7 @@ let modelTestTargets: [Target] = [
 }
 
 let libraryTargets: [Target] = [
+        .target(name: "CTitleRuntime", linkerSettings: [.linkedLibrary("dl", .when(platforms: [.android]))]),
         .target(
             name: "DesertAnt",
             dependencies: [
@@ -515,6 +516,7 @@ let libraryTargets: [Target] = [
             name: "PlatformSupport",
             dependencies: [
                 "CStrings",
+                .target(name: "CBCrypt", condition: .when(platforms: [.windows])),
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
             ] + jsWasi + jsEventLoop,
             // Log's default sink on Android is logcat (liblog).
@@ -570,7 +572,6 @@ let libraryTargets: [Target] = [
             dependencies: [
                 "CStrings",
                 "PlatformSupport",
-                .target(name: "CBCrypt", condition: .when(platforms: [.windows])),
                 .target(name: "CHostBridge", condition: .when(platforms: [.android])),
                 "JSHost",  // unconditional: see Inference
             ] + jsWasi + jsEventLoop + xetProducts
@@ -614,7 +615,7 @@ let testTargets: [Target] = [
         ),
         .testTarget(name: "LicenseE2ETests", dependencies: ["Usage", "Emo"]),
         .testTarget(name: "PlatformSupportTests", dependencies: ["PlatformSupport"]),
-        .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore"]),
+        .testTarget(name: "ModelStoreTests", dependencies: ["ModelStore", "PlatformSupport"]),
         .testTarget(
             name: "BindingsTests",
             dependencies: [.byName(name: "DesertAnt"), .byName(name: "TestSupport")]
