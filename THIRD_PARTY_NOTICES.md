@@ -17,6 +17,8 @@ Everything below is generated from `manifest.json`: the SDK's libraries, then ea
 - **LiteRT**, Google. Apache License 2.0. Runs the models off Apple platforms. Its C headers are in `Sources/CLiteRt`. `libLiteRt.so` ships in the Android library, with its GPU accelerator, and in the Linux Node packages.
   https://github.com/google-ai-edge/LiteRT
   Copyright 2024 Google LLC
+- **LiteRT-LM**, Google. Apache License 2.0. The C API runtime runs Title on Android. Its upstream dependency notices ship in the Title AAR.
+  https://github.com/google-ai-edge/LiteRT-LM
 - **ICU**, Unicode, Inc. and others. Unicode License v3. Statically linked with Foundation, through swift-foundation-icu, into the Linux Node packages and the WebAssembly builds.
   https://github.com/unicode-org/icu
   Copyright © 2016 and later Unicode, Inc. and others

@@ -10,8 +10,8 @@ import Transcript
 
 // Everything MLX-backed is behind `#if MLX`, the compilation condition SwiftPM defines for the
 // `MLX` package trait (see Package.swift). Without the trait this module still compiles
-// (`Card`, the prompt, and `parse` are portable and tested everywhere) but `Titles` has no
-// public initializer, so a consumer that forgot the trait fails at compile time.
+// (`Card`, the prompt, and `parse` are portable and used by Android) but
+// `Titles` has no public initializer.
 #if MLX
 // `HuggingFace` and `Tokenizers` are imported for the macro, not for this file's own code:
 // `#huggingFaceLoadModelContainer` expands into references to `HubClient` and `Tokenizers`.
@@ -56,15 +56,10 @@ public struct Card: Sendable, Codable, Equatable {
 /// Loading is expensive and generation is cheap: build one and reuse it. An `actor` because MLX
 /// state is not safe to drive from several tasks at once.
 ///
-/// This type does NOT go through `InferenceSession`. It is the one model in this package that
-/// runs on MLX, for reasons recorded on ``TitleModel``.
 public actor Titles {
 
-    /// The prompt the model is fine-tuned against, byte for byte.
-    ///
-    /// The single definition is `title-training/python/student_prompt.py`, which `train.py`
-    /// imports to build every training example and which `tests/test_prompt_parity.py` compares
-    /// against this string. If they drift, that test fails.
+    /// The SDK's passage wording, mirrored byte for byte by `SDK_PROMPT` in
+    /// `ml-title/src/ml_title/prompt.py` for comparison with the training prompt.
     ///
     /// It says "passage" rather than "video clip" because the model is not clip-specific.
     ///
@@ -138,7 +133,8 @@ public actor Titles {
 
     /// A title and description for any passage of text.
     public func describe(_ text: String) async throws -> Card {
-        Self.parse(try await generate(
+        licenseOnRun(TitleModel.sdkInfo, deviceId: InferenceContext.deviceId)
+        return Self.parse(try await generate(
             Self.prompt.replacingOccurrences(of: "{clip}", with: text)))
     }
 
@@ -224,20 +220,36 @@ public actor Titles {
     /// base-model habits leak the longer spelling through.
     static func parse(_ raw: String) -> Card {
         var title = "", description = ""
-        for line in raw.split(separator: "\n", omittingEmptySubsequences: true) {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for line in raw.split(whereSeparator: \.isNewline) {
+            let trimmed = trimCardWhitespace(line)
             let upper = trimmed.uppercased()
             if upper.hasPrefix("TITLE:") {
-                title = String(trimmed.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                title = trimCardWhitespace(trimmed.dropFirst(6))
             } else if upper.hasPrefix("DESCRIPTION:") {
-                description = String(trimmed.dropFirst(12)).trimmingCharacters(in: .whitespaces)
+                description = trimCardWhitespace(trimmed.dropFirst(12))
             } else if upper.hasPrefix("DESC:") {
-                description = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                description = trimCardWhitespace(trimmed.dropFirst(5))
             } else if title.isEmpty && !trimmed.isEmpty {
                 // No label at all: take the first real line as the title rather than nothing.
                 title = trimmed
             }
         }
         return Card(title: title, description: description)
+    }
+
+    private static func trimCardWhitespace(_ line: Substring) -> String {
+        #if os(Android)
+        // FoundationEssentials has no CharacterSet trimming. Use the scalar
+        // categories in CharacterSet.whitespaces without pulling in ICU.
+        var scalars = line.unicodeScalars[...]
+        func isSpace(_ scalar: Unicode.Scalar) -> Bool {
+            scalar == "\t" || scalar.properties.generalCategory == .spaceSeparator
+        }
+        while let first = scalars.first, isSpace(first) { scalars.removeFirst() }
+        while let last = scalars.last, isSpace(last) { scalars.removeLast() }
+        return String(scalars)
+        #else
+        return line.trimmingCharacters(in: .whitespaces)
+        #endif
     }
 }

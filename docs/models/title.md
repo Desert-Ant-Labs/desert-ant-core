@@ -7,8 +7,8 @@ On-device titles and descriptions: a short factual title and a one- to two-sente
 
 | | |
 | --- | --- |
-| **Platforms** | iOS, macOS, tvOS, visionOS |
-| **Weights** | [v0.1.0](https://huggingface.co/desert-ant-labs/title/tree/v0.1.0) |
+| **Platforms** | iOS, macOS, tvOS, visionOS, Android |
+| **Weights** | [v0.2.0](https://huggingface.co/desert-ant-labs/title/tree/v0.2.0) |
 <!-- model:end -->
 
 Get a title and a one or two sentence description for any passage of text, on device.
@@ -21,24 +21,43 @@ Title is fine-tuned on transcript clips, but it works on any prose. The register
 **Swift** ([requirements](../../README.md#swift))
 
 ```swift
-.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "5.0.0",
+.package(url: "https://github.com/Desert-Ant-Labs/desert-ant-core.git", from: "6.0.0",
         traits: ["MLX"])
 ```
 
 Then add the `Title` product to your target. The `MLX` trait is required: without it the module compiles as a stub.
+
+**Kotlin** ([requirements](../../README.md#android))
+
+```kotlin
+implementation(platform("ai.desertant:bom:6.0.0"))
+implementation("ai.desertant:title")
+```
 <!-- model-install:end -->
 
 ## Usage
 
-Title runs only on Apple platforms, on the GPU through MLX. The other Desert Ant models on Apple platforms run on Core ML. We measured Title writing text 5.7-8.3x faster on the GPU than on the Neural Engine. Because Title needs MLX, you turn Title on with the `MLX` package trait. A build that leaves out the trait fails at compile time, so you can't ship an app without a working model by mistake.
+Title runs on the GPU through MLX on Apple platforms and on the CPU through LiteRT-LM on Android. Create one `Titles` and reuse it to keep the model loaded.
 
-Loading the model is slow and writing a card is fast, so create one `Titles` and reuse it. `Titles` is an `actor`, because MLX isn't safe to drive from several tasks at once. Calls from several tasks run one at a time.
+### Kotlin
 
-On iOS, call `suspend()` before your app enters the background and `resume()` when it returns. iOS revokes GPU access in the background, and MLX crashes the app if a generation is still running. `suspend()` cancels the running generation, and the call retries after `resume()`.
+The first call downloads the model to your app's cache. Call `download()` to fetch and load it ahead of time. To use files you supply, pass a `directory` that contains `litert/title.litertlm`.
+
+```kotlin
+import ai.desertant.title.Titles
+
+Titles(context).use { titles ->
+    val card = titles.describe(text)
+    println(card.title)
+    println(card.description)
+}
+```
+
+`describe()` runs off the main thread. Each call starts with a fresh generation session. Android limits each reply to 96 tokens and shortens long passages to fit the 1,280-token context.
 
 ### Swift
 
-Title doesn't download its weights. Download the model files from Hugging Face, and point the initializer at that folder:
+Download the Apple model files from Hugging Face and pass their folder to the initializer.
 
 ```swift
 import Title
@@ -57,6 +76,8 @@ On unusual input, Title can keep generating without end. `maxTokens` caps each r
 let titles = try await Titles(directory: modelFolder, maxTokens: 96)
 ```
 
+On iOS, call `suspend()` before your app enters the background and `resume()` when it returns. iOS revokes GPU access in the background. `suspend()` cancels the running generation, and the call retries after `resume()`.
+
 ### With Clips
 
 To give each clip a title and a description, pass the clips to Title. `cards(for:)` returns the cards in the same order as the clips.
@@ -74,7 +95,9 @@ We fine-tuned Title on transcript clips. Title also writes accurate cards for ne
 
 ## Files
 
-Title's files form one MLX model folder. Pass the whole folder to `Titles(directory:)`.
+The Android SDK uses `litert/title.litertlm` (364 MB), which contains the int8 model, tokenizer, and stop-token metadata. LiteRT-LM writes its CPU weights cache beside the bundle. The bundle and cache used about 720 MB together on ARM64.
+
+On Apple platforms, pass the whole MLX folder to `Titles(directory:)`.
 
 | File | Contents |
 |---|---|
@@ -89,7 +112,7 @@ Keep the chat template as shipped. A different template changes the task the mod
 
 ## The prompt
 
-The SDK sends Title the exact instruction we fine-tuned the model on, and parses the reply for you. The model replies with two labeled lines:
+The SDK asks Title for a factual title and description in the language of the passage and parses the reply for you. The expected reply has two labeled lines:
 
 ```
 TITLE: <3-8 words, no final punctuation>
@@ -98,15 +121,16 @@ DESC: <1-2 sentences>
 
 The model sometimes drifts off this format, so parse the reply tolerantly. When the reply has no labels, the SDK takes the first line as the title. When the SDK finds neither a title nor a description, `card.isEmpty` is true.
 
-## Apple only
+## Performance
 
-MLX runs only on Apple silicon, so Title has no Android, Linux, Windows, browser or Node build. We also built Title for Core ML, to compare. The Neural Engine is limited by memory bandwidth when a model writes short text one token at a time. The Core ML build lost to MLX on time to first token, tokens per second, load time and memory use. We don't plan to ship the Core ML build.
+On a Nothing Phone (3), the Android export took a median 1.20 s per card on CPU for 220 transcript clips, excluding model load. The benchmark used the training prompt for video clips.
 
 ## Limitations
 
 - Title sometimes opens a description with a stock phrase that its instruction forbids. Read each card before it reaches a user.
 - Title can get details wrong on general prose. It's most accurate on transcript clips, news paragraphs, product descriptions and emails.
-- On unusual input, Title can keep generating without end. `maxTokens` caps each run.
+- On unusual input, Title can keep generating until it hits the reply token cap. Swift apps can set that cap with `maxTokens`.
+- In the same Android benchmark, 99.4% of the 180 Latin-script clips and 17.5% of the 40 non-Latin-script clips produced both fields and stopped within the token cap. Non-Latin replies often reached the cap.
 
 ## Built on
 
