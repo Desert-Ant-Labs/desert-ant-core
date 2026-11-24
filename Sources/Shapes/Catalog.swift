@@ -5,7 +5,7 @@ public enum ShapesModel: ModelDeclaration {
     public static let id = "shapes"
     public static let product = "Shapes"
     public static let revision = "v2.2.0"
-    public static let sdkVersion = "5.0.0"
+    public static let sdkVersion = "6.0.0"
     public static let summary = "On-device shape recognition for pen, touch and mouse input."
 
     /// Per build folder: the kinds, the input steps, where each kind's numbers

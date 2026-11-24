@@ -1,6 +1,6 @@
 {
   "name": "@desert-ant-labs/align",
-  "version": "5.0.0",
+  "version": "6.0.0",
   "description": "On-device word-timestamp refinement for JavaScript: refines Whisper, Parakeet or any transcript's word times against the audio. Server-side in Node.",
   "type": "module",
   "license": "SEE LICENSE IN LICENSE.md",
@@ -54,7 +54,7 @@
     "README.md"
   ],
   "dependencies": {
-    "@desert-ant-labs/core": "^5.0.0"
+    "@desert-ant-labs/core": "^6.0.0"
   },
   "optionalDependencies": {
     "koffi": "^2.16.3"
