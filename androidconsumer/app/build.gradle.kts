@@ -46,10 +46,18 @@ kotlin {
 // source file for it.
 val models = providers.gradleProperty("dalConsumerModels").orNull
     ?: error("pass -PdalConsumerModels=<model,...>, or run `mise run check:android-consumer`")
+val mixedVersion = providers.gradleProperty("dalConsumerMixedVersion").orNull
 
 dependencies {
     lintChecks(libs.androidx.compose.runtime.lint)
 
+    if (mixedVersion == null) implementation(platform("ai.desertant:bom:$sdkVersion"))
     models.split(',').filter { it.isNotEmpty() }
-        .forEach { implementation("ai.desertant:$it:$sdkVersion") }
+        .forEach { model ->
+            implementation(when {
+                mixedVersion == null -> "ai.desertant:$model"
+                model == "emo" -> "ai.desertant:$model:$mixedVersion"
+                else -> "ai.desertant:$model:$sdkVersion"
+            })
+        }
 }

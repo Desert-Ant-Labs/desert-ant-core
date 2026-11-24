@@ -11,7 +11,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
  * with no native library, no LiteRT and no Android-only surface. The same
  * bytecode serves Android and the JVM, so the module deliberately takes no
  * `ai.desertant:core` dependency (core is an AAR, which a JVM consumer cannot
- * resolve) and adds nothing beyond kotlin-stdlib to the POM. Tongue is the
+ * resolve). The BOM only contributes version constraints. Tongue is the
  * first of these; the Android-AAR shape stays `ai.desertant.model-sdk`.
  *
  * The model id is the Gradle project name, so a module is three lines:
@@ -39,6 +39,7 @@ class JvmModelSdkPlugin : Plugin<Project> {
 
         project.dependencies.add("testImplementation", "org.jetbrains.kotlin:kotlin-test")
 
+        project.exportDesertAntPlatform()
         project.configureDesertAntPublishing(ext, jvm = true)
     }
 }

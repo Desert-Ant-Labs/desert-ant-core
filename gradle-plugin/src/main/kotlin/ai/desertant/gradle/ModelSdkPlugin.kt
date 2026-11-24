@@ -51,6 +51,7 @@ class ModelSdkPlugin : Plugin<Project> {
         // direct dependency here. `api` so an app reaches core's DesertAnt
         // settings through any model it depends on.
         deps.add("api", deps.project(mapOf("path" to ":core")))
+        project.exportDesertAntPlatform()
         deps.addProvider("androidTestImplementation", libs.library("androidx-test-ext-junit"))
         deps.addProvider("androidTestImplementation", libs.library("androidx-test-runner"))
         deps.addProvider("androidTestImplementation", libs.library("kotlinx-coroutines-test"))
@@ -71,6 +72,7 @@ class ModelSdkPlugin : Plugin<Project> {
             task.doFirst(UseCallerEnvironment(repoRoot.absolutePath))
             // The NDK pin is an input: moving it relinks against another libc++.
             task.inputs.file(repoRoot.resolve("ANDROID_NDK_VERSION"))
+            task.inputs.file(repoRoot.resolve("VERSION"))
             // So are the variables build:android-natives reads to pick the ABIs
             // and the toolchain (DAL_ANDROID_ABIS and _API, the DAL_SWIFT_*
             // pins, DAL_LITERT_ANDROID_VERSION). Otherwise switching one, say
@@ -79,9 +81,12 @@ class ModelSdkPlugin : Plugin<Project> {
             for (prefix in listOf("DAL_ANDROID_", "DAL_SWIFT_", "DAL_LITERT_")) {
                 task.inputs.property(prefix, project.providers.environmentVariablesPrefixedBy(prefix))
             }
+            task.inputs.file(repoRoot.resolve("Package.swift"))
+            task.inputs.file(repoRoot.resolve("Tools/android/native_size.py"))
             task.inputs.dir(repoRoot.resolve("Sources"))
             task.inputs.dir(repoRoot.resolve("mise-tasks"))
             task.outputs.dir(project.projectDir.resolve("src/main/jniLibs"))
+            task.outputs.dir(repoRoot.resolve(".build-android/reports/$model"))
             task.usesService(swiftBuildLock(project))
         }
         project.tasks.named("preBuild").configure { it.dependsOn(buildNatives) }

@@ -15,7 +15,7 @@
 #   mise run check:types         the shipped .d.ts files, and the declared wasm ABI
 #   mise run check:swift-floor   the package builds on the Swift the README promises
 #   mise run check:android-consumer  build the published SDKs' consumer app on
-#                                both Kotlin pins and lint it on the SDK compiler
+#                                the SDK compiler and lint it
 #   mise run check:java          every Gradle build and CI lane pins the same JDK
 #
 #   mise run build:swift [model] Swift targets, all at once or one model
@@ -57,6 +57,7 @@
 # wasm and Android tasks pin a swift.org toolchain, because they need its clang
 # and a matching cross-compilation SDK, which only exist for released versions.
 # Each toolchain gets its own SwiftPM scratch directory (.build-host,
+# .build-universal for build:swift --universal,
 # .build-android for the snapshot natives, .build-androidtest for the on-device
 # harness, .build for wasm) so their artifacts never collide.
 #
@@ -82,6 +83,8 @@ DAL_GPU = ""
 # Our own suites run on networked CI, so every model load in them sends its
 # license requests to a port nothing listens on instead of the license server.
 DAL_LICENSE_ENDPOINT = "http://127.0.0.1:9/api/v1"
+# Where Tongue's JavaScript package keeps its license file in our suites, so none writes the developer's home.
+DAL_STATE_DIR = "{{config_root}}/.build/dal-state"
 
 [tasks.build]
 description = "Build every artifact this host can build"
@@ -93,6 +96,7 @@ depends = [
     "check:version",
     "check:java",
     "check:commits",
+    "check:commit-format",
     "check:npm-repo",
     "check:manifest",
     "check:links",
