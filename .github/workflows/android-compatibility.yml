@@ -31,10 +31,10 @@ env:
 jobs:
   prepare:
     runs-on: ${{ inputs.private-runner && fromJSON('["self-hosted", "Linux"]') || 'ubuntu-22.04' }}
-    timeout-minutes: 60
-    outputs:
-      apis: ${{ steps.matrix.outputs.apis }}
-      prepared-xz: ${{ steps.pack.outputs.xz }}
+    timeout-minutes: 30
+    env:
+      # PRs build the SDKs for the emulator's ABI only; release and full runs build both.
+      SDK_ABI: ${{ inputs.full && 'all' || 'x86_64' }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
@@ -88,7 +88,7 @@ jobs:
           echo "::error::apt failed after 3 attempts"
           exit 1
 
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
         with:
           version: 2026.9.2
           # Persistent runners already retain their tools; restoring the shared
@@ -100,6 +100,11 @@ jobs:
           mkdir -p "$HOME/Android/Sdk"
           echo "ANDROID_HOME=$HOME/Android/Sdk" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        if: ${{ inputs.private-runner }}
+        with:
+          version: 2026.9.2
+          cache: false # persistent runners already retain their tools
       # The hosted images default to Java 11, and the command-line tools the build
       # provisions (22.0, for API 37) refuse anything below 17; sdkmanager reads JAVA_HOME
       # before PATH, so the pinned JDK has to be JAVA_HOME on every runner.
@@ -182,48 +187,35 @@ jobs:
           key: android-swift-build-v3-${{ github.sha }}
           restore-keys: android-swift-build-v3-
       - name: Build, lint, and prepare Android verification
-        run: mise run test:android-prepare
-      - name: Select runtime matrix
-        id: matrix
-        env:
-          FULL: ${{ inputs.full }}
-        run: |
-          python3 - <<'PY' >> "$GITHUB_OUTPUT"
-          import json, os
-          print('apis=' + json.dumps(list(range(24, 38)) if os.environ['FULL'] == 'true' else [24, 37]))
-          PY
-      # The test APK is ~240 MB of near-identical model libraries; zip shrinks
-      # it to ~90 MB, xz with a 64 MiB dictionary to ~26 MB in a few seconds.
-      # Private runners move it over a slow link to every runtime leg, so they
-      # ship the xz form (xz ships with tar on Ubuntu, so every runner has it)
-      # and fall back to the plain zip upload if xz is missing here.
-      - name: Pack the prepared bundle
-        id: pack
-        if: ${{ inputs.private-runner }}
-        run: |
-          set -o pipefail
-          if command -v xz >/dev/null 2>&1; then
-            tar -C .build/android-unicode/prepared -cf - . \
-              | xz --lzma2=preset=1,dict=64MiB -T1 -c > .build/android-unicode/prepared.tar.xz
-            echo 'xz=true' >> "$GITHUB_OUTPUT"
-          else
-            echo '::warning::xz is not installed on this runner; uploading the bundle as a zip'
-            echo 'xz=false' >> "$GITHUB_OUTPUT"
-          fi
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ !inputs.private-runner || steps.pack.outputs.xz != 'true' }}
+        run: mise run test:android-prepare --sdk-abi "$SDK_ABI"
+      - name: Native size summary
+        id: native-size
+        if: always()
+        run: python3 Tools/android/artifacts.py --ci-summary --output .build/android-compat/artifacts.json
+      - name: Retain native size report
+        if: ${{ always() && steps.native-size.outputs.available == 'true' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-unicode-prepared
-          path: .build/android-unicode/prepared/
+          name: android-native-size
+          path: |
+            .build/android-compat/artifacts.json
+            .build/android-compat/artifacts.md
+          if-no-files-found: warn
+          retention-days: 14
+      # The runtime matrix (full runs only) downloads the test APK built here.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ inputs.full }}
+        with:
+          name: android-compat-bundle
+          path: .build/android-compat/prepared/
           if-no-files-found: error
           retention-days: 3
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: ${{ inputs.private-runner && steps.pack.outputs.xz == 'true' }}
+        if: ${{ inputs.full }}
         with:
-          name: android-unicode-prepared-xz
-          path: .build/android-unicode/prepared.tar.xz
+          name: android-consumer-handshake
+          path: .build/android-compat/consumer/
           if-no-files-found: error
-          compression-level: 0 # already compressed
           retention-days: 3
 
       - name: Enable emulator acceleration
@@ -251,11 +243,13 @@ jobs:
           target: default # AOSP image: smaller and faster than google_apis, nothing here needs Play Services
           force-avd-creation: false
           disable-animations: false
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 600
           cores: 4
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: echo "Generated AVD snapshot for caching"
-      - name: Regular API 31 tests
+      - name: Clear previous Unicode results
+        run: rm -rf .build/android-compat/results/
+      - name: Regular and Unicode tests on API 31
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 31
@@ -263,10 +257,24 @@ jobs:
           target: default
           force-avd-creation: false
           disable-animations: true
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 300
           cores: 4
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot-save
-          script: mise run test:android --no-stage --abi all
+          script: |
+            mise run test:android --no-stage --abi "$SDK_ABI"
+            python3 Tools/android/compatibility.py run --serial emulator-5554
+            python3 Tools/android/consumer.py run .build/android-compat/consumer emulator-5554 .build/android-compat/results/api-31
+      - name: Capture failed Unicode environment
+        if: failure()
+        run: python3 Tools/android/diagnostics.py --output .build/android-compat/results/environment --avd test
+      - name: Retain Unicode results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-compat-results-prepare-api-31
+          path: .build/android-compat/results/
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Retain regular Android test failures
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -315,24 +323,26 @@ jobs:
             .build-androidtest
           key: android-swift-build-v3-${{ github.sha }}
 
+  # Release and manual full runs: every API on its own hosted runner. PRs get
+  # their Unicode check on API 31 inside prepare.
   runtime:
     needs: prepare
-    runs-on: ${{ inputs.private-runner && fromJSON('["self-hosted", "Linux"]') || 'ubuntu-22.04' }}
-    timeout-minutes: 45
+    if: ${{ inputs.full }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        api: ${{ fromJSON(needs.prepare.outputs.apis) }}
+        api: [24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37]
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           clean: false
       - name: Clear previous runtime artifacts
-        run: rm -rf .build/android-unicode/prepared/ .build/android-unicode/prepared-xz/ .build/android-unicode/results/
+        run: rm -rf .build/android-compat/prepared/ .build/android-compat/consumer/ .build/android-compat/results/
       # The emulator's data partition needs 12 GB, and a hosted image leaves 7 to 9 GB by
       # the time the prepared bundle is down; the prepare job frees the same paths.
       - name: Free disk space
-        if: ${{ !inputs.private-runner }}
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
                       /opt/hostedtoolcache/CodeQL /usr/local/lib/node_modules \
@@ -344,29 +354,14 @@ jobs:
           sudo docker image prune --all --force || true
           df -h /
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: ${{ !inputs.private-runner || needs.prepare.outputs.prepared-xz != 'true' }}
         with:
-          name: android-unicode-prepared
-          path: .build/android-unicode/prepared/
+          name: android-compat-bundle
+          path: .build/android-compat/prepared/
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        if: ${{ inputs.private-runner && needs.prepare.outputs.prepared-xz == 'true' }}
+        if: ${{ matrix.api == 24 || matrix.api == 37 }}
         with:
-          name: android-unicode-prepared-xz
-          path: .build/android-unicode/prepared-xz/
-      - name: Unpack the prepared bundle
-        if: ${{ inputs.private-runner && needs.prepare.outputs.prepared-xz == 'true' }}
-        run: |
-          set -o pipefail
-          mkdir -p .build/android-unicode/prepared
-          xz -d -c .build/android-unicode/prepared-xz/prepared.tar.xz \
-            | tar -C .build/android-unicode/prepared -xf -
-          rm -rf .build/android-unicode/prepared-xz/
-      - name: Point at the persistent Android SDK
-        if: ${{ inputs.private-runner }}
-        run: |
-          mkdir -p "$HOME/Android/Sdk"
-          echo "ANDROID_HOME=$HOME/Android/Sdk" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$HOME/Android/Sdk" >> "$GITHUB_ENV"
+          name: android-consumer-handshake
+          path: .build/android-compat/consumer/
       # The hosted images default to Java 11, and the command-line tools the build
       # provisions (22.0, for API 37) refuse anything below 17; sdkmanager reads JAVA_HOME
       # before PATH, so the pinned JDK has to be JAVA_HOME on every runner.
@@ -384,56 +379,53 @@ jobs:
       - name: Provision Android command-line tools
         run: python3 Tools/android/environment.py provision --sdk "$ANDROID_HOME"
       - name: Enable emulator acceleration
-        if: ${{ !inputs.private-runner }}
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
       - name: Execute the prepared SDK on Android
+        timeout-minutes: 10
         env:
-          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+          AVD_NAME: compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
           ANDROID_TEST_API: ${{ matrix.api }}
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           # API 37's base SDK and system image packages include the minor version.
           api-level: ${{ matrix.api == 37 && '37.0' || matrix.api }}
           arch: x86_64
-          target: google_apis
-          avd-name: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+          # AOSP image on every API: nothing here needs Play Services, and Google
+          # publishes no x86_64 Google APIs image for API 27 anyway.
+          target: default
+          avd-name: compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
           force-avd-creation: true
           disable-animations: true
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 300
           cores: 4
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          pre-emulator-launch-script: python3 Tools/android/environment.py check-avd --name "$AVD_NAME" --api "$ANDROID_TEST_API"
-          script: python3 Tools/android/compatibility.py run --serial emulator-5554
+          pre-emulator-launch-script: python3 Tools/android/environment.py check-avd --name "$AVD_NAME" --api "$ANDROID_TEST_API" --tag default
+          # The action runs each line in its own sh, so a shell block has to
+          # fit on one line.
+          script: |
+            set -e
+            python3 Tools/android/compatibility.py run --serial emulator-5554
+            if [ "$ANDROID_TEST_API" = 24 ] || [ "$ANDROID_TEST_API" = 37 ]; then python3 Tools/android/consumer.py run .build/android-compat/consumer emulator-5554 ".build/android-compat/results/api-$ANDROID_TEST_API"; fi
       - name: Capture failed runtime environment
         if: failure()
         env:
-          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
-        run: python3 Tools/android/diagnostics.py --output .build/android-unicode/results/environment --avd "$AVD_NAME"
+          AVD_NAME: compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+        run: python3 Tools/android/diagnostics.py --output .build/android-compat/results/environment --avd "$AVD_NAME"
       - name: Retain results and crash logs
-        if: ${{ always() && !inputs.private-runner }}
+        if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: android-unicode-api-${{ matrix.api }}
-          path: .build/android-unicode/results/
+          name: android-compat-results-api-${{ matrix.api }}
+          path: .build/android-compat/results/
           if-no-files-found: error
           retention-days: 14
-      # Private runners keep the results on disk, so only a failure needs the
-      # upload to be readable from the run page.
-      - name: Retain results and crash logs (private failure)
-        if: ${{ failure() && inputs.private-runner }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android-unicode-api-${{ matrix.api }}
-          path: .build/android-unicode/results/
-          if-no-files-found: warn
-          retention-days: 7
       - name: Remove this run's emulator
         if: always()
         env:
-          AVD_NAME: unicode-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
+          AVD_NAME: compat-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.api }}
         run: |
           if [ -d "$HOME/.android/avd/$AVD_NAME.avd" ]; then
             "$ANDROID_HOME/cmdline-tools/latest/bin/avdmanager" delete avd -n "$AVD_NAME"

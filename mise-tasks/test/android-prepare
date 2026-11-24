@@ -2,14 +2,22 @@
 #MISE description="Build Android SDKs once for the regular and compatibility suites"
 #MISE dir="{{config_root}}"
 #MISE tools={java="{{ vars.java }}"}
-#USAGE flag "--abi <abi>" help="ABI for the test harness (SDK artifacts always include both)" default="x86_64"
+#USAGE flag "--abi <abi>" help="ABI for the test harness" default="x86_64"
+#USAGE flag "--sdk-abi <abi>" help="ABIs to build the SDKs for: arm64-v8a, x86_64, or all" default="all"
 set -euo pipefail
+source "$MISE_PROJECT_ROOT/Tools/dal.sh"
 
-# Keep Gradle's native-build input stable throughout preparation. Selecting only
-# the emulator ABI after the release build would rebuild every model's natives.
-export DAL_ANDROID_ABIS="arm64-v8a x86_64"
-mise run build:android --abi all
+rm -f .build/android-compat/artifacts.json .build/android-compat/artifacts.md
+python3 -m unittest discover -s Tools/android -p 'test_*.py'
+
+# Keep Gradle's native-build input stable throughout preparation: every step
+# below builds the same SDK ABIs, or the later ones would rebuild every model's
+# natives. PRs build only the emulator's ABI; full runs build both.
+sdk_abi="${usage_sdk_abi:-all}"
+DAL_ANDROID_ABIS=$(dal_android_abis "$sdk_abi")
+export DAL_ANDROID_ABIS
+mise run build:android --abi "$sdk_abi"
 ./gradlew lint
-mise run check:android-consumer --abi all
-mise run test:android --stage-only --abi "${usage_abi:-x86_64}"
-python3 Tools/android/compatibility.py prepare --abi "${usage_abi:-x86_64}"
+abi="${usage_abi:-x86_64}"
+mise run check:android-consumer --abi "$sdk_abi" --stage-handshake --handshake-abi "$abi"
+mise run test:android-apk --abi "$abi"

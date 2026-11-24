@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Prepare once, then execute the identical test APK on explicit Android devices."""
 import argparse
+import contextlib
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -14,10 +16,25 @@ from sdk import sdk_root
 from artifacts import inspect_harness
 
 ROOT = Path(__file__).resolve().parents[2]
-BASE = ROOT / '.build/android-unicode'
+BASE = ROOT / '.build/android-compat'
 PACKAGE = 'ai.desertant.core.androidtest.test'
 RUNNER = PACKAGE + '/ai.desertant.androidtest.HubTestRunner'
 TARGET_SDK = 37
+# Seconds one `am instrument` invocation may take. A whole healthy leg (emulator boot, install and every
+# suite) takes 70-150 s, so these catch a stuck suite in minutes rather than the old flat 900 s. The model
+# suite has to cover the Hub download in its @BeforeClass (180 s cap) plus its tests.
+SUITE_TIMEOUTS = {'NativeLibraryCompatibilityTest': 60, 'UnicodeCompatibilityTest': 120, 'UnicodeModelTest': 300}
+INSTALL_TIMEOUT = 120
+# UnicodeModelTest keeps the Hub models under the instrumented app's cache dir (the test APK is a
+# self-instrumenting library APK, so that app is PACKAGE). LoadedModel.download() is a no-op for files
+# already there, so restoring them before the suite keeps a leg off the network.
+DEVICE_MODEL_DIR = f'/data/data/{PACKAGE}/cache/unicode-models'
+MODEL_NAMES = ('emo', 'gist', 'redact', 'toxic')
+MODEL_TRANSFER_TIMEOUT = 120
+
+
+def suite_timeout(test):
+    return SUITE_TIMEOUTS[test]
 
 
 def apk_target_sdk(apk):
@@ -32,6 +49,84 @@ def apk_target_sdk(apk):
     if target != TARGET_SDK:
         raise RuntimeError(f'Compatibility APK targets API {target}, expected {TARGET_SDK}')
     return target
+
+
+def model_cache_key(models, repo_suffix=''):
+    """Key for the runner-local model cache: changes whenever a pinned model or revision does, and
+    with DAL_HF_REPO_SUFFIX, which picks the Hub repositories the same manifest entries come from."""
+    return hashlib.sha256(json.dumps({'models': models, 'suffix': repo_suffix}, sort_keys=True).encode()).hexdigest()[:16]
+
+
+@contextlib.contextmanager
+def producer(args):
+    """A child process whose stdout feeds another command. However the block ends, the pipe is closed and
+    the child is stopped and reaped, so a failed receiver cannot leave it blocked on a full pipe."""
+    process = subprocess.Popen(args, stdout=subprocess.PIPE)
+    try:
+        yield process
+    finally:
+        process.stdout.close()
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+def model_cache_dir(key):
+    root = os.environ.get('DAL_ANDROID_MODEL_CACHE') or str(Path.home() / '.cache/desert-ant/android-test-models')
+    return Path(root) / key
+
+
+def cached_models_complete(directory):
+    return all((directory / name).is_dir() and any((directory / name).iterdir()) for name in MODEL_NAMES)
+
+
+def restore_models(command, key):
+    """Push the runner's cached models onto the device. Best effort: a miss or a failure just means
+    UnicodeModelTest downloads them itself. Returns whether the cache was pushed."""
+    directory = model_cache_dir(key)
+    if not directory.is_dir() or not cached_models_complete(directory):
+        print('Model cache miss: UnicodeModelTest will download the models', flush=True)
+        return False
+    try:
+        # adb joins its arguments and hands them to the device shell, so the script is quoted once.
+        script = shlex.quote(f'mkdir -p {DEVICE_MODEL_DIR} && tar -x -C {DEVICE_MODEL_DIR}')
+        with producer(['tar', '-C', str(directory), '-cf', '-', '.']) as pack:
+            subprocess.run(command + ['shell', f'run-as {PACKAGE} sh -c {script}'],
+                           stdin=pack.stdout, check=True, timeout=MODEL_TRANSFER_TIMEOUT, capture_output=True)
+            pack.stdout.close()
+            if pack.wait(timeout=10) != 0:
+                raise subprocess.CalledProcessError(pack.returncode, 'tar')
+    except (subprocess.SubprocessError, OSError) as error:
+        print(f'Model cache not restored ({type(error).__name__}); UnicodeModelTest will download the models', flush=True)
+        return False
+    print(f'Restored cached models {key}', flush=True)
+    return True
+
+
+def save_models(command, key):
+    """Pull the models UnicodeModelTest downloaded into the runner's cache. Best effort."""
+    directory = model_cache_dir(key)
+    staging = directory.with_name(directory.name + '.partial')
+    try:
+        shutil.rmtree(staging, ignore_errors=True)
+        staging.mkdir(parents=True)
+        with producer(command + ['exec-out', 'run-as', PACKAGE, 'tar', '-c', '-C', DEVICE_MODEL_DIR, '.']) as pull:
+            subprocess.run(['tar', '-x', '-C', str(staging)], stdin=pull.stdout, check=True, timeout=MODEL_TRANSFER_TIMEOUT, capture_output=True)
+            pull.stdout.close()
+            if pull.wait(timeout=10) != 0 or not cached_models_complete(staging):
+                raise RuntimeError('incomplete model download')
+        shutil.rmtree(directory, ignore_errors=True)
+        staging.rename(directory)
+    except (subprocess.SubprocessError, OSError, RuntimeError) as error:
+        shutil.rmtree(staging, ignore_errors=True)
+        print(f'Models not cached ({type(error).__name__})', flush=True)
+        return False
+    print(f'Cached models {key}', flush=True)
+    return True
 
 
 def metadata():
@@ -132,10 +227,12 @@ def run(serial):
             report['stage'] = 'install'
             with (report_dir / 'install.txt').open('w') as installation:
                 subprocess.run(command + ['install', '-r', '-t', str(BASE / 'prepared/test.apk')],
-                               stdout=installation, stderr=subprocess.STDOUT, check=True, timeout=180)
+                               stdout=installation, stderr=subprocess.STDOUT, check=True, timeout=INSTALL_TIMEOUT)
             report['stage'] = 'instrumentation'
             selections = [('NativeLibraryCompatibilityTest', library) for library in info['libraries']]
             selections += [('UnicodeCompatibilityTest', None), ('UnicodeModelTest', None)]
+            key = model_cache_key(info['models'], os.environ.get('DAL_HF_REPO_SUFFIX', ''))
+            restored = restore_models(command, key)
             for index, (test, library) in enumerate(selections):
                 arguments = ['-e', 'class', 'ai.desertant.core.androidtest.' + test]
                 if library:
@@ -144,15 +241,18 @@ def run(serial):
                     if os.environ.get(name):
                         arguments += ['-e', name, os.environ[name]]
                 started = time.monotonic()
+                report['stage'] = f'instrumentation ({test}{" " + library if library else ""})'
                 # Never print the command: instrumentation arguments can contain a Hub token.
-                result = subprocess.run(command + ['shell', 'am', 'instrument', '-w', '-r', *arguments, RUNNER], capture_output=True, text=True, timeout=900)
+                result = subprocess.run(command + ['shell', 'am', 'instrument', '-w', '-r', *arguments, RUNNER], capture_output=True, text=True, timeout=suite_timeout(test))
                 output = result.stdout + result.stderr
                 (report_dir / f'{index:02}-{library or test}.txt').write_text(output)
                 report['runtime'].extend(runtime_metadata(output))
                 count = successful(output)
                 report['runs'].append({'suite': test, 'library': library, 'tests': count,
                                        'seconds': round(time.monotonic() - started, 2), 'passed': result.returncode == 0 and count > 0})
-                print(f'{test} {library or ""}: {count} tests', flush=True)
+                if test == 'UnicodeModelTest' and not restored and report['runs'][-1]['passed']:
+                    save_models(command, key)
+                print(f'{test} {library or ""}: {count} tests in {report["runs"][-1]["seconds"]}s', flush=True)
             report['passed'] = all(item['passed'] for item in report['runs'])
             report['stage'] = 'complete'
         except subprocess.TimeoutExpired as error:

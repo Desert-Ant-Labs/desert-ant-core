@@ -10,7 +10,7 @@ name: Release
 # proves the checkout agrees, and the three publish jobs run.
 #
 #   GitHub Release  the tag is the SwiftPM release, so it always gets one
-#   Maven Central   ai.desertant:{core,<model>...}
+#   Maven Central   ai.desertant:{bom,core,<model>...}
 #   npm             @desert-ant-labs/{core,<model>...}
 #
 # Every publish task is re-runnable: an artifact already live at this version is
@@ -38,7 +38,7 @@ permissions:
   packages: write # prereleases publish to GitHub Packages
 
 jobs:
-  android-unicode:
+  android-compat:
     uses: ./.github/workflows/android-compatibility.yml
     with:
       full: true
@@ -84,8 +84,8 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
   maven:
-    name: Maven Central (core, every model AAR)
-    needs: [gate, android-unicode]
+    name: Maven Central (BOM, core, models)
+    needs: [gate, android-compat]
     # Same runner as CI's android job, so the toolchain the release uses is the
     # one CI proves. The snapshot Swift toolchain is per Ubuntu release: the
     # 24.04 build links GLIBC 2.38 and will not run here (build:android-natives
