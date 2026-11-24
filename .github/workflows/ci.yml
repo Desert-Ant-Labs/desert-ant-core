@@ -33,7 +33,7 @@ env:
   DAL_HF_REPO_SUFFIX: ${{ vars.DAL_HF_REPO_SUFFIX }}
 
 jobs:
-  android-unicode:
+  android-compat:
     uses: ./.github/workflows/android-compatibility.yml
     secrets: inherit
 
@@ -59,6 +59,16 @@ jobs:
             mise run check:commits "$BASE..$HEAD"
           else
             mise run check:commits "$HEAD~1..$HEAD"
+          fi
+      - name: Check commit format
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            mise run check:commit-format "$BASE..$HEAD"
+          else
+            mise run check:commit-format "$HEAD~1..$HEAD"
           fi
       # One version across the repo is only a property if something checks it
       # before release day.
@@ -761,11 +771,11 @@ jobs:
   # Preserve the existing required check while all builds live in the shared workflow.
   android:
     name: Android (natives, AARs, on-device)
-    needs: android-unicode
+    needs: android-compat
     if: always()
     runs-on: ${{ vars.LINUX_RUNNER || 'ubuntu-22.04' }}
     steps:
       - name: Require all Android checks
         env:
-          ANDROID_RESULT: ${{ needs.android-unicode.result }}
+          ANDROID_RESULT: ${{ needs.android-compat.result }}
         run: test "$ANDROID_RESULT" = success

@@ -200,9 +200,8 @@ Swift cross-compiles share one lock (`SwiftBuildLock`).
 
 **Testing Android changes in an app.** `mise run publish:maven --local`
 publishes every `ai.desertant:*` artifact to `~/.m2` at `VERSION`, keeping the
-caller's ABIs. desert-ant-android-examples builds from there by default: it
-takes the highest `ai.desertant:core` version in `~/.m2` for every module.
-Keep `--local` publishing core and every model at one version.
+caller's ABIs. desert-ant-android-examples imports the local `ai.desertant:bom`
+in its default SDK mode. Keep the BOM, core, and every model at one version.
 
 **Android test selection.** Default to plain JVM unit tests in `src/test`.
 Use the least expensive environment that exercises the behavior under test:
@@ -246,11 +245,11 @@ disagrees. The `mise.toml` header says how to move it.
 same file. The convention plugins set every SDK module's language and API
 version and its kotlin-stdlib dependency from it, so no module has to set it.
 `mise run check:android-consumer` builds an app against the published SDKs on
-both versions, and fails if the README states a different floor. Raising the
-floor raises what every app needs: do it on purpose, and say so in the release
-notes. kotlin-stdlib and the kotlinx libraries set the same floor through
-the POMs, so move them on purpose too, and the floor run fails if the stdlib
-an app resolves is newer than the floor.
+the pinned Kotlin, and fails if the README states a different floor. No app is
+built on the floor itself: Kotlin's compatibility guarantees cover older minor
+versions. Raising the floor raises what every app needs: do it on purpose, and
+say so in the release notes. kotlin-stdlib and the kotlinx libraries set the
+same floor through the POMs, so move them on purpose too.
 
 **Weights revisions** are per model and live in both `Catalog.swift` and the
 manifest. They have nothing to do with `VERSION`.
@@ -302,3 +301,39 @@ on with the task.
 - Keep PR bodies short, and do not hard-wrap them. GitHub renders a single
   newline as a line break, so one paragraph or bullet is one physical line.
 - Keep customer context out of commit messages. This repo is public.
+
+## Commit messages
+
+Commits and PR titles follow Conventional Commits, in a deliberately lax form:
+`type(scope): subject`. The scope is optional, and `!` before the colon marks a
+breaking change.
+
+- Types: `feat`, `fix`, `docs`, `build`, `ci`, `test`, `perf`, `refactor`,
+  `chore`, `style`, `revert`. Any casing.
+- The scope is free-form. Use what the history already uses: `android`, `voz`,
+  `windows`, a model name such as `toxic`.
+- Subject casing and a trailing period are your call. The body and footers are
+  free-form.
+- Keep the header under 100 characters (72 reads better). No em or en dashes
+  anywhere in the message.
+- A model page or card change is `docs(<model>): ...`, not `Toxic: ...`.
+
+```
+feat(android): normalize text to NFC through the host bridge
+fix: trap when the host returns no NFC result
+docs(toxic): add the comparison table to the card
+```
+
+The rules live in `Tools/commit-lint.mjs`. Three things run them:
+
+- The `commit-msg` hook in `.githooks/`. Turn it on once per clone with
+  `mise run setup:hooks`. Claude Code does this at session start. It leaves a clone
+  alone if `.git/hooks` already has hooks; call `.githooks/commit-msg` from yours.
+- `mise run check:commit-format [range]` over every commit on a branch, in CI.
+- The PR title, in the `PR title` workflow, which reruns when the title is
+  edited. A squash merge puts the title on `main`. Locally:
+  `mise run check:commit-format --title "<title>"`.
+
+When the hook rejects a message, fix the message and commit again. Never use
+`--no-verify`: CI runs the same check, so it only moves the failure to the PR.
+To fix an older commit on a branch, reword it with `git rebase -i`.
