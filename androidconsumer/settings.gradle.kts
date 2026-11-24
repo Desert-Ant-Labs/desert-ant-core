@@ -51,4 +51,5 @@ dependencyResolutionManagement {
 rootProject.name = "desert-ant-android-consumer"
 
 include("app")
+include("handshake")
 include("jvm")
