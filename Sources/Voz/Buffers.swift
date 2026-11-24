@@ -16,7 +16,14 @@ import CoreML
 /// declined to reuse its cached specialization and re-specialized the encoder on
 /// every load. Compute precision was already float16, so the narrower I/O is
 /// lossless.
+///
+/// float32 on x86_64: Swift has no Float16 on an Intel Mac, and a universal
+/// archive compiles that slice.
+#if arch(x86_64)
+typealias Element = Float
+#else
 typealias Element = Float16
+#endif
 #else
 
 /// Element type of every model-facing buffer, off Apple platforms.
@@ -59,7 +66,8 @@ final class Buffer {
     let array: MLMultiArray
 
     init(_ shape: [Int]) throws {
-        array = try MLMultiArray(shape: shape.map(NSNumber.init), dataType: .float16)
+        array = try MLMultiArray(shape: shape.map(NSNumber.init),
+                                 dataType: Element.self == Float.self ? .float32 : .float16)
         ptr = UnsafeMutableRawPointer(array.dataPointer).assumingMemoryBound(to: Element.self)
         count = shape.reduce(1, *)
         self.shape = shape
